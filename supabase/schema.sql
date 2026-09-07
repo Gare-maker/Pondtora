@@ -313,6 +313,7 @@ CREATE INDEX IF NOT EXISTS idx_expenses_user_id ON expenses(user_id);
 CREATE INDEX IF NOT EXISTS idx_revenues_user_id ON revenues(user_id);
 CREATE INDEX IF NOT EXISTS idx_reports_user_id ON reports(user_id);
 CREATE INDEX IF NOT EXISTS idx_invoices_user_id ON invoices(user_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_feed_rec_farm_pond_date ON feeding_records(farm_id, pond, date);
 
 -- Enable RLS on all tables
 ALTER TABLE user_profiles ENABLE ROW LEVEL SECURITY;
@@ -497,15 +498,30 @@ CREATE POLICY "own_inv_settings" ON invoice_settings
 DROP POLICY IF EXISTS "own_kq" ON knowledge_questions;
 CREATE POLICY "own_kq" ON knowledge_questions
   USING (auth.uid() = user_id OR is_admin()) WITH CHECK (auth.uid() = user_id OR is_admin());
+DROP POLICY IF EXISTS "public_read_kq" ON knowledge_questions;
+CREATE POLICY "public_read_kq" ON knowledge_questions
+  FOR SELECT USING (true);
+
 DROP POLICY IF EXISTS "own_cq" ON compatibility_questions;
 CREATE POLICY "own_cq" ON compatibility_questions
   USING (auth.uid() = user_id OR is_admin()) WITH CHECK (auth.uid() = user_id OR is_admin());
+DROP POLICY IF EXISTS "public_read_cq" ON compatibility_questions;
+CREATE POLICY "public_read_cq" ON compatibility_questions
+  FOR SELECT USING (true);
+
 DROP POLICY IF EXISTS "own_kr" ON knowledge_results;
 CREATE POLICY "own_kr" ON knowledge_results
   USING (auth.uid() = user_id OR is_admin()) WITH CHECK (auth.uid() = user_id OR is_admin());
+DROP POLICY IF EXISTS "public_insert_kr" ON knowledge_results;
+CREATE POLICY "public_insert_kr" ON knowledge_results
+  FOR INSERT WITH CHECK (true);
+
 DROP POLICY IF EXISTS "own_cr" ON compatibility_results;
 CREATE POLICY "own_cr" ON compatibility_results
   USING (auth.uid() = user_id OR is_admin()) WITH CHECK (auth.uid() = user_id OR is_admin());
+DROP POLICY IF EXISTS "public_insert_cr" ON compatibility_results;
+CREATE POLICY "public_insert_cr" ON compatibility_results
+  FOR INSERT WITH CHECK (true);
 
 -- Auto-farm trigger: runs on auth.users INSERT, creates user_profiles + farm
 CREATE OR REPLACE FUNCTION handle_new_user()

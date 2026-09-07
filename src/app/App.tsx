@@ -2274,7 +2274,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   const [invoices,setInvoices]=useState<Invoice[]>(()=>loadLocal("pondtora_invoices",[]));
   const [invSettings,setInvSettings]=useState<InvSettings>(()=>loadLocal("pondtora_inv_settings",INIT_INV_SETTINGS));
 
-  const [kQuestionsState,setKQuestions_]=useState<any[]>(()=>loadLocal("pondtora_k_questions",[]));
+  const [kQuestionsState,setKQuestions_]=useState<any[]>(()=>loadLocal("pondtora_k_questions",INIT_K));
   const [cQuestionsState,setCQuestions_]=useState<any[]>(()=>loadLocal("pondtora_c_questions",INIT_C));
   const [kResultsState,setKResults_]=useState<any[]>(()=>loadLocal("pondtora_k_results",[]));
   const [cResultsState,setCResults_]=useState<any[]>(()=>loadLocal("pondtora_c_results",[]));
@@ -2420,7 +2420,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       setMortality(prev=>prev.filter(m=>m.pondId!==id));
     }
   };
-  const restockPond=(id:string,data:{species:string;initialStock:number;stockingDate:string;stockMonth:string;supplier?:string})=>{
+  const restockPond=(id:string,data:{species:string;initialStock:number;stockingDate:string;supplier?:string})=>{
     const p=ponds.find(x=>x.id===id);
     const updated=p?{...p,...data,currentCount:data.initialStock,totalCost:0,status:"Active" as const,transferNote:undefined}:null;
     setPonds(prev=>prev.map(x=>x.id===id&&updated?updated:x));
@@ -2433,28 +2433,42 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   const addRev=(r:Revenue)=>{const nr={...r,farmId:activeFarmId};setRevenues(prev=>[nr,...prev]);toast.success("Revenue added");api.revenues.create(nr).catch(console.warn);};
   const editRev=(r:Revenue)=>{setRevenues(prev=>prev.map(x=>x.id===r.id?r:x));api.revenues.update(r).catch(console.warn);};
   const setPondMaxKg=(pondId:string,size:string,maxKg:number)=>setPonds(prev=>prev.map(p=>p.id===pondId?{...p,maxKgByPallet:{...(p.maxKgByPallet||{}),[size]:maxKg}}:p));
-  const addFeed=(r:FeedingRecord)=>{
+  const addFeed=async(r:FeedingRecord)=>{
+    const farmRec:FeedingRecord={...r,farmId:activeFarmId};
     setFeeding(prev=>{
-      const updated=[r,...prev];
+      const updated=[farmRec,...prev];
       /* check if cumulative for this pond+size reached max */
-      const pond=ponds.find(p=>p.name===r.pond);
-      if(pond?.maxKgByPallet?.[r.size]){
-        const maxKg=pond.maxKgByPallet[r.size];
-        const cumulative=updated.filter(x=>x.pond===r.pond&&x.size===r.size).reduce((s,x)=>s+x.total,0);
+      const pond=ponds.find(p=>p.name===farmRec.pond);
+      if(pond?.maxKgByPallet?.[farmRec.size]){
+        const maxKg=pond.maxKgByPallet[farmRec.size];
+        const cumulative=updated.filter(x=>x.pond===farmRec.pond&&x.size===farmRec.size).reduce((s,x)=>s+x.total,0);
         if(cumulative>=maxKg){
           const farm=farms.find(f=>f.id===pond.farmId)||farms[0];
-          const notifId=`MX-${pond.id}-${r.size}`.replace(/[\s.]/g,"_");
+          const notifId=`MX-${pond.id}-${farmRec.size}`.replace(/[\s.]/g,"_");
           const fishStockLabel=`${pond.species} (${pond.stockingDate})`;
           const nowTime=new Date().toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit"});
-          setExtraNotifs(p=>{const existing=p.find(n=>n.id===notifId);if(existing){return p.map(n=>n.id===notifId?{...n,currentFeed:cumulative,time:nowTime,read:false}:n);}return[...p,{id:notifId,type:"maxkg" as any,pondName:pond.name,fishStock:fishStockLabel,size:r.size,maxKg,currentFeed:cumulative,time:nowTime,farmId:pond.farmId,farmName:farm?.name||"",date:TODAY,read:false}];});
+          setExtraNotifs(p=>{const existing=p.find(n=>n.id===notifId);if(existing){return p.map(n=>n.id===notifId?{...n,currentFeed:cumulative,time:nowTime,read:false}:n);}return[...p,{id:notifId,type:"maxkg" as any,pondName:pond.name,fishStock:fishStockLabel,size:farmRec.size,maxKg,currentFeed:cumulative,time:nowTime,farmId:pond.farmId,farmName:farm?.name||"",date:TODAY,read:false}];});
         }
       }
       return updated;
     });
-    toast.success("Feeding logged");
-    api.feeding.create(r).catch(console.warn);
+    try {
+      await api.feeding.create(farmRec);
+      toast.success("Feeding logged");
+    } catch(err:any) {
+      console.error("Failed to persist feeding record to database:", err);
+      toast.error("Feeding saved locally — offline or sync error");
+    }
   };
-  const editFeedRecord=(r:FeedingRecord)=>{setFeeding(prev=>prev.map(x=>x.id===r.id?r:x));api.feeding.update(r).catch(console.warn);};
+  const editFeedRecord=async(r:FeedingRecord)=>{
+    const farmRec:FeedingRecord={...r,farmId:r.farmId||activeFarmId};
+    setFeeding(prev=>prev.map(x=>x.id===farmRec.id?farmRec:x));
+    try {
+      await api.feeding.update(farmRec);
+    } catch(err:any) {
+      console.error("Failed to update feeding record in database:", err);
+    }
+  };
   const addBagLog=(b:BagOpenLog)=>{
     setBagLogs(prev=>{
       const bStock=b.fishStock||"";

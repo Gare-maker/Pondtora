@@ -5,7 +5,7 @@ import {
   Package, BookOpen, Download, FileText, Pencil, MoreVertical, Lock, History, Fish
 } from "lucide-react";
 import type { FeedingRecord, FeedEditEntry, Pond, FeedItem, BagOpenLog, FeedRemainingLog } from "../types";
-import { TODAY, toMon, toYr, uid, downloadCSV, openPrintWindow, fmtStockingDate } from "../data";
+import { TODAY, toMon, toYr, uid, downloadCSV, openPrintWindow, fmtStockingDate, isSameDate } from "../data";
 import { Card, PBtn, Pagination, PER_PAGE, StatCard, F, IC, SC, SearchableSelect, Bdg, DateInput, NumInput } from "../shared";
 
 interface BulkRow { pondId:string; pondName:string; initialStock:number; currentCount:number; brand:string; size:string; morning:string; evening:string; morningTime:string; eveningTime:string; fishStock:string; }
@@ -74,7 +74,18 @@ function FeedDocumentation({
   const daysInMonth=new Date(viewYear,viewMonth+1,0).getDate();
   const firstDayOfWeek=new Date(viewYear,viewMonth,1).getDay();
   const calCells=Array(42).fill(null).map((_,i)=>{const d=i-firstDayOfWeek+1;return(d>=1&&d<=daysInMonth)?d:null;});
-  const daysWithRec=new Set(feedingRecords.filter(r=>r.month===curMonLabel&&r.year===viewYear).map(r=>{const parts=r.date.split(" ");return parts.length===2?parseInt(parts[1]):NaN;}).filter(d=>!isNaN(d)));
+  const daysWithRec=new Set(feedingRecords.filter(r=>{
+    if(r.month===curMonLabel && r.year===viewYear) return true;
+    if(/^\d{4}-\d{2}-\d{2}$/.test(r.date)){
+      const [y,m] = r.date.split("-");
+      return parseInt(y)===viewYear && parseInt(m)===(viewMonth+1);
+    }
+    return false;
+  }).map(r=>{
+    if(/^\d{4}-\d{2}-\d{2}$/.test(r.date)) return parseInt(r.date.split("-")[2]);
+    const parts=r.date.split(" ");
+    return parts.length===2?parseInt(parts[1]):NaN;
+  }).filter(d=>!isNaN(d)));
   const selParts=selDate.split(" ");const selMonLabel=selParts[0];const selDay=selParts.length===2?parseInt(selParts[1]):0;
   const isSelInView=selMonLabel===curMonLabel;
 
@@ -98,22 +109,22 @@ function FeedDocumentation({
     const prevDt=new Date(2026,MIDX_GLOBAL[sm]??0,+(sd||1)-1);
     const prevDate=`${MON_NAMES[prevDt.getMonth()]} ${prevDt.getDate()}`;
     const keySet=new Set<string>();
-    feedingRecords.filter(r=>r.date===selDate).forEach(r=>{const fs=pondToStock(r.pond);keySet.add(`${r.brand}||${r.size}||${fs}`);});
+    feedingRecords.filter(r=>isSameDate(r.date,selDate)).forEach(r=>{const fs=pondToStock(r.pond);keySet.add(`${r.brand}||${r.size}||${fs}`);});
     const rows:ReconRow[]=[];
     for(const compositeKey of Array.from(keySet)){
       const parts=compositeKey.split("||");
       const brand=parts[0];const size=parts[1];const fishStock=parts.slice(2).join("||");
       const pondsForStock=ponds.filter(p=>`${p.species} (${p.stockingDate})`===fishStock).map(p=>p.name);
-      const totalFed=feedingRecords.filter(r=>r.date===selDate&&r.brand===brand&&r.size===size&&pondsForStock.includes(r.pond)).reduce((s,r)=>s+r.total,0);
+      const totalFed=feedingRecords.filter(r=>isSameDate(r.date,selDate)&&r.brand===brand&&r.size===size&&pondsForStock.includes(r.pond)).reduce((s,r)=>s+r.total,0);
       if(totalFed===0)continue;
-      const carryover=remainLogs.filter(r=>r.date===prevDate&&r.brand===brand&&r.size===size&&r.fishStock===fishStock).reduce((s,r)=>s+r.remainingKg,0);
+      const carryover=remainLogs.filter(r=>isSameDate(r.date,prevDate)&&r.brand===brand&&r.size===size&&r.fishStock===fishStock).reduce((s,r)=>s+r.remainingKg,0);
       const netNeeded=Math.max(0,totalFed-carryover);
       const bagWeight=inventory.find(f=>f.brand===brand&&f.size===size)?.weightPerBag||0;
       if(!bagWeight)continue;
       const expectedBags=netNeeded===0?0:Math.ceil(netNeeded/bagWeight);
-      const recordedBags=bagLogs.filter(b=>b.date===selDate&&b.brand===brand&&b.size===size&&(!b.fishStock||b.fishStock===fishStock)).reduce((s,b)=>s+b.bagsOpened,0);
+      const recordedBags=bagLogs.filter(b=>isSameDate(b.date,selDate)&&b.brand===brand&&b.size===size&&(!b.fishStock||b.fishStock===fishStock)).reduce((s,b)=>s+b.bagsOpened,0);
       const expectedRemaining=Math.max(0,carryover+(expectedBags*bagWeight)-totalFed);
-      const recordedRemaining=remainLogs.filter(r=>r.date===selDate&&r.brand===brand&&r.size===size&&r.fishStock===fishStock).reduce((s,r)=>s+r.remainingKg,0);
+      const recordedRemaining=remainLogs.filter(r=>isSameDate(r.date,selDate)&&r.brand===brand&&r.size===size&&r.fishStock===fishStock).reduce((s,r)=>s+r.remainingKg,0);
       const bagsDiff=Math.abs(expectedBags-recordedBags);
       const remainDiff=Math.abs(expectedRemaining-recordedRemaining);
       const feedQtyIssue=recordedBags>0&&totalFed>carryover+(recordedBags*bagWeight)+0.01;
@@ -147,7 +158,7 @@ function FeedDocumentation({
   const [popupRecon,setPopupRecon]=useState<ReconRow|null>(null);
 
   /* ── day view ── */
-  const dayRecords=feedingRecords.filter(r=>r.date===selDate);
+  const dayRecords=feedingRecords.filter(r=>isSameDate(r.date,selDate));
   const dayGrand=dayRecords.reduce((s,r)=>s+r.total,0);
   const dayRows=activePonds.map(pond=>{const rec=dayRecords.find(r=>r.pond===pond.name);return{pond,rec};});
 
@@ -228,7 +239,7 @@ function FeedDocumentation({
   /* ── merged bags rows for display ── */
   type MergedBagRow={brand:string;size:string;fishStock:string;bagsOpened:number;remainingKg:number;lastBagLog:BagOpenLog|null};
   const mergedBagRows=useMemo(():MergedBagRow[]=>{
-    const dayBagLogs=bagLogs.filter(b=>b.date===selDate);
+    const dayBagLogs=bagLogs.filter(b=>isSameDate(b.date,selDate));
     const map=new Map<string,MergedBagRow>();
     dayBagLogs.forEach(b=>{
       const fs=b.fishStock||"—";
@@ -237,7 +248,7 @@ function FeedDocumentation({
       if(existing){existing.bagsOpened+=b.bagsOpened;existing.lastBagLog=b;}
       else{map.set(k,{brand:b.brand,size:b.size,fishStock:fs,bagsOpened:b.bagsOpened,remainingKg:0,lastBagLog:b});}
     });
-    const dayRemainLogs=remainLogs.filter(r=>r.date===selDate);
+    const dayRemainLogs=remainLogs.filter(r=>isSameDate(r.date,selDate));
     dayRemainLogs.forEach(r=>{
       const k=`${r.brand}||${r.size}||${r.fishStock}`;
       const existing=map.get(k);
@@ -272,43 +283,127 @@ function FeedDocumentation({
   const [bulkDate,setBulkDate]=useState(TODAY);
   const [bulkBy,setBulkBy]=useState("");
   const [bulkRows,setBulkRows]=useState<BulkRow[]>([]);
+  const [savingFeed,setSavingFeed]=useState(false);
   const nowTime=()=>new Date().toLocaleTimeString("en",{hour:"2-digit",minute:"2-digit",hour12:false});
   const [logTime]=useState(nowTime);
-  const openLog=()=>{
-    const dateLabel=`${toMon(bulkDate)} ${new Date(bulkDate).getDate()}`;
-    setBulkRows(activePonds.map(p=>{
-      const existing=feedingRecords.find(r=>r.pond===p.name&&r.date===dateLabel);
+
+  const getRowsForDate=(targetDate:string)=>{
+    const dateLabel=`${toMon(targetDate)} ${new Date(targetDate).getDate()}`;
+    return activePonds.map(p=>{
+      const existing=feedingRecords.find(r=>r.pond===p.name&&(isSameDate(r.date,targetDate)||r.date===dateLabel));
       const defBrand=existing?.brand||(invBrands[0]||"");
       const defSize=existing?.size||(invSizesForBrand(defBrand)[0]||"");
-      return {pondId:p.id,pondName:p.name,initialStock:p.initialStock,currentCount:p.currentCount,brand:defBrand,size:defSize,morning:existing?String(existing.morning):"",evening:existing?String(existing.evening):"",morningTime:existing?.morningTime||"",eveningTime:existing?.eveningTime||"",fishStock:p.species!=="—"?`${p.species} (${p.stockingDate})`:""};
-    }));
+      return {
+        pondId:p.id,
+        pondName:p.name,
+        initialStock:p.initialStock,
+        currentCount:p.currentCount,
+        brand:defBrand,
+        size:defSize,
+        morning:existing?String(existing.morning):"",
+        evening:existing?String(existing.evening):"",
+        morningTime:existing?.morningTime||"",
+        eveningTime:existing?.eveningTime||"",
+        fishStock:p.species!=="—"?`${p.species} (${p.stockingDate})`:""
+      };
+    });
+  };
+
+  const openLog=()=>{
+    // Default bulkDate to current view date if it corresponds to a valid date, or TODAY
+    let initialDate = TODAY;
+    const parts = selDate.split(" ");
+    if(parts.length === 2) {
+      const mIdx = MIDX_GLOBAL[parts[0]];
+      const d = parseInt(parts[1], 10);
+      if(mIdx !== undefined && !isNaN(d)) {
+        initialDate = `${viewYear}-${String(mIdx + 1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+      }
+    }
+    setBulkDate(initialDate);
+    setBulkRows(getRowsForDate(initialDate));
     setShowLog(true);
   };
+
+  const handleBulkDateChange=(newDate:string)=>{
+    setBulkDate(newDate);
+    if(newDate) {
+      setFeedErr(p=>({...p,date:""}));
+      setBulkRows(getRowsForDate(newDate));
+    }
+  };
+
   const updateRow=(pondId:string,field:keyof BulkRow,value:string)=>setBulkRows(prev=>prev.map(r=>r.pondId===pondId?{...r,[field]:value}:r));
   const filledCount=bulkRows.filter(r=>r.morning||r.evening).length;
   const grandTotal=bulkRows.reduce((s,r)=>{const m=Number(r.morning)||0;const e=Number(r.evening)||0;return s+m+e;},0);
-  const handleSaveAll=()=>{
+
+  const handleSaveAll=async()=>{
     const errs:Record<string,string>={};
     if(!filledCount)errs.amounts="Please enter at least one feeding amount";
     if(!bulkDate)errs.date="Date is required";
     if(Object.keys(errs).length){setFeedErr(errs);return;}
     setFeedErr({});
+    setSavingFeed(true);
+
     const dateLabel=`${toMon(bulkDate)} ${new Date(bulkDate).getDate()}`;
     const now=new Date().toLocaleString("en",{month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"});
-    bulkRows.forEach(r=>{
-      const m=Number(r.morning)||0;const e=Number(r.evening)||0;
-      if(m>0||e>0){
-        const existing=feedingRecords.find(x=>x.pond===r.pondName&&x.date===dateLabel&&x.brand===r.brand&&x.size===r.size);
-        if(existing){
-          const hasChange=m!==existing.morning||e!==existing.evening;
-          const entry:FeedEditEntry={originalMorning:existing.morning,updatedMorning:m,originalEvening:existing.evening,updatedEvening:e,editedAt:now,editedBy:bulkBy||"—",editedById:""};
-          onEditFeedRecord({...existing,morning:m,evening:e,total:m+e,recordedBy:bulkBy||existing.recordedBy,morningTime:r.morningTime||existing.morningTime,eveningTime:r.eveningTime||existing.eveningTime,editHistory:hasChange?[...(existing.editHistory||[]),entry]:(existing.editHistory||[])});
-        } else {
-          onAddRecord({id:uid(),date:dateLabel,month:toMon(bulkDate),year:toYr(bulkDate),pond:r.pondName,brand:r.brand,size:r.size,morning:m,evening:e,total:m+e,recordedBy:bulkBy||"—",morningTime:r.morningTime||undefined,eveningTime:r.eveningTime||undefined});
+
+    try {
+      for (const r of bulkRows) {
+        const m=Number(r.morning)||0;
+        const e=Number(r.evening)||0;
+        if(m>0||e>0){
+          // Look for an existing feeding record for this pond on this date
+          const existing=feedingRecords.find(x=>x.pond===r.pondName&&(isSameDate(x.date,bulkDate)||x.date===dateLabel));
+          if(existing){
+            const hasChange=m!==existing.morning||e!==existing.evening;
+            const entry:FeedEditEntry={
+              originalMorning:existing.morning,
+              updatedMorning:m,
+              originalEvening:existing.evening,
+              updatedEvening:e,
+              editedAt:now,
+              editedBy:bulkBy||"—",
+              editedById:""
+            };
+            await onEditFeedRecord({
+              ...existing,
+              brand:r.brand,
+              size:r.size,
+              morning:m,
+              evening:e,
+              total:m+e,
+              recordedBy:bulkBy||existing.recordedBy,
+              morningTime:r.morningTime||existing.morningTime,
+              eveningTime:r.eveningTime||existing.eveningTime,
+              editHistory:hasChange?[...(existing.editHistory||[]),entry]:(existing.editHistory||[])
+            });
+          } else {
+            await onAddRecord({
+              id:uid(),
+              date:dateLabel,
+              month:toMon(bulkDate),
+              year:toYr(bulkDate),
+              pond:r.pondName,
+              brand:r.brand,
+              size:r.size,
+              morning:m,
+              evening:e,
+              total:m+e,
+              recordedBy:bulkBy||"—",
+              morningTime:r.morningTime||undefined,
+              eveningTime:r.eveningTime||undefined
+            });
+          }
         }
       }
-    });
-    setShowLog(false);
+      setShowLog(false);
+    } catch(err:any) {
+      console.error("Error saving feeding records:", err);
+      setFeedErr({amounts: "Failed to save records. Please check connection."});
+    } finally {
+      setSavingFeed(false);
+    }
   };
 
   /* ── download helpers ── */
@@ -813,7 +908,7 @@ function FeedDocumentation({
             <div className="px-6 py-3 border-b border-slate-100 bg-slate-50 shrink-0 flex flex-wrap gap-4 items-end">
               <div className="min-w-[160px]">
                 <label className="block text-[11px] font-bold text-slate-600 mb-1 uppercase tracking-wide">Date</label>
-                <DateInput value={bulkDate} onChange={v=>{setBulkDate(v);if(v)setFeedErr(p=>({...p,date:""}));}}/>
+                <DateInput value={bulkDate} onChange={handleBulkDateChange}/>
               </div>
               <div className="min-w-[200px]">
                 <label className="block text-[11px] font-bold text-slate-600 mb-1 uppercase tracking-wide">Recorded By</label>
@@ -890,8 +985,14 @@ function FeedDocumentation({
                 {feedErr.date&&<p className="text-xs text-red-500 mt-1">{feedErr.date}</p>}
               </div>
               <div className="flex gap-3">
-                <button onClick={()=>{setShowLog(false);setFeedErr({});}} className="px-4 py-2 text-sm text-slate-500 hover:text-slate-800 font-semibold transition-colors">Cancel</button>
-                <PBtn onClick={handleSaveAll}><CheckCircle size={15}/> Save {filledCount>0?filledCount:""} Record{filledCount!==1?"s":""}</PBtn>
+                <button disabled={savingFeed} onClick={()=>{setShowLog(false);setFeedErr({});}} className="px-4 py-2 text-sm text-slate-500 hover:text-slate-800 font-semibold transition-colors disabled:opacity-50">Cancel</button>
+                <PBtn disabled={savingFeed} onClick={handleSaveAll}>
+                  {savingFeed ? (
+                    <span className="flex items-center gap-2">Saving...</span>
+                  ) : (
+                    <span className="flex items-center gap-1.5"><CheckCircle size={15}/> Save {filledCount>0?filledCount:""} Record{filledCount!==1?"s":""}</span>
+                  )}
+                </PBtn>
               </div>
             </div>
           </div>

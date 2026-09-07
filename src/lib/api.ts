@@ -5,6 +5,7 @@ import type {
   TreatmentRecord, StaffMember, Report, Customer, PriceGroup,
   Invoice, InvSettings,
 } from "../app/types";
+import { INIT_K, INIT_C } from "../app/data";
 
 // ── Helpers for UUID & Case Conversion ────────────────────────────────────────
 
@@ -34,22 +35,48 @@ export function toUuid(id?: string): string {
   return generated;
 }
 
-export function toValidDbDate(d: any, defaultYear = 2026): string | null {
+export function toValidDbDate(d: any, defaultYear = new Date().getFullYear()): string | null {
   if (!d || d === "—" || typeof d !== "string" || d.trim() === "") return null;
   const str = d.trim();
   if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
-  const parsed = new Date(str);
-  if (!isNaN(parsed.getTime())) {
-    return parsed.toISOString().slice(0, 10);
-  }
+  const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
   const parts = str.split(" ");
   if (parts.length === 2) {
-    const withYear = new Date(`${parts[0]} ${parts[1]}, ${defaultYear}`);
-    if (!isNaN(withYear.getTime())) {
-      return withYear.toISOString().slice(0, 10);
+    const mIdx = monthNames.findIndex(m => m.toLowerCase() === parts[0].toLowerCase());
+    const day = parseInt(parts[1], 10);
+    if (mIdx !== -1 && !isNaN(day) && day >= 1 && day <= 31) {
+      const mm = String(mIdx + 1).padStart(2, "0");
+      const dd = String(day).padStart(2, "0");
+      return `${defaultYear}-${mm}-${dd}`;
     }
   }
+  const parsed = new Date(str);
+  if (!isNaN(parsed.getTime())) {
+    const y = parsed.getFullYear();
+    const m = String(parsed.getMonth() + 1).padStart(2, "0");
+    const day = String(parsed.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  }
   return null;
+}
+
+export function isSameDate(d1?: string | null, d2?: string | null): boolean {
+  if (!d1 || !d2) return false;
+  if (d1 === d2) return true;
+  const n1 = toValidDbDate(d1) || d1;
+  const n2 = toValidDbDate(d2) || d2;
+  return n1 === n2;
+}
+
+export function formatDisplayDate(d: any): string {
+  if (!d || d === "—") return "—";
+  const valid = toValidDbDate(d);
+  if (valid) {
+    const [, m, day] = valid.split("-").map(Number);
+    const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    return `${months[m - 1]} ${day}`;
+  }
+  return String(d);
 }
 
 const toSnake = (s: string) => s.replace(/([A-Z])/g, "_$1").toLowerCase();
@@ -65,6 +92,8 @@ const CAMEL_MAP: Record<string, string> = {
   group_key: "group",
 };
 
+const DATE_FIELDS = new Set(["date", "purchase_date", "stocking_date", "cleared_date", "invoice_date", "due_date"]);
+
 export function objToSnake(obj: Record<string, any>, userId?: string): Record<string, any> {
   const out: Record<string, any> = {};
   for (const [k, v] of Object.entries(obj)) {
@@ -76,6 +105,14 @@ export function objToSnake(obj: Record<string, any>, userId?: string): Record<st
     out["user_id"] = userId;
   } else if (!out["user_id"] || !isUuid(out["user_id"])) {
     delete out["user_id"];
+  }
+
+  // Normalize date fields to valid ISO date
+  for (const [k, v] of Object.entries(out)) {
+    if (DATE_FIELDS.has(k) && v) {
+      const valid = toValidDbDate(v);
+      if (valid) out[k] = valid;
+    }
   }
 
   if (out["id"]) {
@@ -248,13 +285,13 @@ async function dbInsert<T extends { id?: string }>(table: string, item: T, cache
   try {
     const { data, error } = await supabase.from(table).upsert(snake).select().single();
     if (error) {
-      console.warn(`Supabase upsert into ${table} failed:`, error.message);
-      return item;
+      console.error(`Supabase upsert into ${table} failed:`, error.message);
+      throw error;
     }
     return objToCamel<T>(data);
   } catch (e) {
-    console.warn(`Failed to insert into ${table}:`, e);
-    return item;
+    console.error(`Failed to insert into ${table}:`, e);
+    throw e;
   }
 }
 
@@ -274,15 +311,15 @@ async function dbUpdate<T extends { id?: string }>(table: string, item: T, cache
     if (targetId) {
       const { data, error } = await supabase.from(table).update(snake).eq("id", targetId).select().single();
       if (error) {
-        console.warn(`Supabase update in ${table} failed:`, error.message);
-        return item;
+        console.error(`Supabase update in ${table} failed:`, error.message);
+        throw error;
       }
       return objToCamel<T>(data);
     }
     return item;
   } catch (e) {
-    console.warn(`Failed to update ${table}:`, e);
-    return item;
+    console.error(`Failed to update ${table}:`, e);
+    throw e;
   }
 }
 
@@ -518,7 +555,7 @@ export const api = {
   // ── Feeding records ────────────────────────────────────────────────────────
   feeding: {
     list: () => dbList<FeedingRecord>("feeding_records", "feedingRecords"),
-    create: (r: Partial<FeedingRecord>) => {
+    create: async (r: Partial<FeedingRecord>) => {
       const dbRec: any = { ...r };
       if (r.date) {
         const d = toValidDbDate(r.date);
@@ -526,7 +563,14 @@ export const api = {
       }
       return dbInsert<FeedingRecord>("feeding_records", dbRec as FeedingRecord, "feedingRecords");
     },
-    update: (r: FeedingRecord) => dbUpdate<FeedingRecord>("feeding_records", r, "feedingRecords"),
+    update: async (r: FeedingRecord) => {
+      const dbRec: any = { ...r };
+      if (r.date) {
+        const d = toValidDbDate(r.date);
+        if (d) dbRec.date = d;
+      }
+      return dbUpdate<FeedingRecord>("feeding_records", dbRec, "feedingRecords");
+    },
     remove: (id: string) => dbDelete("feeding_records", id, "feedingRecords"),
   },
 
@@ -724,15 +768,58 @@ export const api = {
   // ── Public assessment (no auth) ────────────────────────────────────────────
   public: {
     getQuestions: async (type: "knowledge" | "compatibility", ownerId: string) => {
+      if (!ownerId || typeof ownerId !== "string" || ownerId.trim() === "") {
+        throw new Error("Invalid assessment link: missing organisation ID.");
+      }
+      const cleanOwnerId = ownerId.trim();
       const table = type === "knowledge" ? "knowledge_questions" : "compatibility_questions";
-      const { data } = await supabase.from(table).select("*").eq("user_id", ownerId);
-      return (data || []).map(r => objToCamel(r));
+      
+      try {
+        const { data, error } = await supabase
+          .from(table)
+          .select("*")
+          .eq("user_id", cleanOwnerId)
+          .order("created_at", { ascending: true });
+
+        if (error) {
+          console.warn(`Supabase public ${table} query notice:`, error.message);
+        }
+
+        if (data && data.length > 0) {
+          return data.map(r => objToCamel(r));
+        }
+
+        // Check if owner profile exists or ownerId is valid UUID
+        const { data: prof } = await supabase
+          .from("user_profiles")
+          .select("id, farm_name")
+          .eq("id", cleanOwnerId)
+          .maybeSingle();
+
+        if (prof || isUuid(cleanOwnerId)) {
+          // Return standard questions so public link loads seamlessly even before custom questions are added
+          return (type === "knowledge" ? INIT_K : INIT_C) as any[];
+        }
+
+        throw new Error("Invalid or expired assessment link. This assessment is no longer available.");
+      } catch (err: any) {
+        if (err.message && err.message.includes("Invalid")) throw err;
+        return (type === "knowledge" ? INIT_K : INIT_C) as any[];
+      }
     },
     submitResult: async (type: "knowledge" | "compatibility", ownerId: string, result: any) => {
+      if (!ownerId) throw new Error("Missing organisation ID for submission");
+      const cleanOwnerId = ownerId.trim();
       const table = type === "knowledge" ? "knowledge_results" : "compatibility_results";
-      const snake = objToSnake(result, ownerId);
+      const snake = objToSnake(result, cleanOwnerId);
+      if (!snake.id) snake.id = crypto.randomUUID();
+      snake.user_id = cleanOwnerId;
+
       const { data, error } = await supabase.from(table).insert(snake).select().single();
-      if (error) console.warn("Public submit result error", error);
+      if (error) {
+        console.error("Public submit result error:", error);
+        throw new Error(error.message || "Failed to submit assessment results");
+      }
       return data ? objToCamel(data) : result;
     },
   },

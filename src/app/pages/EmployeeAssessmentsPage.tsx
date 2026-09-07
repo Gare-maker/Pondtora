@@ -7,7 +7,7 @@ import {
 } from "lucide-react";
 import { Card, Bdg, PBtn, PER_PAGE } from "../shared";
 import { uid, TODAY } from "../data";
-import { projectId } from "../../../utils/supabase/info";
+import { api } from "../../lib/api";
 import pondtoraLogo from "../../imports/loo-2.svg";
 
 /* ─── Types ─────────────────────────────────────────────────── */
@@ -395,8 +395,6 @@ function TablePagination({page,total,perPage,onChange}:{page:number;total:number
 }
 
 /* ─── Candidate Assessment Overlay ──────────────────────────── */
-const ASSESS_API = `https://${projectId}.supabase.co/functions/v1/make-server-1da59a07`;
-
 export function CandidateAssessment({
   type,
   questions: questionsProp,
@@ -474,12 +472,13 @@ export function CandidateAssessment({
     /* Public link: fetch from backend */
     setPhase("loading");
     try{
-      const res=await fetch(`${ASSESS_API}/public/questions/${type}/${ownerId}`);
-      if(!res.ok)throw new Error(`Server returned ${res.status}`);
-      const raw=await res.json();
-      const qs:any[]=Array.isArray(raw)?raw:[];
-      setQuestions(qs);
-      setAnswers(qs.map(()=>null));
+      const qs = await api.public.getQuestions(type, ownerId || "");
+      const safeQs: any[] = Array.isArray(qs) ? qs : [];
+      if (safeQs.length === 0) {
+        throw new Error("No questions found for this assessment. Please contact the test administrator.");
+      }
+      setQuestions(safeQs);
+      setAnswers(safeQs.map(()=>null));
       setCurrentQ(0);
       setPhase("assessment");
     }catch(e:any){
@@ -497,13 +496,9 @@ export function CandidateAssessment({
       ?calcKResult(ci,answers,questions as KQuestion[])
       :calcCResult(ci,answers,questions as CQuestion[]);
     if(ownerId){
-      /* Public flow: save to Supabase via backend */
+      /* Public flow: save to Supabase via api.public */
       try{
-        await fetch(`${ASSESS_API}/public/results/${type}/${ownerId}`,{
-          method:"POST",
-          headers:{"Content-Type":"application/json"},
-          body:JSON.stringify(result),
-        });
+        await api.public.submitResult(type, ownerId, result);
       }catch(e){console.warn("Result save failed",e);}
     }else{
       /* Admin preview: fire callbacks so parent can record & navigate */
