@@ -1,0 +1,389 @@
+Update Request
+
+Please make the following updates to the application. Ensure all changes are reflected in both the functionality and the UI/UX design across desktop, tablet, and mobile.
+
+
+---
+
+1. Invoice Management
+
+Edit Invoice
+
+Allow users to edit an existing invoice.
+
+The user should be able to update:
+
+Customer information
+
+Pond
+
+Fish groups
+
+Quantity (kg)
+
+Discounts
+
+Additional charges
+
+Notes
+
+Payment details
+
+
+When an invoice is edited, all calculations should automatically recalculate, including:
+
+Line totals
+
+Total discount
+
+Grand total
+
+Outstanding balance
+
+
+Historical invoice numbers should remain unchanged.
+
+
+---
+
+Mark Invoice as Paid
+
+Allow users to update an invoice's payment status directly from:
+
+Invoice History
+
+Invoice Details
+
+
+Support the following statuses:
+
+Draft
+
+Sent
+
+Pending
+
+Partially Paid
+
+Paid
+
+Cancelled
+
+
+When an invoice is marked as Paid:
+
+Update the Financial Dashboard revenue automatically.
+
+Update Reports automatically.
+
+Remove the invoice from Outstanding Payments.
+
+Record the payment date and payment method.
+
+
+
+---
+
+2. Feed Inventory
+
+Fix Feed Purchase History Filter
+
+The Month filter on the Feed Purchase History section is currently not displaying correctly on:
+
+Desktop
+
+Tablet
+
+Mobile
+
+
+Fix the UI so the month selector is visible and functions correctly on all screen sizes.
+
+
+---
+
+3. Remove From Stock Confirmation
+
+When the user clicks Remove From Stock on a feed stock item, display a confirmation dialog before completing the action.
+
+Suggested message:
+
+Remove Feed Stock?
+
+> This action marks the selected feed stock as fully consumed and removes it from the active inventory. The record will not be deleted and will remain available in the Feed Purchase History for future reference and reporting.
+
+
+
+Buttons:
+
+Cancel
+
+Remove from Stock
+
+
+This should make it clear that the inventory item is removed from active stock only, not permanently deleted.
+
+
+---
+
+4. Fish Stock History
+
+Enhance the Fish Stock History experience by allowing users to view detailed information for each stock batch.
+
+Fish Stock History List
+
+Display all fish stock batches in a list.
+
+Each row should include a View icon.
+
+
+---
+
+Stock Details Popup
+
+When the user clicks the View icon, open a modal (popup) displaying detailed information about that stock batch.
+
+Display:
+
+Stock Information
+
+Batch ID
+
+Pond
+
+Fish Species
+
+Stocking Date
+
+Initial Quantity
+
+Current Quantity
+
+Average Weight
+
+Current Status
+
+
+Feeding Summary
+
+Total Feed Consumed (kg)
+
+Feed Consumption by Pellet Size (kg)
+
+1.5 mm
+
+2 mm
+
+3 mm
+
+4 mm
+
+6 mm
+
+
+Total Feeding Cost
+
+
+Mortality
+
+Total Mortality
+
+Mortality Rate (%)
+
+
+Harvest & Sales
+
+Total Fish Sold
+
+Total Weight Sold (kg)
+
+Revenue Generated
+
+
+Expenses
+
+Display all costs associated with that stock, including:
+
+Feed Cost
+
+Medication
+
+Maintenance
+
+Other Recorded Costs
+
+
+Performance Summary
+
+Estimated Biomass
+
+Feed Conversion Ratio (FCR)
+
+Profit/Loss (if applicable)
+
+
+
+---
+
+Navigation Inside the Popup
+
+The popup should contain two views:
+
+1. Fish Stock History List
+
+
+2. Stock Details
+
+
+
+When viewing Stock Details, include a Back button inside the popup that returns the user to the Fish Stock History List without closing the modal.
+
+The entire navigation should happen inside the popup.
+
+
+---
+
+Empty States
+
+Provide meaningful empty states.
+
+Examples:
+
+Fish Stock History
+
+"No fish stock records found."
+
+Stock Details
+
+"No feeding records available for this stock."
+
+"No harvest records available."
+
+"No expenses recorded."
+
+Design each empty state with consistent spacing and messaging.
+
+
+---
+
+5. Pricing Page
+
+Update the subscription plans.
+
+STARTER
+
+Up to 5 Ponds
+
+₦3,000/month
+
+Features:
+
+All platform features included
+
+Up to 5 ponds
+
+
+
+---
+
+GROWTH ⭐ (Most Popular)
+
+Up to 15 Ponds
+
+₦5,000/month
+
+Features:
+
+All platform features included
+
+Up to 15 ponds
+
+
+
+---
+
+ENTERPRISE
+
+Unlimited Ponds
+
+₦10,000/month
+
+Features:
+
+All platform features included
+
+Unlimited ponds
+
+
+
+---
+
+Add Feature List Below the Pricing Cards
+
+Display a section titled:
+
+Every plan includes:
+
+Financial Dashboard
+
+Pond Management
+
+Feed Inventory
+
+Feed Documentation
+
+Fish Stock History
+
+Sales Invoicing
+
+Staff Management
+
+Reports & Analytics
+
+CSV Export
+
+PDF Export
+
+
+Use a clean checklist layout that matches the application's design system.
+
+
+---
+
+6. Free Trial Text
+
+Replace:
+
+1 Month Free Trial
+
+with:
+
+30-Day Free Trial
+
+Update this text consistently across the Pricing page and any related onboarding or subscription screens.
+
+
+---
+
+7. Savings Badge
+
+The "Save 15%" badge should always remain visible on the Yearly billing option.
+
+Currently, it only appears after switching to the yearly plan.
+
+Update the UI so the badge is visible at all times, clearly indicating the yearly discount before the user changes the billing period.
+
+
+---
+
+General Requirements
+
+Maintain consistency with the existing design system.
+
+Ensure all new components are responsive on desktop, tablet, and mobile.
+
+Follow the existing spacing, typography, colors, and component styles used throughout the application.
+
+Add loading states, validation states, and empty states wherever applicable.
+
+Ensure all data updates automatically across related modules (Financial Dashboard, Reports, Fish Stock History, and Invoice Management) to maintain data consistency throughout the application.

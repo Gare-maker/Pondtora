@@ -1,0 +1,124 @@
+## App Update & Verification Requirements
+
+Please make the following updates and thoroughly test the application. **Do not change unrelated functionality or design.**
+
+### 1. Hero Section
+
+* Completely remove the **Ovarian screenshot/image** currently displayed in the Hero section.
+* **Do not replace it with another image, text, card, graphic, or any other element.**
+* That area should remain **completely blank**.
+* Adjust the layout so the Hero section still looks intentional and properly aligned on both desktop and mobile.
+* There should be **nothing displayed in the removed image area**.
+
+### 2. Test the Entire Application
+
+Run through the application as a real user and identify anything that is not functional.
+
+Do not only check whether buttons are visible. **Actually test the functionality and user flows.**
+
+Check things such as:
+
+* User registration.
+* User login and logout.
+* Adding users.
+* Editing users.
+* Deleting/deactivating users where applicable.
+* Password/authentication functionality.
+* Adding staff.
+* Staff login.
+* Staff permissions and access control.
+* Staff ability to submit/send reports.
+* Admin access.
+* Data saving and retrieval.
+* Forms and buttons.
+* Navigation and routing.
+* Any existing dashboard functionality.
+* Any backend/API connections required by the frontend.
+
+If you find something that is broken, **fix it rather than simply reporting it**.
+
+### 3. Staff Access & Permissions
+
+Make sure the staff-management system works correctly.
+
+When an admin adds a staff member:
+
+* The staff member should be able to log in using their assigned credentials.
+* Staff should only have access to the features and information they are authorized to use.
+* Staff should **not** have access to admin-only functionality.
+* Staff should be able to perform the tasks required for their role.
+* Staff should be able to submit/send their required farm reports.
+* Staff should be able to submit their report **before leaving the farm at the end of their work period/day**.
+* Submitted reports should be saved correctly in the backend and available to the appropriate admin/management users.
+* Verify that permissions are enforced by the backend, not only hidden in the frontend.
+
+### 4. Reports & Analytics
+
+Update the Reports & Analytics feature so the workflow is clear:
+
+* Staff members are expected to submit their reports **before leaving the farm**.
+* The system should collect these staff reports.
+* The system should automatically organize and generate reports from the submitted information.
+* Reports should be available as **daily, weekly, and monthly reports**.
+* Management should be able to understand what happened on the farm based on the information submitted by staff.
+* Make sure the report data actually comes from the application's backend and is not placeholder/demo data.
+
+The system should make it easy for management to identify what happened during the day, including relevant farm activities, staff submissions, feed usage, pond/fish-stock activities, and other information already captured by the application.
+
+### 5. Landing Page Feature Descriptions
+
+Review the feature descriptions on the landing page and rewrite them so they are **very easy for the average Nigerian farmer or business owner to understand**.
+
+Use:
+
+* Simple, everyday English.
+* Clear explanations.
+* Practical examples where useful.
+* Slightly longer descriptions where necessary to properly explain the benefit.
+* Avoid technical or overly corporate language.
+* Make sure someone who is not highly technical can immediately understand what each feature does and why it is useful.
+
+Do **not** change the actual feature functionality. Only improve the explanations and presentation.
+
+### 6. Feature Bullet/Icon Alignment
+
+For every feature description that uses a bullet point, icon, or similar visual marker:
+
+* The marker must be **vertically aligned to the top of the text**, not vertically centered.
+* For example, if the description takes three lines, the bullet/icon should sit beside the **first line at the top**.
+
+Incorrect:
+
+```text
+        •
+Text    This is a
+        three-line
+        description.
+```
+
+Correct:
+
+```text
+•       This is a
+        three-line
+        description.
+```
+
+Apply this consistently throughout the feature sections.
+
+### 7. Final Testing
+
+After making all changes:
+
+* Test the application from the perspective of an **Admin**.
+* Test it from the perspective of a **Staff member**.
+* Verify that users can actually log in after being created.
+* Verify staff permissions.
+* Verify staff report submission.
+* Verify reports are saved and retrieved correctly.
+* Verify the landing page is responsive.
+* Verify the Hero screenshot is completely removed and the area remains blank.
+* Check both **desktop and mobile** layouts.
+* Fix any functional or visual issues discovered during testing.
+
+**Do not just make the UI look correct. Verify that the frontend, backend, authentication, permissions, database operations, and report workflow actually work together.**
