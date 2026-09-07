@@ -12,10 +12,10 @@ export function Bdg({label,color}:{label:string;color:"green"|"red"|"amber"|"blu
   const m={green:"bg-green-50 text-green-700 border-green-200",teal:"bg-green-100 text-green-800 border-green-300",red:"bg-red-50 text-red-700 border-red-200",amber:"bg-amber-50 text-amber-700 border-amber-200",blue:"bg-blue-50 text-blue-700 border-blue-200",gray:"bg-slate-50 text-slate-600 border-slate-200",purple:"bg-purple-50 text-purple-700 border-purple-200"};
   return <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-semibold border ${m[color]}`}>{label}</span>;
 }
-export function PBtn({children,onClick,sm,danger,outline}:{children:ReactNode;onClick?:()=>void;sm?:boolean;danger?:boolean;outline?:boolean}){
+export function PBtn({children,onClick,sm,danger,outline,disabled}:{children:ReactNode;onClick?:()=>void;sm?:boolean;danger?:boolean;outline?:boolean;disabled?:boolean}){
   const base="flex items-center gap-1.5 font-semibold rounded-lg transition-colors";
   const color=danger?"bg-red-500 hover:bg-red-600 text-white":outline?"border border-green-600 text-green-600 hover:bg-green-50 bg-white":"bg-green-600 hover:bg-green-700 text-white";
-  return <button onClick={onClick} className={`${base} ${color} ${sm?"px-3 py-1.5 text-xs":"px-4 py-2 text-sm"}`}>{children}</button>;
+  return <button disabled={disabled} onClick={disabled?undefined:onClick} className={`${base} ${color} ${disabled?"opacity-50 cursor-not-allowed":""} ${sm?"px-3 py-1.5 text-xs":"px-4 py-2 text-sm"}`}>{children}</button>;
 }
 export function Pagination({total,page,perPage,onPage}:{total:number;page:number;perPage:number;onPage:(p:number)=>void;}){
   const pages=Math.ceil(total/perPage);
@@ -236,6 +236,9 @@ export function useSort<T>(data:T[], defaultField:string){
 /* ── NumInput — text-mode numeric input that stays empty when cleared ── */
 export function NumInput({value,onChange,className,placeholder,allowDecimal=true}:{value:number|string;onChange:(v:string)=>void;className?:string;placeholder?:string;allowDecimal?:boolean}){
   const [str,setStr]=useState(()=>(value===0||value===""||value===null||value===undefined)?"":String(value));
+  useEffect(()=>{
+    setStr((value===0||value===""||value===null||value===undefined)?"":String(value));
+  },[value]);
   const handle=(e:React.ChangeEvent<HTMLInputElement>)=>{
     const v=e.target.value;
     const ok=allowDecimal?/^\d*\.?\d*$/.test(v):/^\d*$/.test(v);
