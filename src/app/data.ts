@@ -166,14 +166,16 @@ export function isSameDate(d1?: string | null, d2?: string | null): boolean {
   if (s1 === s2) return true;
 
   const normalize = (val: string): string => {
-    if (/^\d{4}-\d{2}-\d{2}$/.test(val)) return val;
+    const isoMatch = val.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (isoMatch) return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`;
     const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-    const parts = val.split(" ");
-    if (parts.length === 2) {
+    const clean = val.replace(/,/g, "").trim();
+    const parts = clean.split(/\s+/);
+    if (parts.length >= 2) {
       const mIdx = months.findIndex(m => m.toLowerCase() === parts[0].toLowerCase());
       const day = parseInt(parts[1], 10);
       if (mIdx !== -1 && !isNaN(day)) {
-        const year = new Date().getFullYear();
+        const year = parts[2] && /^\d{4}$/.test(parts[2]) ? parseInt(parts[2], 10) : new Date().getFullYear();
         return `${year}-${String(mIdx + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
       }
     }

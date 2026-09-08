@@ -25,7 +25,7 @@ import PondManagementPage from "./pages/PondManagementPage";
 import FeedInventoryPage from "./pages/FeedInventoryPage";
 import AuthScreenPage from "./pages/AuthScreen";
 import LandingPage from "./pages/LandingPage";
-import EmployeeAssessmentsPage, { CandidateAssessment, INIT_C } from "./pages/EmployeeAssessmentsPage";
+import EmployeeAssessmentsPage, { CandidateAssessment, INIT_C, INIT_K } from "./pages/EmployeeAssessmentsPage";
 import { Toaster, toast } from "sonner";
 import { useDynamicPlans } from "../lib/plansStore";
 import { syncUserProfileToAdmin, getUserAdminOverride, logActivity, recordSuccessfulPayment, loadAllAdminUsers } from "../lib/userSync";

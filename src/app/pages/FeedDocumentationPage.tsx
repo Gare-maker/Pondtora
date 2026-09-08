@@ -384,7 +384,7 @@ function FeedDocumentation({
         evening:existing?(existing.evening!=null?String(existing.evening):""):"",
         morningTime:existing?.morningTime||"",
         eveningTime:existing?.eveningTime||"",
-        fishStock:p.species!=="—"?`${p.species} (${p.stockingDate})`:""
+        fishStock:p.species&&p.species!=="—"?`${p.species}${p.stockingDate?` (${p.stockingDate})`:""}`:""
       };
     });
   };
