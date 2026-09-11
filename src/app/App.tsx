@@ -9,7 +9,7 @@ import {
   X, Calculator, ArrowUpRight, ArrowDownRight,
   Layers, Droplets, Trash2, Menu, ChevronDown,
   ChevronUp, ChevronsLeft, ChevronsRight, ChevronLeft, ChevronRight, ChevronRight as ChevronRightIcon, Eye, Search,
-  Download, FileText, BadgeCheck, Pencil, Users, Mail, Phone, ArrowRightLeft, History, Filter, Crown, Receipt, MoreVertical, AlertCircle, Bell, LogOut, ClipboardList, Lock, Loader2, Copy, Database, ExternalLink, Settings, EyeOff,
+  Download, FileText, BadgeCheck, Pencil, Users, Mail, Phone, ArrowRightLeft, History, Filter, Crown, Receipt, MoreVertical, AlertCircle, Bell, LogOut, ClipboardList, Lock, Loader2, Copy, Link, Database, ExternalLink, Settings, EyeOff,
   Sparkles, CreditCard
 } from "lucide-react";
 import {
@@ -261,15 +261,19 @@ function FinancialDashboard({expenses,revenues,onAddExpense,onAddRevenue,onEditE
 
   // Real chart data — all 12 months of the selected year from actual expenses/revenues
   const MONTHS_12=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-  const yearRevs=revenues.filter(r=>r.year===selYear);
-  const yearExps=expenses.filter(e=>e.year===selYear);
+  const getRowMonth = (r: { month?: string; date?: string }) => (r.month || (r.date ? toMon(r.date) : "")).trim();
+  const getRowYear = (r: { year?: number; date?: string }) => Number(r.year) || (r.date ? toYr(r.date) : new Date().getFullYear());
+  const yearRevs=revenues.filter(r=>getRowYear(r)===selYear);
+  const yearExps=expenses.filter(e=>getRowYear(e)===selYear);
   const filtExp=expenses.filter(e=>{
     if(customApplied&&customStart&&customEnd){return e.date>=customStart&&e.date<=customEnd;}
-    return dashFilterMonth==="All"?e.year===dashFilterYear:e.month===dashFilterMonth&&e.year===dashFilterYear;
+    const m=getRowMonth(e);const y=getRowYear(e);
+    return dashFilterMonth==="All"?y===dashFilterYear:m.toLowerCase()===dashFilterMonth.toLowerCase()&&y===dashFilterYear;
   });
   const filtRev=revenues.filter(r=>{
     if(customApplied&&customStart&&customEnd){return r.date>=customStart&&r.date<=customEnd;}
-    return dashFilterMonth==="All"?r.year===dashFilterYear:r.month===dashFilterMonth&&r.year===dashFilterYear;
+    const m=getRowMonth(r);const y=getRowYear(r);
+    return dashFilterMonth==="All"?y===dashFilterYear:m.toLowerCase()===dashFilterMonth.toLowerCase()&&y===dashFilterYear;
   });
   // Real stats from filtered data
   const totalRev=filtRev.reduce((s,r)=>s+r.amount,0);
@@ -749,6 +753,29 @@ function StaffPage({staff,onAdd,onEdit,onDelete,farms,activeFarmId}:{staff:Staff
     setForm({name:"",email:"",phone:"",role:"Feeding Staff",permissions:[],farms:[]});
     setShowInvite(false);
   };
+  const copyInviteLink=(email:string)=>{
+    const link=`${window.location.origin}?type=invite&email=${encodeURIComponent(email)}`;
+    navigator.clipboard.writeText(link);
+    toast.success("Invitation link copied! You can share it via WhatsApp or SMS.");
+  };
+  const resendInvite=async(s:StaffMember)=>{
+    toast.info(`Sending invitation email to ${s.email}…`);
+    try{
+      const res=await api.staff.invite({
+        email:s.email,name:s.name,phone:s.phone,role:s.role,
+        farms:s.farms,permissions:s.permissions,appUrl:window.location.origin
+      });
+      if(res.emailSent){
+        toast.success(`Invite email sent to ${s.email}!`);
+      }else if(res.emailError){
+        toast.error(`Email delivery notice: ${res.emailError}. You can copy the invite link directly.`);
+      }else{
+        toast.success("Invite ready. You can also share the direct link.");
+      }
+    }catch(err:any){
+      toast.error("Could not send invite email. Please copy link instead.");
+    }
+  };
   const togglePerm=(perm:string,perms:string[],setter:(p:string[])=>void)=>{setter(perms.includes(perm)?perms.filter(x=>x!==perm):[...perms,perm]);};
   const toggleFarm=(fid:string,fids:string[],setter:(f:string[])=>void)=>{setter(fids.includes(fid)?fids.filter(x=>x!==fid):[...fids,fid]);};
   const handleSaveEdit=()=>{if(!editMember)return;onEdit(editMember);setEditMember(null);};
@@ -801,16 +828,28 @@ function StaffPage({staff,onAdd,onEdit,onDelete,farms,activeFarmId}:{staff:Staff
                   </div>
                   {/* Mobile action row */}
                   <div className="flex flex-wrap gap-1.5 mt-2 sm:hidden">
-                    {s.status==="Pending"&&<button onClick={()=>onEdit({...s,status:"Active"})} className="flex items-center gap-1 text-xs font-semibold text-green-600 border border-green-200 bg-green-50 px-2.5 py-1 rounded-lg">Activate</button>}
+                    {s.status==="Pending"&&(
+                      <>
+                        <button onClick={()=>copyInviteLink(s.email)} className="flex items-center gap-1 text-xs font-semibold text-blue-600 border border-blue-200 bg-blue-50 px-2 py-1 rounded-lg"><Link size={11}/> Copy Link</button>
+                        <button onClick={()=>resendInvite(s)} className="flex items-center gap-1 text-xs font-semibold text-purple-600 border border-purple-200 bg-purple-50 px-2 py-1 rounded-lg"><Mail size={11}/> Resend</button>
+                        <button onClick={()=>onEdit({...s,status:"Active"})} className="flex items-center gap-1 text-xs font-semibold text-green-600 border border-green-200 bg-green-50 px-2.5 py-1 rounded-lg">Activate</button>
+                      </>
+                    )}
                     <button onClick={()=>setEditMember({...s})} className="flex items-center gap-1 text-xs text-slate-500 border border-slate-200 px-2.5 py-1 rounded-lg hover:text-green-600 hover:border-green-200"><Pencil size={11}/> Edit</button>
                     <button onClick={()=>{if(confirm(`Remove ${s.name}?`))onDelete(s.id);}} className="flex items-center gap-1 text-xs text-slate-500 border border-slate-200 px-2.5 py-1 rounded-lg hover:text-red-500 hover:border-red-200"><Trash2 size={11}/> Remove</button>
                   </div>
                 </div>
                 {/* Desktop actions */}
-                <div className="hidden sm:flex items-center gap-1 shrink-0">
-                  {s.status==="Pending"&&<button onClick={()=>onEdit({...s,status:"Active"})} className="text-xs font-semibold text-green-600 hover:text-green-800 px-2 py-1 rounded-lg hover:bg-green-50 transition-colors">Activate</button>}
-                  <button onClick={()=>setEditMember({...s})} className="p-1.5 rounded-lg text-slate-300 hover:text-green-600 hover:bg-green-50 transition-colors"><Pencil size={14}/></button>
-                  <button onClick={()=>{if(confirm(`Remove ${s.name}?`))onDelete(s.id);}} className="p-1.5 rounded-lg text-slate-300 hover:text-red-500 hover:bg-red-50 transition-colors"><Trash2 size={14}/></button>
+                <div className="hidden sm:flex items-center gap-1.5 shrink-0">
+                  {s.status==="Pending"&&(
+                    <>
+                      <button onClick={()=>copyInviteLink(s.email)} className="text-xs font-semibold text-blue-600 hover:text-blue-800 bg-blue-50 border border-blue-200 px-2.5 py-1 rounded-lg transition-colors flex items-center gap-1" title="Copy invitation link to share via WhatsApp or SMS"><Link size={11}/> Copy Link</button>
+                      <button onClick={()=>resendInvite(s)} className="text-xs font-semibold text-purple-600 hover:text-purple-800 bg-purple-50 border border-purple-200 px-2.5 py-1 rounded-lg transition-colors flex items-center gap-1" title="Resend invitation email"><Mail size={11}/> Resend</button>
+                      <button onClick={()=>onEdit({...s,status:"Active"})} className="text-xs font-semibold text-green-600 hover:text-green-800 px-2 py-1 rounded-lg hover:bg-green-50 transition-colors">Activate</button>
+                    </>
+                  )}
+                  <button onClick={()=>setEditMember({...s})} className="p-1.5 rounded-lg text-slate-300 hover:text-green-600 hover:bg-green-50 transition-colors" title="Edit"><Pencil size={14}/></button>
+                  <button onClick={()=>{if(confirm(`Remove ${s.name}?`))onDelete(s.id);}} className="p-1.5 rounded-lg text-slate-300 hover:text-red-500 hover:bg-red-50 transition-colors" title="Remove"><Trash2 size={14}/></button>
                 </div>
               </div>
             </Card>
@@ -2667,6 +2706,15 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     if(d.farms?.length>0){
       setFarms(prev=>mergeWithLocal(d.farms,prev));
       setActiveFarmId(prev=>(d.farms.some((f:any)=>f.id===prev)?prev:d.farms[0].id));
+    } else {
+      // If user has no farm in database, auto-create one
+      const farmName = userProfile?.farmName || "My Farm";
+      api.farms.create({ name: farmName, country: userProfile?.country || "Nigeria" }).then(nf => {
+        if(nf?.id){
+          setFarms([nf]);
+          setActiveFarmId(nf.id);
+        }
+      }).catch(console.warn);
     }
     if(d.userProfiles?.length>0){
       const up=d.userProfiles[0];
@@ -2713,13 +2761,19 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     }
     if(d.expenses){
       const dbIds=new Set((d.expenses||[]).map((x:any)=>x.id));
-      expenses.filter(e=>e.id&&!dbIds.has(e.id)).forEach(e=>api.expenses.create(e).catch(console.warn));
+      expenses.filter(e=>e.id&&!dbIds.has(e.id)).forEach(e=>{
+        const fId = (e.farmId && e.farmId !== "default") ? e.farmId : (activeFarmId && activeFarmId !== "default" ? activeFarmId : undefined);
+        api.expenses.create({...e, farmId: fId}).catch(console.warn);
+      });
     }
     if(d.revenues){
       const dbIds=new Set((d.revenues||[]).map((x:any)=>x.id));
-      revenues.filter(r=>r.id&&!dbIds.has(r.id)).forEach(r=>api.revenues.create(r).catch(console.warn));
+      revenues.filter(r=>r.id&&!dbIds.has(r.id)).forEach(r=>{
+        const fId = (r.farmId && r.farmId !== "default") ? r.farmId : (activeFarmId && activeFarmId !== "default" ? activeFarmId : undefined);
+        api.revenues.create({...r, farmId: fId}).catch(console.warn);
+      });
     }
-  },[ponds,feeding,bagLogs,remainLogs,expenses,revenues,activeFarmId]);
+  },[ponds,feeding,bagLogs,remainLogs,expenses,revenues,activeFarmId,userProfile]);
 
   /* ── Auto-create tables then reload ── */
   const runAutoSetup=useCallback(async()=>{
@@ -2830,14 +2884,24 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   const editReportFn=(r:Report)=>{setReports(prev=>prev.map(x=>x.id===r.id?r:x));api.reports.update(r).catch(console.warn);};
   const addStaff=(s:StaffMember)=>{
     setStaff(prev=>[...prev,s]);
-    toast.success("Staff member invited — they will receive an email to set their password");
+    toast.info(`Sending invitation to ${s.email}…`);
     api.staff.invite({
       email:s.email,name:s.name,phone:s.phone,role:s.role,
       farms:s.farms,permissions:s.permissions,
       appUrl:window.location.origin,
     }).then(res=>{
       if(res.staffMember?.id){setStaff(prev=>prev.map(x=>x.id===s.id?{...x,id:res.staffMember.id}:x));}
-    }).catch(console.warn);
+      if(res.emailSent){
+        toast.success(`Invite email sent to ${s.email}`);
+      }else if(res.emailError){
+        toast.error(`Staff saved, but email notice: ${res.emailError}. You can use 'Copy Link' to share directly.`);
+      }else{
+        toast.success("Staff member invited — you can also copy and send the link.");
+      }
+    }).catch(err=>{
+      console.warn("Staff invite failed:", err);
+      toast.error("Staff invite saved locally. Sync when online.");
+    });
   };
   const editStaff=(s:StaffMember)=>{setStaff(prev=>prev.map(x=>x.id===s.id?s:x));api.staff.update(s).catch(console.warn);};
   const delStaff=(id:string)=>{setStaff(prev=>prev.filter(s=>s.id!==id));api.staff.remove(id).catch(console.warn);};
@@ -2905,19 +2969,20 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   const editPriceGroup=(g:PriceGroup)=>{setPriceGroups(prev=>prev.map(x=>x.id===g.id?g:x));api.priceGroups.update(g).catch(console.warn);};
   const delPriceGroup=(id:string)=>{setPriceGroups(prev=>prev.filter(g=>g.id!==id));api.priceGroups.remove(id).catch(console.warn);};
   /* Derived data — computed unconditionally before any early return (Rules of Hooks) */
-  const farmPonds=ponds.filter(p=>p.farmId===activeFarmId);
-  const farmFeeding=feeding.filter(r=>!r.pond||(()=>{const p=ponds.find(x=>x.name===r.pond);return !p||p.farmId===activeFarmId;})());
-  const farmInventory=inventory.filter(i=>!i.farmId||i.farmId===activeFarmId);
-  const farmExpenses=expenses.filter(e=>!e.farmId||e.farmId===activeFarmId);
-  const farmRevenues=revenues.filter(r=>!r.farmId||r.farmId===activeFarmId);
-  const farmReports=reports.filter(r=>!r.farmId||r.farmId===activeFarmId);
-  const farmTreatments=treatments.filter(t=>t.farmId===activeFarmId);
-  const farmMortality=mortality.filter(m=>!m.farmId||m.farmId===activeFarmId);
-  const farmBagLogs=bagLogs.filter(b=>!b.farmId||b.farmId===activeFarmId);
-  const farmRemainLogs=remainLogs.filter(r=>!r.farmId||r.farmId===activeFarmId);
-  const farmCustomers=customers.filter(c=>!c.farmId||c.farmId===activeFarmId);
-  const farmPriceGroups=priceGroups.filter(g=>!g.farmId||g.farmId===activeFarmId);
-  const farmInvoices=invoices.filter(i=>!i.farmId||i.farmId===activeFarmId);
+  const hasOneFarmOrNone = farms.length <= 1;
+  const farmPonds=ponds.filter(p=>hasOneFarmOrNone||p.farmId===activeFarmId);
+  const farmFeeding=feeding.filter(r=>!r.pond||(()=>{const p=ponds.find(x=>x.name===r.pond);return !p||p.farmId===activeFarmId||hasOneFarmOrNone;})());
+  const farmInventory=inventory.filter(i=>hasOneFarmOrNone||!i.farmId||i.farmId===activeFarmId);
+  const farmExpenses=expenses.filter(e=>hasOneFarmOrNone||!e.farmId||e.farmId===activeFarmId);
+  const farmRevenues=revenues.filter(r=>hasOneFarmOrNone||!r.farmId||r.farmId===activeFarmId);
+  const farmReports=reports.filter(r=>hasOneFarmOrNone||!r.farmId||r.farmId===activeFarmId);
+  const farmTreatments=treatments.filter(t=>hasOneFarmOrNone||t.farmId===activeFarmId);
+  const farmMortality=mortality.filter(m=>hasOneFarmOrNone||!m.farmId||m.farmId===activeFarmId);
+  const farmBagLogs=bagLogs.filter(b=>hasOneFarmOrNone||!b.farmId||b.farmId===activeFarmId);
+  const farmRemainLogs=remainLogs.filter(r=>hasOneFarmOrNone||!r.farmId||r.farmId===activeFarmId);
+  const farmCustomers=customers.filter(c=>hasOneFarmOrNone||!c.farmId||c.farmId===activeFarmId);
+  const farmPriceGroups=priceGroups.filter(g=>hasOneFarmOrNone||!g.farmId||g.farmId===activeFarmId);
+  const farmInvoices=invoices.filter(i=>hasOneFarmOrNone||!i.farmId||i.farmId===activeFarmId);
   /* Permission derivation — owner has all permissions */
   const currentStaff=staff.find(s=>s.email===userProfile?.email);
   const isOwner=!currentStaff||currentStaff.role==="Admin";

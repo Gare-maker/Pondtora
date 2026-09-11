@@ -119,17 +119,19 @@ export function objToSnake(obj: Record<string, any>, userId?: string): Record<st
     out["id"] = toUuid(out["id"]);
   }
   if (out["farm_id"] !== undefined) {
-    if (!out["farm_id"] || out["farm_id"] === "" || out["farm_id"] === "—") {
+    const fid = typeof out["farm_id"] === "string" ? out["farm_id"].trim() : "";
+    if (!fid || fid === "—" || fid === "default" || !isUuid(fid)) {
       delete out["farm_id"];
     } else {
-      out["farm_id"] = toUuid(out["farm_id"]);
+      out["farm_id"] = fid;
     }
   }
   if (out["pond_id"] !== undefined) {
-    if (!out["pond_id"] || out["pond_id"] === "" || out["pond_id"] === "—") {
+    const pid = typeof out["pond_id"] === "string" ? out["pond_id"].trim() : "";
+    if (!pid || pid === "—" || pid === "default") {
       delete out["pond_id"];
     } else {
-      out["pond_id"] = toUuid(out["pond_id"]);
+      out["pond_id"] = toUuid(pid);
     }
   }
   return out;
@@ -500,7 +502,7 @@ export const api = {
       const staffMember: StaffMember = {
         id: crypto.randomUUID(),
         name: opts.name || opts.email.split("@")[0],
-        email: opts.email,
+        email: opts.email.trim().toLowerCase(),
         phone: opts.phone || "",
         role: opts.role || "General Staff",
         status: "Pending",
@@ -509,7 +511,39 @@ export const api = {
         farms: opts.farms || [],
       };
       await dbInsert<StaffMember>("staff_members", staffMember, "staffMembers");
-      return { success: true, staffMember, invitation: null };
+
+      const appUrl = opts.appUrl || window.location.origin;
+      const redirectTo = `${appUrl}?type=invite`;
+      const inviteLink = `${appUrl}?type=invite&email=${encodeURIComponent(staffMember.email)}`;
+      let emailSent = false;
+      let emailError: string | null = null;
+
+      try {
+        const { error: otpErr } = await supabase.auth.signInWithOtp({
+          email: staffMember.email,
+          options: {
+            emailRedirectTo: redirectTo,
+            data: {
+              name: staffMember.name,
+              role: "staff",
+              owner_id: userId,
+            },
+          },
+        });
+        if (otpErr) {
+          console.warn("Supabase signInWithOtp invite failed, trying reset password fallback:", otpErr.message);
+          emailError = otpErr.message;
+          const { error: resetErr } = await supabase.auth.resetPasswordForEmail(staffMember.email, { redirectTo });
+          if (!resetErr) emailSent = true;
+        } else {
+          emailSent = true;
+        }
+      } catch (err: any) {
+        console.warn("Invite email dispatch error:", err);
+        emailError = err?.message || String(err);
+      }
+
+      return { success: true, staffMember, invitation: null, emailSent, emailError, inviteLink };
     },
     update: (s: StaffMember) => dbUpdate<StaffMember>("staff_members", s, "staffMembers"),
     remove: (id: string) => dbDelete("staff_members", id, "staffMembers"),

@@ -827,116 +827,26 @@ function FeedDocumentation({
                       const bagErr=r.status==="bag_mismatch"||r.status==="multiple_mismatches";
                       const remErr=r.status==="remaining_mismatch"||r.status==="multiple_mismatches";
                       return(
-                        <React.Fragment key={rowKey}>
-                          <tr
-                            onClick={()=>{if(window.innerWidth<768){setPopupRecon(r);}else{setReconExpanded(expanded?null:rowKey);}}}
-                            className={`cursor-pointer transition-colors ${sc.rowBg} ${highlighted?"outline outline-2 outline-green-400":""}`}
-                          >
-                            <td className="px-4 py-3 sticky left-0 z-10 bg-white border-r border-slate-100 min-w-[180px]">
-                              <p className="text-xs font-semibold text-slate-800 leading-tight">{r.fishStock}</p>
-                            </td>
-                            <td className="px-4 py-3"><Bdg label={r.size} color="blue"/></td>
-                            <td className="px-4 py-3 font-semibold text-slate-700 whitespace-nowrap">{r.brand}</td>
-                            <td className="px-4 py-3 text-xs text-slate-500">{r.ponds.join(", ")||"—"}</td>
-                            <td className="px-4 py-3 font-bold text-slate-800">{r.totalFed} kg</td>
-                            <td className="px-4 py-3 font-semibold text-slate-700">{r.totalFed} kg</td>
-                            <td className="px-4 py-3 font-semibold text-slate-700">{r.expectedBags}</td>
-                            <td className={`px-4 py-3 font-semibold ${bagErr?"text-red-600":"text-slate-700"}`}>{r.recordedBags}</td>
-                            <td className="px-4 py-3 text-slate-600">{r.expectedRemaining>0?`${r.expectedRemaining} kg`:<span className="text-slate-300">—</span>}</td>
-                            <td className={`px-4 py-3 font-semibold ${remErr?"text-red-600":"text-slate-600"}`}>{r.recordedRemaining>0?`${r.recordedRemaining} kg`:<span className="text-slate-300">—</span>}</td>
-                            <td className="px-4 py-3"><span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold whitespace-nowrap ${sc.cls}`}>{sc.label}</span></td>
-                          </tr>
-                          {expanded&&(
-                            <tr>
-                              <td colSpan={11} className="px-6 py-5 bg-slate-50 border-b border-slate-200">
-                                <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-4">{selDate} · {r.fishStock} · {r.brand} · <span className="text-blue-600">{r.size}</span></p>
-                                <div className="space-y-3 text-xs max-w-2xl">
-                                  {/* Step 1 */}
-                                  {(()=>{
-                                    const pondsForRow=(feedingRecords||[]).filter(fr=>fr&&isSameDate(fr.date,selDate)&&fr.brand===r.brand&&fr.size===r.size&&r.ponds.includes(fr.pond));
-                                    return(
-                                      <div className="bg-white border border-slate-200 rounded-xl p-4">
-                                        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2">Step 1 — Total Feed Given</p>
-                                        <div className="space-y-1 mb-2">
-                                          {pondsForRow.map(fr=>(
-                                            <div key={fr.id} className="flex items-center justify-between">
-                                              <span className="text-slate-500">{fr.pond}</span>
-                                              <span className="font-semibold text-slate-700">{fr.total} kg</span>
-                                            </div>
-                                          ))}
-                                        </div>
-                                        <div className="border-t border-slate-100 pt-2 flex items-center justify-between">
-                                          <span className="font-bold text-slate-600">Total Feed Given</span>
-                                          <span className="font-black text-slate-900 text-sm">{r.totalFed} kg</span>
-                                        </div>
-                                      </div>
-                                    );
-                                  })()}
-                                  {/* Step 2 */}
-                                  <div className="bg-white border border-slate-200 rounded-xl p-4">
-                                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2">Step 2 — Yesterday's Remaining</p>
-                                    <div className="space-y-1.5">
-                                      <div className="flex items-center justify-between"><span className="text-slate-500">Carryover from Yesterday</span><span className="font-semibold text-amber-600">{r.carryover} kg</span></div>
-                                    </div>
-                                  </div>
-                                  {/* Step 3 */}
-                                  <div className="bg-white border border-slate-200 rounded-xl p-4">
-                                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2">Step 3 — Required New Feed</p>
-                                    <div className="flex items-center gap-2 text-slate-400 text-[11px] pl-1">
-                                      <span>{r.totalFed} kg − {r.carryover} kg</span><span>=</span><span className="font-black text-blue-600 text-sm">{r.netNeeded} kg</span>
-                                    </div>
-                                  </div>
-                                  {/* Step 4 */}
-                                  {(()=>{
-                                    const bagE=r.status==="bag_mismatch"||r.status==="multiple_mismatches";
-                                    const ratio=r.bagWeight>0?(r.netNeeded/r.bagWeight).toFixed(2):"—";
-                                    return(
-                                      <div className={`rounded-xl p-4 border ${bagE?"bg-red-50 border-red-200":"bg-white border-slate-200"}`}>
-                                        <p className={`text-[10px] font-bold uppercase tracking-wider mb-2 ${bagE?"text-red-500":"text-slate-400"}`}>Step 4 — Expected Bags Opened{bagE&&" ⚠"}</p>
-                                        <div className="space-y-1.5">
-                                          <div className="flex items-center justify-between"><span className="text-slate-500">Bag Weight</span><span className="font-semibold text-slate-700">{r.bagWeight} kg/bag</span></div>
-                                          <div className="flex items-center gap-2 text-slate-400 text-[11px] pl-1"><span>{r.netNeeded} ÷ {r.bagWeight} kg</span><span>=</span><span className="font-bold text-slate-600">{ratio}</span></div>
-                                          <div className={`flex items-center justify-between border-t pt-1.5 ${bagE?"border-red-200":"border-slate-100"}`}><span className="font-bold text-slate-600">Rounded up to</span><span className={`font-black text-sm ${bagE?"text-red-600":"text-slate-900"}`}>{r.expectedBags} bags</span></div>
-                                        </div>
-                                      </div>
-                                    );
-                                  })()}
-                                  {/* Step 5 */}
-                                  {(()=>{
-                                    const bagE=r.status==="bag_mismatch"||r.status==="multiple_mismatches";
-                                    return(
-                                      <div className={`rounded-xl p-4 border ${bagE?"bg-red-50 border-red-200":"bg-white border-slate-200"}`}>
-                                        <p className={`text-[10px] font-bold uppercase tracking-wider mb-2 ${bagE?"text-red-500":"text-slate-400"}`}>Step 5 — Recorded Bags Opened</p>
-                                        <div className="flex items-center justify-between">
-                                          <span className="text-slate-500">Recorded Bags</span>
-                                          <span className={`font-black text-sm ${bagE?"text-red-600":"text-green-600"}`}>{r.recordedBags} bag{r.recordedBags!==1?"s":""} {bagE?"✗":"✓"}</span>
-                                        </div>
-                                        {bagE&&<p className="text-[11px] text-red-500 font-semibold mt-1.5">Expected {r.expectedBags}, recorded {r.recordedBags} — difference of {Math.abs(r.expectedBags-r.recordedBags)}</p>}
-                                      </div>
-                                    );
-                                  })()}
-                                  {/* Step 6+7 */}
-                                  {(()=>{
-                                    const remE=r.status==="remaining_mismatch"||r.status==="multiple_mismatches";
-                                    return(
-                                      <div className={`rounded-xl p-4 border ${remE?"bg-red-50 border-red-200":"bg-white border-slate-200"}`}>
-                                        <p className={`text-[10px] font-bold uppercase tracking-wider mb-2 ${remE?"text-red-500":"text-slate-400"}`}>Step 6 & 7 — Remaining Feed{remE&&" ⚠"}</p>
-                                        <div className="space-y-1.5">
-                                          <div className="flex items-center gap-2 text-slate-400 text-[11px] pl-1"><span>{r.carryover} + ({r.expectedBags} × {r.bagWeight}) − {r.totalFed}</span><span>=</span><span className="font-bold text-slate-700">{r.expectedRemaining} kg</span></div>
-                                          <div className={`border-t pt-2 mt-1 grid grid-cols-2 gap-3 ${remE?"border-red-200":"border-slate-100"}`}>
-                                            <div><p className="text-[10px] text-slate-400 mb-0.5">Expected Remaining</p><p className="font-bold text-slate-800">{r.expectedRemaining} kg</p></div>
-                                            <div><p className="text-[10px] text-slate-400 mb-0.5">Recorded Remaining</p><p className={`font-bold ${remE?"text-red-600":"text-green-600"}`}>{r.recordedRemaining} kg {remE?"✗":"✓"}</p></div>
-                                          </div>
-                                          {remE&&<p className="text-[11px] text-red-500 font-semibold">Difference of {Math.abs(r.expectedRemaining-r.recordedRemaining).toFixed(1)} kg</p>}
-                                        </div>
-                                      </div>
-                                    );
-                                  })()}
-                                </div>
-                              </td>
-                            </tr>
-                          )}
-                        </React.Fragment>
+                        <tr
+                          key={rowKey}
+                          onClick={()=>setPopupRecon(r)}
+                          className={`cursor-pointer transition-colors ${sc.rowBg} ${highlighted?"outline outline-2 outline-green-400":""}`}
+                          title="Click to view reconciliation detail popup"
+                        >
+                          <td className="px-4 py-3 sticky left-0 z-10 bg-white border-r border-slate-100 min-w-[180px]">
+                            <p className="text-xs font-semibold text-slate-800 leading-tight">{r.fishStock}</p>
+                          </td>
+                          <td className="px-4 py-3"><Bdg label={r.size} color="blue"/></td>
+                          <td className="px-4 py-3 font-semibold text-slate-700 whitespace-nowrap">{r.brand}</td>
+                          <td className="px-4 py-3 text-xs text-slate-500">{r.ponds.join(", ")||"—"}</td>
+                          <td className="px-4 py-3 font-bold text-slate-800">{r.totalFed} kg</td>
+                          <td className="px-4 py-3 font-semibold text-slate-700">{r.totalFed} kg</td>
+                          <td className="px-4 py-3 font-semibold text-slate-700">{r.expectedBags}</td>
+                          <td className={`px-4 py-3 font-semibold ${bagErr?"text-red-600":"text-slate-700"}`}>{r.recordedBags}</td>
+                          <td className="px-4 py-3 text-slate-600">{r.expectedRemaining>0?`${r.expectedRemaining} kg`:<span className="text-slate-300">—</span>}</td>
+                          <td className={`px-4 py-3 font-semibold ${remErr?"text-red-600":"text-slate-600"}`}>{r.recordedRemaining>0?`${r.recordedRemaining} kg`:<span className="text-slate-300">—</span>}</td>
+                          <td className="px-4 py-3"><span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold whitespace-nowrap ${sc.cls}`}>{sc.label}</span></td>
+                        </tr>
                       );
                     })}
                   </tbody>
@@ -947,7 +857,7 @@ function FeedDocumentation({
         );
       })()}
 
-      {/* ── Reconciliation Popup (mobile) ── */}
+      {/* ── Reconciliation Popup (Desktop & Mobile) ── */}
       {popupRecon&&(()=>{
         const pr=popupRecon;
         const bagErr=pr.status==="bag_mismatch"||pr.status==="multiple_mismatches";
@@ -958,8 +868,8 @@ function FeedDocumentation({
         const ratio=pr.bagWeight>0?(pr.netNeeded/pr.bagWeight).toFixed(2):"—";
         const sc=STATUS_CFG[pr.status]||STATUS_CFG.matched;
         return(
-          <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center" onClick={e=>e.target===e.currentTarget&&setPopupRecon(null)}>
-            <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-lg flex flex-col" style={{maxHeight:"90vh"}}>
+          <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs z-50 flex items-center justify-center p-3 sm:p-6" onClick={e=>e.target===e.currentTarget&&setPopupRecon(null)}>
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150" style={{maxHeight:"90vh"}}>
               <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 sticky top-0 bg-white z-10 shrink-0">
                 <div>
                   <h2 className="text-base font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Reconciliation Detail</h2>
