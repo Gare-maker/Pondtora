@@ -148,22 +148,26 @@ export function objToCamel<T = any>(obj: Record<string, any>): T {
   return out as T;
 }
 
-// ── Local Storage Cache Backup ───────────────────────────────────────────────
-const CACHE_KEY = "pondtora_full_state_cache";
+// ── Local Storage Cache Backup (User-Scoped) ─────────────────────────────────
+function getUserCacheKey(userId?: string): string {
+  return userId ? `pondtora_${userId}_cache` : "pondtora_anon_cache";
+}
 
-function getLocalCache(): any {
+function getLocalCache(userId?: string): any {
+  if (!userId) return null;
   try {
-    const raw = localStorage.getItem(CACHE_KEY);
+    const raw = localStorage.getItem(getUserCacheKey(userId));
     return raw ? JSON.parse(raw) : null;
   } catch {
     return null;
   }
 }
 
-function saveLocalCache(data: any) {
+function saveLocalCache(data: any, userId?: string) {
+  if (!userId) return;
   try {
-    const current = getLocalCache() || {};
-    localStorage.setItem(CACHE_KEY, JSON.stringify({ ...current, ...data }));
+    const current = getLocalCache(userId) || {};
+    localStorage.setItem(getUserCacheKey(userId), JSON.stringify({ ...current, ...data }));
   } catch (e) {
     console.warn("Failed to update localStorage cache", e);
   }
@@ -212,7 +216,14 @@ export const auth = {
   },
 
   signOut: async () => {
-    localStorage.removeItem(CACHE_KEY);
+    try {
+      const keys = Object.keys(localStorage);
+      for (const k of keys) {
+        if (k.startsWith("pondtora_")) {
+          localStorage.removeItem(k);
+        }
+      }
+    } catch {}
     const { error } = await supabase.auth.signOut();
     if (error) throw error;
   },
@@ -257,34 +268,21 @@ async function getUserId(): Promise<string> {
     const { data: { user } } = await supabase.auth.getUser();
     if (user?.id && isUuid(user.id)) return user.id;
   } catch {}
-  try {
-    const raw = localStorage.getItem("pondtora_user_profile");
-    if (raw) {
-      const p = JSON.parse(raw);
-      if (p?.id && isUuid(p.id)) return p.id;
-    }
-  } catch {}
-  try {
-    const rawAuth = localStorage.getItem("pondtora_auth");
-    if (rawAuth) {
-      const p = JSON.parse(rawAuth);
-      if (p?.user?.id && isUuid(p.user.id)) return p.user.id;
-    }
-  } catch {}
   return "";
 }
 
 async function dbList<T>(table: string, cacheKey?: string): Promise<T[]> {
+  const userId = await getUserId();
   try {
     const { data, error } = await supabase.from(table).select("*");
     if (error) throw error;
     const items = (data || []).map(r => objToCamel<T>(r));
-    if (cacheKey) saveLocalCache({ [cacheKey]: items });
+    if (cacheKey && userId) saveLocalCache({ [cacheKey]: items }, userId);
     return items;
   } catch (err) {
     console.warn(`Error fetching ${table}:`, err);
-    if (cacheKey) {
-      const cached = getLocalCache();
+    if (cacheKey && userId) {
+      const cached = getLocalCache(userId);
       if (cached && cached[cacheKey]) return cached[cacheKey];
     }
     return [];
@@ -296,11 +294,11 @@ async function dbInsert<T extends { id?: string }>(table: string, item: T, cache
   const snake = objToSnake(item as any, userId);
   if (!snake.id) snake.id = crypto.randomUUID();
 
-  // Optimistically update local cache
-  if (cacheKey) {
-    const cached = getLocalCache() || {};
+  // Optimistically update local cache scoped to current user
+  if (cacheKey && userId) {
+    const cached = getLocalCache(userId) || {};
     const list = cached[cacheKey] || [];
-    saveLocalCache({ [cacheKey]: [item, ...list.filter((x: any) => x.id !== item.id)] });
+    saveLocalCache({ [cacheKey]: [item, ...list.filter((x: any) => x.id !== item.id)] }, userId);
   }
 
   try {
@@ -321,11 +319,11 @@ async function dbUpdate<T extends { id?: string }>(table: string, item: T, cache
   const snake = objToSnake(item as any, userId);
   const targetId = snake.id || (item.id ? toUuid(item.id) : undefined);
 
-  // Update local cache
-  if (cacheKey) {
-    const cached = getLocalCache() || {};
+  // Update local cache scoped to current user
+  if (cacheKey && userId) {
+    const cached = getLocalCache(userId) || {};
     const list = cached[cacheKey] || [];
-    saveLocalCache({ [cacheKey]: list.map((x: any) => (x.id === item.id ? { ...x, ...item } : x)) });
+    saveLocalCache({ [cacheKey]: list.map((x: any) => (x.id === item.id ? { ...x, ...item } : x)) }, userId);
   }
 
   try {
@@ -376,13 +374,19 @@ export const api = {
 
     const [profRes, farmsRes, staffRes] = await Promise.all([
       supabase.from("user_profiles").select("*").eq("id", userId).maybeSingle(),
-      supabase.from("farms").select("*"),
+      supabase.from("farms").select("*").eq("user_id", userId),
       supabase.from("staff_members").select("*").eq("staff_auth_id", userId).maybeSingle(),
     ]);
 
     const profile = profRes.data ? objToCamel<UserProfile>(profRes.data) : null;
-    const farms = (farmsRes.data || []).map(f => objToCamel<Farm>(f));
+    let farms = (farmsRes.data || []).map(f => objToCamel<Farm>(f));
     const isStaff = !!staffRes.data;
+
+    // If staff member with assigned farms, fetch assigned farms
+    if (isStaff && staffRes.data?.farms && farms.length === 0) {
+      const { data: allFarms } = await supabase.from("farms").select("*");
+      farms = (allFarms || []).filter((f: any) => staffRes.data.farms.includes(f.id)).map(f => objToCamel<Farm>(f));
+    }
 
     return { profile, farms, staffInfo: staffRes.data || null, isStaff };
   },
@@ -390,7 +394,19 @@ export const api = {
   // Bulk load all user data from Supabase directly
   loadAll: async () => {
     const userId = await getUserId();
-    const cached = getLocalCache();
+    if (!userId) {
+      return {
+        needsSetup: false,
+        farms: [], userProfiles: [], ponds: [], stockEvents: [],
+        feedInventory: [], feedingRecords: [], bagOpenLogs: [], feedRemainingLogs: [],
+        expenses: [], revenues: [], mortalityEntries: [], treatmentRecords: [],
+        staffMembers: [], reports: [], customers: [], priceGroups: [],
+        invoices: [], invoiceSettings: null, knowledgeQuestions: [],
+        compatibilityQuestions: [], knowledgeResults: [], compatibilityResults: [],
+        staffInfo: null, isStaff: false,
+      };
+    }
+    const cached = getLocalCache(userId);
 
     try {
       const [
@@ -400,7 +416,7 @@ export const api = {
         kqRes, cqRes, krRes, crRes
       ] = await Promise.all([
         supabase.from("farms").select("*"),
-        supabase.from("user_profiles").select("*"),
+        supabase.from("user_profiles").select("*").eq("id", userId),
         supabase.from("ponds").select("*"),
         supabase.from("stock_events").select("*"),
         supabase.from("feed_inventory").select("*"),
@@ -416,11 +432,11 @@ export const api = {
         supabase.from("customers").select("*"),
         supabase.from("price_groups").select("*"),
         supabase.from("invoices").select("*"),
-        supabase.from("invoice_settings").select("*").maybeSingle(),
+        supabase.from("invoice_settings").select("*").eq("user_id", userId).maybeSingle(),
         supabase.from("knowledge_questions").select("*"),
         supabase.from("compatibility_questions").select("*"),
-        supabase.from("knowledge_results").select("*"),
-        supabase.from("compatibility_results").select("*"),
+        supabase.from("knowledge_results").select("*").eq("user_id", userId),
+        supabase.from("compatibility_results").select("*").eq("user_id", userId),
       ]);
 
       const result = {
@@ -451,8 +467,8 @@ export const api = {
         isStaff: false,
       };
 
-      // Save to localStorage cache as backup
-      saveLocalCache(result);
+      // Save to user-scoped cache as backup
+      saveLocalCache(result, userId);
       return result;
     } catch (err) {
       console.warn("Direct Supabase loadAll failed, returning cache if available:", err);

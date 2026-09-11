@@ -2306,59 +2306,59 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   useEffect(()=>{const h=(e:MouseEvent)=>{if(mFarmRef.current&&!mFarmRef.current.contains(e.target as Node))setMFarmOpen(false);};document.addEventListener("mousedown",h);return()=>document.removeEventListener("mousedown",h);},[]);
   useEffect(()=>{const h=(e:KeyboardEvent)=>{if(e.key==="Escape")setMFarmOpen(false);};document.addEventListener("keydown",h);return()=>document.removeEventListener("keydown",h);},[]);
   
-  const [farms,setFarms]=useState<Farm[]>(()=>loadLocal("pondtora_farms",[]));
-  const [activeFarmId,setActiveFarmId]=useState<string>(()=>localStorage.getItem("pondtora_active_farm_id")||"");
+  const [farms,setFarms]=useState<Farm[]>([]);
+  const [activeFarmId,setActiveFarmId]=useState<string>("");
   const [showAddFarm,setShowAddFarm]=useState(false);
   const [addFarmF,setAddFarmF]=useState({name:"",city:"",state:"",country:"Nigeria"});
   
-  const [ponds,setPonds]=useState<Pond[]>(()=>loadLocal("pondtora_ponds",[]));
-  const [inventory,setInventory]=useState<FeedItem[]>(()=>loadLocal("pondtora_inventory",[]));
-  const [feeding,setFeeding]=useState<FeedingRecord[]>(()=>loadLocal("pondtora_feeding",[]));
-  const [bagLogs,setBagLogs]=useState<BagOpenLog[]>(()=>loadLocal("pondtora_bag_logs",[]));
-  const [remainLogs,setRemainLogs]=useState<FeedRemainingLog[]>(()=>loadLocal("pondtora_remain_logs",[]));
-  const [expenses,setExpenses]=useState<Expense[]>(()=>loadLocal("pondtora_expenses",[]));
-  const [revenues,setRevenues]=useState<Revenue[]>(()=>loadLocal("pondtora_revenues",[]));
-  const [mortality,setMortality]=useState<MortalityEntry[]>(()=>loadLocal("pondtora_mortality",[]));
-  const [treatments,setTreatments]=useState<TreatmentRecord[]>(()=>loadLocal("pondtora_treatments",[]));
-  const [staff,setStaff]=useState<StaffMember[]>(()=>loadLocal("pondtora_staff",[]));
-  const [stockEvents,setStockEvents]=useState<StockEvent[]>(()=>loadLocal("pondtora_stock_events",[]));
-  const [reports,setReports]=useState<Report[]>(()=>loadLocal("pondtora_reports",[]));
-  const [customers,setCustomers]=useState<Customer[]>(()=>loadLocal("pondtora_customers",[]));
-  const [priceGroups,setPriceGroups]=useState<PriceGroup[]>(()=>loadLocal("pondtora_price_groups",[]));
-  const [invoices,setInvoices]=useState<Invoice[]>(()=>loadLocal("pondtora_invoices",[]));
-  const [invSettings,setInvSettings]=useState<InvSettings>(()=>loadLocal("pondtora_inv_settings",INIT_INV_SETTINGS));
+  const [ponds,setPonds]=useState<Pond[]>([]);
+  const [inventory,setInventory]=useState<FeedItem[]>([]);
+  const [feeding,setFeeding]=useState<FeedingRecord[]>([]);
+  const [bagLogs,setBagLogs]=useState<BagOpenLog[]>([]);
+  const [remainLogs,setRemainLogs]=useState<FeedRemainingLog[]>([]);
+  const [expenses,setExpenses]=useState<Expense[]>([]);
+  const [revenues,setRevenues]=useState<Revenue[]>([]);
+  const [mortality,setMortality]=useState<MortalityEntry[]>([]);
+  const [treatments,setTreatments]=useState<TreatmentRecord[]>([]);
+  const [staff,setStaff]=useState<StaffMember[]>([]);
+  const [stockEvents,setStockEvents]=useState<StockEvent[]>([]);
+  const [reports,setReports]=useState<Report[]>([]);
+  const [customers,setCustomers]=useState<Customer[]>([]);
+  const [priceGroups,setPriceGroups]=useState<PriceGroup[]>([]);
+  const [invoices,setInvoices]=useState<Invoice[]>([]);
+  const [invSettings,setInvSettings]=useState<InvSettings>(INIT_INV_SETTINGS);
 
   const [kQuestionsState,setKQuestions_]=useState<any[]>(()=>loadLocal("pondtora_k_questions",INIT_K));
   const [cQuestionsState,setCQuestions_]=useState<any[]>(()=>loadLocal("pondtora_c_questions",INIT_C));
   const [kResultsState,setKResults_]=useState<any[]>(()=>loadLocal("pondtora_k_results",[]));
   const [cResultsState,setCResults_]=useState<any[]>(()=>loadLocal("pondtora_c_results",[]));
 
-  /* ── LocalStorage Synchronizers ── */
+  /* ── LocalStorage Synchronizers (Scoped per user) ── */
   useEffect(()=>{localStorage.setItem("pondtora_is_auth",isAuth?"true":"false");},[isAuth]);
   useEffect(()=>{localStorage.setItem("pondtora_show_landing",showLanding?"true":"false");},[showLanding]);
-  useEffect(()=>{saveLocal("pondtora_user_profile",userProfile);},[userProfile]);
-  useEffect(()=>{saveLocal("pondtora_farms",farms);},[farms]);
-  useEffect(()=>{if(activeFarmId)localStorage.setItem("pondtora_active_farm_id",activeFarmId);},[activeFarmId]);
-  useEffect(()=>{saveLocal("pondtora_ponds",ponds);},[ponds]);
-  useEffect(()=>{saveLocal("pondtora_inventory",inventory);},[inventory]);
-  useEffect(()=>{saveLocal("pondtora_feeding",feeding);},[feeding]);
-  useEffect(()=>{saveLocal("pondtora_bag_logs",bagLogs);},[bagLogs]);
-  useEffect(()=>{saveLocal("pondtora_remain_logs",remainLogs);},[remainLogs]);
-  useEffect(()=>{saveLocal("pondtora_expenses",expenses);},[expenses]);
-  useEffect(()=>{saveLocal("pondtora_revenues",revenues);},[revenues]);
-  useEffect(()=>{saveLocal("pondtora_mortality",mortality);},[mortality]);
-  useEffect(()=>{saveLocal("pondtora_treatments",treatments);},[treatments]);
-  useEffect(()=>{saveLocal("pondtora_staff",staff);},[staff]);
-  useEffect(()=>{saveLocal("pondtora_stock_events",stockEvents);},[stockEvents]);
-  useEffect(()=>{saveLocal("pondtora_reports",reports);},[reports]);
-  useEffect(()=>{saveLocal("pondtora_customers",customers);},[customers]);
-  useEffect(()=>{saveLocal("pondtora_price_groups",priceGroups);},[priceGroups]);
-  useEffect(()=>{saveLocal("pondtora_invoices",invoices);},[invoices]);
-  useEffect(()=>{saveLocal("pondtora_inv_settings",invSettings);},[invSettings]);
-  useEffect(()=>{saveLocal("pondtora_k_questions",kQuestionsState);},[kQuestionsState]);
-  useEffect(()=>{saveLocal("pondtora_c_questions",cQuestionsState);},[cQuestionsState]);
-  useEffect(()=>{saveLocal("pondtora_k_results",kResultsState);},[kResultsState]);
-  useEffect(()=>{saveLocal("pondtora_c_results",cResultsState);},[cResultsState]);
+  useEffect(()=>{
+    if(userProfile?.id){
+      saveLocal(`pondtora_${userProfile.id}_user_profile`,userProfile);
+      saveLocal(`pondtora_${userProfile.id}_farms`,farms);
+      if(activeFarmId)localStorage.setItem(`pondtora_${userProfile.id}_active_farm_id`,activeFarmId);
+      saveLocal(`pondtora_${userProfile.id}_ponds`,ponds);
+      saveLocal(`pondtora_${userProfile.id}_inventory`,inventory);
+      saveLocal(`pondtora_${userProfile.id}_feeding`,feeding);
+      saveLocal(`pondtora_${userProfile.id}_bag_logs`,bagLogs);
+      saveLocal(`pondtora_${userProfile.id}_remain_logs`,remainLogs);
+      saveLocal(`pondtora_${userProfile.id}_expenses`,expenses);
+      saveLocal(`pondtora_${userProfile.id}_revenues`,revenues);
+      saveLocal(`pondtora_${userProfile.id}_mortality`,mortality);
+      saveLocal(`pondtora_${userProfile.id}_treatments`,treatments);
+      saveLocal(`pondtora_${userProfile.id}_staff`,staff);
+      saveLocal(`pondtora_${userProfile.id}_stock_events`,stockEvents);
+      saveLocal(`pondtora_${userProfile.id}_reports`,reports);
+      saveLocal(`pondtora_${userProfile.id}_customers`,customers);
+      saveLocal(`pondtora_${userProfile.id}_price_groups`,priceGroups);
+      saveLocal(`pondtora_${userProfile.id}_invoices`,invoices);
+      saveLocal(`pondtora_${userProfile.id}_inv_settings`,invSettings);
+    }
+  },[userProfile,farms,activeFarmId,ponds,inventory,feeding,bagLogs,remainLogs,expenses,revenues,mortality,treatments,staff,stockEvents,reports,customers,priceGroups,invoices,invSettings]);
 
   useEffect(()=>{
     if(farms.length>0&&(!activeFarmId||!farms.some(f=>f.id===activeFarmId))){
@@ -2803,10 +2803,12 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
 
   /* ── Apply backend authoritative data to state ── */
   const applyBackendData=useCallback((d:any)=>{
-    if(d.farms?.length>0){
+    if(d.farms && d.farms.length>0){
       setFarms(d.farms);
       setActiveFarmId(prev=>(d.farms.some((f:any)=>f.id===prev)?prev:d.farms[0].id));
     } else {
+      setFarms([]);
+      setActiveFarmId("");
       // If user has no farm in database, auto-create one
       const farmName = userProfile?.farmName || "My Farm";
       api.farms.create({ name: farmName, country: userProfile?.country || "Nigeria" }).then(nf => {
@@ -2822,81 +2824,28 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       if(up.trialStartDate)setTrialStartDate(up.trialStartDate);
     }
 
-    // Set backend authoritative data directly, preserving local unpersisted records
-    if(d.ponds){
-      setPonds(prev=>{
-        const dbIds=new Set((d.ponds||[]).map((x:any)=>x.id));
-        const localOnly=prev.filter(p=>p.id&&!dbIds.has(p.id));
-        return [...d.ponds,...localOnly];
-      });
-    }
-    if(d.stockEvents)setStockEvents(d.stockEvents);
-    if(d.feedInventory)setInventory(d.feedInventory);
-    if(d.feedingRecords)setFeeding(d.feedingRecords);
-    if(d.bagOpenLogs)setBagLogs(d.bagOpenLogs);
-    if(d.feedRemainingLogs)setRemainLogs(d.feedRemainingLogs);
-    if(d.expenses){
-      setExpenses(prev=>{
-        const dbIds=new Set((d.expenses||[]).map((x:any)=>x.id));
-        const localOnly=prev.filter(e=>e.id&&!dbIds.has(e.id));
-        return [...d.expenses,...localOnly];
-      });
-    }
-    if(d.revenues){
-      setRevenues(prev=>{
-        const dbIds=new Set((d.revenues||[]).map((x:any)=>x.id));
-        const localOnly=prev.filter(r=>r.id&&!dbIds.has(r.id));
-        return [...d.revenues,...localOnly];
-      });
-    }
-    if(d.mortalityEntries)setMortality(d.mortalityEntries);
-    if(d.treatmentRecords)setTreatments(d.treatmentRecords);
-    if(d.staffMembers)setStaff(d.staffMembers);
-    if(d.reports)setReports(d.reports);
-    if(d.customers)setCustomers(d.customers);
-    if(d.priceGroups)setPriceGroups(d.priceGroups);
-    if(d.invoices)setInvoices(d.invoices);
-    if(d.invoiceSettings)setInvSettings(d.invoiceSettings);
-    if(d.knowledgeQuestions?.length>0)setKQuestions_(d.knowledgeQuestions);
-    if(d.compatibilityQuestions?.length>0)setCQuestions_(d.compatibilityQuestions);
-    if(d.knowledgeResults)setKResults_(d.knowledgeResults);
-    if(d.compatibilityResults)setCResults_(d.compatibilityResults);
-
-    // Auto-sync unpersisted local records ONLY if not already in DB by ID or Name
-    if(d.ponds){
-      const dbIds=new Set((d.ponds||[]).map((x:any)=>x.id));
-      const dbNames=new Set((d.ponds||[]).map((x:any)=>(x.name||"").trim().toLowerCase()));
-      ponds.filter(p=>p.id&&!dbIds.has(p.id)&&!dbNames.has((p.name||"").trim().toLowerCase())).forEach(p=>api.ponds.create(p).catch(console.warn));
-    }
-    if(d.feedingRecords){
-      const dbIds=new Set((d.feedingRecords||[]).map((x:any)=>x.id));
-      const dbKeys=new Set((d.feedingRecords||[]).map((x:any)=>`${x.farmId||""}|${x.pond}|${x.date}`));
-      feeding.filter(r=>r.id&&!dbIds.has(r.id)&&!dbKeys.has(`${r.farmId||""}|${r.pond}|${r.date}`)).forEach(r=>api.feeding.create(r).catch(console.warn));
-    }
-    if(d.bagOpenLogs){
-      const dbIds=new Set((d.bagOpenLogs||[]).map((x:any)=>x.id));
-      const dbKeys=new Set((d.bagOpenLogs||[]).map((x:any)=>`${x.farmId||""}|${x.date}|${x.brand}|${x.size}|${x.fishStock||""}`));
-      bagLogs.filter(b=>b.id&&!dbIds.has(b.id)&&!dbKeys.has(`${b.farmId||activeFarmId}|${b.date}|${b.brand}|${b.size}|${b.fishStock||""}`)).forEach(b=>api.bagLogs.create({...b,farmId:b.farmId||activeFarmId}).catch(console.warn));
-    }
-    if(d.feedRemainingLogs){
-      const dbIds=new Set((d.feedRemainingLogs||[]).map((x:any)=>x.id));
-      remainLogs.filter(r=>r.id&&!dbIds.has(r.id)).forEach(r=>api.remainLogs.create({...r,farmId:r.farmId||activeFarmId}).catch(console.warn));
-    }
-    if(d.expenses){
-      const dbIds=new Set((d.expenses||[]).map((x:any)=>x.id));
-      expenses.filter(e=>e.id&&!dbIds.has(e.id)).forEach(e=>{
-        const fId = (e.farmId && e.farmId !== "default") ? e.farmId : (activeFarmId && activeFarmId !== "default" ? activeFarmId : undefined);
-        api.expenses.create({...e, farmId: fId}).catch(console.warn);
-      });
-    }
-    if(d.revenues){
-      const dbIds=new Set((d.revenues||[]).map((x:any)=>x.id));
-      revenues.filter(r=>r.id&&!dbIds.has(r.id)).forEach(r=>{
-        const fId = (r.farmId && r.farmId !== "default") ? r.farmId : (activeFarmId && activeFarmId !== "default" ? activeFarmId : undefined);
-        api.revenues.create({...r, farmId: fId}).catch(console.warn);
-      });
-    }
-  },[ponds,feeding,bagLogs,remainLogs,expenses,revenues,activeFarmId,userProfile]);
+    // Set backend authoritative data directly for the current authenticated user
+    if(d.ponds) setPonds(d.ponds);
+    if(d.stockEvents) setStockEvents(d.stockEvents);
+    if(d.feedInventory) setInventory(d.feedInventory);
+    if(d.feedingRecords) setFeeding(d.feedingRecords);
+    if(d.bagOpenLogs) setBagLogs(d.bagOpenLogs);
+    if(d.feedRemainingLogs) setRemainLogs(d.feedRemainingLogs);
+    if(d.expenses) setExpenses(d.expenses);
+    if(d.revenues) setRevenues(d.revenues);
+    if(d.mortalityEntries) setMortality(d.mortalityEntries);
+    if(d.treatmentRecords) setTreatments(d.treatmentRecords);
+    if(d.staffMembers) setStaff(d.staffMembers);
+    if(d.reports) setReports(d.reports);
+    if(d.customers) setCustomers(d.customers);
+    if(d.priceGroups) setPriceGroups(d.priceGroups);
+    if(d.invoices) setInvoices(d.invoices);
+    if(d.invoiceSettings) setInvSettings(d.invoiceSettings);
+    if(d.knowledgeQuestions?.length>0) setKQuestions_(d.knowledgeQuestions);
+    if(d.compatibilityQuestions?.length>0) setCQuestions_(d.compatibilityQuestions);
+    if(d.knowledgeResults) setKResults_(d.knowledgeResults);
+    if(d.compatibilityResults) setCResults_(d.compatibilityResults);
+  },[userProfile]);
 
   /* ── Auto-create tables then reload ── */
   const runAutoSetup=useCallback(async()=>{
@@ -2976,19 +2925,24 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     });
     const {data:{subscription}}=supabase.auth.onAuthStateChange((event,session)=>{
       if(event==="SIGNED_OUT"){
-        setIsAuth(false);setUserProfile(null);setShowLanding(true);
+        resetAllStateAndStorage();
       } else if(session?.user && (event==="SIGNED_IN" || event==="TOKEN_REFRESHED")){
         const meta=session.user.user_metadata??{};
         const country=meta.country||"Nigeria";
         const cc=COUNTRY_CURRENCIES[country]??COUNTRY_CURRENCIES["Nigeria"];
-        setUserProfile({
-          id:session.user.id,
-          name:meta.name||session.user.email?.split("@")[0]||"User",
-          farmName:meta.farm_name||"My Fish Farm",
-          city:meta.city||"",state:meta.state||"",country,
-          email:session.user.email||"",phone:meta.phone||"",
-          currencySymbol:meta.currency_symbol||cc.symbol,
-          currencyCode:meta.currency_code||cc.code,
+        setUserProfile(prev=>{
+          if(prev?.id && prev.id !== session.user.id){
+            resetAllState();
+          }
+          return {
+            id:session.user.id,
+            name:meta.name||session.user.email?.split("@")[0]||"User",
+            farmName:meta.farm_name||"My Fish Farm",
+            city:meta.city||"",state:meta.state||"",country,
+            email:session.user.email||"",phone:meta.phone||"",
+            currencySymbol:meta.currency_symbol||cc.symbol,
+            currencyCode:meta.currency_code||cc.code,
+          };
         });
         setIsAuth(true);
         setShowLanding(false);
@@ -2999,15 +2953,53 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[]);
 
+  const resetAllState=useCallback(()=>{
+    setFarms([]);
+    setActiveFarmId("");
+    setPonds([]);
+    setInventory([]);
+    setFeeding([]);
+    setBagLogs([]);
+    setRemainLogs([]);
+    setExpenses([]);
+    setRevenues([]);
+    setMortality([]);
+    setTreatments([]);
+    setStaff([]);
+    setStockEvents([]);
+    setReports([]);
+    setCustomers([]);
+    setPriceGroups([]);
+    setInvoices([]);
+    setInvSettings(INIT_INV_SETTINGS);
+    setExtraNotifs([]);
+  },[]);
+
+  const resetAllStateAndStorage=useCallback(()=>{
+    resetAllState();
+    setUserProfile(null);
+    setIsAuth(false);
+    setShowLanding(true);
+    try{
+      const keys=Object.keys(localStorage);
+      for(const k of keys){
+        if(k.startsWith("pondtora_")){
+          localStorage.removeItem(k);
+        }
+      }
+    }catch{}
+  },[resetAllState]);
+
   const handleLogin=(profile:UserProfile)=>{
+    resetAllState();
     setUserProfile(profile);
     setIsAuth(true);
     setShowLanding(false);
     loadFromBackend();
   };
   const handleLogout=async()=>{
+    resetAllStateAndStorage();
     await auth.signOut().catch(console.warn);
-    setIsAuth(false);setUserProfile(null);setShowLanding(true);
   };
   const handleSignup=(profile:UserProfile)=>{
     // With Supabase, if we get here a session exists (signUp returned session immediately)
