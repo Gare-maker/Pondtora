@@ -2362,9 +2362,14 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
 
   useEffect(()=>{
     if(farms.length>0&&(!activeFarmId||!farms.some(f=>f.id===activeFarmId))){
-      setActiveFarmId(farms[0].id);
+      const target=farms[0].id;
+      setActiveFarmId(target);
+      if(userProfile?.id){
+        localStorage.setItem(`pondtora_${userProfile.id}_active_farm_id`,target);
+        api.farms.syncActiveFarm(target);
+      }
     }
-  },[farms,activeFarmId]);
+  },[farms,activeFarmId,userProfile?.id]);
   /* ── Subscription state (global so limits apply everywhere) ── */
   const [activePlan,setActivePlan_]=useState<string|null>(()=>localStorage.getItem("pondtora_plan"));
   const [trialStartDate,setTrialStartDate_]=useState<string|null>(()=>localStorage.getItem("pondtora_trial_start"));
@@ -2413,12 +2418,19 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   const mainRef=useRef<HTMLElement>(null);
   useEffect(()=>{mainRef.current?.scrollTo({top:0,behavior:"instant"});},[active]);
   const nav=(v:View)=>{setActive(v);setSideOpen(false);};
+  const handleSwitchFarm=useCallback((fid:string)=>{
+    setActiveFarmId(fid);
+    if(userProfile?.id){
+      localStorage.setItem(`pondtora_${userProfile.id}_active_farm_id`,fid);
+    }
+    api.farms.syncActiveFarm(fid);
+  },[userProfile?.id]);
   const handleAddFarm=()=>{
     if(!addFarmF.name)return;
     if(farms.length>=farmLimit){setUpgradeModalMsg(farmLimit===1?`Your current plan supports 1 farm. Upgrade to a multi-farm plan to add more farms.`:`You've reached the limit of ${farmLimit} farms on your plan. Upgrade to add more farms.`);setShowUpgradeModal(true);setShowAddFarm(false);return;}
     const newFarm:Farm={id:uid(),name:addFarmF.name,city:addFarmF.city,state:addFarmF.state,country:addFarmF.country};
     setFarms(prev=>[...prev,newFarm]);
-    setActiveFarmId(newFarm.id);
+    handleSwitchFarm(newFarm.id);
     setShowAddFarm(false);
     setAddFarmF({name:"",city:"",state:"",country:"Nigeria"});
     toast.success("Farm created");
@@ -2431,7 +2443,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   };
   const handleDeleteFarm=(id:string)=>{
     setFarms(prev=>prev.filter(f=>f.id!==id));
-    if(activeFarmId===id){const remaining=farms.filter(f=>f.id!==id);if(remaining.length>0)setActiveFarmId(remaining[0].id);}
+    if(activeFarmId===id){const remaining=farms.filter(f=>f.id!==id);if(remaining.length>0)handleSwitchFarm(remaining[0].id);}
     toast.success("Farm deleted");
     api.farms.remove(id).catch(console.warn);
   };
@@ -2441,7 +2453,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     if(farms.length>=farmLimit){setUpgradeModalMsg(farmLimit===1?`Your current plan supports 1 farm. Upgrade to a multi-farm plan to add more farms.`:`You've reached the limit of ${farmLimit} farms on your plan. Upgrade to add more farms.`);setShowUpgradeModal(true);return;}
     const newFarm:Farm={id:uid(),name:d.name,city:d.city,state:d.state,country:d.country};
     setFarms(prev=>[...prev,newFarm]);
-    setActiveFarmId(newFarm.id);
+    handleSwitchFarm(newFarm.id);
     toast.success("Farm created");
     api.farms.create(newFarm).catch(console.warn);
   };
@@ -2803,49 +2815,159 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
 
   /* ── Apply backend authoritative data to state ── */
   const applyBackendData=useCallback((d:any)=>{
-    if(d.farms && d.farms.length>0){
-      setFarms(d.farms);
-      setActiveFarmId(prev=>(d.farms.some((f:any)=>f.id===prev)?prev:d.farms[0].id));
-    } else {
+    const rawFarms: Farm[] = d.farms || [];
+
+    // Deduplicate farms:
+    // If the account has multiple farms on a 1-farm plan or has duplicate/generic names ("My Farm"),
+    // consolidate them under the primary farm and remap record farmIds so no data is lost.
+    let resolvedFarms = rawFarms;
+    const isMultiFarmPlan = activePlan === "3-Farm Plan" || activePlan === "5-Farm Plan" || activePlan === "Unlimited Farms";
+    const duplicateFarmIdMap = new Map<string, string>(); // maps duplicateFarmId -> primaryFarmId
+
+    if (rawFarms.length > 1 && !isMultiFarmPlan) {
+      // Find farm with most ponds/records or earliest created
+      const pondsData: Pond[] = d.ponds || [];
+      const farmPondCounts = new Map<string, number>();
+      pondsData.forEach(p => {
+        if (p.farmId) farmPondCounts.set(p.farmId, (farmPondCounts.get(p.farmId) || 0) + 1);
+      });
+
+      let primary = rawFarms[0];
+      let maxCount = farmPondCounts.get(primary.id) || 0;
+      for (const f of rawFarms) {
+        const count = farmPondCounts.get(f.id) || 0;
+        if (count > maxCount) {
+          primary = f;
+          maxCount = count;
+        }
+      }
+
+      for (const f of rawFarms) {
+        if (f.id !== primary.id) {
+          duplicateFarmIdMap.set(f.id, primary.id);
+        }
+      }
+      resolvedFarms = [primary];
+    } else if (rawFarms.length > 1) {
+      // Multi-farm plan: merge only identical duplicate farm names
+      const seenNames = new Map<string, Farm>();
+      const deduped: Farm[] = [];
+      for (const f of rawFarms) {
+        const nameKey = (f.name || "").trim().toLowerCase();
+        if (seenNames.has(nameKey)) {
+          const original = seenNames.get(nameKey)!;
+          duplicateFarmIdMap.set(f.id, original.id);
+        } else {
+          seenNames.set(nameKey, f);
+          deduped.push(f);
+        }
+      }
+      resolvedFarms = deduped;
+    }
+
+    if (resolvedFarms.length > 0) {
+      setFarms(resolvedFarms);
+      const primaryId = resolvedFarms[0].id;
+      setActiveFarmId(prev => {
+        if (prev && resolvedFarms.some(f => f.id === prev)) return prev;
+        const stored = userProfile?.id ? localStorage.getItem(`pondtora_${userProfile.id}_active_farm_id`) : null;
+        if (stored && resolvedFarms.some(f => f.id === stored)) return stored;
+        return primaryId;
+      });
+    } else if (userProfile?.id) {
       setFarms([]);
       setActiveFarmId("");
-      // If user has no farm in database, auto-create one
-      const farmName = userProfile?.farmName || "My Farm";
-      api.farms.create({ name: farmName, country: userProfile?.country || "Nigeria" }).then(nf => {
-        if(nf?.id){
+      const farmName = userProfile.farmName || "My Farm";
+      api.farms.create({ name: farmName, country: userProfile.country || "Nigeria" }).then(nf => {
+        if (nf?.id) {
           setFarms([nf]);
           setActiveFarmId(nf.id);
+          api.farms.syncActiveFarm(nf.id);
         }
       }).catch(console.warn);
     }
-    if(d.userProfiles?.length>0){
-      const up=d.userProfiles[0];
-      if(up.activePlan)setActivePlan(up.activePlan);
-      if(up.trialStartDate)setTrialStartDate(up.trialStartDate);
+
+    if (d.userProfiles?.length > 0) {
+      const up = d.userProfiles[0];
+      if (up.activePlan) setActivePlan(up.activePlan);
+      if (up.trialStartDate) setTrialStartDate(up.trialStartDate);
     }
 
-    // Set backend authoritative data directly for the current authenticated user
-    if(d.ponds) setPonds(d.ponds);
-    if(d.stockEvents) setStockEvents(d.stockEvents);
-    if(d.feedInventory) setInventory(d.feedInventory);
-    if(d.feedingRecords) setFeeding(d.feedingRecords);
-    if(d.bagOpenLogs) setBagLogs(d.bagOpenLogs);
-    if(d.feedRemainingLogs) setRemainLogs(d.feedRemainingLogs);
-    if(d.expenses) setExpenses(d.expenses);
-    if(d.revenues) setRevenues(d.revenues);
-    if(d.mortalityEntries) setMortality(d.mortalityEntries);
-    if(d.treatmentRecords) setTreatments(d.treatmentRecords);
-    if(d.staffMembers) setStaff(d.staffMembers);
-    if(d.reports) setReports(d.reports);
-    if(d.customers) setCustomers(d.customers);
-    if(d.priceGroups) setPriceGroups(d.priceGroups);
-    if(d.invoices) setInvoices(d.invoices);
-    if(d.invoiceSettings) setInvSettings(d.invoiceSettings);
-    if(d.knowledgeQuestions?.length>0) setKQuestions_(d.knowledgeQuestions);
-    if(d.compatibilityQuestions?.length>0) setCQuestions_(d.compatibilityQuestions);
-    if(d.knowledgeResults) setKResults_(d.knowledgeResults);
-    if(d.compatibilityResults) setCResults_(d.compatibilityResults);
-  },[userProfile]);
+    // Helper to normalize farmId on records so nothing is orphaned or hidden
+    const normFid = (fid?: string) => {
+      if (!fid || fid === "default" || fid === "—") {
+        return resolvedFarms[0]?.id || "";
+      }
+      if (duplicateFarmIdMap.has(fid)) {
+        return duplicateFarmIdMap.get(fid)!;
+      }
+      return fid;
+    };
+
+    // Set backend authoritative data directly for the current authenticated user, normalizing farmId
+    if (d.ponds) {
+      const normPonds = d.ponds.map((p: Pond) => ({ ...p, farmId: normFid(p.farmId) }));
+      setPonds(normPonds);
+    }
+    if (d.stockEvents) {
+      const normStock = d.stockEvents.map((se: StockEvent) => ({ ...se, farmId: normFid(se.farmId) }));
+      setStockEvents(normStock);
+    }
+    if (d.feedInventory) {
+      const normInv = d.feedInventory.map((i: FeedItem) => ({ ...i, farmId: normFid(i.farmId) }));
+      setInventory(normInv);
+    }
+    if (d.feedingRecords) {
+      const normFeed = d.feedingRecords.map((fr: FeedingRecord) => ({ ...fr, farmId: normFid(fr.farmId) }));
+      setFeeding(normFeed);
+    }
+    if (d.bagOpenLogs) {
+      const normBags = d.bagOpenLogs.map((b: BagOpenLog) => ({ ...b, farmId: normFid(b.farmId) }));
+      setBagLogs(normBags);
+    }
+    if (d.feedRemainingLogs) {
+      const normRemain = d.feedRemainingLogs.map((r: FeedRemainingLog) => ({ ...r, farmId: normFid(r.farmId) }));
+      setRemainLogs(normRemain);
+    }
+    if (d.expenses) {
+      const normExp = d.expenses.map((e: Expense) => ({ ...e, farmId: normFid(e.farmId) }));
+      setExpenses(normExp);
+    }
+    if (d.revenues) {
+      const normRev = d.revenues.map((r: Revenue) => ({ ...r, farmId: normFid(r.farmId) }));
+      setRevenues(normRev);
+    }
+    if (d.mortalityEntries) {
+      const normMort = d.mortalityEntries.map((m: MortalityEntry) => ({ ...m, farmId: normFid(m.farmId) }));
+      setMortality(normMort);
+    }
+    if (d.treatmentRecords) {
+      const normTreat = d.treatmentRecords.map((t: TreatmentRecord) => ({ ...t, farmId: normFid(t.farmId) }));
+      setTreatments(normTreat);
+    }
+    if (d.staffMembers) setStaff(d.staffMembers);
+    if (d.reports) {
+      const normRep = d.reports.map((r: Report) => ({ ...r, farmId: normFid(r.farmId) }));
+      setReports(normRep);
+    }
+    if (d.customers) {
+      const normCust = d.customers.map((c: Customer) => ({ ...c, farmId: normFid(c.farmId) }));
+      setCustomers(normCust);
+    }
+    if (d.priceGroups) {
+      const normPg = d.priceGroups.map((pg: PriceGroup) => ({ ...pg, farmId: normFid(pg.farmId) }));
+      setPriceGroups(normPg);
+    }
+    if (d.invoices) {
+      const normInv = d.invoices.map((inv: Invoice) => ({ ...inv, farmId: normFid(inv.farmId) }));
+      setInvoices(normInv);
+    }
+    if (d.invoiceSettings) setInvSettings(d.invoiceSettings);
+    if (d.knowledgeQuestions?.length > 0) setKQuestions_(d.knowledgeQuestions);
+    if (d.compatibilityQuestions?.length > 0) setCQuestions_(d.compatibilityQuestions);
+    if (d.knowledgeResults) setKResults_(d.knowledgeResults);
+    if (d.compatibilityResults) setCResults_(d.compatibilityResults);
+  }, [userProfile, activePlan]);
 
   /* ── Auto-create tables then reload ── */
   const runAutoSetup=useCallback(async()=>{
@@ -2878,8 +3000,25 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
         return;
       }
       applyBackendData(d);
-    }catch(e){console.warn("Backend load failed, using local state",e);}
-  },[applyBackendData,runAutoSetup]);
+    }catch(e){
+      console.warn("Backend load failed, falling back to local storage cache:",e);
+      if(userProfile?.id){
+        const uid=userProfile.id;
+        const cf=loadLocal(`pondtora_${uid}_farms`,[]);
+        if(cf.length>0)setFarms(cf);
+        const cp=loadLocal(`pondtora_${uid}_ponds`,[]);
+        if(cp.length>0)setPonds(cp);
+        const ce=loadLocal(`pondtora_${uid}_expenses`,[]);
+        if(ce.length>0)setExpenses(ce);
+        const cr=loadLocal(`pondtora_${uid}_revenues`,[]);
+        if(cr.length>0)setRevenues(cr);
+        const ci=loadLocal(`pondtora_${uid}_inventory`,[]);
+        if(ci.length>0)setInventory(ci);
+        const cfd=loadLocal(`pondtora_${uid}_feeding`,[]);
+        if(cfd.length>0)setFeeding(cfd);
+      }
+    }
+  },[applyBackendData,runAutoSetup,userProfile?.id]);
 
   /* Re-fetch backend data when tab/window gains focus (cross-device sync) */
   useEffect(()=>{
@@ -2917,6 +3056,9 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
           currencySymbol:meta.currency_symbol||cc.symbol,
           currencyCode:meta.currency_code||cc.code,
         });
+        if(meta.active_farm_id){
+          setActiveFarmId(meta.active_farm_id);
+        }
         setIsAuth(true);
         setShowLanding(false);
         loadFromBackend();
@@ -2944,6 +3086,9 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
             currencyCode:meta.currency_code||cc.code,
           };
         });
+        if(meta.active_farm_id){
+          setActiveFarmId(meta.active_farm_id);
+        }
         setIsAuth(true);
         setShowLanding(false);
         loadFromBackend();
@@ -3105,19 +3250,19 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   const delPriceGroup=(id:string)=>{setPriceGroups(prev=>prev.filter(g=>g.id!==id));api.priceGroups.remove(id).catch(console.warn);};
   /* Derived data — computed unconditionally before any early return (Rules of Hooks) */
   const hasOneFarmOrNone = farms.length <= 1;
-  const farmPonds=ponds.filter(p=>hasOneFarmOrNone||p.farmId===activeFarmId);
-  const farmFeeding=feeding.filter(r=>!r.pond||(()=>{const p=ponds.find(x=>x.name===r.pond);return !p||p.farmId===activeFarmId||hasOneFarmOrNone;})());
-  const farmInventory=inventory.filter(i=>hasOneFarmOrNone||!i.farmId||i.farmId===activeFarmId);
-  const farmExpenses=expenses.filter(e=>hasOneFarmOrNone||!e.farmId||e.farmId===activeFarmId);
-  const farmRevenues=revenues.filter(r=>hasOneFarmOrNone||!r.farmId||r.farmId===activeFarmId);
-  const farmReports=reports.filter(r=>hasOneFarmOrNone||!r.farmId||r.farmId===activeFarmId);
-  const farmTreatments=treatments.filter(t=>hasOneFarmOrNone||t.farmId===activeFarmId);
-  const farmMortality=mortality.filter(m=>hasOneFarmOrNone||!m.farmId||m.farmId===activeFarmId);
-  const farmBagLogs=bagLogs.filter(b=>hasOneFarmOrNone||!b.farmId||b.farmId===activeFarmId);
-  const farmRemainLogs=remainLogs.filter(r=>hasOneFarmOrNone||!r.farmId||r.farmId===activeFarmId);
-  const farmCustomers=customers.filter(c=>hasOneFarmOrNone||!c.farmId||c.farmId===activeFarmId);
-  const farmPriceGroups=priceGroups.filter(g=>hasOneFarmOrNone||!g.farmId||g.farmId===activeFarmId);
-  const farmInvoices=invoices.filter(i=>hasOneFarmOrNone||!i.farmId||i.farmId===activeFarmId);
+  const farmPonds=ponds.filter(p=>hasOneFarmOrNone||!p.farmId||p.farmId==="default"||p.farmId===activeFarmId);
+  const farmFeeding=feeding.filter(r=>hasOneFarmOrNone||!r.farmId||r.farmId==="default"||r.farmId===activeFarmId||!r.pond||(()=>{const p=ponds.find(x=>x.name===r.pond);return !p||!p.farmId||p.farmId==="default"||p.farmId===activeFarmId;})());
+  const farmInventory=inventory.filter(i=>hasOneFarmOrNone||!i.farmId||i.farmId==="default"||i.farmId===activeFarmId);
+  const farmExpenses=expenses.filter(e=>hasOneFarmOrNone||!e.farmId||e.farmId==="default"||e.farmId===activeFarmId);
+  const farmRevenues=revenues.filter(r=>hasOneFarmOrNone||!r.farmId||r.farmId==="default"||r.farmId===activeFarmId);
+  const farmReports=reports.filter(r=>hasOneFarmOrNone||!r.farmId||r.farmId==="default"||r.farmId===activeFarmId);
+  const farmTreatments=treatments.filter(t=>hasOneFarmOrNone||!t.farmId||t.farmId==="default"||t.farmId===activeFarmId);
+  const farmMortality=mortality.filter(m=>hasOneFarmOrNone||!m.farmId||m.farmId==="default"||m.farmId===activeFarmId);
+  const farmBagLogs=bagLogs.filter(b=>hasOneFarmOrNone||!b.farmId||b.farmId==="default"||b.farmId===activeFarmId);
+  const farmRemainLogs=remainLogs.filter(r=>hasOneFarmOrNone||!r.farmId||r.farmId==="default"||r.farmId===activeFarmId);
+  const farmCustomers=customers.filter(c=>hasOneFarmOrNone||!c.farmId||c.farmId==="default"||c.farmId===activeFarmId);
+  const farmPriceGroups=priceGroups.filter(g=>hasOneFarmOrNone||!g.farmId||g.farmId==="default"||g.farmId===activeFarmId);
+  const farmInvoices=invoices.filter(i=>hasOneFarmOrNone||!i.farmId||i.farmId==="default"||i.farmId===activeFarmId);
   /* Permission derivation — owner has all permissions */
   const currentStaff=staff.find(s=>s.email===userProfile?.email);
   const isOwner=!currentStaff||currentStaff.role==="Admin";
@@ -3265,11 +3410,11 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       {sideOpen&&<div className="fixed inset-0 bg-black/30 z-30 lg:hidden" onClick={()=>setSideOpen(false)}/>}
       {/* Desktop sidebar — always in flow, collapsible */}
       <div className={`hidden lg:flex flex-col shrink-0 h-screen overflow-hidden transition-[width] duration-200 ${collapsed?"w-16":"w-64"}`}>
-        <Sidebar active={active} onNav={nav} collapsed={collapsed} onToggle={()=>setCollapsed(p=>!p)} farms={accessibleFarms} activeFarmId={activeFarmId} onSwitchFarm={setActiveFarmId} onAddFarm={()=>setShowAddFarm(true)} sideOpen={true} staff={staff} unreadCount={unreadCount} onNotifications={()=>nav("notifications")} onLogout={handleLogout} hasPerm={hasPerm} isOwner={isOwner} userProfile={userProfile} currentStaff={currentStaff}/>
+        <Sidebar active={active} onNav={nav} collapsed={collapsed} onToggle={()=>setCollapsed(p=>!p)} farms={accessibleFarms} activeFarmId={activeFarmId} onSwitchFarm={handleSwitchFarm} onAddFarm={()=>setShowAddFarm(true)} sideOpen={true} staff={staff} unreadCount={unreadCount} onNotifications={()=>nav("notifications")} onLogout={handleLogout} hasPerm={hasPerm} isOwner={isOwner} userProfile={userProfile} currentStaff={currentStaff}/>
       </div>
       {/* Mobile sidebar — fixed drawer */}
       <div className={`fixed lg:hidden inset-y-0 left-0 z-40 w-64 transition-transform duration-200 ${sideOpen?"translate-x-0":"-translate-x-full"}`}>
-        <Sidebar active={active} onNav={nav} collapsed={false} onToggle={()=>setSideOpen(false)} farms={accessibleFarms} activeFarmId={activeFarmId} onSwitchFarm={id=>{setActiveFarmId(id);setSideOpen(false);}} onAddFarm={()=>{setSideOpen(false);setShowAddFarm(true);}} sideOpen={sideOpen} staff={staff} unreadCount={unreadCount} onNotifications={()=>{nav("notifications");setSideOpen(false);}} onLogout={handleLogout} hasPerm={hasPerm} isOwner={isOwner} userProfile={userProfile} currentStaff={currentStaff}/>
+        <Sidebar active={active} onNav={nav} collapsed={false} onToggle={()=>setSideOpen(false)} farms={accessibleFarms} activeFarmId={activeFarmId} onSwitchFarm={id=>{handleSwitchFarm(id);setSideOpen(false);}} onAddFarm={()=>{setSideOpen(false);setShowAddFarm(true);}} sideOpen={sideOpen} staff={staff} unreadCount={unreadCount} onNotifications={()=>{nav("notifications");setSideOpen(false);}} onLogout={handleLogout} hasPerm={hasPerm} isOwner={isOwner} userProfile={userProfile} currentStaff={currentStaff}/>
       </div>
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Mobile top bar */}
@@ -3282,7 +3427,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
             {mFarmOpen&&(
               <div className="absolute right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl z-50 overflow-hidden min-w-[200px]">
                 {accessibleFarms.map(f=>(
-                  <button key={f.id} onClick={()=>{setActiveFarmId(f.id);setMFarmOpen(false);}} className={`w-full flex items-center gap-2 px-3 py-2.5 text-left hover:bg-slate-50 transition-colors ${f.id===activeFarmId?"bg-green-50":""}`}>
+                  <button key={f.id} onClick={()=>{handleSwitchFarm(f.id);setMFarmOpen(false);}} className={`w-full flex items-center gap-2 px-3 py-2.5 text-left hover:bg-slate-50 transition-colors ${f.id===activeFarmId?"bg-green-50":""}`}>
                     <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${f.id===activeFarmId?"bg-green-500":"bg-slate-200"}`}/>
                     <div className="min-w-0 flex-1">
                       <p className="text-xs font-semibold text-slate-800 truncate">{f.name}</p>

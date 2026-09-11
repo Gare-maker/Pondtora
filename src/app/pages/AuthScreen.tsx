@@ -145,6 +145,7 @@ function AuthScreen({
       if (!user) throw new Error("Login failed — no user returned.");
       const meta = user.user_metadata ?? {};
       const profile: UserProfile = {
+        id: user.id,
         name: meta.name ?? user.email?.split("@")[0] ?? "",
         farmName: meta.farm_name ?? "",
         city: meta.city ?? "",
@@ -201,6 +202,7 @@ function AuthScreen({
       if (data.session) {
         const user = data.user!;
         const profile: UserProfile = {
+          id: user.id,
           name: cName.trim(),
           farmName: cFarm.trim(),
           city: cCity.trim(),
@@ -259,6 +261,7 @@ function AuthScreen({
       if (!user) throw new Error("Failed to update password.");
       const meta = user.user_metadata ?? {};
       const profile: UserProfile = {
+        id: user.id,
         name: meta.name ?? user.email?.split("@")[0] ?? "",
         farmName: meta.farm_name ?? "",
         city: meta.city ?? "",

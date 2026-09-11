@@ -96,7 +96,55 @@ const CAMEL_MAP: Record<string, string> = {
 
 const DATE_FIELDS = new Set(["date", "purchase_date", "stocking_date", "cleared_date", "invoice_date", "due_date"]);
 
-export function objToSnake(obj: Record<string, any>, userId?: string): Record<string, any> {
+const TABLE_ALLOWED_COLUMNS: Record<string, Set<string>> = {
+  feeding_records: new Set([
+    "id", "user_id", "farm_id", "date", "month", "year", "pond", "brand", "size",
+    "morning", "evening", "total", "recorded_by", "morning_time", "evening_time",
+    "created_by", "created_by_id", "created_at"
+  ]),
+  ponds: new Set([
+    "id", "user_id", "farm_id", "name", "type", "species", "size_m2", "initial_stock",
+    "current_count", "avg_weight", "stocking_date", "stock_month", "total_cost",
+    "status", "notes", "default_pellet", "category", "max_kg_by_pallet", "supplier",
+    "transfer_note", "length_ft", "width_ft", "created_at"
+  ]),
+  expenses: new Set([
+    "id", "user_id", "farm_id", "category", "amount", "date", "month", "year",
+    "pond", "description", "fish_stock", "created_by", "created_by_id",
+    "original_description", "edit_history", "created_at"
+  ]),
+  revenues: new Set([
+    "id", "user_id", "farm_id", "source", "amount", "date", "month", "year",
+    "notes", "original_notes", "pond", "stock_batch", "fish_stock",
+    "created_by", "created_by_id", "edit_history", "created_at"
+  ]),
+  feed_inventory: new Set([
+    "id", "user_id", "farm_id", "brand", "size", "bags", "weight_per_bag",
+    "total_kg", "cost_per_bag", "supplier", "purchase_date", "month", "created_at"
+  ]),
+  bag_open_logs: new Set([
+    "id", "user_id", "farm_id", "date", "month", "year", "brand", "size",
+    "kg_per_bag", "bags_opened", "total_kg", "fish_stock", "created_at"
+  ]),
+  feed_remaining_logs: new Set([
+    "id", "user_id", "farm_id", "brand", "size", "fish_stock", "remaining_kg", "date", "created_at"
+  ]),
+  stock_events: new Set([
+    "id", "user_id", "pond_id", "farm_id", "pond_name", "date", "species",
+    "count", "avg_weight", "cost", "sale_price", "type", "from_pond", "cleared_date", "supplier", "created_at"
+  ]),
+  mortality_entries: new Set([
+    "id", "user_id", "pond_id", "farm_id", "date", "count", "cause", "notes", "created_at"
+  ]),
+  treatment_records: new Set([
+    "id", "user_id", "pond_id", "farm_id", "date", "cause", "medicine", "remarks", "created_at"
+  ]),
+  farms: new Set([
+    "id", "user_id", "name", "city", "state", "country", "created_at", "updated_at"
+  ]),
+};
+
+export function objToSnake(obj: Record<string, any>, userId?: string, table?: string): Record<string, any> {
   const out: Record<string, any> = {};
   for (const [k, v] of Object.entries(obj)) {
     if (v === undefined) continue;
@@ -136,6 +184,17 @@ export function objToSnake(obj: Record<string, any>, userId?: string): Record<st
       out["pond_id"] = toUuid(pid);
     }
   }
+
+  // Whitelist columns if table definition exists to prevent Postgres schema rejection
+  if (table && TABLE_ALLOWED_COLUMNS[table]) {
+    const allowed = TABLE_ALLOWED_COLUMNS[table];
+    for (const k of Object.keys(out)) {
+      if (!allowed.has(k)) {
+        delete out[k];
+      }
+    }
+  }
+
   return out;
 }
 
@@ -291,7 +350,7 @@ async function dbList<T>(table: string, cacheKey?: string): Promise<T[]> {
 
 async function dbInsert<T extends { id?: string }>(table: string, item: T, cacheKey?: string): Promise<T> {
   const userId = await getUserId();
-  const snake = objToSnake(item as any, userId);
+  const snake = objToSnake(item as any, userId, table);
   if (!snake.id) snake.id = crypto.randomUUID();
 
   // Optimistically update local cache scoped to current user
@@ -316,7 +375,7 @@ async function dbInsert<T extends { id?: string }>(table: string, item: T, cache
 
 async function dbUpdate<T extends { id?: string }>(table: string, item: T, cacheKey?: string): Promise<T> {
   const userId = await getUserId();
-  const snake = objToSnake(item as any, userId);
+  const snake = objToSnake(item as any, userId, table);
   const targetId = snake.id || (item.id ? toUuid(item.id) : undefined);
 
   // Update local cache scoped to current user
@@ -409,62 +468,90 @@ export const api = {
     const cached = getLocalCache(userId);
 
     try {
+      // Safe query helper: individual catch handlers ensure a single failure doesn't abort all data loading
+      const safeQuery = async (queryPromise: PromiseLike<any>) => {
+        try {
+          const res = await queryPromise;
+          return res.error ? { data: null, error: res.error } : res;
+        } catch (e) {
+          return { data: null, error: e };
+        }
+      };
+
       const [
         farmsRes, profilesRes, pondsRes, stockRes, invRes, feedRes,
         bagRes, remainRes, expRes, revRes, mortRes, treatRes,
         staffRes, repRes, custRes, pgRes, invsRes, setRes,
         kqRes, cqRes, krRes, crRes
       ] = await Promise.all([
-        supabase.from("farms").select("*"),
-        supabase.from("user_profiles").select("*").eq("id", userId),
-        supabase.from("ponds").select("*"),
-        supabase.from("stock_events").select("*"),
-        supabase.from("feed_inventory").select("*"),
-        supabase.from("feeding_records").select("*"),
-        supabase.from("bag_open_logs").select("*"),
-        supabase.from("feed_remaining_logs").select("*"),
-        supabase.from("expenses").select("*"),
-        supabase.from("revenues").select("*"),
-        supabase.from("mortality_entries").select("*"),
-        supabase.from("treatment_records").select("*"),
-        supabase.from("staff_members").select("*"),
-        supabase.from("reports").select("*"),
-        supabase.from("customers").select("*"),
-        supabase.from("price_groups").select("*"),
-        supabase.from("invoices").select("*"),
-        supabase.from("invoice_settings").select("*").eq("user_id", userId).maybeSingle(),
-        supabase.from("knowledge_questions").select("*"),
-        supabase.from("compatibility_questions").select("*"),
-        supabase.from("knowledge_results").select("*").eq("user_id", userId),
-        supabase.from("compatibility_results").select("*").eq("user_id", userId),
+        safeQuery(supabase.from("farms").select("*").eq("user_id", userId).order("created_at", { ascending: true })),
+        safeQuery(supabase.from("user_profiles").select("*").eq("id", userId)),
+        safeQuery(supabase.from("ponds").select("*").eq("user_id", userId)),
+        safeQuery(supabase.from("stock_events").select("*").eq("user_id", userId)),
+        safeQuery(supabase.from("feed_inventory").select("*").eq("user_id", userId)),
+        safeQuery(supabase.from("feeding_records").select("*").eq("user_id", userId)),
+        safeQuery(supabase.from("bag_open_logs").select("*").eq("user_id", userId)),
+        safeQuery(supabase.from("feed_remaining_logs").select("*").eq("user_id", userId)),
+        safeQuery(supabase.from("expenses").select("*").eq("user_id", userId)),
+        safeQuery(supabase.from("revenues").select("*").eq("user_id", userId)),
+        safeQuery(supabase.from("mortality_entries").select("*").eq("user_id", userId)),
+        safeQuery(supabase.from("treatment_records").select("*").eq("user_id", userId)),
+        safeQuery(supabase.from("staff_members").select("*").eq("user_id", userId)),
+        safeQuery(supabase.from("reports").select("*").eq("user_id", userId)),
+        safeQuery(supabase.from("customers").select("*").eq("user_id", userId)),
+        safeQuery(supabase.from("price_groups").select("*").eq("user_id", userId)),
+        safeQuery(supabase.from("invoices").select("*").eq("user_id", userId)),
+        safeQuery(supabase.from("invoice_settings").select("*").eq("user_id", userId).maybeSingle()),
+        safeQuery(supabase.from("knowledge_questions").select("*")),
+        safeQuery(supabase.from("compatibility_questions").select("*")),
+        safeQuery(supabase.from("knowledge_results").select("*").eq("user_id", userId)),
+        safeQuery(supabase.from("compatibility_results").select("*").eq("user_id", userId)),
       ]);
+
+      let farms = (farmsRes.data || []).map((r: any) => objToCamel<Farm>(r));
+
+      // If user is staff with assigned farms, include those assigned farms
+      const staffMember = (staffRes.data || []).find((s: any) => s.staff_auth_id === userId);
+      if (staffMember?.farms && staffMember.farms.length > 0) {
+        const { data: assignedFarms } = await safeQuery(
+          supabase.from("farms").select("*").in("id", staffMember.farms)
+        );
+        if (assignedFarms) {
+          const farmMap = new Map(farms.map(f => [f.id, f]));
+          for (const af of assignedFarms) {
+            const camel = objToCamel<Farm>(af);
+            farmMap.set(camel.id, camel);
+          }
+          farms = Array.from(farmMap.values());
+        }
+      }
 
       const result = {
         needsSetup: false,
-        farms: (farmsRes.data || []).map(r => objToCamel<Farm>(r)),
-        userProfiles: (profilesRes.data || []).map(r => objToCamel<UserProfile>(r)),
-        ponds: (pondsRes.data || []).map(r => objToCamel<Pond>(r)),
-        stockEvents: (stockRes.data || []).map(r => objToCamel<StockEvent>(r)),
-        feedInventory: (invRes.data || []).map(r => objToCamel<FeedItem>(r)),
-        feedingRecords: (feedRes.data || []).map(r => objToCamel<FeedingRecord>(r)),
-        bagOpenLogs: (bagRes.data || []).map(r => objToCamel<BagOpenLog>(r)),
-        feedRemainingLogs: (remainRes.data || []).map(r => objToCamel<FeedRemainingLog>(r)),
-        expenses: (expRes.data || []).map(r => objToCamel<Expense>(r)),
-        revenues: (revRes.data || []).map(r => objToCamel<Revenue>(r)),
-        mortalityEntries: (mortRes.data || []).map(r => objToCamel<MortalityEntry>(r)),
-        treatmentRecords: (treatRes.data || []).map(r => objToCamel<TreatmentRecord>(r)),
-        staffMembers: (staffRes.data || []).map(r => objToCamel<StaffMember>(r)),
-        reports: (repRes.data || []).map(r => objToCamel<Report>(r)),
-        customers: (custRes.data || []).map(r => objToCamel<Customer>(r)),
-        priceGroups: (pgRes.data || []).map(r => objToCamel<PriceGroup>(r)),
-        invoices: (invsRes.data || []).map(r => objToCamel<Invoice>(r)),
+        farms,
+        userProfiles: (profilesRes.data || []).map((r: any) => objToCamel<UserProfile>(r)),
+        ponds: (pondsRes.data || []).map((r: any) => objToCamel<Pond>(r)),
+        stockEvents: (stockRes.data || []).map((r: any) => objToCamel<StockEvent>(r)),
+        feedInventory: (invRes.data || []).map((r: any) => objToCamel<FeedItem>(r)),
+        feedingRecords: (feedRes.data || []).map((r: any) => objToCamel<FeedingRecord>(r)),
+        bagOpenLogs: (bagRes.data || []).map((r: any) => objToCamel<BagOpenLog>(r)),
+        feedRemainingLogs: (remainRes.data || []).map((r: any) => objToCamel<FeedRemainingLog>(r)),
+        expenses: (expRes.data || []).map((r: any) => objToCamel<Expense>(r)),
+        revenues: (revRes.data || []).map((r: any) => objToCamel<Revenue>(r)),
+        mortalityEntries: (mortRes.data || []).map((r: any) => objToCamel<MortalityEntry>(r)),
+        treatmentRecords: (treatRes.data || []).map((r: any) => objToCamel<TreatmentRecord>(r)),
+        staffMembers: (staffRes.data || []).map((r: any) => objToCamel<StaffMember>(r)),
+        reports: (repRes.data || []).map((r: any) => objToCamel<Report>(r)),
+        customers: (custRes.data || []).map((r: any) => objToCamel<Customer>(r)),
+        priceGroups: (pgRes.data || []).map((r: any) => objToCamel<PriceGroup>(r)),
+        invoices: (invsRes.data || []).map((r: any) => objToCamel<Invoice>(r)),
         invoiceSettings: setRes.data ? objToCamel<InvSettings>(setRes.data) : null,
-        knowledgeQuestions: (kqRes.data || []).map(r => objToCamel(r)),
-        compatibilityQuestions: (cqRes.data || []).map(r => objToCamel(r)),
-        knowledgeResults: (krRes.data || []).map(r => objToCamel(r)),
-        compatibilityResults: (crRes.data || []).map(r => objToCamel(r)),
-        staffInfo: null,
-        isStaff: false,
+        knowledgeQuestions: (kqRes.data || []).map((r: any) => objToCamel(r)),
+        compatibilityQuestions: (cqRes.data || []).map((r: any) => objToCamel(r)),
+        knowledgeResults: (krRes.data || []).map((r: any) => objToCamel(r)),
+        compatibilityResults: (crRes.data || []).map((r: any) => objToCamel(r)),
+        staffInfo: staffMember || null,
+        isStaff: !!staffMember,
       };
 
       // Save to user-scoped cache as backup
@@ -502,6 +589,13 @@ export const api = {
     create: (f: Partial<Farm>) => dbInsert<Farm>("farms", f as Farm, "farms"),
     update: (f: Farm) => dbUpdate<Farm>("farms", f, "farms"),
     remove: (id: string) => dbDelete("farms", id, "farms"),
+    syncActiveFarm: async (farmId: string) => {
+      try {
+        await supabase.auth.updateUser({ data: { active_farm_id: farmId } });
+      } catch (err) {
+        console.warn("Failed to sync active_farm_id to auth metadata:", err);
+      }
+    },
   },
 
   // ── Staff ──────────────────────────────────────────────────────────────────
