@@ -233,18 +233,87 @@ export function useSort<T>(data:T[], defaultField:string){
   return {sorted,sf,sd,toggle};
 }
 
-/* ── NumInput — text-mode numeric input that stays empty when cleared ── */
-export function NumInput({value,onChange,className,placeholder,allowDecimal=true}:{value:number|string;onChange:(v:string)=>void;className?:string;placeholder?:string;allowDecimal?:boolean}){
-  const [str,setStr]=useState(()=>(value===0||value===""||value===null||value===undefined)?"":String(value));
-  useEffect(()=>{
-    setStr((value===0||value===""||value===null||value===undefined)?"":String(value));
-  },[value]);
-  const handle=(e:React.ChangeEvent<HTMLInputElement>)=>{
-    const v=e.target.value;
-    const ok=allowDecimal?/^\d*\.?\d*$/.test(v):/^\d*$/.test(v);
-    if(v===""||ok){setStr(v);onChange(v);}
+/* ── NumInput — text-mode numeric input that stays empty when cleared and formats with commas ── */
+export function NumInput({
+  value,
+  onChange,
+  className,
+  placeholder,
+  allowDecimal = true,
+  formatCommas = true,
+}: {
+  value: number | string;
+  onChange: (v: string) => void;
+  className?: string;
+  placeholder?: string;
+  allowDecimal?: boolean;
+  formatCommas?: boolean;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const formatDisplay = (val: number | string | null | undefined): string => {
+    if (val === "" || val === null || val === undefined) return "";
+    const s = String(val).replace(/,/g, "");
+    if (!formatCommas) return s;
+    const parts = s.split(".");
+    const intFormatted = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    return parts.length > 1 ? `${intFormatted}.${parts.slice(1).join("")}` : intFormatted;
   };
-  return <input type="text" inputMode={allowDecimal?"decimal":"numeric"} value={str} onChange={handle} className={className} placeholder={placeholder}/>;
+
+  const [str, setStr] = useState(() => (value === 0 || value === "" || value === null || value === undefined ? "" : formatDisplay(value)));
+
+  useEffect(() => {
+    setStr(prev => {
+      const currentRaw = prev.replace(/,/g, "");
+      const newRaw = (value === 0 || value === "" || value === null || value === undefined) ? "" : String(value).replace(/,/g, "");
+      if (currentRaw !== newRaw) {
+        return newRaw === "" ? "" : formatDisplay(newRaw);
+      }
+      return prev;
+    });
+  }, [value]);
+
+  const handle = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const rawVal = e.target.value.replace(/,/g, "");
+    const ok = allowDecimal ? /^\d*\.?\d*$/.test(rawVal) : /^\d*$/.test(rawVal);
+    if (rawVal === "" || ok) {
+      const cursorPos = e.target.selectionStart || 0;
+      const digitsBeforeCursor = e.target.value.slice(0, cursorPos).replace(/,/g, "").length;
+
+      const formatted = formatDisplay(rawVal);
+      setStr(formatted);
+      onChange(rawVal);
+
+      requestAnimationFrame(() => {
+        if (!inputRef.current) return;
+        let targetPos = 0;
+        let digitsCounted = 0;
+        for (let i = 0; i < formatted.length; i++) {
+          if (formatted[i] !== ",") {
+            digitsCounted++;
+          }
+          if (digitsCounted === digitsBeforeCursor) {
+            targetPos = i + 1;
+            break;
+          }
+        }
+        if (digitsBeforeCursor === 0) targetPos = 0;
+        inputRef.current.setSelectionRange(targetPos, targetPos);
+      });
+    }
+  };
+
+  return (
+    <input
+      ref={inputRef}
+      type="text"
+      inputMode={allowDecimal ? "decimal" : "numeric"}
+      value={str}
+      onChange={handle}
+      className={className}
+      placeholder={placeholder}
+    />
+  );
 }
 
 /* ── DateInput — shows formatted date, opens native picker on click ── */

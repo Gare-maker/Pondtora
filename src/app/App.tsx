@@ -115,7 +115,7 @@ function Sidebar({active,onNav,collapsed,onToggle,farms,activeFarmId,onSwitchFar
       )}
       <nav className="flex-1 py-3 px-2 overflow-y-auto">
         {NAV.filter(({id})=>{
-          if(id==="pricing"||id==="settings")return isOwner===true;
+          if(id==="staff"||id==="pricing"||id==="settings")return isOwner===true;
           const perm=NAV_PERM[id];
           if(!perm)return true;
           return hasPerm?hasPerm(perm):true;
@@ -2449,46 +2449,139 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     setUserProfile(p=>p?{...p,name:u.name,phone:u.phone}:p);
     api.profile.update({name:u.name,phone:u.phone}).catch(console.warn);
   };
-  const addTreatment=(t:TreatmentRecord)=>{const farmTr:TreatmentRecord={...t,farmId:activeFarmId};setTreatments(prev=>[farmTr,...prev]);toast.success("Treatment recorded");api.treatments.create(farmTr).catch(console.warn);};
-  const addPond=(p:Pond)=>{
-    const farmPonds=ponds.filter(x=>x.farmId===activeFarmId);
-    if(farmPonds.length>=pondLimit){const planLabel=activePlan||"free trial";setUpgradeModalMsg(`You've reached the limit of ${pondLimit===Infinity?"unlimited":pondLimit} ponds on the ${planLabel} plan. Upgrade to add more ponds.`);setShowUpgradeModal(true);return;}
-    const nameConflict=farmPonds.some(x=>x.name.trim().toLowerCase()===p.name.trim().toLowerCase());
-    if(nameConflict){toast.error(`A pond named "${p.name}" already exists in this farm.`);return;}
-    const np={...p,farmId:activeFarmId};
-    setPonds(prev=>[...prev,np]);
-    toast.success("Pond added");
-    api.ponds.create(np).catch(console.warn);
+  const addTreatment=async(t:TreatmentRecord)=>{
+    const fid=t.farmId||activeFarmId||farms[0]?.id||"";
+    const farmTr:TreatmentRecord={...t,farmId:fid};
+    setTreatments(prev=>[farmTr,...prev]);
+    toast.success("Treatment recorded");
+    api.treatments.create(farmTr).catch(console.warn);
   };
-  const closePond=(id:string)=>{
-    const p=ponds.find(x=>x.id===id);
-    const closed={...p!,status:"Empty" as const,currentCount:0,initialStock:0,avgWeight:undefined,stockingDate:"—",stockMonth:"",totalCost:0,species:"—"};
-    setPonds(prev=>prev.map(x=>x.id===id?closed:x));
-    if(p){
-      api.ponds.update(closed).catch(console.warn);
-      const se={id:uid(),pondId:id,pondName:p.name,date:TODAY,species:p.species,count:p.currentCount,cost:p.totalCost,type:"Closed" as const,clearedDate:TODAY};
-      setStockEvents(prev=>[...prev,se]);
-      api.stockEvents.create(se).catch(console.warn);
-      setFeeding(prev=>prev.filter(r=>r.pond!==p.name));
-      setTreatments(prev=>prev.filter(t=>t.pondId!==id));
-      setMortality(prev=>prev.filter(m=>m.pondId!==id));
+  const addPond=async(p:Pond)=>{
+    const fid=p.farmId||activeFarmId||farms[0]?.id||"";
+    const farmPonds=ponds.filter(x=>hasOneFarmOrNone||x.farmId===fid);
+    if(farmPonds.length>=pondLimit){
+      const planLabel=activePlan||"free trial";
+      setUpgradeModalMsg(`You've reached the limit of ${pondLimit===Infinity?"unlimited":pondLimit} ponds on the ${planLabel} plan. Upgrade to add more ponds.`);
+      setShowUpgradeModal(true);
+      return;
+    }
+    const trimmed=p.name.trim();
+    const nameConflict=farmPonds.some(x=>x.name.trim().toLowerCase()===trimmed.toLowerCase());
+    if(nameConflict){
+      toast.error(`A pond named "${trimmed}" already exists in this farm.`);
+      return;
+    }
+    const np:Pond={...p,id:p.id||uid(),name:trimmed,farmId:fid};
+    setPonds(prev=>[...prev,np]);
+    try {
+      const saved=await api.ponds.create(np);
+      if(saved?.id&&saved.id!==np.id){
+        setPonds(prev=>prev.map(x=>x.id===np.id?saved:x));
+      }
+      toast.success("Pond added");
+    } catch(err:any) {
+      console.error("Failed to persist pond:", err);
+      if(err?.message&&err.message.includes("already exists")){
+        setPonds(prev=>prev.filter(x=>x.id!==np.id));
+        toast.error(err.message);
+      } else {
+        toast.error("Pond saved locally — sync when online");
+      }
     }
   };
-  const restockPond=(id:string,data:{species:string;initialStock:number;stockingDate:string;supplier?:string})=>{
+  const closePond=async(id:string)=>{
     const p=ponds.find(x=>x.id===id);
-    const updated=p?{...p,...data,currentCount:data.initialStock,totalCost:0,status:"Active" as const,transferNote:undefined}:null;
-    setPonds(prev=>prev.map(x=>x.id===id&&updated?updated:x));
-    if(updated)api.ponds.update(updated).catch(console.warn);
-    const se={id:uid(),pondId:id,pondName:p?.name||"",date:data.stockingDate,species:data.species,count:data.initialStock,cost:0,type:"Restock" as const,supplier:data.supplier};
-    if(p){setStockEvents(prev=>[...prev,se]);api.stockEvents.create(se).catch(console.warn);}
+    if(!p)return;
+    const fid=p.farmId||activeFarmId||farms[0]?.id||"";
+    const closed={...p,status:"Empty" as const,currentCount:0,initialStock:0,avgWeight:undefined,stockingDate:"—",stockMonth:"",totalCost:0,species:"—",farmId:fid};
+    setPonds(prev=>prev.map(x=>x.id===id?closed:x));
+    const se:StockEvent={id:uid(),pondId:id,pondName:p.name,date:TODAY,species:p.species,count:p.currentCount,cost:p.totalCost,type:"Closed" as const,clearedDate:TODAY,farmId:fid};
+    setStockEvents(prev=>[...prev,se]);
+    setFeeding(prev=>prev.filter(r=>r.pond!==p.name));
+    setTreatments(prev=>prev.filter(t=>t.pondId!==id));
+    setMortality(prev=>prev.filter(m=>m.pondId!==id));
+    toast.success("Pond cleared");
+    try {
+      await Promise.all([
+        api.ponds.update(closed),
+        api.stockEvents.create(se)
+      ]);
+    } catch(err) {
+      console.warn("Error closing pond:", err);
+    }
   };
-  const addExp=(e:Expense)=>{const ne={...e,farmId:activeFarmId};setExpenses(prev=>[ne,...prev]);toast.success("Expense added");api.expenses.create(ne).catch(console.warn);};
-  const editExp=(e:Expense)=>{setExpenses(prev=>prev.map(x=>x.id===e.id?e:x));api.expenses.update(e).catch(console.warn);};
-  const addRev=(r:Revenue)=>{const nr={...r,farmId:activeFarmId};setRevenues(prev=>[nr,...prev]);toast.success("Revenue added");api.revenues.create(nr).catch(console.warn);};
-  const editRev=(r:Revenue)=>{setRevenues(prev=>prev.map(x=>x.id===r.id?r:x));api.revenues.update(r).catch(console.warn);};
+  const restockPond=async(id:string,data:{species:string;initialStock:number;stockingDate:string;supplier?:string})=>{
+    const p=ponds.find(x=>x.id===id);
+    if(!p)return;
+    const fid=p.farmId||activeFarmId||farms[0]?.id||"";
+    const updated={...p,...data,currentCount:data.initialStock,totalCost:0,status:"Active" as const,transferNote:undefined,farmId:fid};
+    setPonds(prev=>prev.map(x=>x.id===id?updated:x));
+    const se:StockEvent={id:uid(),pondId:id,pondName:p.name,date:data.stockingDate,species:data.species,count:data.initialStock,cost:0,type:"Restock" as const,supplier:data.supplier,farmId:fid};
+    setStockEvents(prev=>[...prev,se]);
+    toast.success("Fish stock added");
+    try {
+      await Promise.all([
+        api.ponds.update(updated),
+        api.stockEvents.create(se)
+      ]);
+    } catch(err) {
+      console.warn("Error restocking pond:", err);
+    }
+  };
+  const addExp=async(e:Expense)=>{
+    const fid=e.farmId||activeFarmId||farms[0]?.id||"";
+    const ne:Expense={...e,farmId:fid};
+    setExpenses(prev=>[ne,...prev]);
+    try {
+      const saved=await api.expenses.create(ne);
+      if(saved?.id){
+        setExpenses(prev=>prev.map(x=>x.id===ne.id?saved:x));
+      }
+      toast.success("Expense added");
+    } catch(err:any) {
+      console.error("Failed to persist expense:", err);
+      toast.error("Expense saved locally — sync error");
+    }
+  };
+  const editExp=async(e:Expense)=>{
+    setExpenses(prev=>prev.map(x=>x.id===e.id?e:x));
+    try {
+      await api.expenses.update(e);
+      toast.success("Expense updated");
+    } catch(err:any) {
+      console.error("Failed to update expense:", err);
+      toast.error("Expense updated locally — sync error");
+    }
+  };
+  const addRev=async(r:Revenue)=>{
+    const fid=r.farmId||activeFarmId||farms[0]?.id||"";
+    const nr:Revenue={...r,farmId:fid};
+    setRevenues(prev=>[nr,...prev]);
+    try {
+      const saved=await api.revenues.create(nr);
+      if(saved?.id){
+        setRevenues(prev=>prev.map(x=>x.id===nr.id?saved:x));
+      }
+      toast.success("Revenue added");
+    } catch(err:any) {
+      console.error("Failed to persist revenue:", err);
+      toast.error("Revenue saved locally — sync error");
+    }
+  };
+  const editRev=async(r:Revenue)=>{
+    setRevenues(prev=>prev.map(x=>x.id===r.id?r:x));
+    try {
+      await api.revenues.update(r);
+      toast.success("Revenue updated");
+    } catch(err:any) {
+      console.error("Failed to update revenue:", err);
+      toast.error("Revenue updated locally — sync error");
+    }
+  };
   const setPondMaxKg=(pondId:string,size:string,maxKg:number)=>setPonds(prev=>prev.map(p=>p.id===pondId?{...p,maxKgByPallet:{...(p.maxKgByPallet||{}),[size]:maxKg}}:p));
   const addFeed=async(r:FeedingRecord)=>{
-    const farmRec:FeedingRecord={...r,farmId:activeFarmId};
+    const fid=r.farmId||activeFarmId||farms[0]?.id||"";
+    const farmRec:FeedingRecord={...r,farmId:fid};
     setFeeding(prev=>{
       const updated=[farmRec,...prev];
       /* check if cumulative for this pond+size reached max */
@@ -2515,7 +2608,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     }
   };
   const editFeedRecord=async(r:FeedingRecord)=>{
-    const farmRec:FeedingRecord={...r,farmId:r.farmId||activeFarmId};
+    const farmRec:FeedingRecord={...r,farmId:r.farmId||activeFarmId||farms[0]?.id||""};
     setFeeding(prev=>prev.map(x=>x.id===farmRec.id?farmRec:x));
     try {
       await api.feeding.update(farmRec);
@@ -2523,52 +2616,59 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       console.error("Failed to update feeding record in database:", err);
     }
   };
-  const addBagLog=(b:BagOpenLog)=>{
-    const farmBag:BagOpenLog={...b,farmId:b.farmId||activeFarmId};
-    setBagLogs(prev=>{
-      const bStock=farmBag.fishStock||"";
-      const existing=prev.find(x=>isSameDate(x.date,farmBag.date)&&x.brand===farmBag.brand&&x.size===farmBag.size&&(x.fishStock||"")===bStock&&(!x.farmId||x.farmId===farmBag.farmId));
-      if(existing){
-        const updated={...existing,bagsOpened:farmBag.bagsOpened,totalKg:farmBag.totalKg,kgPerBag:farmBag.kgPerBag,farmId:farmBag.farmId};
-        api.bagLogs.update(updated).catch(console.warn);
-        return prev.map(x=>x.id===existing.id?updated:x);
-      }
+  const addBagLog=async(b:BagOpenLog)=>{
+    const fid=b.farmId||activeFarmId||farms[0]?.id||"";
+    const farmBag:BagOpenLog={...b,farmId:fid};
+    const bStock=farmBag.fishStock||"";
+    const existing=bagLogs.find(x=>isSameDate(x.date,farmBag.date)&&x.brand===farmBag.brand&&x.size===farmBag.size&&(x.fishStock||"")===bStock&&(!x.farmId||x.farmId===farmBag.farmId));
+    if(existing){
+      const updated={...existing,bagsOpened:farmBag.bagsOpened,totalKg:farmBag.totalKg,kgPerBag:farmBag.kgPerBag,farmId:farmBag.farmId};
+      setBagLogs(prev=>prev.map(x=>x.id===existing.id?updated:x));
+      api.bagLogs.update(updated).catch(console.warn);
+    } else {
+      setBagLogs(prev=>[farmBag,...prev]);
       api.bagLogs.create(farmBag).catch(console.warn);
-      return[farmBag,...prev];
-    });
+    }
     toast.success("Bags logged");
   };
   const editBagLog=(b:BagOpenLog)=>{
-    const farmBag:BagOpenLog={...b,farmId:b.farmId||activeFarmId};
+    const farmBag:BagOpenLog={...b,farmId:b.farmId||activeFarmId||farms[0]?.id||""};
     setBagLogs(prev=>prev.map(x=>x.id===farmBag.id?farmBag:x));
     api.bagLogs.update(farmBag).catch(console.warn);
   };
-  const addRemainLog=(r:FeedRemainingLog)=>{
-    const farmRemain:FeedRemainingLog={...r,farmId:r.farmId||activeFarmId};
-    setRemainLogs(prev=>{
-      const existing=prev.find(x=>isSameDate(x.date,farmRemain.date)&&x.brand===farmRemain.brand&&x.size===farmRemain.size&&(x.fishStock||"")===(farmRemain.fishStock||"")&&(!x.farmId||x.farmId===farmRemain.farmId));
-      if(existing){
-        const updated={...existing,remainingKg:farmRemain.remainingKg,farmId:farmRemain.farmId};
-        api.remainLogs.update(updated).catch(console.warn);
-        return prev.map(x=>x.id===existing.id?updated:x);
-      }
+  const addRemainLog=async(r:FeedRemainingLog)=>{
+    const fid=r.farmId||activeFarmId||farms[0]?.id||"";
+    const farmRemain:FeedRemainingLog={...r,farmId:fid};
+    const existing=remainLogs.find(x=>isSameDate(x.date,farmRemain.date)&&x.brand===farmRemain.brand&&x.size===farmRemain.size&&(x.fishStock||"")===(farmRemain.fishStock||"")&&(!x.farmId||x.farmId===farmRemain.farmId));
+    if(existing){
+      const updated={...existing,remainingKg:farmRemain.remainingKg,farmId:farmRemain.farmId};
+      setRemainLogs(prev=>prev.map(x=>x.id===existing.id?updated:x));
+      api.remainLogs.update(updated).catch(console.warn);
+    } else {
+      setRemainLogs(prev=>[farmRemain,...prev]);
       api.remainLogs.create(farmRemain).catch(console.warn);
-      return[farmRemain,...prev];
-    });
+    }
     toast.success("Remaining feed logged");
   };
   const editRemainLog=(r:FeedRemainingLog)=>{
-    const farmRemain:FeedRemainingLog={...r,farmId:r.farmId||activeFarmId};
+    const farmRemain:FeedRemainingLog={...r,farmId:r.farmId||activeFarmId||farms[0]?.id||""};
     setRemainLogs(prev=>prev.map(x=>x.id===farmRemain.id?farmRemain:x));
     api.remainLogs.update(farmRemain).catch(console.warn);
   };
-  const addInv=(f:FeedItem)=>{const fWithFarm={...f,farmId:activeFarmId};setInventory(prev=>[...prev,fWithFarm]);toast.success("Feed purchase recorded");api.inventory.create(fWithFarm).catch(console.warn);};
+  const addInv=async(f:FeedItem)=>{
+    const fid=f.farmId||activeFarmId||farms[0]?.id||"";
+    const fWithFarm={...f,farmId:fid};
+    setInventory(prev=>[...prev,fWithFarm]);
+    toast.success("Feed purchase recorded");
+    api.inventory.create(fWithFarm).catch(console.warn);
+  };
   const delInv=(id:string)=>{setInventory(prev=>prev.filter(f=>f.id!==id));api.inventory.remove(id).catch(console.warn);};
-  const editInv=(f:FeedItem)=>{const fWithFarm={...f,farmId:f.farmId||activeFarmId};setInventory(prev=>prev.map(x=>x.id===f.id?fWithFarm:x));api.inventory.update(fWithFarm).catch(console.warn);};
+  const editInv=(f:FeedItem)=>{const fWithFarm={...f,farmId:f.farmId||activeFarmId||farms[0]?.id||""};setInventory(prev=>prev.map(x=>x.id===f.id?fWithFarm:x));api.inventory.update(fWithFarm).catch(console.warn);};
   const editFish=(id:string,u:{species:string;currentCount:number;stockingDate:string})=>{setPonds(prev=>prev.map(p=>{if(p.id!==id)return p;const np={...p,...u};api.ponds.update(np).catch(console.warn);return np;}));};
   const deletePond=(id:string)=>{setPonds(prev=>prev.filter(p=>p.id!==id));api.ponds.remove(id).catch(console.warn);};
-  const addMort=(m:MortalityEntry,pondId:string)=>{
-    const farmMort:MortalityEntry={...m,farmId:activeFarmId};
+  const addMort=async(m:MortalityEntry,pondId:string)=>{
+    const fid=m.farmId||activeFarmId||farms[0]?.id||"";
+    const farmMort:MortalityEntry={...m,farmId:fid};
     toast.success("Mortality recorded");
     setMortality(prev=>[farmMort,...prev]);
     setPonds(prev=>prev.map(p=>p.id===pondId?{...p,currentCount:Math.max(0,p.currentCount-farmMort.count)}:p));
@@ -2597,13 +2697,13 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     remappedFeeding.forEach(r=>api.feeding.update(r).catch(console.warn));
     /* remap treatments — create copies on destination, persist */
     const pondTreatments=treatments.filter(t=>t.pondId===fromId);
-    const remappedTreatments=pondTreatments.map(t=>({...t,id:uid(),pondId:toId,farmId:toPond.farmId}));
+    const remappedTreatments=pondTreatments.map(t=>({...t,id:uid(),pondId:toId,farmId:toPond.farmId||activeFarmId||farms[0]?.id||""}));
     setTreatments(prev=>[...prev.filter(t=>t.pondId!==fromId),...remappedTreatments]);
     remappedTreatments.forEach(t=>api.treatments.create(t).catch(console.warn));
     /* remap mortality */
     setMortality(prev=>prev.map(m=>m.pondId===fromId?{...m,pondId:toId}:m));
-    const seTransfer={id:uid(),pondId:toId,pondName:toPond.name,date:dateLabel,species:fromPond.species,count:fromPond.currentCount,cost:fromPond.totalCost,type:"Transfer" as const,fromPond:fromPond.name};
-    const seClosed={id:uid(),pondId:fromId,pondName:fromPond.name,date:dateLabel,species:fromPond.species,count:fromPond.currentCount,cost:fromPond.totalCost,type:"Closed" as const,clearedDate:dateLabel};
+    const seTransfer={id:uid(),pondId:toId,pondName:toPond.name,date:dateLabel,species:fromPond.species,count:fromPond.currentCount,cost:fromPond.totalCost,type:"Transfer" as const,fromPond:fromPond.name,farmId:toPond.farmId||activeFarmId||farms[0]?.id||""};
+    const seClosed={id:uid(),pondId:fromId,pondName:fromPond.name,date:dateLabel,species:fromPond.species,count:fromPond.currentCount,cost:fromPond.totalCost,type:"Closed" as const,clearedDate:dateLabel,farmId:toPond.farmId||activeFarmId||farms[0]?.id||""};
     setStockEvents(prev=>[...prev,seTransfer,seClosed]);
     api.stockEvents.create(seTransfer).catch(console.warn);
     api.stockEvents.create(seClosed).catch(console.warn);
@@ -2654,7 +2754,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     }
     /* copy all treatments */
     const pondTreatments=treatments.filter(t=>t.pondId===fromId);
-    const transferTreatments=pondTreatments.map(t=>({...t,id:uid(),pondId:toId,farmId:toPond.farmId}));
+    const transferTreatments=pondTreatments.map(t=>({...t,id:uid(),pondId:toId,farmId:toPond.farmId||activeFarmId||farms[0]?.id||""}));
     if(transferTreatments.length>0)setTreatments(prev=>[...prev,...transferTreatments]);
     /* split maxKgByPallet: destination gets fraction, source keeps (1-fraction) */
     if(fromPond.maxKgByPallet&&Object.keys(fromPond.maxKgByPallet).length>0){
@@ -2677,11 +2777,11 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     const updatedFrom=isFullTransfer?{...fromPond,status:"Empty" as const,currentCount:0,initialStock:0,avgWeight:undefined,stockingDate:"—",stockMonth:"",totalCost:0,species:"—",transferNote:undefined}:{...fromPond,currentCount:Math.max(0,fromPond.currentCount-safeCount),totalCost:Math.max(0,fromPond.totalCost-costShare)};
     api.ponds.update(updatedFrom).catch(console.warn);
     /* stock event */
-    const seTransfer={id:uid(),pondId:toId,pondName:toPond.name,date:dateLabel,species:fromPond.species,count:safeCount,cost:costShare,type:"Transfer" as const,fromPond:fromPond.name};
+    const seTransfer={id:uid(),pondId:toId,pondName:toPond.name,date:dateLabel,species:fromPond.species,count:safeCount,cost:costShare,type:"Transfer" as const,fromPond:fromPond.name,farmId:toPond.farmId||activeFarmId||farms[0]?.id||""};
     setStockEvents(prev=>[...prev,seTransfer]);
     api.stockEvents.create(seTransfer).catch(console.warn);
     if(isFullTransfer){
-      const seClosed={id:uid(),pondId:fromId,pondName:fromPond.name,date:dateLabel,species:fromPond.species,count:safeCount,cost:costShare,type:"Closed" as const,clearedDate:dateLabel};
+      const seClosed={id:uid(),pondId:fromId,pondName:fromPond.name,date:dateLabel,species:fromPond.species,count:safeCount,cost:costShare,type:"Closed" as const,clearedDate:dateLabel,farmId:toPond.farmId||activeFarmId||farms[0]?.id||""};
       setStockEvents(prev=>[...prev,seClosed]);
       api.stockEvents.create(seClosed).catch(console.warn);
     }
@@ -2701,10 +2801,10 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   const [setupError,setSetupError]=useState<string|null>(null);
   const [sqlCopied,setSqlCopied]=useState(false);
 
-  /* ── Apply backend data to state with smart non-destructive merge ── */
+  /* ── Apply backend authoritative data to state ── */
   const applyBackendData=useCallback((d:any)=>{
     if(d.farms?.length>0){
-      setFarms(prev=>mergeWithLocal(d.farms,prev));
+      setFarms(d.farms);
       setActiveFarmId(prev=>(d.farms.some((f:any)=>f.id===prev)?prev:d.farms[0].id));
     } else {
       // If user has no farm in database, auto-create one
@@ -2721,39 +2821,62 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       if(up.activePlan)setActivePlan(up.activePlan);
       if(up.trialStartDate)setTrialStartDate(up.trialStartDate);
     }
-    if(d.ponds)setPonds(prev=>mergeWithLocal(d.ponds,prev));
-    if(d.stockEvents)setStockEvents(prev=>mergeWithLocal(d.stockEvents,prev));
-    if(d.feedInventory)setInventory(prev=>mergeWithLocal(d.feedInventory,prev));
-    if(d.feedingRecords)setFeeding(prev=>mergeWithLocal(d.feedingRecords,prev));
-    if(d.bagOpenLogs)setBagLogs(prev=>mergeWithLocal(d.bagOpenLogs,prev));
-    if(d.feedRemainingLogs)setRemainLogs(prev=>mergeWithLocal(d.feedRemainingLogs,prev));
-    if(d.expenses)setExpenses(prev=>mergeWithLocal(d.expenses,prev));
-    if(d.revenues)setRevenues(prev=>mergeWithLocal(d.revenues,prev));
-    if(d.mortalityEntries)setMortality(prev=>mergeWithLocal(d.mortalityEntries,prev));
-    if(d.treatmentRecords)setTreatments(prev=>mergeWithLocal(d.treatmentRecords,prev));
-    if(d.staffMembers)setStaff(prev=>mergeWithLocal(d.staffMembers,prev));
-    if(d.reports)setReports(prev=>mergeWithLocal(d.reports,prev));
-    if(d.customers)setCustomers(prev=>mergeWithLocal(d.customers,prev));
-    if(d.priceGroups)setPriceGroups(prev=>mergeWithLocal(d.priceGroups,prev));
-    if(d.invoices)setInvoices(prev=>mergeWithLocal(d.invoices,prev));
+
+    // Set backend authoritative data directly, preserving local unpersisted records
+    if(d.ponds){
+      setPonds(prev=>{
+        const dbIds=new Set((d.ponds||[]).map((x:any)=>x.id));
+        const localOnly=prev.filter(p=>p.id&&!dbIds.has(p.id));
+        return [...d.ponds,...localOnly];
+      });
+    }
+    if(d.stockEvents)setStockEvents(d.stockEvents);
+    if(d.feedInventory)setInventory(d.feedInventory);
+    if(d.feedingRecords)setFeeding(d.feedingRecords);
+    if(d.bagOpenLogs)setBagLogs(d.bagOpenLogs);
+    if(d.feedRemainingLogs)setRemainLogs(d.feedRemainingLogs);
+    if(d.expenses){
+      setExpenses(prev=>{
+        const dbIds=new Set((d.expenses||[]).map((x:any)=>x.id));
+        const localOnly=prev.filter(e=>e.id&&!dbIds.has(e.id));
+        return [...d.expenses,...localOnly];
+      });
+    }
+    if(d.revenues){
+      setRevenues(prev=>{
+        const dbIds=new Set((d.revenues||[]).map((x:any)=>x.id));
+        const localOnly=prev.filter(r=>r.id&&!dbIds.has(r.id));
+        return [...d.revenues,...localOnly];
+      });
+    }
+    if(d.mortalityEntries)setMortality(d.mortalityEntries);
+    if(d.treatmentRecords)setTreatments(d.treatmentRecords);
+    if(d.staffMembers)setStaff(d.staffMembers);
+    if(d.reports)setReports(d.reports);
+    if(d.customers)setCustomers(d.customers);
+    if(d.priceGroups)setPriceGroups(d.priceGroups);
+    if(d.invoices)setInvoices(d.invoices);
     if(d.invoiceSettings)setInvSettings(d.invoiceSettings);
     if(d.knowledgeQuestions?.length>0)setKQuestions_(d.knowledgeQuestions);
     if(d.compatibilityQuestions?.length>0)setCQuestions_(d.compatibilityQuestions);
     if(d.knowledgeResults)setKResults_(d.knowledgeResults);
     if(d.compatibilityResults)setCResults_(d.compatibilityResults);
 
-    // Auto-sync unpersisted local records to database in background
+    // Auto-sync unpersisted local records ONLY if not already in DB by ID or Name
     if(d.ponds){
       const dbIds=new Set((d.ponds||[]).map((x:any)=>x.id));
-      ponds.filter(p=>p.id&&!dbIds.has(p.id)).forEach(p=>api.ponds.create(p).catch(console.warn));
+      const dbNames=new Set((d.ponds||[]).map((x:any)=>(x.name||"").trim().toLowerCase()));
+      ponds.filter(p=>p.id&&!dbIds.has(p.id)&&!dbNames.has((p.name||"").trim().toLowerCase())).forEach(p=>api.ponds.create(p).catch(console.warn));
     }
     if(d.feedingRecords){
       const dbIds=new Set((d.feedingRecords||[]).map((x:any)=>x.id));
-      feeding.filter(r=>r.id&&!dbIds.has(r.id)).forEach(r=>api.feeding.create(r).catch(console.warn));
+      const dbKeys=new Set((d.feedingRecords||[]).map((x:any)=>`${x.farmId||""}|${x.pond}|${x.date}`));
+      feeding.filter(r=>r.id&&!dbIds.has(r.id)&&!dbKeys.has(`${r.farmId||""}|${r.pond}|${r.date}`)).forEach(r=>api.feeding.create(r).catch(console.warn));
     }
     if(d.bagOpenLogs){
       const dbIds=new Set((d.bagOpenLogs||[]).map((x:any)=>x.id));
-      bagLogs.filter(b=>b.id&&!dbIds.has(b.id)).forEach(b=>api.bagLogs.create({...b,farmId:b.farmId||activeFarmId}).catch(console.warn));
+      const dbKeys=new Set((d.bagOpenLogs||[]).map((x:any)=>`${x.farmId||""}|${x.date}|${x.brand}|${x.size}|${x.fishStock||""}`));
+      bagLogs.filter(b=>b.id&&!dbIds.has(b.id)&&!dbKeys.has(`${b.farmId||activeFarmId}|${b.date}|${b.brand}|${b.size}|${b.fishStock||""}`)).forEach(b=>api.bagLogs.create({...b,farmId:b.farmId||activeFarmId}).catch(console.warn));
     }
     if(d.feedRemainingLogs){
       const dbIds=new Set((d.feedRemainingLogs||[]).map((x:any)=>x.id));
@@ -2808,6 +2931,26 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       applyBackendData(d);
     }catch(e){console.warn("Backend load failed, using local state",e);}
   },[applyBackendData,runAutoSetup]);
+
+  /* Re-fetch backend data when tab/window gains focus (cross-device sync) */
+  useEffect(()=>{
+    const handleFocus=()=>{
+      if(userProfile?.id||localStorage.getItem("pondtora_is_auth")==="true"){
+        loadFromBackend();
+      }
+    };
+    window.addEventListener("focus",handleFocus);
+    const handleVis=()=>{
+      if(document.visibilityState==="visible"&&(userProfile?.id||localStorage.getItem("pondtora_is_auth")==="true")){
+        loadFromBackend();
+      }
+    };
+    document.addEventListener("visibilitychange",handleVis);
+    return()=>{
+      window.removeEventListener("focus",handleFocus);
+      document.removeEventListener("visibilitychange",handleVis);
+    };
+  },[loadFromBackend,userProfile?.id]);
 
   /* ── Restore session via Supabase Auth ── */
   useEffect(()=>{
@@ -2988,6 +3131,20 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   const isOwner=!currentStaff||currentStaff.role==="Admin";
   const hasPerm=(p:string)=>isOwner||((currentStaff?.permissions||[]).includes(p));
   const accessibleFarms=isOwner?farms:farms.filter(f=>currentStaff?.farms?.includes(f.id));
+
+  /* Auto-route staff members to their first permitted page if current page is restricted */
+  useEffect(()=>{
+    if(!isOwner&&currentStaff){
+      const allowedViews=NAV.filter(({id})=>{
+        if(id==="staff"||id==="pricing"||id==="settings")return false;
+        const perm=NAV_PERM[id];
+        return !perm||hasPerm(perm);
+      }).map(n=>n.id);
+      if(allowedViews.length>0&&!allowedViews.includes(active)){
+        setActive_(allowedViews[0]);
+      }
+    }
+  },[isOwner,currentStaff,active]);
   const notifications=useMemo(()=>{
     const todayLbl=`${toMon(TODAY)} ${new Date(TODAY).getDate()}`;
     const fedToday=new Set(feeding.filter(r=>r.date===todayLbl).map(r=>r.pond));

@@ -796,7 +796,6 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
               <div className="flex flex-col gap-3">
                 <p className="font-bold text-white/40 uppercase tracking-widest text-[11px] mb-1">Support</p>
                 <span className="text-white/60 text-sm">contact@pondtora.com</span>
-                <button onClick={onAdmin} className="text-white/40 hover:text-white/70 text-xs transition-colors mt-4 text-left">Admin Access</button>
               </div>
             </div>
           </div>

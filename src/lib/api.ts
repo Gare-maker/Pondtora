@@ -86,10 +86,12 @@ const toCamel = (s: string) => s.replace(/_([a-z])/g, (_, c) => c.toUpperCase())
 const SNAKE_MAP: Record<string, string> = {
   desc: "description",
   group: "group_key",
+  originalDesc: "original_description",
 };
 const CAMEL_MAP: Record<string, string> = {
   description: "desc",
   group_key: "group",
+  original_description: "originalDesc",
 };
 
 const DATE_FIELDS = new Set(["date", "purchase_date", "stocking_date", "cleared_date", "invoice_date", "due_date"]);
@@ -552,23 +554,63 @@ export const api = {
   // ── Ponds ──────────────────────────────────────────────────────────────────
   ponds: {
     list: () => dbList<Pond>("ponds", "ponds"),
-    create: (p: Partial<Pond>) => {
+    create: async (p: Partial<Pond>) => {
       const dbPond: any = { ...p };
       if (p.sizeM2 !== undefined) dbPond.sizeM2 = parseFloat(String(p.sizeM2)) || 0;
       if (p.stockingDate && p.stockingDate !== "—") {
         const d = toValidDbDate(p.stockingDate);
         if (d) dbPond.stockingDate = d;
       }
+
+      // Validate duplicate pond name (case-insensitive) for the user & farm
+      const userId = await getUserId();
+      if (p.name && p.name.trim() && userId) {
+        const trimmedName = p.name.trim();
+        let q = supabase
+          .from("ponds")
+          .select("id, name")
+          .eq("user_id", userId)
+          .ilike("name", trimmedName);
+        if (p.farmId && isUuid(p.farmId)) {
+          q = q.eq("farm_id", p.farmId);
+        }
+        const { data: existing, error: checkErr } = await q;
+        if (!checkErr && existing && existing.length > 0) {
+          throw new Error(`A pond named "${trimmedName}" already exists in this farm.`);
+        }
+      }
+
       return dbInsert<Pond>("ponds", dbPond as Pond, "ponds");
     },
-    update: (p: Pond) => {
+    update: async (p: Pond) => {
       const dbPond: any = { ...p };
       if (p.sizeM2 !== undefined) dbPond.sizeM2 = parseFloat(String(p.sizeM2)) || 0;
       if (p.stockingDate && p.stockingDate !== "—") {
         const d = toValidDbDate(p.stockingDate);
         if (d) dbPond.stockingDate = d;
       }
-      return dbUpdate<Pond>("ponds", dbPond, "ponds");
+
+      // Check duplicate name on update if changed
+      const userId = await getUserId();
+      if (p.name && p.name.trim() && userId) {
+        const trimmedName = p.name.trim();
+        const targetId = isUuid(p.id) ? p.id : idMap.get(p.id) || p.id;
+        let q = supabase
+          .from("ponds")
+          .select("id, name")
+          .eq("user_id", userId)
+          .ilike("name", trimmedName)
+          .neq("id", targetId);
+        if (p.farmId && isUuid(p.farmId)) {
+          q = q.eq("farm_id", p.farmId);
+        }
+        const { data: existing, error: checkErr } = await q;
+        if (!checkErr && existing && existing.length > 0) {
+          throw new Error(`A pond named "${trimmedName}" already exists in this farm.`);
+        }
+      }
+
+      return dbInsert<Pond>("ponds", dbPond as Pond, "ponds");
     },
     remove: (id: string) => dbDelete("ponds", id, "ponds"),
   },

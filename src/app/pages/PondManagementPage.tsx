@@ -491,7 +491,7 @@ function PondDetail({pond,mortality,onAddMortality,onAddCost,feedingRecords,onBa
           <button onClick={()=>setQtyMode("increase")} className={`flex-1 py-2 rounded-lg text-sm font-semibold border transition-all ${qtyMode==="increase"?"border-green-400 bg-green-50 text-green-700":"border-slate-200 text-slate-500"}`}>Increase</button>
           <button onClick={()=>setQtyMode("reduce")} className={`flex-1 py-2 rounded-lg text-sm font-semibold border transition-all ${qtyMode==="reduce"?"border-red-400 bg-red-50 text-red-700":"border-slate-200 text-slate-500"}`}>Reduce</button>
         </div>
-        <F label="Amount"><input type="number" min="1" value={qtyAmt} onChange={e=>setQtyAmt(e.target.value)} className={IC} placeholder="Enter amount"/></F>
+        <F label="Amount"><NumInput allowDecimal={false} value={qtyAmt} onChange={setQtyAmt} className={IC} placeholder="Enter amount"/></F>
         <div className="text-xs text-slate-400">Current count: <strong className="text-slate-700">{pond.currentCount.toLocaleString()}</strong>{qtyAmt&&Number(qtyAmt)>0&&<> → <strong className={qtyMode==="increase"?"text-green-700":"text-red-600"}>{(qtyMode==="increase"?pond.currentCount+Number(qtyAmt):Math.max(0,pond.currentCount-Number(qtyAmt))).toLocaleString()}</strong></>}</div>
         <div className="flex gap-2 pt-1"><PBtn onClick={handleUpdateQty}><CheckCircle size={14}/> Update</PBtn><button onClick={()=>setShowUpdateQty(false)} className="px-4 py-2 text-sm text-slate-400">Cancel</button></div>
       </Modal>}
@@ -517,8 +517,17 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
   const [addF,setAddF]=useState({name:"",lengthFt:"",widthFt:"",type:"Earthen",notes:"",category:"Production"});
   const [addErr,setAddErr]=useState<Record<string,string>>({});
   const [editPondId,setEditPondId]=useState<string|null>(null);
-  const [editPondF,setEditPondF]=useState({name:"",type:"Earthen",lengthFt:"",widthFt:"",notes:"",category:"Production"});
-  const handleSaveEditPond=()=>{if(!editPondId)return;onEditPond?.(editPondId,{name:editPondF.name,type:editPondF.type,lengthFt:editPondF.lengthFt,widthFt:editPondF.widthFt,notes:editPondF.notes,category:editPondF.category as "Production"|"Nursery",sizeM2:String((Number(editPondF.lengthFt)||0)*(Number(editPondF.widthFt)||0)||0)});setEditPondId(null);};
+  const [editPondErr,setEditPondErr]=useState<string|null>(null);
+  const handleSaveEditPond=()=>{
+    if(!editPondId)return;
+    const trimmedName=editPondF.name.trim();
+    if(!trimmedName){setEditPondErr("Pond name is required");return;}
+    const conflict=ponds.some(p=>p.id!==editPondId&&p.name.trim().toLowerCase()===trimmedName.toLowerCase());
+    if(conflict){setEditPondErr(`A pond named "${trimmedName}" already exists in this farm.`);return;}
+    setEditPondErr(null);
+    onEditPond?.(editPondId,{name:trimmedName,type:editPondF.type,lengthFt:editPondF.lengthFt,widthFt:editPondF.widthFt,notes:editPondF.notes,category:editPondF.category as "Production"|"Nursery",sizeM2:String((Number(editPondF.lengthFt)||0)*(Number(editPondF.widthFt)||0)||0)});
+    setEditPondId(null);
+  };
   const [fStatus,setFStatus]=useState("All"); const [fType,setFType]=useState("All"); const [fMonth,setFMonth]=useState("All"); const [search,setSearch]=useState("");
   const [deletePondId,setDeletePondId]=useState<string|null>(null);
   const [pondMobileMenu,setPondMobileMenu]=useState<string|null>(null);
@@ -561,7 +570,7 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
     if(stockHistDay!=="All"&&parseInt((g.stockingDate.split("-")[2])||"0",10)!==parseInt(stockHistDay,10))return false;
     return true;
   });
-  if(pond) return <PondDetail pond={pond} mortality={mortality} onAddMortality={onAddMortality} onAddCost={onAddCost} feedingRecords={feedingRecords} onBack={()=>setDetailId(null)} onClosePond={onClosePond} onRestockPond={onRestockPond} ponds={ponds} stockEvents={stockEvents} onTransfer={onTransfer} onNurseryTransfer={onNurseryTransfer} treatments={treatments} onAddTreatment={onAddTreatment} onEditFish={onEditFish} onSetMaxKg={onSetMaxKg} inventory={inventory}/>;
+  if(pond) return <PondDetail pond={pond} mortality={mortality} onAddMortality={onAddMortality} onAddCost={onAddCost} feedingRecords={feedingRecords} onBack={()=>setDetailId(null)} onClosePond={onClosePond} onRestockPond={(id,data)=>{setFStatus("All");onRestockPond(id,data);}} ponds={ponds} stockEvents={stockEvents} onTransfer={onTransfer} onNurseryTransfer={onNurseryTransfer} treatments={treatments} onAddTreatment={onAddTreatment} onEditFish={onEditFish} onSetMaxKg={onSetMaxKg} inventory={inventory}/>;
 
   const activePonds=ponds.filter(p=>p.status==="Active").length;
   const totalFish=ponds.reduce((s,p)=>s+p.currentCount,0);
@@ -576,13 +585,18 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
   });
   const handleAddPond=()=>{
     const errs:Record<string,string>={};
-    if(!addF.name.trim())errs.name="Pond name is required";
+    const trimmedName = addF.name.trim();
+    if(!trimmedName){
+      errs.name="Pond name is required";
+    } else if(ponds.some(p=>p.name.trim().toLowerCase()===trimmedName.toLowerCase())){
+      errs.name=`A pond named "${trimmedName}" already exists in this farm.`;
+    }
     if(Object.keys(errs).length){setAddErr(errs);return;}
     setAddErr({});
     const l=Number(addF.lengthFt)||0;const w=Number(addF.widthFt)||0;
     const sizeM2=l&&w?String(l*w):"";
-    const autoId="P"+String(ponds.length+1).padStart(3,"0");
-    onAddPond({id:autoId,name:addF.name,type:addF.type,species:"—",sizeM2,initialStock:0,currentCount:0,stockingDate:"—",stockMonth:"",totalCost:0,status:"Empty",notes:addF.notes,farmId:activeFarmId,lengthFt:addF.lengthFt,widthFt:addF.widthFt,category:addF.category as "Production"|"Nursery"});
+    const newId=uid();
+    onAddPond({id:newId,name:trimmedName,type:addF.type,species:"—",sizeM2,initialStock:0,currentCount:0,stockingDate:"—",stockMonth:"",totalCost:0,status:"Empty",notes:addF.notes,farmId:activeFarmId,lengthFt:addF.lengthFt,widthFt:addF.widthFt,category:addF.category as "Production"|"Nursery"});
     setShowAdd(false);
     setAddF({name:"",lengthFt:"",widthFt:"",type:"Earthen",notes:"",category:"Production"});
   };
@@ -703,8 +717,8 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
         </div>
       </Card>
       {deletePondId&&(()=>{const p=ponds.find(x=>x.id===deletePondId);return(<Modal title="Delete Pond" onClose={()=>setDeletePondId(null)}><div className="flex flex-col items-center text-center py-2"><div className="w-12 h-12 rounded-full bg-red-50 border-2 border-red-200 flex items-center justify-center mb-4"><Trash2 size={22} className="text-red-500"/></div><p className="text-sm font-bold text-slate-800 mb-1">Are you sure you want to delete {p?.name}?</p><p className="text-xs text-slate-400 mb-5">This action cannot be undone. The pond and all its records will be permanently removed.</p><div className="flex gap-3 w-full"><button onClick={()=>{onDeletePond&&onDeletePond(deletePondId);setDeletePondId(null);}} className="flex-1 py-2.5 rounded-xl text-sm font-bold bg-red-500 hover:bg-red-600 text-white transition-colors">Delete Pond</button><button onClick={()=>setDeletePondId(null)} className="flex-1 py-2.5 rounded-xl text-sm font-semibold border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors">Cancel</button></div></div></Modal>);})()}
-      {editPondId&&<Modal title="Edit Pond" onClose={()=>setEditPondId(null)}>
-        <F label="Pond Name"><input value={editPondF.name} onChange={e=>setEditPondF(p=>({...p,name:e.target.value}))} className={IC}/></F>
+      {editPondId&&<Modal title="Edit Pond" onClose={()=>{setEditPondId(null);setEditPondErr(null);}}>
+        <div><F label="Pond Name"><input value={editPondF.name} onChange={e=>{setEditPondF(p=>({...p,name:e.target.value}));setEditPondErr(null);}} className={`${IC}${editPondErr?" border-red-400":""}`}/></F>{editPondErr&&<p className="text-xs text-red-500 mt-1">{editPondErr}</p>}</div>
         <div className="grid grid-cols-2 gap-3">
           <F label="Length (ft)"><input type="number" value={editPondF.lengthFt} onChange={e=>setEditPondF(p=>({...p,lengthFt:e.target.value}))} className={IC}/></F>
           <F label="Width (ft)"><input type="number" value={editPondF.widthFt} onChange={e=>setEditPondF(p=>({...p,widthFt:e.target.value}))} className={IC}/></F>

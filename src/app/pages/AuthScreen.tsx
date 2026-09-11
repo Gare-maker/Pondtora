@@ -538,16 +538,6 @@ function AuthScreen({
             </form>
           )}
         </div>
-        <div className="mt-5 flex items-center justify-center gap-2 text-xs text-slate-400">
-          <span>Platform Administrator?</span>
-          <button
-            type="button"
-            onClick={onAdmin || (() => { window.location.hash = "#admin"; window.location.reload(); })}
-            className="text-green-600 hover:text-green-700 font-bold hover:underline transition-colors"
-          >
-            Admin Sign In →
-          </button>
-        </div>
         <p className="text-[11px] text-slate-300 mt-4 text-center">© 2026 Pondtora · All rights reserved</p>
       </div>
     </div>

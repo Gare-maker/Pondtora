@@ -215,6 +215,8 @@ function FeedDocumentation({
       const parts=compositeKey.split("||");
       const brand=parts[0];const size=parts[1];const fishStock=parts.slice(2).join("||");
       const pondsForStock=(ponds||[]).filter(p=>p&&pondToStock(p.name)===fishStock).map(p=>p.name);
+      const fedRecords=(feedingRecords||[]).filter(r=>r&&isSameDate(r.date,selDate)&&r.brand===brand&&r.size===size&&(pondsForStock.length===0||pondsForStock.includes(r.pond))&&(Number(r.total)>0||Number(r.morning)>0||Number(r.evening)>0));
+      const fedPonds=Array.from(new Set(fedRecords.map(r=>r.pond).filter(Boolean)));
       const totalFed=(feedingRecords||[]).filter(r=>r&&isSameDate(r.date,selDate)&&r.brand===brand&&r.size===size&&(pondsForStock.length===0||pondsForStock.includes(r.pond))).reduce((s,r)=>s+(Number(r.total)||0),0);
       const carryover=(remainLogs||[]).filter(r=>r&&isSameDate(r.date,prevDate)&&r.brand===brand&&r.size===size&&r.fishStock===fishStock).reduce((s,r)=>s+(Number(r.remainingKg)||0),0);
       const recordedBags=(bagLogs||[]).filter(b=>b&&isSameDate(b.date,selDate)&&b.brand===brand&&b.size===size&&(!b.fishStock||b.fishStock===fishStock)).reduce((s,b)=>s+(Number(b.bagsOpened)||0),0);
@@ -237,7 +239,7 @@ function FeedDocumentation({
       else if(bagsDiff>0){status="bag_mismatch";reason=`Expected ${expectedBags} bags opened, recorded ${recordedBags}.`;}
       else if(remainDiff>=1){status="remaining_mismatch";reason=`Expected ${expectedRemaining}kg remaining, recorded ${recordedRemaining}kg.`;}
       else{status="matched";}
-      rows.push({fishStock,brand,size,ponds:pondsForStock,totalFed,carryover,netNeeded,bagWeight,expectedBags,recordedBags,expectedRemaining,recordedRemaining,status,reason});
+      rows.push({fishStock,brand,size,ponds:fedPonds,totalFed,carryover,netNeeded,bagWeight,expectedBags,recordedBags,expectedRemaining,recordedRemaining,status,reason});
     }
     return rows;
   },[feedingRecords,bagLogs,inventory,remainLogs,selDate,selMonLabel,selDay,selYear,viewYear,viewMonth,ponds]);
@@ -504,6 +506,14 @@ function FeedDocumentation({
           }
         }
       }
+      if (bulkDate) {
+        const iso = bulkDate.match(/^(\d{4})-(\d{2})-(\d{2})/);
+        if (iso) {
+          setViewYear(parseInt(iso[1], 10));
+          setViewMonth(parseInt(iso[2], 10) - 1);
+        }
+      }
+      setSelDate(dateLabel);
       setShowLog(false);
     } catch(err:any) {
       console.error("Error saving feeding records:", err);
@@ -671,9 +681,8 @@ function FeedDocumentation({
               <button onClick={()=>setDocTab("bags")} className="text-xs font-bold text-blue-700 hover:text-blue-900 transition-colors underline ml-auto">Manage Bags →</button>
             </div>
           ):(
-            <div className="px-5 py-2 bg-slate-50 border-b border-slate-100 flex items-center justify-between text-xs text-slate-500">
+            <div className="px-5 py-2 bg-slate-50 border-b border-slate-100 text-xs text-slate-500">
               <span>No bags opened logged for {selDate}.</span>
-              <button onClick={openBagsModal} className="text-green-700 font-bold hover:text-green-800 flex items-center gap-1 transition-colors"><Plus size={12}/> Log Opened Bags</button>
             </div>
           )}
 
@@ -838,7 +847,20 @@ function FeedDocumentation({
                           </td>
                           <td className="px-4 py-3"><Bdg label={r.size} color="blue"/></td>
                           <td className="px-4 py-3 font-semibold text-slate-700 whitespace-nowrap">{r.brand}</td>
-                          <td className="px-4 py-3 text-xs text-slate-500">{r.ponds.join(", ")||"—"}</td>
+                          <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">
+                            {r.ponds.length === 0 ? (
+                              <span className="text-slate-400 italic">None logged</span>
+                            ) : r.ponds.length <= 2 ? (
+                              r.ponds.join(", ")
+                            ) : (
+                              <span className="inline-flex items-center gap-1.5" title={r.ponds.join(", ")}>
+                                <span>{r.ponds.slice(0, 2).join(", ")}</span>
+                                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-600 cursor-help" title={r.ponds.join(", ")}>
+                                  +{r.ponds.length - 2} more
+                                </span>
+                              </span>
+                            )}
+                          </td>
                           <td className="px-4 py-3 font-bold text-slate-800">{r.totalFed} kg</td>
                           <td className="px-4 py-3 font-semibold text-slate-700">{r.totalFed} kg</td>
                           <td className="px-4 py-3 font-semibold text-slate-700">{r.expectedBags}</td>
@@ -884,9 +906,13 @@ function FeedDocumentation({
                 <div className="bg-white border border-slate-200 rounded-xl p-4">
                   <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2">Step 1 — Total Feed Given</p>
                   <div className="space-y-1 mb-2">
-                    {pondsForRow.map(r=>(
-                      <div key={r.id} className="flex items-center justify-between"><span className="text-slate-500">{r.pond}</span><span className="font-semibold text-slate-700">{r.total} kg</span></div>
-                    ))}
+                    {pondsForRow.length === 0 ? (
+                      <p className="text-slate-400 italic text-xs py-1">No feeding recorded for this feed today.</p>
+                    ) : (
+                      pondsForRow.map(r=>(
+                        <div key={r.id} className="flex items-center justify-between"><span className="text-slate-500">{r.pond}</span><span className="font-semibold text-slate-700">{r.total} kg</span></div>
+                      ))
+                    )}
                   </div>
                   <div className="border-t border-slate-100 pt-2 flex items-center justify-between">
                     <span className="font-bold text-slate-600">Total Feed Given</span>
