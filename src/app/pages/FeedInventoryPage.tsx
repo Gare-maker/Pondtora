@@ -38,7 +38,20 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
   const {sorted:sortedInv,sf,sd,toggle}=useSort(inventory,"brand");
   const brands=[...new Set(inventory.map(f=>f.brand))]; const sizes=[...new Set(inventory.map(f=>f.size))]; const months=[...new Set(inventory.map(f=>f.month).filter(Boolean))];
   const filtInv=sortedInv.filter(f=>(fBrand==="All"||f.brand===fBrand)&&(fSize==="All"||f.size===fSize)&&(fMonth==="All"||f.month===fMonth));
-  const totalBags=inventory.reduce((s,f)=>s+f.bags,0); const totalKg=inventory.reduce((s,f)=>s+f.totalKg,0); const invValue=inventory.reduce((s,f)=>s+f.bags*f.costPerBag,0);
+  const totalBagsPurchased=inventory.reduce((s,f)=>s+f.bags,0);
+  const totalBagsOpened=bagLogs.reduce((s,b)=>s+(Number(b.bagsOpened)||0),0);
+  const totalBagsInStock=Math.max(0,totalBagsPurchased-totalBagsOpened);
+  const totalKgInStock=Object.values(inventory.reduce<Record<string,{brand:string;size:string;wpb:number;bags:number}>>((acc,f)=>{
+    const k=`${f.brand}|${f.size}|${f.weightPerBag}`;
+    if(!acc[k])acc[k]={brand:f.brand,size:f.size,wpb:f.weightPerBag||15,bags:0};
+    acc[k].bags+=f.bags;
+    return acc;
+  },{})).reduce((s,row)=>{
+    const opened=bagLogs.filter(b=>b.brand===row.brand&&b.size===row.size).reduce((sb,b)=>sb+(Number(b.bagsOpened)||0),0);
+    const inStock=Math.max(0,row.bags-opened);
+    return s+(inStock*row.wpb);
+  },0);
+  const invValue=inventory.reduce((s,f)=>s+f.bags*f.costPerBag,0);
   const handleBuy=()=>{
     const errs:Record<string,string>={};
     if(!buyF.bags||Number(buyF.bags)<=0)errs.bags="Bags purchased is required";
@@ -74,8 +87,8 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
         </div>
       </div>
       <div className="grid grid-cols-2 gap-3">
-        <StatCard label="Total Bags" value={String(totalBags)} sub="in stock" icon={Package} hi/>
-        <StatCard label="Total Kg" value={`${totalKg}kg`} icon={Layers}/>
+        <StatCard label="Total Bags" value={String(totalBagsInStock)} sub={`${totalBagsOpened} opened · ${totalBagsPurchased} purchased`} icon={Package} hi/>
+        <StatCard label="Total Kg" value={`${totalKgInStock}kg`} sub="in stock" icon={Layers}/>
       </div>
       <div className="flex gap-1 bg-slate-100 p-1 rounded-lg w-fit">
         {(["stock","purchases"] as const).map(t=><button key={t} onClick={()=>setTab(t)} className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all ${tab===t?"bg-white text-slate-900 shadow-sm":"text-slate-500 hover:text-slate-800"}`}>{t==="purchases"?"Purchase History":"Stock"}</button>)}
@@ -118,7 +131,7 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
                       <td className="px-4 py-3.5"><Bdg label={row.size} color="blue"/></td>
                       <td className="px-4 py-3.5"><span className={`font-bold ${inStock===0?"text-red-500":inStock<=3?"text-amber-500":"text-green-700"}`}>{inStock}</span></td>
                       <td className="px-4 py-3.5 text-slate-500">{row.weightPerBag}kg</td>
-                      <td className="px-4 py-3.5 font-semibold">{row.totalKg}kg</td>
+                      <td className="px-4 py-3.5 font-semibold">{inStock * row.weightPerBag}kg</td>
                     </tr>
                   );
                 });

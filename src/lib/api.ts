@@ -248,9 +248,26 @@ export const auth = {
 
 async function getUserId(): Promise<string> {
   const uid = await getAuthUserId();
-  if (uid) return uid;
-  const { data: { user } } = await supabase.auth.getUser();
-  return user?.id || "";
+  if (uid && isUuid(uid)) return uid;
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user?.id && isUuid(user.id)) return user.id;
+  } catch {}
+  try {
+    const raw = localStorage.getItem("pondtora_user_profile");
+    if (raw) {
+      const p = JSON.parse(raw);
+      if (p?.id && isUuid(p.id)) return p.id;
+    }
+  } catch {}
+  try {
+    const rawAuth = localStorage.getItem("pondtora_auth");
+    if (rawAuth) {
+      const p = JSON.parse(rawAuth);
+      if (p?.user?.id && isUuid(p.user.id)) return p.user.id;
+    }
+  } catch {}
+  return "";
 }
 
 async function dbList<T>(table: string, cacheKey?: string): Promise<T[]> {
@@ -585,7 +602,14 @@ export const api = {
       }
       return dbInsert<BagOpenLog>("bag_open_logs", dbBag as BagOpenLog, "bagOpenLogs");
     },
-    update: (b: BagOpenLog) => dbUpdate<BagOpenLog>("bag_open_logs", b, "bagOpenLogs"),
+    update: (b: BagOpenLog) => {
+      const dbBag: any = { ...b };
+      if (b.date) {
+        const d = toValidDbDate(b.date);
+        if (d) dbBag.date = d;
+      }
+      return dbUpdate<BagOpenLog>("bag_open_logs", dbBag as BagOpenLog, "bagOpenLogs");
+    },
     remove: (id: string) => dbDelete("bag_open_logs", id, "bagOpenLogs"),
   },
 
@@ -600,7 +624,14 @@ export const api = {
       }
       return dbInsert<FeedRemainingLog>("feed_remaining_logs", dbRem as FeedRemainingLog, "feedRemainingLogs");
     },
-    update: (r: FeedRemainingLog) => dbUpdate<FeedRemainingLog>("feed_remaining_logs", r, "feedRemainingLogs"),
+    update: (r: FeedRemainingLog) => {
+      const dbRem: any = { ...r };
+      if (r.date) {
+        const d = toValidDbDate(r.date);
+        if (d) dbRem.date = d;
+      }
+      return dbUpdate<FeedRemainingLog>("feed_remaining_logs", dbRem as FeedRemainingLog, "feedRemainingLogs");
+    },
     remove: (id: string) => dbDelete("feed_remaining_logs", id, "feedRemainingLogs"),
   },
 

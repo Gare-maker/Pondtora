@@ -17,7 +17,7 @@ import {
   ResponsiveContainer, PieChart, Pie, Cell, Legend
 } from "recharts";
 import type { View, SortDir, MonthData, FeedItem, Pond, Expense, Revenue, FeedingRecord, FeedEditEntry, MortalityEntry, BagOpenLog, FeedRemainingLog, StaffMember, Report, UserProfile, StockEvent, PriceGroup, Customer, InvSettings, InvoiceLineItem, Invoice, Farm, TreatmentRecord, WItem, EditEntry } from "./types";
-import { EXPENSE_CATS, REVENUE_SRCS, POND_TYPES, POND_SPECIES, MORT_CAUSES, TODAY, fmt, yFmt, uid, toMon, toYr, PAYMENT_METHODS, INV_STATUSES, STAFF_PERMISSIONS, STAFF_ROLES_ALL, INIT_INV_SETTINGS, ADMIN_NAME, downloadCSV, openPrintWindow, COUNTRY_CURRENCIES, COUNTRIES, DIAL_CODES, FLAG_EMOJI, convertNGN, fmtStockingDate } from "./data";
+import { EXPENSE_CATS, REVENUE_SRCS, POND_TYPES, POND_SPECIES, MORT_CAUSES, TODAY, fmt, yFmt, uid, toMon, toYr, PAYMENT_METHODS, INV_STATUSES, STAFF_PERMISSIONS, STAFF_ROLES_ALL, INIT_INV_SETTINGS, ADMIN_NAME, downloadCSV, openPrintWindow, COUNTRY_CURRENCIES, COUNTRIES, DIAL_CODES, FLAG_EMOJI, convertNGN, fmtStockingDate, isSameDate } from "./data";
 import { Card, Bdg, PBtn, Pagination, PER_PAGE, StatCard, Tip, Modal, F, IC, SC, SearchableSelect, SelDrop, DMONTHS_S, DateFilter, SearchableCountrySelect, SH, useSort, DateInput, NumInput } from "./shared";
 import InvoicesPage from "./pages/InvoicesPage";
 import FeedDocumentationPage from "./pages/FeedDocumentationPage";
@@ -2237,6 +2237,21 @@ function saveLocal<T>(key: string, val: T): void {
   } catch {}
 }
 
+function mergeWithLocal<T extends { id?: string }>(backendItems?: T[], localItems?: T[]): T[] {
+  const backend = backendItems || [];
+  const local = localItems || [];
+  if (backend.length === 0) return local;
+  if (local.length === 0) return backend;
+  const backendIdMap = new Set(backend.map(b => b.id).filter(Boolean));
+  const merged = [...backend];
+  for (const item of local) {
+    if (item.id && !backendIdMap.has(item.id)) {
+      merged.push(item);
+    }
+  }
+  return merged;
+}
+
 /* ─── Root ──────────────────────────────────────────────────── */
 export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   const [isAuth,setIsAuth]=useState<boolean>(()=>localStorage.getItem("pondtora_is_auth")==="true");
@@ -2395,7 +2410,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     setUserProfile(p=>p?{...p,name:u.name,phone:u.phone}:p);
     api.profile.update({name:u.name,phone:u.phone}).catch(console.warn);
   };
-  const addTreatment=(t:TreatmentRecord)=>{setTreatments(prev=>[t,...prev]);toast.success("Treatment recorded");api.treatments.create(t).catch(console.warn);};
+  const addTreatment=(t:TreatmentRecord)=>{const farmTr:TreatmentRecord={...t,farmId:activeFarmId};setTreatments(prev=>[farmTr,...prev]);toast.success("Treatment recorded");api.treatments.create(farmTr).catch(console.warn);};
   const addPond=(p:Pond)=>{
     const farmPonds=ponds.filter(x=>x.farmId===activeFarmId);
     if(farmPonds.length>=pondLimit){const planLabel=activePlan||"free trial";setUpgradeModalMsg(`You've reached the limit of ${pondLimit===Infinity?"unlimited":pondLimit} ponds on the ${planLabel} plan. Upgrade to add more ponds.`);setShowUpgradeModal(true);return;}
@@ -2470,34 +2485,57 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     }
   };
   const addBagLog=(b:BagOpenLog)=>{
+    const farmBag:BagOpenLog={...b,farmId:b.farmId||activeFarmId};
     setBagLogs(prev=>{
-      const bStock=b.fishStock||"";
-      const existing=prev.find(x=>x.date===b.date&&x.brand===b.brand&&x.size===b.size&&(x.fishStock||"")===(bStock));
+      const bStock=farmBag.fishStock||"";
+      const existing=prev.find(x=>isSameDate(x.date,farmBag.date)&&x.brand===farmBag.brand&&x.size===farmBag.size&&(x.fishStock||"")===bStock&&(!x.farmId||x.farmId===farmBag.farmId));
       if(existing){
-        const updated={...existing,bagsOpened:b.bagsOpened,totalKg:b.totalKg,kgPerBag:b.kgPerBag};
+        const updated={...existing,bagsOpened:farmBag.bagsOpened,totalKg:farmBag.totalKg,kgPerBag:farmBag.kgPerBag,farmId:farmBag.farmId};
         api.bagLogs.update(updated).catch(console.warn);
         return prev.map(x=>x.id===existing.id?updated:x);
       }
-      api.bagLogs.create(b).catch(console.warn);
-      return[b,...prev];
+      api.bagLogs.create(farmBag).catch(console.warn);
+      return[farmBag,...prev];
     });
     toast.success("Bags logged");
   };
-  const editBagLog=(b:BagOpenLog)=>{setBagLogs(prev=>prev.map(x=>x.id===b.id?b:x));api.bagLogs.update(b).catch(console.warn);};
-  const addRemainLog=(r:FeedRemainingLog)=>{setRemainLogs(prev=>[r,...prev]);toast.success("Remaining feed logged");api.remainLogs.create(r).catch(console.warn);};
-  const editRemainLog=(r:FeedRemainingLog)=>{setRemainLogs(prev=>prev.map(x=>x.id===r.id?r:x));api.remainLogs.update(r).catch(console.warn);};
+  const editBagLog=(b:BagOpenLog)=>{
+    const farmBag:BagOpenLog={...b,farmId:b.farmId||activeFarmId};
+    setBagLogs(prev=>prev.map(x=>x.id===farmBag.id?farmBag:x));
+    api.bagLogs.update(farmBag).catch(console.warn);
+  };
+  const addRemainLog=(r:FeedRemainingLog)=>{
+    const farmRemain:FeedRemainingLog={...r,farmId:r.farmId||activeFarmId};
+    setRemainLogs(prev=>{
+      const existing=prev.find(x=>isSameDate(x.date,farmRemain.date)&&x.brand===farmRemain.brand&&x.size===farmRemain.size&&(x.fishStock||"")===(farmRemain.fishStock||"")&&(!x.farmId||x.farmId===farmRemain.farmId));
+      if(existing){
+        const updated={...existing,remainingKg:farmRemain.remainingKg,farmId:farmRemain.farmId};
+        api.remainLogs.update(updated).catch(console.warn);
+        return prev.map(x=>x.id===existing.id?updated:x);
+      }
+      api.remainLogs.create(farmRemain).catch(console.warn);
+      return[farmRemain,...prev];
+    });
+    toast.success("Remaining feed logged");
+  };
+  const editRemainLog=(r:FeedRemainingLog)=>{
+    const farmRemain:FeedRemainingLog={...r,farmId:r.farmId||activeFarmId};
+    setRemainLogs(prev=>prev.map(x=>x.id===farmRemain.id?farmRemain:x));
+    api.remainLogs.update(farmRemain).catch(console.warn);
+  };
   const addInv=(f:FeedItem)=>{const fWithFarm={...f,farmId:activeFarmId};setInventory(prev=>[...prev,fWithFarm]);toast.success("Feed purchase recorded");api.inventory.create(fWithFarm).catch(console.warn);};
   const delInv=(id:string)=>{setInventory(prev=>prev.filter(f=>f.id!==id));api.inventory.remove(id).catch(console.warn);};
-  const editInv=(f:FeedItem)=>{setInventory(prev=>prev.map(x=>x.id===f.id?f:x));api.inventory.update(f).catch(console.warn);};
+  const editInv=(f:FeedItem)=>{const fWithFarm={...f,farmId:f.farmId||activeFarmId};setInventory(prev=>prev.map(x=>x.id===f.id?fWithFarm:x));api.inventory.update(fWithFarm).catch(console.warn);};
   const editFish=(id:string,u:{species:string;currentCount:number;stockingDate:string})=>{setPonds(prev=>prev.map(p=>{if(p.id!==id)return p;const np={...p,...u};api.ponds.update(np).catch(console.warn);return np;}));};
   const deletePond=(id:string)=>{setPonds(prev=>prev.filter(p=>p.id!==id));api.ponds.remove(id).catch(console.warn);};
   const addMort=(m:MortalityEntry,pondId:string)=>{
+    const farmMort:MortalityEntry={...m,farmId:activeFarmId};
     toast.success("Mortality recorded");
-    setMortality(prev=>[m,...prev]);
-    setPonds(prev=>prev.map(p=>p.id===pondId?{...p,currentCount:Math.max(0,p.currentCount-m.count)}:p));
-    api.mortality.create(m).catch(console.warn);
+    setMortality(prev=>[farmMort,...prev]);
+    setPonds(prev=>prev.map(p=>p.id===pondId?{...p,currentCount:Math.max(0,p.currentCount-farmMort.count)}:p));
+    api.mortality.create(farmMort).catch(console.warn);
     const updPond=ponds.find(p=>p.id===pondId);
-    if(updPond)api.ponds.update({...updPond,currentCount:Math.max(0,updPond.currentCount-m.count)}).catch(console.warn);
+    if(updPond)api.ponds.update({...updPond,currentCount:Math.max(0,updPond.currentCount-farmMort.count)}).catch(console.warn);
   };
   const transferStock=(fromId:string,toId:string,date:string)=>{
     const fromPond=ponds.find(p=>p.id===fromId);
@@ -2624,10 +2662,10 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   const [setupError,setSetupError]=useState<string|null>(null);
   const [sqlCopied,setSqlCopied]=useState(false);
 
-  /* ── Apply backend data to state with smart merge ── */
+  /* ── Apply backend data to state with smart non-destructive merge ── */
   const applyBackendData=useCallback((d:any)=>{
     if(d.farms?.length>0){
-      setFarms(d.farms);
+      setFarms(prev=>mergeWithLocal(d.farms,prev));
       setActiveFarmId(prev=>(d.farms.some((f:any)=>f.id===prev)?prev:d.farms[0].id));
     }
     if(d.userProfiles?.length>0){
@@ -2635,27 +2673,53 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       if(up.activePlan)setActivePlan(up.activePlan);
       if(up.trialStartDate)setTrialStartDate(up.trialStartDate);
     }
-    if(d.ponds?.length>0)setPonds(d.ponds);
-    if(d.stockEvents?.length>0)setStockEvents(d.stockEvents);
-    if(d.feedInventory?.length>0)setInventory(d.feedInventory);
-    if(d.feedingRecords?.length>0)setFeeding(d.feedingRecords);
-    if(d.bagOpenLogs?.length>0)setBagLogs(d.bagOpenLogs);
-    if(d.feedRemainingLogs?.length>0)setRemainLogs(d.feedRemainingLogs);
-    if(d.expenses?.length>0)setExpenses(d.expenses);
-    if(d.revenues?.length>0)setRevenues(d.revenues);
-    if(d.mortalityEntries?.length>0)setMortality(d.mortalityEntries);
-    if(d.treatmentRecords?.length>0)setTreatments(d.treatmentRecords);
-    if(d.staffMembers?.length>0)setStaff(d.staffMembers);
-    if(d.reports?.length>0)setReports(d.reports);
-    if(d.customers?.length>0)setCustomers(d.customers);
-    if(d.priceGroups?.length>0)setPriceGroups(d.priceGroups);
-    if(d.invoices?.length>0)setInvoices(d.invoices);
+    if(d.ponds)setPonds(prev=>mergeWithLocal(d.ponds,prev));
+    if(d.stockEvents)setStockEvents(prev=>mergeWithLocal(d.stockEvents,prev));
+    if(d.feedInventory)setInventory(prev=>mergeWithLocal(d.feedInventory,prev));
+    if(d.feedingRecords)setFeeding(prev=>mergeWithLocal(d.feedingRecords,prev));
+    if(d.bagOpenLogs)setBagLogs(prev=>mergeWithLocal(d.bagOpenLogs,prev));
+    if(d.feedRemainingLogs)setRemainLogs(prev=>mergeWithLocal(d.feedRemainingLogs,prev));
+    if(d.expenses)setExpenses(prev=>mergeWithLocal(d.expenses,prev));
+    if(d.revenues)setRevenues(prev=>mergeWithLocal(d.revenues,prev));
+    if(d.mortalityEntries)setMortality(prev=>mergeWithLocal(d.mortalityEntries,prev));
+    if(d.treatmentRecords)setTreatments(prev=>mergeWithLocal(d.treatmentRecords,prev));
+    if(d.staffMembers)setStaff(prev=>mergeWithLocal(d.staffMembers,prev));
+    if(d.reports)setReports(prev=>mergeWithLocal(d.reports,prev));
+    if(d.customers)setCustomers(prev=>mergeWithLocal(d.customers,prev));
+    if(d.priceGroups)setPriceGroups(prev=>mergeWithLocal(d.priceGroups,prev));
+    if(d.invoices)setInvoices(prev=>mergeWithLocal(d.invoices,prev));
     if(d.invoiceSettings)setInvSettings(d.invoiceSettings);
     if(d.knowledgeQuestions?.length>0)setKQuestions_(d.knowledgeQuestions);
     if(d.compatibilityQuestions?.length>0)setCQuestions_(d.compatibilityQuestions);
     if(d.knowledgeResults)setKResults_(d.knowledgeResults);
     if(d.compatibilityResults)setCResults_(d.compatibilityResults);
-  },[]);
+
+    // Auto-sync unpersisted local records to database in background
+    if(d.ponds){
+      const dbIds=new Set((d.ponds||[]).map((x:any)=>x.id));
+      ponds.filter(p=>p.id&&!dbIds.has(p.id)).forEach(p=>api.ponds.create(p).catch(console.warn));
+    }
+    if(d.feedingRecords){
+      const dbIds=new Set((d.feedingRecords||[]).map((x:any)=>x.id));
+      feeding.filter(r=>r.id&&!dbIds.has(r.id)).forEach(r=>api.feeding.create(r).catch(console.warn));
+    }
+    if(d.bagOpenLogs){
+      const dbIds=new Set((d.bagOpenLogs||[]).map((x:any)=>x.id));
+      bagLogs.filter(b=>b.id&&!dbIds.has(b.id)).forEach(b=>api.bagLogs.create({...b,farmId:b.farmId||activeFarmId}).catch(console.warn));
+    }
+    if(d.feedRemainingLogs){
+      const dbIds=new Set((d.feedRemainingLogs||[]).map((x:any)=>x.id));
+      remainLogs.filter(r=>r.id&&!dbIds.has(r.id)).forEach(r=>api.remainLogs.create({...r,farmId:r.farmId||activeFarmId}).catch(console.warn));
+    }
+    if(d.expenses){
+      const dbIds=new Set((d.expenses||[]).map((x:any)=>x.id));
+      expenses.filter(e=>e.id&&!dbIds.has(e.id)).forEach(e=>api.expenses.create(e).catch(console.warn));
+    }
+    if(d.revenues){
+      const dbIds=new Set((d.revenues||[]).map((x:any)=>x.id));
+      revenues.filter(r=>r.id&&!dbIds.has(r.id)).forEach(r=>api.revenues.create(r).catch(console.warn));
+    }
+  },[ponds,feeding,bagLogs,remainLogs,expenses,revenues,activeFarmId]);
 
   /* ── Auto-create tables then reload ── */
   const runAutoSetup=useCallback(async()=>{
@@ -2848,6 +2912,9 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   const farmRevenues=revenues.filter(r=>!r.farmId||r.farmId===activeFarmId);
   const farmReports=reports.filter(r=>!r.farmId||r.farmId===activeFarmId);
   const farmTreatments=treatments.filter(t=>t.farmId===activeFarmId);
+  const farmMortality=mortality.filter(m=>!m.farmId||m.farmId===activeFarmId);
+  const farmBagLogs=bagLogs.filter(b=>!b.farmId||b.farmId===activeFarmId);
+  const farmRemainLogs=remainLogs.filter(r=>!r.farmId||r.farmId===activeFarmId);
   const farmCustomers=customers.filter(c=>!c.farmId||c.farmId===activeFarmId);
   const farmPriceGroups=priceGroups.filter(g=>!g.farmId||g.farmId===activeFarmId);
   const farmInvoices=invoices.filter(i=>!i.farmId||i.farmId===activeFarmId);
@@ -3020,9 +3087,9 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
         <main ref={mainRef} className="flex-1 overflow-y-auto">
           <AppErrorBoundary key={active}>
             {active==="financial"     &&(hasPerm("Financial Dashboard")?<FinancialDashboard expenses={farmExpenses} revenues={farmRevenues} onAddExpense={addExp} onAddRevenue={addRev} onEditExpense={editExp} onEditRevenue={editRev} stockEvents={stockEvents} ponds={farmPonds} inventory={farmInventory} currency={cs} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}}/>:<AccessDenied/>)}
-            {active==="ponds"         &&(hasPerm("Pond Management")?<PondManagementPage ponds={farmPonds} onAddPond={addPond} onClosePond={closePond} onRestockPond={restockPond} onTransfer={transferStock} onNurseryTransfer={nurseryTransfer} mortality={mortality} onAddMortality={addMort} onAddCost={addExp} feedingRecords={farmFeeding} stockEvents={stockEvents} treatments={farmTreatments} onAddTreatment={addTreatment} activeFarmId={activeFarmId} onDeletePond={deletePond} onEditFish={editFish} onSetMaxKg={setPondMaxKg} onEditPond={(id,u)=>setPonds(prev=>prev.map(p=>p.id===id?{...p,...u}:p))} onScrollTop={()=>mainRef.current?.scrollTo({top:0,behavior:"instant"})} currency={cs} inventory={farmInventory}/>:<AccessDenied/>)}
-            {active==="inventory"     &&(hasPerm("Feed Stock")?<FeedInventoryPage inventory={farmInventory} onAdd={addInv} onDelete={delInv} feedingRecords={farmFeeding} bagLogs={bagLogs} onEditBagLog={editBagLog} onEditInv={editInv} currency={cs} canEditLocked={isOwner||currentStaff?.role==="Farm Manager"}/>:<AccessDenied/>)}
-            {active==="documentation" &&(hasPerm("Feeding Records")?<FeedDocumentationPage feedingRecords={farmFeeding} onAddRecord={addFeed} onEditFeedRecord={editFeedRecord} ponds={farmPonds} inventory={farmInventory} bagLogs={bagLogs} onAddBagLog={addBagLog} onEditBagLog={editBagLog} onEditInv={editInv} remainLogs={remainLogs} onAddRemainLog={addRemainLog} onEditRemainLog={editRemainLog} onReconMismatches={onReconMismatches} reconFocus={reconFocus} canEditLocked={isOwner||currentStaff?.role==="Farm Manager"} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}}/>:<AccessDenied/>)}
+            {active==="ponds"         &&(hasPerm("Pond Management")?<PondManagementPage ponds={farmPonds} onAddPond={addPond} onClosePond={closePond} onRestockPond={restockPond} onTransfer={transferStock} onNurseryTransfer={nurseryTransfer} mortality={farmMortality} onAddMortality={addMort} onAddCost={addExp} feedingRecords={farmFeeding} stockEvents={stockEvents} treatments={farmTreatments} onAddTreatment={addTreatment} activeFarmId={activeFarmId} onDeletePond={deletePond} onEditFish={editFish} onSetMaxKg={setPondMaxKg} onEditPond={(id,u)=>setPonds(prev=>prev.map(p=>p.id===id?{...p,...u}:p))} onScrollTop={()=>mainRef.current?.scrollTo({top:0,behavior:"instant"})} currency={cs} inventory={farmInventory}/>:<AccessDenied/>)}
+            {active==="inventory"     &&(hasPerm("Feed Stock")?<FeedInventoryPage inventory={farmInventory} onAdd={addInv} onDelete={delInv} feedingRecords={farmFeeding} bagLogs={farmBagLogs} onEditBagLog={editBagLog} onEditInv={editInv} currency={cs} canEditLocked={isOwner||currentStaff?.role==="Farm Manager"}/>:<AccessDenied/>)}
+            {active==="documentation" &&(hasPerm("Feeding Records")?<FeedDocumentationPage feedingRecords={farmFeeding} onAddRecord={addFeed} onEditFeedRecord={editFeedRecord} ponds={farmPonds} inventory={farmInventory} bagLogs={farmBagLogs} onAddBagLog={addBagLog} onEditBagLog={editBagLog} onEditInv={editInv} remainLogs={farmRemainLogs} onAddRemainLog={addRemainLog} onEditRemainLog={editRemainLog} onReconMismatches={onReconMismatches} reconFocus={reconFocus} canEditLocked={isOwner||currentStaff?.role==="Farm Manager"} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}}/>:<AccessDenied/>)}
             {active==="invoices"      &&(hasPerm("Invoice")?<InvoicesPage ponds={farmPonds} invoices={farmInvoices} customers={farmCustomers} priceGroups={farmPriceGroups} settings={invSettings} onAddInvoice={addInvoice} onEditInvoice={editInvoice} onAddCustomer={addCustomer} onAddPriceGroup={addPriceGroup} onEditPriceGroup={editPriceGroup} onDeletePriceGroup={delPriceGroup} onUpdateSettings={(s)=>{setInvSettings(s);api.invSettings.update(s).catch(console.warn);}} currentUser={userProfile?.name} currency={cs}/>:<AccessDenied/>)}
             {active==="staff"         &&(isOwner?<StaffPage staff={staff} onAdd={addStaff} onEdit={editStaff} onDelete={delStaff} farms={farms} activeFarmId={activeFarmId}/>:<AccessDenied/>)}
             {active==="reports"       &&(hasPerm("Reports")?<ReportsPage reports={farmReports} staff={staff} onAdd={addReport} onEdit={editReportFn}/>:<AccessDenied/>)}
