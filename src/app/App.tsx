@@ -2728,7 +2728,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
         if(isFullTransfer)return{...p,status:"Empty" as const,currentCount:0,initialStock:0,avgWeight:undefined,stockingDate:"—",stockMonth:"",totalCost:0,species:"—",transferNote:undefined};
         return{...p,currentCount:Math.max(0,p.currentCount-safeCount),totalCost:Math.max(0,p.totalCost-costShare)};
       }
-      if(p.id===toId)return{...p,status:"Active",species:p.status==="Empty"?fromPond.species:p.species,initialStock:(p.initialStock||0)+safeCount,currentCount:(p.currentCount||0)+safeCount,stockingDate:p.status==="Empty"||p.stockingDate==="—"?fromPond.stockingDate:p.stockingDate,stockMonth:p.status==="Empty"||!p.stockMonth?fromPond.stockMonth:p.stockMonth,totalCost:(p.totalCost||0)+costShare,transferNote:`${safeCount.toLocaleString()} fish received from ${fromPond.name} (Nursery) on ${dateLabel}`};
+      if(p.id===toId)return{...p,status:"Active" as const,species:p.status==="Empty"?fromPond.species:p.species,initialStock:(p.initialStock||0)+safeCount,currentCount:(p.currentCount||0)+safeCount,stockingDate:p.status==="Empty"||p.stockingDate==="—"?fromPond.stockingDate:p.stockingDate,stockMonth:p.status==="Empty"||!p.stockMonth?fromPond.stockMonth:p.stockMonth,totalCost:(p.totalCost||0)+costShare,transferNote:`${safeCount.toLocaleString()} fish received from ${fromPond.name} (Nursery) on ${dateLabel}`};
       return p;
     }));
     /* split feeding records proportionally */
