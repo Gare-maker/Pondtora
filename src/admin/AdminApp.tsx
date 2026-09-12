@@ -21,6 +21,7 @@ import {
   EyeOff,
   Save,
   Sparkles,
+  RotateCw,
 } from "lucide-react";
 import AdminLogin from "./AdminLogin";
 import DashboardPage from "./pages/DashboardPage";
@@ -31,6 +32,13 @@ import type { AdminUser, AdminPlan, AdminActivityLog } from "./types";
 import { DEFAULT_PLANS } from "./types";
 import { projectId } from "../../utils/supabase/info";
 import { loadPaystackConfig, savePaystackConfig, PaystackConfig } from "../lib/paystack";
+import {
+  fetchLiveAdminUsers,
+  updateAdminUserInDb,
+  deleteAdminUserInDb,
+  isDummyUser,
+  saveAllAdminUsers,
+} from "../lib/userSync";
 import { Toaster, toast } from "sonner";
 
 type Page = "dashboard" | "users" | "subscriptions" | "plans" | "logs" | "settings";
@@ -295,11 +303,14 @@ export default function AdminApp({ onExit }: { onExit?: () => void } = {}) {
   });
   const [page, setPage] = useState<Page>("dashboard");
   const [sideOpen, setSideOpen] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [isLiveDb, setIsLiveDb] = useState(false);
+  const [lastSynced, setLastSynced] = useState<Date | null>(null);
 
-  // Persistent Admin State
+  // Persistent Admin State (Live Supabase users only, no dummy mock accounts)
   const [users, setUsers] = useState<AdminUser[]>(() => {
     const loaded = loadLocal("pondtora_admin_users", []);
-    return loaded.length > 0 ? loaded : DUMMY_USERS;
+    return loaded.filter(u => !isDummyUser(u));
   });
   const [plans, setPlans] = useState<AdminPlan[]>(() => {
     const loaded = loadLocal("pondtora_admin_plans", []);
@@ -310,11 +321,41 @@ export default function AdminApp({ onExit }: { onExit?: () => void } = {}) {
     return loaded.length > 0 ? loaded : INITIAL_LOGS;
   });
 
+  async function handleSyncLiveUsers(showToast = true) {
+    setIsSyncing(true);
+    try {
+      const res = await fetchLiveAdminUsers();
+      setUsers(res.users);
+      setIsLiveDb(res.isLiveFromDb);
+      setLastSynced(new Date());
+      if (showToast) {
+        if (res.isLiveFromDb) {
+          toast.success(`Synced ${res.users.length} live user account${res.users.length === 1 ? "" : "s"} from Supabase`);
+        } else {
+          toast.info(`Database returned ${res.count} account${res.count === 1 ? "" : "s"}`);
+        }
+      }
+    } catch (err: any) {
+      if (showToast) {
+        toast.error("Database sync failed: " + (err?.message || "Check network connection"));
+      }
+    } finally {
+      setIsSyncing(false);
+    }
+  }
+
+  // Automatically fetch live registered users from Supabase upon admin authentication
+  useEffect(() => {
+    if (loggedIn) {
+      handleSyncLiveUsers(false);
+    }
+  }, [loggedIn]);
+
   // Listen for live cross-window or inter-component user and plan updates
   useEffect(() => {
     const onUsersUpdate = (e: any) => {
-      if (e.detail) setUsers(e.detail);
-      else setUsers(loadLocal("pondtora_admin_users", DUMMY_USERS));
+      if (e.detail) setUsers(e.detail.filter((u: AdminUser) => !isDummyUser(u)));
+      else setUsers(loadLocal("pondtora_admin_users", []).filter((u: AdminUser) => !isDummyUser(u)));
     };
     const onLogsUpdate = (e: any) => {
       if (e.detail) setLogs(e.detail);
@@ -382,24 +423,41 @@ export default function AdminApp({ onExit }: { onExit?: () => void } = {}) {
   }
 
   function handleUpdateUser(u: AdminUser) {
-    setUsers(prev => prev.map(x => (x.id === u.id ? u : x)));
+    setUsers(prev => {
+      const next = prev.map(x => (x.id === u.id ? u : x));
+      saveAllAdminUsers(next);
+      return next;
+    });
+    updateAdminUserInDb(u).catch(console.warn);
     logAction("User Profile Updated", "user", `Updated account details for ${u.name} (${u.email})`);
   }
 
   function handleDeleteUser(id: string) {
     const u = users.find(x => x.id === id);
-    setUsers(prev => prev.filter(x => x.id !== id));
+    setUsers(prev => {
+      const next = prev.filter(x => x.id !== id);
+      saveAllAdminUsers(next);
+      return next;
+    });
+    deleteAdminUserInDb(id).catch(console.warn);
     logAction("User Deleted", "user", `Permanently deleted user ${u?.name || id}`);
   }
 
-  function handleAddUser(u: Omit<AdminUser, "id">) {
-    const created = {
+  async function handleAddUser(u: Omit<AdminUser, "id">) {
+    const created: AdminUser = {
       ...u,
-      id: uid(),
+      id: crypto.randomUUID(),
       createdAt: new Date().toISOString().split("T")[0],
     };
     setUsers(prev => [created, ...prev]);
+    saveAllAdminUsers([created, ...users]);
     logAction("User Created", "user", `Manually created user ${u.name} (${u.email})`);
+    try {
+      await updateAdminUserInDb(created);
+      toast.success("User added and synced to database");
+    } catch (err) {
+      console.warn("Failed to persist user to Supabase:", err);
+    }
   }
 
   function handleAddPlan(p: Omit<AdminPlan, "id">) {
@@ -544,6 +602,15 @@ export default function AdminApp({ onExit }: { onExit?: () => void } = {}) {
 
           <div className="flex items-center gap-3">
             <button
+              onClick={() => handleSyncLiveUsers(true)}
+              disabled={isSyncing}
+              title="Refresh and sync user accounts from Supabase"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold transition-colors disabled:opacity-50"
+            >
+              <RotateCw size={13} className={isSyncing ? "animate-spin text-green-600" : "text-slate-600"} />
+              <span className="hidden sm:inline">{isSyncing ? "Syncing…" : "Sync Users"}</span>
+            </button>
+            <button
               onClick={handleReturnToApp}
               className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold transition-colors"
             >
@@ -551,7 +618,7 @@ export default function AdminApp({ onExit }: { onExit?: () => void } = {}) {
             </button>
             <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200/80 rounded-xl px-3 py-1 text-xs text-emerald-800 font-bold">
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
-              Owner Portal Active
+              {isLiveDb ? "Live DB Connected" : "Owner Portal Active"}
             </div>
           </div>
         </header>
@@ -564,6 +631,10 @@ export default function AdminApp({ onExit }: { onExit?: () => void } = {}) {
               plans={plans}
               logs={logs}
               onNavigate={p => setPage(p as Page)}
+              onRefresh={() => handleSyncLiveUsers(true)}
+              isRefreshing={isSyncing}
+              isLiveDb={isLiveDb}
+              lastSynced={lastSynced}
             />
           )}
           {page === "users" && (
@@ -573,6 +644,8 @@ export default function AdminApp({ onExit }: { onExit?: () => void } = {}) {
               onAdd={handleAddUser}
               onUpdate={handleUpdateUser}
               onDelete={handleDeleteUser}
+              onRefresh={() => handleSyncLiveUsers(true)}
+              isRefreshing={isSyncing}
             />
           )}
           {page === "subscriptions" && (
@@ -596,18 +669,24 @@ export default function AdminApp({ onExit }: { onExit?: () => void } = {}) {
               adminEmail={adminEmail}
               userCount={users.length}
               planCount={plans.length}
+              isSyncing={isSyncing}
+              isLiveDb={isLiveDb}
+              onSyncLiveUsers={() => handleSyncLiveUsers(true)}
               onClearDemoUsers={() => {
-                const dummyIds = new Set(DUMMY_USERS.map(d => d.id));
-                const realUsers = users.filter(u => !dummyIds.has(u.id));
+                const realUsers = users.filter(u => !isDummyUser(u));
                 setUsers(realUsers);
+                saveAllAdminUsers(realUsers);
                 setLogs(prev => prev.filter(l => !l.id.startsWith("log-")));
                 logAction("Demo Data Cleared", "system", "Cleared demo sample users — system is in live production mode");
+                handleSyncLiveUsers(true);
               }}
               onResetAll={() => {
-                setUsers(DUMMY_USERS);
+                setUsers([]);
+                saveAllAdminUsers([]);
                 setPlans(DEFAULT_PLANS);
                 setLogs(INITIAL_LOGS);
-                logAction("System Reset", "system", "Reset all users and plans to sample demo state");
+                logAction("System Reset", "system", "Reset local state and synced with live database");
+                handleSyncLiveUsers(true);
               }}
             />
           )}
@@ -692,12 +771,18 @@ function SettingsPage({
   adminEmail,
   userCount,
   planCount,
+  isSyncing,
+  isLiveDb,
+  onSyncLiveUsers,
   onClearDemoUsers,
   onResetAll,
 }: {
   adminEmail: string;
   userCount: number;
   planCount: number;
+  isSyncing?: boolean;
+  isLiveDb?: boolean;
+  onSyncLiveUsers?: () => void;
   onClearDemoUsers: () => void;
   onResetAll: () => void;
 }) {
@@ -911,13 +996,25 @@ function SettingsPage({
 
       {/* Production Mode & Demo Data Controls */}
       <div className="bg-slate-900 text-white rounded-2xl p-5 shadow-sm space-y-4">
-        <div>
-          <h2 className="text-sm font-bold text-white flex items-center gap-2">
-            <CheckCircle size={15} className="text-emerald-400" /> Production & Demo Data Controls
-          </h2>
-          <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-            When launching the platform for real customers, clear out the sample dummy users to ensure your Admin Dashboard and MRR metrics only track genuine registrations and transactions.
-          </p>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800">
+          <div>
+            <h2 className="text-sm font-bold text-white flex items-center gap-2">
+              <CheckCircle size={15} className="text-emerald-400" /> Database Synchronization & Production Mode
+            </h2>
+            <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+              Pull genuine user accounts and registered farms straight from Supabase, or remove sample demo accounts.
+            </p>
+          </div>
+          {onSyncLiveUsers && (
+            <button
+              onClick={onSyncLiveUsers}
+              disabled={isSyncing}
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-colors shadow-md flex items-center gap-1.5 shrink-0"
+            >
+              <RotateCw size={13} className={isSyncing ? "animate-spin" : ""} />
+              {isSyncing ? "Syncing Database…" : "Sync All Users from Supabase"}
+            </button>
+          )}
         </div>
 
         <div className="flex flex-wrap gap-2.5 pt-1">
@@ -927,7 +1024,7 @@ function SettingsPage({
                 onClearDemoUsers();
               }
             }}
-            className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-colors shadow-md flex items-center gap-1.5"
+            className="px-4 py-2.5 bg-emerald-700 hover:bg-emerald-600 text-white rounded-xl text-xs font-bold transition-colors shadow-md flex items-center gap-1.5"
           >
             <CheckCircle size={14} /> Clear Demo Data (Go 100% Live)
           </button>

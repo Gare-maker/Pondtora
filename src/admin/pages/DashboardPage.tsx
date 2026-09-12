@@ -1,5 +1,5 @@
 import React, { useMemo } from "react";
-import { Users, TrendingUp, AlertCircle, Ban, Clock, CreditCard, DollarSign, ArrowUpRight, Activity, Package, UserCheck, Shield } from "lucide-react";
+import { Users, TrendingUp, AlertCircle, Ban, Clock, CreditCard, DollarSign, ArrowUpRight, Activity, Package, UserCheck, Shield, RotateCw } from "lucide-react";
 import { Card, Bdg } from "../../app/shared";
 import type { AdminUser, AdminPlan, AdminActivityLog } from "../types";
 import { fmtDate, trialDaysLeft, fmtMoney, effectivePrice } from "../types";
@@ -9,6 +9,10 @@ interface Props {
   plans: AdminPlan[];
   logs?: AdminActivityLog[];
   onNavigate?: (page: string) => void;
+  onRefresh?: () => void;
+  isRefreshing?: boolean;
+  isLiveDb?: boolean;
+  lastSynced?: Date | null;
 }
 
 function StatBox({
@@ -66,7 +70,16 @@ const SC: Record<string, "green" | "amber" | "red" | "gray"> = {
   Cancelled: "gray",
 };
 
-export default function DashboardPage({ users, plans, logs = [], onNavigate }: Props) {
+export default function DashboardPage({
+  users,
+  plans,
+  logs = [],
+  onNavigate,
+  onRefresh,
+  isRefreshing,
+  isLiveDb,
+  lastSynced,
+}: Props) {
   // Compute Key Financial and User Statistics
   const stats = useMemo(() => {
     const total = users.length;
@@ -95,6 +108,10 @@ export default function DashboardPage({ users, plans, logs = [], onNavigate }: P
 
     return { total, trial, active, expired, suspended, free, mrr, arr };
   }, [users, plans]);
+
+  const totalFarms = useMemo(() => {
+    return users.reduce((acc, u) => acc + (u.farmCount || 1), 0);
+  }, [users]);
 
   const planBreakdown = useMemo(() => {
     const m: Record<string, { count: number; revenue: number }> = {};
@@ -128,30 +145,47 @@ export default function DashboardPage({ users, plans, logs = [], onNavigate }: P
               Platform Overview & Monitoring
             </h1>
             <span className="bg-green-100 text-green-700 text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
-              Live Monitoring
+              {isLiveDb ? "Live Supabase Database" : "Live Monitoring"}
             </span>
           </div>
           <p className="text-sm text-slate-500 mt-0.5">
             Real-time analytics for user accounts, platform subscriptions, and financial metrics.
+            {lastSynced && (
+              <span className="ml-1 text-slate-400 text-xs">
+                (Last synced: {lastSynced.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })})
+              </span>
+            )}
           </p>
         </div>
 
-        {onNavigate && (
-          <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2">
+          {onRefresh && (
             <button
-              onClick={() => onNavigate("plans")}
-              className="flex items-center gap-1.5 px-3 py-2 bg-white border border-slate-200 hover:border-green-400 hover:text-green-700 text-slate-700 rounded-xl text-xs font-bold transition-colors shadow-sm"
+              onClick={onRefresh}
+              disabled={isRefreshing}
+              className="flex items-center gap-1.5 px-3 py-2 bg-white border border-slate-200 hover:border-green-400 hover:text-green-700 text-slate-700 rounded-xl text-xs font-bold transition-colors shadow-sm disabled:opacity-50"
             >
-              <Package size={13} className="text-green-600" /> Regulate Pricing
+              <RotateCw size={13} className={isRefreshing ? "animate-spin text-green-600" : "text-green-600"} />
+              {isRefreshing ? "Syncing…" : "Sync Database"}
             </button>
-            <button
-              onClick={() => onNavigate("users")}
-              className="flex items-center gap-1.5 px-3 py-2 bg-green-600 hover:bg-green-700 text-white rounded-xl text-xs font-bold transition-colors shadow-sm"
-            >
-              <Users size={13} /> Manage Users
-            </button>
-          </div>
-        )}
+          )}
+          {onNavigate && (
+            <>
+              <button
+                onClick={() => onNavigate("plans")}
+                className="flex items-center gap-1.5 px-3 py-2 bg-white border border-slate-200 hover:border-green-400 hover:text-green-700 text-slate-700 rounded-xl text-xs font-bold transition-colors shadow-sm"
+              >
+                <Package size={13} className="text-green-600" /> Regulate Pricing
+              </button>
+              <button
+                onClick={() => onNavigate("users")}
+                className="flex items-center gap-1.5 px-3 py-2 bg-green-600 hover:bg-green-700 text-white rounded-xl text-xs font-bold transition-colors shadow-sm"
+              >
+                <Users size={13} /> Manage Users
+              </button>
+            </>
+          )}
+        </div>
       </div>
 
       {/* Top Stat Cards */}
@@ -168,11 +202,11 @@ export default function DashboardPage({ users, plans, logs = [], onNavigate }: P
         <StatBox
           label="Total Registered Users"
           value={stats.total}
-          subtitle={`${stats.active} Paid · ${stats.trial} On Trial`}
+          subtitle={`${stats.active} Paid · ${stats.trial} On Trial · ${totalFarms} Farms`}
           icon={Users}
           bg="bg-slate-100"
           ic="text-slate-700"
-          badge={{ text: `${stats.total} Total`, color: "blue" }}
+          badge={{ text: isLiveDb ? "Live Database" : `${stats.total} Accounts`, color: isLiveDb ? "green" : "blue" }}
         />
         <StatBox
           label="Paid Subscriptions"

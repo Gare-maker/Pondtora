@@ -4,7 +4,7 @@ import type { Pond, Invoice, InvoiceLineItem, Customer, PriceGroup, InvSettings,
 import { fmt, uid, TODAY, PAYMENT_METHODS, INV_STATUSES } from "../data";
 import { Card, Bdg, PBtn, Pagination, StatCard, Modal, F, IC, SC, SearchableSelect, SelDrop, DateFilter, DMONTHS_S, SH, PER_PAGE } from "../shared";
 
-export default function InvoicesPage({ponds,invoices,customers,priceGroups,settings,onAddInvoice,onEditInvoice,onAddCustomer,onAddPriceGroup,onEditPriceGroup,onDeletePriceGroup,onUpdateSettings,currentUser,currency="₦"}:{ponds:Pond[];invoices:Invoice[];customers:Customer[];priceGroups:PriceGroup[];settings:InvSettings;onAddInvoice:(i:Invoice)=>void;onEditInvoice:(i:Invoice)=>void;onAddCustomer:(c:Customer)=>void;onAddPriceGroup:(g:PriceGroup)=>void;onEditPriceGroup:(g:PriceGroup)=>void;onDeletePriceGroup:(id:string)=>void;onUpdateSettings:(s:InvSettings)=>void;currentUser?:string;currency?:string;}){
+export default function InvoicesPage({ponds,invoices,customers,priceGroups,settings,onAddInvoice,onEditInvoice,onDeleteInvoice,onAddCustomer,onAddPriceGroup,onEditPriceGroup,onDeletePriceGroup,onUpdateSettings,currentUser,currency="₦"}:{ponds:Pond[];invoices:Invoice[];customers:Customer[];priceGroups:PriceGroup[];settings:InvSettings;onAddInvoice:(i:Invoice)=>void;onEditInvoice:(i:Invoice)=>void;onDeleteInvoice?:(id:string)=>void;onAddCustomer:(c:Customer)=>void;onAddPriceGroup:(g:PriceGroup)=>void;onEditPriceGroup:(g:PriceGroup)=>void;onDeletePriceGroup:(id:string)=>void;onUpdateSettings:(s:InvSettings)=>void;currentUser?:string;currency?:string;}){
   const cs=currency;
   /* ── filter / sort state ── */
   const [search,setSearch]=useState(""); const [fPond,setFPond]=useState("All"); const [fStatus,setFStatus]=useState("All"); const [fMethod,setFMethod]=useState("All"); const [sortDir,setSortDir]=useState<SortDir>("desc");
@@ -18,6 +18,7 @@ export default function InvoicesPage({ponds,invoices,customers,priceGroups,setti
   /* ── modal state ── */
   const [viewInv,setViewInv]=useState<Invoice|null>(null);
   const [editPayment,setEditPayment]=useState<Invoice|null>(null);
+  const [deleteInvId,setDeleteInvId]=useState<string|null>(null);
   const [showGroupsPanel,setShowGroupsPanel]=useState(false); const [groupFormMode,setGroupFormMode]=useState(false); const [editGroup,setEditGroup]=useState<PriceGroup|null>(null);
   const [groupF,setGroupF]=useState({group:"",displayName:"",description:"",pricePerKg:"",status:"Active" as "Active"|"Inactive"});
   const [groupErr,setGroupErr]=useState<Record<string,string>>({});
@@ -239,6 +240,7 @@ export default function InvoicesPage({ponds,invoices,customers,priceGroups,setti
                     <button onClick={()=>printInvoice(inv)} title="Print" className="p-1.5 rounded-lg text-slate-300 hover:text-green-600 hover:bg-green-50 transition-colors"><FileText size={13}/></button>
                     {inv.status!=="Error"&&<button onClick={()=>{setEditPayment(inv);setPayAmt("");setPayMethod(inv.paymentMethod);setPayDate(TODAY);}} title="Update Payment" className="p-1.5 rounded-lg text-slate-300 hover:text-green-600 hover:bg-green-50 transition-colors"><CheckCircle size={13}/></button>}
                     {inv.status!=="Error"&&<button onClick={()=>onEditInvoice({...inv,status:"Error"})} title="Mark as Error" className="p-1.5 rounded-lg text-slate-300 hover:text-red-600 hover:bg-red-50 transition-colors"><AlertCircle size={13}/></button>}
+                    {onDeleteInvoice&&<button onClick={()=>setDeleteInvId(inv.id)} title="Delete Invoice" className="p-1.5 rounded-lg text-slate-300 hover:text-red-600 hover:bg-red-50 transition-colors"><Trash2 size={13}/></button>}
                   </div>
                 </td>
               </tr>
@@ -580,23 +582,41 @@ export default function InvoicesPage({ponds,invoices,customers,priceGroups,setti
               <button onClick={()=>setShowSettings(false)} className="text-slate-400 hover:text-slate-700 p-1"><X size={18}/></button>
             </div>
             <div className="px-6 py-4 space-y-3 overflow-y-auto flex-1">
-              <F label="Farm Name"><input value={settingsF.farmName} onChange={e=>setSettingsF(p=>({...p,farmName:e.target.value}))} className={IC}/></F>
-              <F label="Farm Address"><input value={settingsF.farmAddress} onChange={e=>setSettingsF(p=>({...p,farmAddress:e.target.value}))} className={IC}/></F>
+              <F label="Farm Name"><input value={settingsF.farmName} onChange={e=>setSettingsF(p=>({...p,farmName:e.target.value}))} className={IC} placeholder="e.g. Green Valley Fish Farm"/></F>
+              <F label="Farm Address"><input value={settingsF.farmAddress} onChange={e=>setSettingsF(p=>({...p,farmAddress:e.target.value}))} className={IC} placeholder="e.g. Km 14 Lagos-Ibadan Expressway, Ogun State"/></F>
               <div className="grid grid-cols-2 gap-3">
-                <F label="Phone"><input value={settingsF.farmPhone} onChange={e=>setSettingsF(p=>({...p,farmPhone:e.target.value}))} className={IC}/></F>
-                <F label="Email (Optional)"><input type="email" value={settingsF.farmEmail} onChange={e=>setSettingsF(p=>({...p,farmEmail:e.target.value}))} className={IC}/></F>
+                <F label="Phone"><input value={settingsF.farmPhone} onChange={e=>setSettingsF(p=>({...p,farmPhone:e.target.value}))} className={IC} placeholder="e.g. +234 801 234 5678"/></F>
+                <F label="Email (Optional)"><input type="email" value={settingsF.farmEmail} onChange={e=>setSettingsF(p=>({...p,farmEmail:e.target.value}))} className={IC} placeholder="e.g. billing@greenvalley.com"/></F>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <F label="Invoice Prefix"><input value={settingsF.invoicePrefix} onChange={e=>setSettingsF(p=>({...p,invoicePrefix:e.target.value}))} className={IC} placeholder="INV"/></F>
                 <F label="Payment Terms"><input value={settingsF.paymentTerms} onChange={e=>setSettingsF(p=>({...p,paymentTerms:e.target.value}))} className={IC} placeholder="e.g. 7 days"/></F>
               </div>
-              <F label="Bank Account Details"><textarea value={settingsF.bankDetails} onChange={e=>setSettingsF(p=>({...p,bankDetails:e.target.value}))} className={`${IC} resize-none`} rows={2}/></F>
-              <F label="Default Notes"><textarea value={settingsF.defaultNotes} onChange={e=>setSettingsF(p=>({...p,defaultNotes:e.target.value}))} className={`${IC} resize-none`} rows={2}/></F>
-              <F label="Footer Message"><input value={settingsF.footerMessage} onChange={e=>setSettingsF(p=>({...p,footerMessage:e.target.value}))} className={IC}/></F>
+              <F label="Bank Account Details"><textarea value={settingsF.bankDetails} onChange={e=>setSettingsF(p=>({...p,bankDetails:e.target.value}))} className={`${IC} resize-none`} rows={2} placeholder="e.g. Bank: GTBank | Account: 0123456789 | Name: Green Valley Farm"/></F>
+              <F label="Default Notes"><textarea value={settingsF.defaultNotes} onChange={e=>setSettingsF(p=>({...p,defaultNotes:e.target.value}))} className={`${IC} resize-none`} rows={2} placeholder="e.g. Thank you for your patronage. Payment due within 7 days."/></F>
+              <F label="Footer Message"><input value={settingsF.footerMessage} onChange={e=>setSettingsF(p=>({...p,footerMessage:e.target.value}))} className={IC} placeholder="e.g. Powered by Pondtora Fish Farm Management"/></F>
             </div>
             <div className="px-6 py-4 border-t border-slate-100 shrink-0 flex gap-2">
               <PBtn onClick={()=>{onUpdateSettings(settingsF);setShowSettings(false);}}><CheckCircle size={14}/> Save Settings</PBtn>
               <button onClick={()=>setShowSettings(false)} className="px-4 py-2 text-sm text-slate-400">Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Delete Invoice Confirmation Modal */}
+      {deleteInvId&&(
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={e=>e.target===e.currentTarget&&setDeleteInvId(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+              <h2 className="text-base font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Delete Invoice</h2>
+              <button onClick={()=>setDeleteInvId(null)} className="text-slate-400 hover:text-slate-700 p-1"><X size={18}/></button>
+            </div>
+            <div className="px-6 py-4">
+              <p className="text-sm text-slate-600">Are you sure you want to permanently delete this invoice? This will remove the invoice record from your database.</p>
+            </div>
+            <div className="px-6 pb-5 flex gap-2">
+              <button onClick={()=>{if(onDeleteInvoice)onDeleteInvoice(deleteInvId);setDeleteInvId(null);}} className="flex-1 py-2.5 bg-red-600 hover:bg-red-700 text-white text-sm font-bold rounded-xl transition-colors">Delete</button>
+              <button onClick={()=>setDeleteInvId(null)} className="flex-1 py-2.5 border border-slate-200 rounded-xl text-sm font-semibold text-slate-600 hover:bg-slate-50">Cancel</button>
             </div>
           </div>
         </div>

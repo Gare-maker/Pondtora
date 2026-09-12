@@ -199,7 +199,18 @@ export const INIT_PRICE_GROUPS:PriceGroup[]=[
   {id:"PG-C",group:"C",displayName:"Big Size",     description:"Catfish 400–700g",  pricePerKg:3000,status:"Active"},
   {id:"PG-D",group:"D",displayName:"Export Size",  description:"Catfish above 700g", pricePerKg:3500,status:"Active"},
 ];
-export const INIT_INV_SETTINGS:InvSettings={farmName:"Aqua Laguna Station",farmAddress:"123 Fish Farm Road, Lagos",farmPhone:"+234 800 000 0000",farmEmail:"info@aqualaguna.com",bankDetails:"Aqua Laguna Station · GTBank · 0123456789",defaultNotes:"Thank you for your purchase.",footerMessage:"All sales are final. Payment within agreed terms.",taxRate:0,invoicePrefix:"INV",paymentTerms:"Payment due within 7 days"};
+export const INIT_INV_SETTINGS: InvSettings = {
+  farmName: "",
+  farmAddress: "",
+  farmPhone: "",
+  farmEmail: "",
+  bankDetails: "",
+  defaultNotes: "",
+  footerMessage: "",
+  taxRate: 0,
+  invoicePrefix: "INV",
+  paymentTerms: ""
+};
 
 export const ADMIN_NAME = "Juan Morales";
 

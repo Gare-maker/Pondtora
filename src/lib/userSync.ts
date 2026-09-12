@@ -1,9 +1,30 @@
 import type { AdminUser, AdminActivityLog, AdminPlan, BillingFrequency } from "../admin/types";
 import { DEFAULT_PLANS, computeSubscriptionStatus } from "../admin/types";
 import type { UserProfile } from "../app/types";
+import { supabase } from "./supabase";
 
 const USERS_STORAGE_KEY = "pondtora_admin_users";
 const LOGS_STORAGE_KEY = "pondtora_admin_logs";
+
+export const DUMMY_USER_IDS = new Set(["1", "2", "3", "4", "5", "6", "7", "8", "9"]);
+export const DUMMY_USER_EMAILS = new Set([
+  "adebayo@example.com",
+  "ngozi@freshpond.ng",
+  "emeka@catfish.com",
+  "fatima@aquafarm.ng",
+  "tunde@pondfresh.com",
+  "chidinma@tilapia.ng",
+  "segun@riverfish.com",
+  "amaka@pondfarm.ng",
+  "yusuf@northfish.ng",
+]);
+
+export function isDummyUser(u: AdminUser | { id?: string; email?: string } | null | undefined): boolean {
+  if (!u) return false;
+  if (u.id && DUMMY_USER_IDS.has(String(u.id))) return true;
+  if (u.email && DUMMY_USER_EMAILS.has(u.email.toLowerCase().trim())) return true;
+  return false;
+}
 
 export function loadAllAdminUsers(): AdminUser[] {
   try {
@@ -23,6 +44,139 @@ export function saveAllAdminUsers(users: AdminUser[]) {
     localStorage.setItem(USERS_STORAGE_KEY, JSON.stringify(users));
     window.dispatchEvent(new CustomEvent("pondtora:users_updated", { detail: users }));
   } catch {}
+}
+
+/**
+ * Fetches all real registered users and farms directly from Supabase,
+ * merges with existing administrative overrides, filters out dummy mock users,
+ * and updates the admin users local cache.
+ */
+export async function fetchLiveAdminUsers(): Promise<{
+  users: AdminUser[];
+  isLiveFromDb: boolean;
+  count: number;
+}> {
+  try {
+    const existingLocal = loadAllAdminUsers();
+
+    // Query Supabase directly for all user profiles, farms, and ponds
+    const [profilesRes, farmsRes, pondsRes] = await Promise.all([
+      supabase.from("user_profiles").select("*").order("created_at", { ascending: false }),
+      supabase.from("farms").select("id, user_id, name"),
+      supabase.from("ponds").select("id, user_id, farm_id"),
+    ]);
+
+    const rawProfiles = profilesRes.data || [];
+    const rawFarms = farmsRes.data || [];
+    const rawPonds = pondsRes.data || [];
+
+    if (rawProfiles.length > 0) {
+      const dbUsers: AdminUser[] = rawProfiles.map((p: any) => {
+        const userFarms = rawFarms.filter((f: any) => f.user_id === p.id);
+        const farmCount = Math.max(userFarms.length, 1);
+        const farmName = p.farm_name || userFarms[0]?.name || "Primary Farm";
+
+        // Find existing local record to preserve custom overrides (custom pricing, free access, etc.)
+        const local = existingLocal.find(
+          x => x.id === p.id || (x.email && x.email.toLowerCase() === (p.email || "").toLowerCase())
+        );
+
+        const u: AdminUser = {
+          id: p.id,
+          name: p.name || (p.email ? p.email.split("@")[0] : "Farmer"),
+          email: p.email || "",
+          farmName: farmName,
+          phone: p.phone || local?.phone || "",
+          city: p.city || local?.city || "Lagos",
+          state: p.state || local?.state || "Lagos",
+          country: p.country || local?.country || "Nigeria",
+          role: p.role || local?.role || "owner",
+          activePlan: p.active_plan || local?.activePlan || "Starter",
+          trialStartDate: p.trial_start_date ? p.trial_start_date.slice(0, 10) : (local?.trialStartDate || null),
+          billingFrequency: local?.billingFrequency || "monthly",
+          subscriptionAmount: typeof local?.subscriptionAmount === "number" ? local.subscriptionAmount : null,
+          subscriptionStatus: "Trial",
+          subscriptionStart: local?.subscriptionStart || (p.created_at ? p.created_at.slice(0, 10) : null),
+          subscriptionExpiry: local?.subscriptionExpiry || null,
+          accountStatus: (p.status === "Suspended" || local?.accountStatus === "Suspended") ? "Suspended" : "Active",
+          freeAccess: Boolean(local?.freeAccess),
+          farmCount: farmCount,
+          paystackReference: local?.paystackReference,
+          lastPaymentDate: local?.lastPaymentDate,
+          createdAt: p.created_at ? p.created_at.slice(0, 10) : (local?.createdAt || new Date().toISOString().slice(0, 10)),
+        };
+        u.subscriptionStatus = computeSubscriptionStatus(u);
+        return u;
+      });
+
+      // Filter out any dummy users completely
+      const dbIds = new Set(dbUsers.map(u => u.id));
+      const dbEmails = new Set(dbUsers.map(u => (u.email || "").toLowerCase()));
+      const extraLocal = existingLocal.filter(
+        u => !isDummyUser(u) && !dbIds.has(u.id) && !dbEmails.has((u.email || "").toLowerCase())
+      );
+
+      const finalUsers = [...dbUsers, ...extraLocal].filter(u => !isDummyUser(u));
+      saveAllAdminUsers(finalUsers);
+      return { users: finalUsers, isLiveFromDb: true, count: finalUsers.length };
+    }
+
+    // Fallback: If query returned 0 rows (e.g. offline or RLS restricted),
+    // check if current active user profile exists in localStorage
+    try {
+      const activeProfRaw = localStorage.getItem("pondtora_user_profile");
+      if (activeProfRaw) {
+        const activeProf = JSON.parse(activeProfRaw);
+        if (activeProf?.email && !isDummyUser(activeProf)) {
+          syncUserProfileToAdmin(activeProf);
+        }
+      }
+    } catch {}
+
+    const currentUsers = loadAllAdminUsers().filter(u => !isDummyUser(u));
+    return { users: currentUsers, isLiveFromDb: false, count: currentUsers.length };
+  } catch (err) {
+    console.warn("fetchLiveAdminUsers error:", err);
+    const cleanLocal = loadAllAdminUsers().filter(u => !isDummyUser(u));
+    return { users: cleanLocal, isLiveFromDb: false, count: cleanLocal.length };
+  }
+}
+
+/**
+ * Persists an admin user modification to Supabase user_profiles
+ */
+export async function updateAdminUserInDb(u: AdminUser): Promise<boolean> {
+  try {
+    const { error } = await supabase
+      .from("user_profiles")
+      .update({
+        name: u.name,
+        farm_name: u.farmName,
+        phone: u.phone,
+        city: u.city,
+        state: u.state,
+        country: u.country,
+        active_plan: u.activePlan,
+        status: u.accountStatus,
+        role: u.role || "owner",
+      })
+      .eq("id", u.id);
+    return !error;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Deletes a user profile from Supabase user_profiles
+ */
+export async function deleteAdminUserInDb(id: string): Promise<boolean> {
+  try {
+    const { error } = await supabase.from("user_profiles").delete().eq("id", id);
+    return !error;
+  } catch {
+    return false;
+  }
 }
 
 export function logActivity(

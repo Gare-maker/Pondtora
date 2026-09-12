@@ -190,7 +190,9 @@ export default function SubscriptionsPage({ users, plans, onUpdate }: Props) {
                     <p className="font-bold text-slate-800 truncate flex items-center gap-1.5 group-hover:text-green-700 transition-colors">
                       {u.name}
                       {u.freeAccess && (
-                        <Gift size={13} className="text-green-600 shrink-0" title="Complimentary Free Access" />
+                        <span title="Complimentary Free Access" className="inline-flex items-center">
+                          <Gift size={13} className="text-green-600 shrink-0" />
+                        </span>
                       )}
                     </p>
                     <p className="text-slate-400 text-[11px] truncate">{u.email}</p>

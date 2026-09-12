@@ -1,7 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from "react";
-import { Search, Plus, MoreVertical, Eye, Edit2, Ban, Trash2, CheckCircle, ChevronUp, ChevronDown, Download, Clock, Shield, Sparkles, Filter } from "lucide-react";
+import { Search, Plus, MoreVertical, Eye, Edit2, Ban, Trash2, CheckCircle, ChevronUp, ChevronDown, Download, Clock, Shield, Sparkles, Filter, RotateCw } from "lucide-react";
 import { Card, Bdg, PBtn, Pagination, PER_PAGE, Modal, F, IC, SC } from "../../app/shared";
-import type { AdminUser, AdminPlan } from "../types";
+import type { AdminUser, AdminPlan, AccountStatus } from "../types";
 import { fmtDate, trialDaysLeft, fmtMoney, computeSubscriptionStatus } from "../types";
 
 interface Props {
@@ -11,6 +11,8 @@ interface Props {
   onUpdate: (u: AdminUser) => void;
   onDelete: (id: string) => void;
   onExportCSV?: () => void;
+  onRefresh?: () => void;
+  isRefreshing?: boolean;
 }
 
 type SortKey = "name" | "email" | "activePlan" | "subscriptionStatus" | "createdAt" | "subscriptionExpiry";
@@ -202,7 +204,7 @@ interface ActiveMenu {
   right: number;
 }
 
-export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onExportCSV }: Props) {
+export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onExportCSV, onRefresh, isRefreshing }: Props) {
   const [q, setQ] = useState("");
   const [filterStatus, setFilterStatus] = useState("All");
   const [page, setPage] = useState(1);
@@ -331,8 +333,8 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
   }
 
   function toggleSuspend(u: AdminUser) {
-    const next = u.accountStatus === "Suspended" ? "Active" : ("Suspended" as const);
-    const updated = { ...u, accountStatus: next };
+    const next: AccountStatus = u.accountStatus === "Suspended" ? "Active" : "Suspended";
+    const updated: AdminUser = { ...u, accountStatus: next };
     updated.subscriptionStatus = computeSubscriptionStatus(updated);
     onUpdate(updated);
     setMenu(null);
@@ -400,6 +402,16 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
         </div>
 
         <div className="flex items-center gap-2">
+          {onRefresh && (
+            <button
+              onClick={onRefresh}
+              disabled={isRefreshing}
+              className="flex items-center gap-1.5 px-3 py-2 bg-white border border-slate-200 hover:border-slate-300 text-slate-700 rounded-xl text-xs font-semibold transition-colors shadow-sm disabled:opacity-50"
+            >
+              <RotateCw size={13} className={isRefreshing ? "animate-spin text-green-600" : "text-slate-500"} />
+              {isRefreshing ? "Syncing…" : "Sync Database"}
+            </button>
+          )}
           <button
             onClick={exportCSV}
             className="flex items-center gap-1.5 px-3 py-2 bg-white border border-slate-200 hover:border-slate-300 text-slate-700 rounded-xl text-xs font-semibold transition-colors shadow-sm"

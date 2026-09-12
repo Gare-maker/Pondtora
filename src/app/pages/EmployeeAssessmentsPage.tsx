@@ -94,7 +94,7 @@ function calcCResult(info:{name:string;email:string;phone:string;gender:string},
 }
 
 /* ─── recColor ───────────────────────────────────────────────── */
-function recColor(r:CResult["recommendation"]){"green"|"blue"|"amber"|"red";
+function recColor(r:CResult["recommendation"]): "green"|"blue"|"amber"|"red" {
   if(r==="Highly Recommended")return"green";
   if(r==="Recommended")return"blue";
   if(r==="Consider")return"amber";

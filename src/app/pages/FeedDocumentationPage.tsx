@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useMemo } from "react";
 import {
   Plus, CheckCircle, X, Layers, Droplets,
   ChevronDown, ChevronLeft, ChevronRight,
-  Package, BookOpen, Download, FileText, Pencil, MoreVertical, Lock, History, Fish
+  Package, BookOpen, Download, FileText, Pencil, Trash2, MoreVertical, Lock, History, Fish
 } from "lucide-react";
 import type { FeedingRecord, FeedEditEntry, Pond, FeedItem, BagOpenLog, FeedRemainingLog } from "../types";
 import { TODAY, toMon, toYr, uid, downloadCSV, openPrintWindow, fmtStockingDate, isSameDate } from "../data";
@@ -38,6 +38,7 @@ function FeedDocumentation({
   feedingRecords = [],
   onAddRecord,
   onEditFeedRecord,
+  onDeleteRecord,
   ponds = [],
   inventory = [],
   bagLogs = [],
@@ -55,6 +56,7 @@ function FeedDocumentation({
   feedingRecords:FeedingRecord[];
   onAddRecord:(r:FeedingRecord)=>void|Promise<void>;
   onEditFeedRecord:(r:FeedingRecord)=>void|Promise<void>;
+  onDeleteRecord?:(id:string)=>void|Promise<void>;
   ponds:Pond[];
   inventory:FeedItem[];
   bagLogs:BagOpenLog[];
@@ -78,6 +80,7 @@ function FeedDocumentation({
   const [showBagsModal,setShowBagsModal]=useState(false);
   const [bagsErr,setBagsErr]=useState<Record<string,string>>({});
   const [showRemainModal,setShowRemainModal]=useState(false);
+  const [deleteRecId,setDeleteRecId]=useState<string|null>(null);
   const [docTab,setDocTab]=useState<"daily"|"bags"|"reconciliation">("daily");
   const [reconExpanded,setReconExpanded]=useState<string|null>(null);
   const [feedMobileMenuOpen,setFeedMobileMenuOpen]=useState(false);
@@ -734,9 +737,16 @@ function FeedDocumentation({
                       <td className="px-4 py-3.5 font-medium">{rec?`${rec.evening}kg`:<span className="text-slate-300">—</span>}</td>
                       <td className="px-4 py-3.5 text-slate-500 text-xs">{rec?.eveningTime||<span className="text-slate-300">—</span>}</td>
                       <td className="px-4 py-3.5">{rec?<span className="inline-flex items-center gap-1.5"><span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-green-100 text-green-800 font-bold text-sm font-['Barlow_Condensed',sans-serif]">{rec.total}kg</span>{isEdited&&<span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-700">Edited</span>}</span>:<span className="text-slate-200 text-xs">Not fed</span>}</td>
-                      <td className="px-4 py-3.5 text-slate-400 text-xs">{rec?.recordedBy||<span className="text-slate-300">—</span>}</td>
-                      <td className="px-4 py-3.5" onClick={e=>e.stopPropagation()}>{rec&&(isRecordEditable(rec.date)?<button onClick={()=>openEditRec(rec)} className="p-1.5 rounded-lg text-slate-300 hover:text-green-600 hover:bg-green-50 transition-colors" title="Edit record"><Pencil size={13}/></button>:<button onClick={()=>alert("This record can only be edited by an Administrator or Manager after 24 hours.")} className="p-1.5 rounded-lg text-slate-200 cursor-not-allowed" title="Locked after 24 hours"><Lock size={13}/></button>)}</td>
-                    </tr>
+                      <td className="px-4 py-3.5" onClick={e=>e.stopPropagation()}>
+                        <div className="flex items-center gap-1">
+                          {rec&&(isRecordEditable(rec.date)?(
+                            <>
+                              <button onClick={()=>openEditRec(rec)} className="p-1.5 rounded-lg text-slate-300 hover:text-green-600 hover:bg-green-50 transition-colors" title="Edit record"><Pencil size={13}/></button>
+                              {onDeleteRecord&&<button onClick={()=>setDeleteRecId(rec.id)} className="p-1.5 rounded-lg text-slate-300 hover:text-red-600 hover:bg-red-50 transition-colors" title="Delete record"><Trash2 size={13}/></button>}
+                            </>
+                          ):<button onClick={()=>alert("This record can only be edited by an Administrator or Manager after 24 hours.")} className="p-1.5 rounded-lg text-slate-200 cursor-not-allowed" title="Locked after 24 hours"><Lock size={13}/></button>)}
+                        </div>
+                      </td>
                   );
                 })}
               </tbody>
@@ -1338,6 +1348,24 @@ function FeedDocumentation({
             <div className="flex gap-2 pt-1">
               <PBtn onClick={handleSaveEditRemain}><CheckCircle size={14}/> Save Changes</PBtn>
               <button onClick={()=>setEditRemainLog(null)} className="px-4 py-2 text-sm text-slate-400">Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Delete Record Confirmation Modal */}
+      {deleteRecId&&(
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={e=>e.target===e.currentTarget&&setDeleteRecId(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+              <h2 className="text-base font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Delete Feeding Record</h2>
+              <button onClick={()=>setDeleteRecId(null)} className="text-slate-400 hover:text-slate-700 p-1"><X size={18}/></button>
+            </div>
+            <div className="px-6 py-4">
+              <p className="text-sm text-slate-600">Are you sure you want to permanently delete this feeding record? This action will adjust daily totals and remove the record from your database.</p>
+            </div>
+            <div className="px-6 pb-5 flex gap-2">
+              <button onClick={async()=>{if(onDeleteRecord)await onDeleteRecord(deleteRecId);setDeleteRecId(null);}} className="flex-1 py-2.5 bg-red-600 hover:bg-red-700 text-white text-sm font-bold rounded-xl transition-colors">Delete</button>
+              <button onClick={()=>setDeleteRecId(null)} className="flex-1 py-2.5 border border-slate-200 rounded-xl text-sm font-semibold text-slate-600 hover:bg-slate-50">Cancel</button>
             </div>
           </div>
         </div>

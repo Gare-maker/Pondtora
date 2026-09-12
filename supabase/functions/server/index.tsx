@@ -950,15 +950,23 @@ ALTER TABLE compatibility_results ENABLE ROW LEVEL SECURITY;
 
 -- RLS Policies
 
--- user_profiles: own row only
+CREATE OR REPLACE FUNCTION is_admin()
+RETURNS BOOLEAN LANGUAGE sql SECURITY DEFINER STABLE AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM user_profiles
+    WHERE id = auth.uid() AND (role = 'admin' OR role = 'superadmin')
+  );
+$$;
+
+-- user_profiles: own row OR admin access
 DROP POLICY IF EXISTS "own_profile" ON user_profiles;
 CREATE POLICY "own_profile" ON user_profiles
-  USING (auth.uid() = id) WITH CHECK (auth.uid() = id);
+  USING (auth.uid() = id OR is_admin()) WITH CHECK (auth.uid() = id OR is_admin());
 
--- farms: owner full access
+-- farms: owner full access OR admin access
 DROP POLICY IF EXISTS "owner_farms" ON farms;
 CREATE POLICY "owner_farms" ON farms
-  USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+  USING (auth.uid() = user_id OR is_admin()) WITH CHECK (auth.uid() = user_id OR is_admin());
 
 -- staff_members: owner manages, staff sees self
 DROP POLICY IF EXISTS "owner_staff" ON staff_members;

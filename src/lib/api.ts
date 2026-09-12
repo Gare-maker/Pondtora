@@ -9,7 +9,7 @@ import { INIT_K, INIT_C } from "../app/data";
 
 // ── Helpers for UUID & Case Conversion ────────────────────────────────────────
 
-const isUuid = (id?: string): boolean =>
+export const isUuid = (id?: string): boolean =>
   typeof id === "string" &&
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id.trim());
 
@@ -22,6 +22,15 @@ function getPersistedIdMap(): Map<string, string> {
 }
 const idMap = getPersistedIdMap();
 
+function getPersistedRevIdMap(): Map<string, string> {
+  try {
+    const raw = localStorage.getItem("pondtora_rev_id_map");
+    if (raw) return new Map(JSON.parse(raw));
+  } catch {}
+  return new Map();
+}
+const revIdMap = getPersistedRevIdMap();
+
 export function toUuid(id?: string): string {
   if (!id || typeof id !== "string") return crypto.randomUUID();
   const trimmed = id.trim();
@@ -29,10 +38,29 @@ export function toUuid(id?: string): string {
   if (idMap.has(trimmed)) return idMap.get(trimmed)!;
   const generated = crypto.randomUUID();
   idMap.set(trimmed, generated);
+  revIdMap.set(generated, trimmed);
   try {
     localStorage.setItem("pondtora_id_map", JSON.stringify(Array.from(idMap.entries())));
+    localStorage.setItem("pondtora_rev_id_map", JSON.stringify(Array.from(revIdMap.entries())));
   } catch {}
   return generated;
+}
+
+export function fromUuid(uuid?: string): string {
+  if (!uuid) return "";
+  return revIdMap.get(uuid) || uuid;
+}
+
+export function remapId(oldId: string, newId: string): void {
+  if (!oldId || !newId || oldId === newId) return;
+  const targetUuid = isUuid(oldId) ? oldId : (idMap.get(oldId) || toUuid(oldId));
+  idMap.delete(oldId);
+  idMap.set(newId, targetUuid);
+  revIdMap.set(targetUuid, newId);
+  try {
+    localStorage.setItem("pondtora_id_map", JSON.stringify(Array.from(idMap.entries())));
+    localStorage.setItem("pondtora_rev_id_map", JSON.stringify(Array.from(revIdMap.entries())));
+  } catch {}
 }
 
 export function toValidDbDate(d: any, defaultYear = new Date().getFullYear()): string | null {
@@ -100,7 +128,11 @@ const TABLE_ALLOWED_COLUMNS: Record<string, Set<string>> = {
   feeding_records: new Set([
     "id", "user_id", "farm_id", "date", "month", "year", "pond", "brand", "size",
     "morning", "evening", "total", "recorded_by", "morning_time", "evening_time",
-    "created_by", "created_by_id", "created_at"
+    "created_by", "created_by_id", "edit_history", "created_at"
+  ]),
+  staff_members: new Set([
+    "id", "user_id", "staff_auth_id", "name", "email", "phone", "role", "status",
+    "joined_date", "created_at", "updated_at"
   ]),
   ponds: new Set([
     "id", "user_id", "farm_id", "name", "type", "species", "size_m2", "initial_stock",
@@ -142,6 +174,27 @@ const TABLE_ALLOWED_COLUMNS: Record<string, Set<string>> = {
   farms: new Set([
     "id", "user_id", "name", "city", "state", "country", "created_at", "updated_at"
   ]),
+  reports: new Set([
+    "id", "user_id", "farm_id", "title", "content", "type", "author", "date",
+    "status", "resolved_by", "resolved_date", "tags", "timestamp", "created_at"
+  ]),
+  customers: new Set([
+    "id", "user_id", "farm_id", "name", "phone", "email", "business_name", "address", "created_at"
+  ]),
+  price_groups: new Set([
+    "id", "user_id", "farm_id", "group_key", "display_name", "description", "price_per_kg", "status", "created_at"
+  ]),
+  invoices: new Set([
+    "id", "user_id", "farm_id", "inv_number", "customer", "pond", "species", "items",
+    "discount_type", "subtotal", "discount", "additional_charges", "grand_total",
+    "amount_paid", "outstanding", "status", "payment_method", "invoice_date", "due_date",
+    "notes", "issued_by", "created_at"
+  ]),
+  invoice_settings: new Set([
+    "user_id", "farm_name", "farm_address", "farm_phone", "farm_email",
+    "bank_details", "default_notes", "footer_message", "tax_rate",
+    "invoice_prefix", "payment_terms", "updated_at"
+  ]),
 };
 
 export function objToSnake(obj: Record<string, any>, userId?: string, table?: string): Record<string, any> {
@@ -151,22 +204,28 @@ export function objToSnake(obj: Record<string, any>, userId?: string, table?: st
     const key = SNAKE_MAP[k] || toSnake(k);
     out[key] = v;
   }
-  if (userId && isUuid(userId)) {
-    out["user_id"] = userId;
-  } else if (!out["user_id"] || !isUuid(out["user_id"])) {
-    delete out["user_id"];
+  // Preserve existing user_id if valid; otherwise assign current authenticated userId
+  if (!out["user_id"] || !isUuid(out["user_id"])) {
+    if (userId && isUuid(userId)) {
+      out["user_id"] = userId;
+    } else {
+      delete out["user_id"];
+    }
   }
 
-  // Normalize date fields to valid ISO date
+  // Normalize date fields to valid ISO date or null to prevent Postgres syntax errors
   for (const [k, v] of Object.entries(out)) {
-    if (DATE_FIELDS.has(k) && v) {
-      const valid = toValidDbDate(v);
-      if (valid) out[k] = valid;
+    if (DATE_FIELDS.has(k)) {
+      if (v && typeof v === "string" && v !== "—" && v.trim() !== "") {
+        out[k] = toValidDbDate(v) || null;
+      } else {
+        out[k] = null;
+      }
     }
   }
 
   if (out["id"]) {
-    out["id"] = toUuid(out["id"]);
+    out["id"] = isUuid(out["id"]) ? out["id"] : toUuid(out["id"]);
   }
   if (out["farm_id"] !== undefined) {
     const fid = typeof out["farm_id"] === "string" ? out["farm_id"].trim() : "";
@@ -178,10 +237,10 @@ export function objToSnake(obj: Record<string, any>, userId?: string, table?: st
   }
   if (out["pond_id"] !== undefined) {
     const pid = typeof out["pond_id"] === "string" ? out["pond_id"].trim() : "";
-    if (!pid || pid === "—" || pid === "default") {
+    if (!pid || pid === "—" || pid === "default" || !isUuid(pid)) {
       delete out["pond_id"];
     } else {
-      out["pond_id"] = toUuid(pid);
+      out["pond_id"] = pid;
     }
   }
 
@@ -327,6 +386,17 @@ async function getUserId(): Promise<string> {
     const { data: { user } } = await supabase.auth.getUser();
     if (user?.id && isUuid(user.id)) return user.id;
   } catch {}
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session?.user?.id && isUuid(session.user.id)) return session.user.id;
+  } catch {}
+  try {
+    const raw = localStorage.getItem("pondtora_user_profile");
+    if (raw) {
+      const p = JSON.parse(raw);
+      if (p?.id && isUuid(p.id)) return p.id;
+    }
+  } catch {}
   return "";
 }
 
@@ -361,12 +431,23 @@ async function dbInsert<T extends { id?: string }>(table: string, item: T, cache
   }
 
   try {
-    const { data, error } = await supabase.from(table).upsert(snake).select().single();
+    let { data, error } = await supabase.from(table).upsert(snake).select().maybeSingle();
+    // Auto-heal if a column doesn't exist in user's Postgres schema
+    if (error && error.message && error.message.includes("column") && error.message.includes("does not exist")) {
+      const match = error.message.match(/column "([^"]+)"/);
+      if (match && match[1]) {
+        console.warn(`Column ${match[1]} does not exist on ${table}, stripping and retrying...`);
+        delete snake[match[1]];
+        const retry = await supabase.from(table).upsert(snake).select().maybeSingle();
+        data = retry.data;
+        error = retry.error;
+      }
+    }
     if (error) {
       console.error(`Supabase upsert into ${table} failed:`, error.message);
       throw error;
     }
-    return objToCamel<T>(data);
+    return data ? objToCamel<T>(data) : item;
   } catch (e) {
     console.error(`Failed to insert into ${table}:`, e);
     throw e;
@@ -376,13 +457,14 @@ async function dbInsert<T extends { id?: string }>(table: string, item: T, cache
 async function dbUpdate<T extends { id?: string }>(table: string, item: T, cacheKey?: string): Promise<T> {
   const userId = await getUserId();
   const snake = objToSnake(item as any, userId, table);
-  const targetId = snake.id || (item.id ? toUuid(item.id) : undefined);
+  const targetId = (item.id && isUuid(item.id)) ? item.id : (snake.id || (item.id ? toUuid(item.id) : undefined));
+  delete snake.id; // Strip primary key column so Postgres doesn't reject updating PK in SET clause
 
   // Update local cache scoped to current user
   if (cacheKey && userId) {
     const cached = getLocalCache(userId) || {};
     const list = cached[cacheKey] || [];
-    saveLocalCache({ [cacheKey]: list.map((x: any) => (x.id === item.id ? { ...x, ...item } : x)) }, userId);
+    saveLocalCache({ [cacheKey]: list.map((x: any) => (x.id === item.id || x.id === targetId ? { ...x, ...item } : x)) }, userId);
   }
 
   try {
@@ -402,13 +484,14 @@ async function dbUpdate<T extends { id?: string }>(table: string, item: T, cache
 }
 
 async function dbDelete(table: string, id: string, cacheKey?: string): Promise<{ success: boolean }> {
-  const targetId = isUuid(id) ? id : idMap.get(id) || id;
+  const userId = await getUserId();
+  const targetId = isUuid(id) ? id : (idMap.get(id) || toUuid(id));
 
-  // Update local cache
-  if (cacheKey) {
-    const cached = getLocalCache() || {};
+  // Update local cache scoped to current user
+  if (cacheKey && userId) {
+    const cached = getLocalCache(userId) || {};
     const list = cached[cacheKey] || [];
-    saveLocalCache({ [cacheKey]: list.filter((x: any) => x.id !== id) });
+    saveLocalCache({ [cacheKey]: list.filter((x: any) => x.id !== id && x.id !== targetId) }, userId);
   }
 
   try {
@@ -484,28 +567,28 @@ export const api = {
         staffRes, repRes, custRes, pgRes, invsRes, setRes,
         kqRes, cqRes, krRes, crRes
       ] = await Promise.all([
-        safeQuery(supabase.from("farms").select("*").eq("user_id", userId).order("created_at", { ascending: true })),
+        safeQuery(supabase.from("farms").select("*").order("created_at", { ascending: true })),
         safeQuery(supabase.from("user_profiles").select("*").eq("id", userId)),
-        safeQuery(supabase.from("ponds").select("*").eq("user_id", userId)),
-        safeQuery(supabase.from("stock_events").select("*").eq("user_id", userId)),
-        safeQuery(supabase.from("feed_inventory").select("*").eq("user_id", userId)),
-        safeQuery(supabase.from("feeding_records").select("*").eq("user_id", userId)),
-        safeQuery(supabase.from("bag_open_logs").select("*").eq("user_id", userId)),
-        safeQuery(supabase.from("feed_remaining_logs").select("*").eq("user_id", userId)),
-        safeQuery(supabase.from("expenses").select("*").eq("user_id", userId)),
-        safeQuery(supabase.from("revenues").select("*").eq("user_id", userId)),
-        safeQuery(supabase.from("mortality_entries").select("*").eq("user_id", userId)),
-        safeQuery(supabase.from("treatment_records").select("*").eq("user_id", userId)),
-        safeQuery(supabase.from("staff_members").select("*").eq("user_id", userId)),
-        safeQuery(supabase.from("reports").select("*").eq("user_id", userId)),
-        safeQuery(supabase.from("customers").select("*").eq("user_id", userId)),
-        safeQuery(supabase.from("price_groups").select("*").eq("user_id", userId)),
-        safeQuery(supabase.from("invoices").select("*").eq("user_id", userId)),
+        safeQuery(supabase.from("ponds").select("*")),
+        safeQuery(supabase.from("stock_events").select("*")),
+        safeQuery(supabase.from("feed_inventory").select("*")),
+        safeQuery(supabase.from("feeding_records").select("*")),
+        safeQuery(supabase.from("bag_open_logs").select("*")),
+        safeQuery(supabase.from("feed_remaining_logs").select("*")),
+        safeQuery(supabase.from("expenses").select("*")),
+        safeQuery(supabase.from("revenues").select("*")),
+        safeQuery(supabase.from("mortality_entries").select("*")),
+        safeQuery(supabase.from("treatment_records").select("*")),
+        safeQuery(supabase.from("staff_members").select("*")),
+        safeQuery(supabase.from("reports").select("*")),
+        safeQuery(supabase.from("customers").select("*")),
+        safeQuery(supabase.from("price_groups").select("*")),
+        safeQuery(supabase.from("invoices").select("*")),
         safeQuery(supabase.from("invoice_settings").select("*").eq("user_id", userId).maybeSingle()),
         safeQuery(supabase.from("knowledge_questions").select("*")),
         safeQuery(supabase.from("compatibility_questions").select("*")),
-        safeQuery(supabase.from("knowledge_results").select("*").eq("user_id", userId)),
-        safeQuery(supabase.from("compatibility_results").select("*").eq("user_id", userId)),
+        safeQuery(supabase.from("knowledge_results").select("*")),
+        safeQuery(supabase.from("compatibility_results").select("*")),
       ]);
 
       let farms = (farmsRes.data || []).map((r: any) => objToCamel<Farm>(r));
@@ -517,7 +600,7 @@ export const api = {
           supabase.from("farms").select("*").in("id", staffMember.farms)
         );
         if (assignedFarms) {
-          const farmMap = new Map(farms.map(f => [f.id, f]));
+          const farmMap = new Map(farms.map((f: Farm) => [f.id, f]));
           for (const af of assignedFarms) {
             const camel = objToCamel<Farm>(af);
             farmMap.set(camel.id, camel);
@@ -666,14 +749,70 @@ export const api = {
     list: () => dbList<Pond>("ponds", "ponds"),
     create: async (p: Partial<Pond>) => {
       const dbPond: any = { ...p };
-      if (p.sizeM2 !== undefined) dbPond.sizeM2 = parseFloat(String(p.sizeM2)) || 0;
-      if (p.stockingDate && p.stockingDate !== "—") {
-        const d = toValidDbDate(p.stockingDate);
-        if (d) dbPond.stockingDate = d;
+      dbPond.sizeM2 = (typeof p.sizeM2 === "number" && !isNaN(p.sizeM2)) ? p.sizeM2 : (parseFloat(String(p.sizeM2)) || 0);
+      dbPond.avgWeight = (typeof p.avgWeight === "number" && !isNaN(p.avgWeight)) ? p.avgWeight : (parseFloat(String(p.avgWeight)) || 0);
+      dbPond.initialStock = parseInt(String(p.initialStock ?? 0), 10) || 0;
+      dbPond.currentCount = parseInt(String(p.currentCount ?? p.initialStock ?? 0), 10) || 0;
+      dbPond.totalCost = parseFloat(String(p.totalCost ?? 0)) || 0;
+      if (!p.stockingDate || p.stockingDate === "—" || !String(p.stockingDate).trim()) {
+        dbPond.stockingDate = null;
+      } else {
+        dbPond.stockingDate = toValidDbDate(p.stockingDate) || null;
+      }
+
+      const userId = await getUserId();
+      if (userId) {
+        dbPond.userId = userId;
+
+        // 1. Ensure user_profiles row exists in Supabase so ponds_user_id_fkey does not fail
+        try {
+          const { data: prof } = await supabase.from("user_profiles").select("id").eq("id", userId).maybeSingle();
+          if (!prof) {
+            const { data: { user } } = await supabase.auth.getUser();
+            const meta = user?.user_metadata || {};
+            await supabase.from("user_profiles").upsert({
+              id: userId,
+              name: meta.name || user?.email?.split("@")[0] || "Farm Owner",
+              farm_name: meta.farm_name || "My Farm",
+              email: user?.email || "",
+              country: meta.country || "Nigeria",
+              currency_symbol: meta.currency_symbol || "₦",
+              currency_code: meta.currency_code || "NGN",
+              role: meta.role || "owner",
+              status: "Active"
+            }, { onConflict: "id" });
+          }
+        } catch (e) {
+          console.warn("Profile check notice:", e);
+        }
+
+        // 2. Ensure farm exists in Supabase so ponds_farm_id_fkey does not fail
+        let validFarmId: string | null = null;
+        if (p.farmId && isUuid(p.farmId)) {
+          const { data: fRow } = await supabase.from("farms").select("id").eq("id", p.farmId).maybeSingle();
+          if (fRow?.id) validFarmId = fRow.id;
+        }
+        if (!validFarmId) {
+          const { data: userFarms } = await supabase.from("farms").select("id").eq("user_id", userId).order("created_at", { ascending: true }).limit(1);
+          if (userFarms && userFarms.length > 0) {
+            validFarmId = userFarms[0].id;
+          } else {
+            const newFid = crypto.randomUUID();
+            const { data: newF } = await supabase.from("farms").insert({
+              id: newFid,
+              user_id: userId,
+              name: "Main Farm",
+              country: "Nigeria"
+            }).select().maybeSingle();
+            validFarmId = newF?.id || newFid;
+          }
+        }
+        if (validFarmId) {
+          dbPond.farmId = validFarmId;
+        }
       }
 
       // Validate duplicate pond name (case-insensitive) for the user & farm
-      const userId = await getUserId();
       if (p.name && p.name.trim() && userId) {
         const trimmedName = p.name.trim();
         let q = supabase
@@ -681,8 +820,8 @@ export const api = {
           .select("id, name")
           .eq("user_id", userId)
           .ilike("name", trimmedName);
-        if (p.farmId && isUuid(p.farmId)) {
-          q = q.eq("farm_id", p.farmId);
+        if (dbPond.farmId && isUuid(dbPond.farmId)) {
+          q = q.eq("farm_id", dbPond.farmId);
         }
         const { data: existing, error: checkErr } = await q;
         if (!checkErr && existing && existing.length > 0) {
@@ -694,10 +833,15 @@ export const api = {
     },
     update: async (p: Pond) => {
       const dbPond: any = { ...p };
-      if (p.sizeM2 !== undefined) dbPond.sizeM2 = parseFloat(String(p.sizeM2)) || 0;
-      if (p.stockingDate && p.stockingDate !== "—") {
-        const d = toValidDbDate(p.stockingDate);
-        if (d) dbPond.stockingDate = d;
+      dbPond.sizeM2 = (typeof p.sizeM2 === "number" && !isNaN(p.sizeM2)) ? p.sizeM2 : (parseFloat(String(p.sizeM2)) || 0);
+      dbPond.avgWeight = (typeof p.avgWeight === "number" && !isNaN(p.avgWeight)) ? p.avgWeight : (parseFloat(String(p.avgWeight)) || 0);
+      if (p.initialStock !== undefined) dbPond.initialStock = parseInt(String(p.initialStock), 10) || 0;
+      if (p.currentCount !== undefined) dbPond.currentCount = parseInt(String(p.currentCount), 10) || 0;
+      if (p.totalCost !== undefined) dbPond.totalCost = parseFloat(String(p.totalCost)) || 0;
+      if (!p.stockingDate || p.stockingDate === "—" || !String(p.stockingDate).trim()) {
+        dbPond.stockingDate = null;
+      } else {
+        dbPond.stockingDate = toValidDbDate(p.stockingDate) || null;
       }
 
       // Check duplicate name on update if changed
@@ -720,7 +864,7 @@ export const api = {
         }
       }
 
-      return dbInsert<Pond>("ponds", dbPond as Pond, "ponds");
+      return dbUpdate<Pond>("ponds", dbPond as Pond, "ponds");
     },
     remove: (id: string) => dbDelete("ponds", id, "ponds"),
   },
@@ -917,17 +1061,28 @@ export const api = {
     list: () => dbList<Invoice>("invoices", "invoices"),
     create: (i: Partial<Invoice>) => {
       const dbInv: any = { ...i };
-      if (i.invoiceDate) {
-        const d = toValidDbDate(i.invoiceDate);
-        if (d) dbInv.invoiceDate = d;
-      }
-      if (i.dueDate) {
-        const d = toValidDbDate(i.dueDate);
-        if (d) dbInv.dueDate = d;
-      }
+      dbInv.invoiceDate = i.invoiceDate ? toValidDbDate(i.invoiceDate) || null : null;
+      dbInv.dueDate = i.dueDate ? toValidDbDate(i.dueDate) || null : null;
+      if (i.subtotal !== undefined) dbInv.subtotal = Number(i.subtotal) || 0;
+      if (i.discount !== undefined) dbInv.discount = Number(i.discount) || 0;
+      if (i.additionalCharges !== undefined) dbInv.additionalCharges = Number(i.additionalCharges) || 0;
+      if (i.grandTotal !== undefined) dbInv.grandTotal = Number(i.grandTotal) || 0;
+      if (i.amountPaid !== undefined) dbInv.amountPaid = Number(i.amountPaid) || 0;
+      if (i.outstanding !== undefined) dbInv.outstanding = Number(i.outstanding) || 0;
       return dbInsert<Invoice>("invoices", dbInv as Invoice, "invoices");
     },
-    update: (i: Invoice) => dbUpdate<Invoice>("invoices", i, "invoices"),
+    update: (i: Invoice) => {
+      const dbInv: any = { ...i };
+      dbInv.invoiceDate = i.invoiceDate ? toValidDbDate(i.invoiceDate) || null : null;
+      dbInv.dueDate = i.dueDate ? toValidDbDate(i.dueDate) || null : null;
+      if (i.subtotal !== undefined) dbInv.subtotal = Number(i.subtotal) || 0;
+      if (i.discount !== undefined) dbInv.discount = Number(i.discount) || 0;
+      if (i.additionalCharges !== undefined) dbInv.additionalCharges = Number(i.additionalCharges) || 0;
+      if (i.grandTotal !== undefined) dbInv.grandTotal = Number(i.grandTotal) || 0;
+      if (i.amountPaid !== undefined) dbInv.amountPaid = Number(i.amountPaid) || 0;
+      if (i.outstanding !== undefined) dbInv.outstanding = Number(i.outstanding) || 0;
+      return dbUpdate<Invoice>("invoices", dbInv as Invoice, "invoices");
+    },
     remove: (id: string) => dbDelete("invoices", id, "invoices"),
   },
 
@@ -946,8 +1101,14 @@ export const api = {
     },
     update: async (s: Partial<InvSettings>) => {
       const userId = await getUserId();
-      const snake = objToSnake(s as any, userId);
-      const { data } = await supabase.from("invoice_settings").upsert(snake).select().single();
+      const snake = objToSnake(s as any, userId, "invoice_settings");
+      if (userId) snake.user_id = userId;
+      delete snake.id;
+      const { data, error } = await supabase.from("invoice_settings").upsert(snake, { onConflict: "user_id" }).select().single();
+      if (error) {
+        console.error("Failed to update invoice_settings:", error.message);
+        throw error;
+      }
       return data ? objToCamel<InvSettings>(data) : (s as InvSettings);
     },
   },
