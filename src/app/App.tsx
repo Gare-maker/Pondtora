@@ -75,7 +75,7 @@ function Sidebar({active,onNav,collapsed,onToggle,farms,activeFarmId,onSwitchFar
         <div className="bg-white rounded-xl p-1 shadow-sm shrink-0 flex items-center justify-center">
           <img src={pondtoraLogo} alt="Pondtora" className="h-8 w-auto object-contain rounded" style={{objectFit:"contain",imageRendering:"auto"}}/>
         </div>
-        {!collapsed&&<div className="min-w-0 flex-1"><p className="text-base font-bold text-white leading-none font-['Barlow_Condensed',sans-serif]">Pondtora</p><p className="text-[10px] text-emerald-400 uppercase tracking-widest font-semibold mt-0.5">Aquaculture Suite</p></div>}
+        {!collapsed&&<div className="min-w-0 flex-1"><p className="text-base font-bold text-white leading-none font-['Barlow_Condensed',sans-serif]">Pondtora</p><p className="text-[10px] text-emerald-400 uppercase tracking-widest font-semibold mt-0.5">Fish Farm Management</p></div>}
         {onNotifications&&(
           <button onClick={onNotifications} title="Notifications" className="relative p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors shrink-0">
             <Bell size={16}/>
@@ -128,7 +128,7 @@ function Sidebar({active,onNav,collapsed,onToggle,farms,activeFarmId,onSwitchFar
             <React.Fragment key={id}>
               {showDivider&&<div className={`${collapsed?"mx-1":"mx-2"} my-2 border-t border-slate-800`}/>}
               <button onClick={()=>onNav(id)} title={collapsed?label:undefined}
-                className={`w-full flex items-center gap-2.5 rounded-xl text-[13px] font-medium transition-all mb-0.5 ${collapsed?"justify-center px-0 py-2.5":"px-3 py-2.5"} ${isA?"bg-gradient-to-r from-green-600 to-emerald-600 text-white shadow-md shadow-green-600/20 font-semibold":"text-slate-400 hover:text-white hover:bg-slate-800/60"}`}>
+                className={`w-full flex items-center gap-2.5 rounded-xl text-[13px] font-medium transition-all mb-0.5 ${collapsed?"justify-center px-0 py-2.5":"px-3 py-2.5"} ${isA?"bg-[#00BB58] text-white shadow-md shadow-[#00BB58]/20 font-semibold":"text-slate-400 hover:text-white hover:bg-slate-800/60"}`}>
                 <Icon size={16} className={isA?"text-white":"text-slate-400"}/>
                 {!collapsed&&<span className="flex-1 text-left truncate">{label}</span>}
               </button>
@@ -325,33 +325,35 @@ function FinancialDashboard({expenses,revenues,onAddExpense,onAddRevenue,onEditE
   };
 
   return(
-    <div className="p-4 sm:p-6 space-y-5 max-w-[1320px]">
-      <div className="flex items-start gap-3 justify-between">
-        <div className="min-w-0 flex-1"><h1 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Financial Dashboard</h1><p className="text-xs text-slate-400 mt-1 mb-2 sm:mb-0">Track revenue, expenses, and profitability across all farm operations.</p></div>
-        <div className="flex items-center gap-2 shrink-0">
-          {/* Mobile: three-dot menu (CSV/PDF only) */}
-          <div className="lg:hidden relative" ref={dashMenuRef}>
-            <button onClick={()=>setDashMenuOpen(p=>!p)} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 hover:border-green-400 hover:text-green-600 transition-colors"><MoreVertical size={15}/></button>
-            {dashMenuOpen&&(
-              <div className="absolute right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl z-50 overflow-hidden min-w-[160px]">
-                <button onClick={()=>{const label=customApplied?`${customStart}-${customEnd}`:`${dashFilterMonth==="All"?"Full Year":dashFilterMonth}-${dashFilterYear}`;downloadCSV(`expenses-${label}.csv`,["Date","Category","Amount","Pond","Description"],filtExp.map(e=>[e.date,e.category,e.amount,e.pond||"",e.desc]));setDashMenuOpen(false);}} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-2"><Download size={13}/> Export Expenses</button>
-                <button onClick={()=>{const label=customApplied?`${customStart}-${customEnd}`:`${dashFilterMonth==="All"?"Full Year":dashFilterMonth}-${dashFilterYear}`;downloadCSV(`revenues-${label}.csv`,["Date","Source","Amount","Pond","Notes"],filtRev.map(r=>[r.date,r.source,r.amount,r.pond||"",r.notes]));setDashMenuOpen(false);}} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-2"><FileText size={13}/> Export Revenue</button>
-              </div>
-            )}
-          </div>
-          {/* Desktop: full buttons */}
-          <button onClick={()=>{const label=customApplied?`${customStart}-to-${customEnd}`:`${dashFilterMonth==="All"?"all":dashFilterMonth}-${dashFilterYear}`;downloadCSV(`expenses-${label}.csv`,["Date","Category",`Amount (${cs})`,`Pond`,"Description"],filtExp.map(e=>[e.date,e.category,e.amount,e.pond||"",e.desc]));}} className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 text-xs font-semibold hover:border-green-400 hover:text-green-600 transition-colors"><Download size={12}/> Export CSV</button>
-          <button onClick={()=>{const label=customApplied?`${customStart} to ${customEnd}`:`${dashFilterMonth==="All"?"All Months":dashFilterMonth} ${dashFilterYear}`;openPrintWindow(`Financial Statement — ${label}`,["Date","Category","Amount","Pond","Description"],filtExp.map(e=>[e.date,e.category,fmt(e.amount),e.pond||"",e.desc]));}} className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 text-xs font-semibold hover:border-green-400 hover:text-green-600 transition-colors"><FileText size={12}/> PDF</button>
-          <div className="hidden lg:flex gap-2">
-            <PBtn onClick={()=>setShowExp(true)} sm><Plus size={13}/> Add Expense</PBtn>
-            <PBtn onClick={()=>setShowRev(true)} sm><ArrowUpRight size={13}/> Add Revenue</PBtn>
+    <div className="p-4 sm:p-6 space-y-5 w-full">
+      <div className="sticky top-0 z-10 bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 flex flex-col gap-2.5">
+        <div className="flex items-center gap-3 justify-between">
+          <div className="min-w-0 flex-1"><h1 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Financial Dashboard</h1><p className="text-xs text-slate-400 mt-0.5">Track revenue, expenses, and profitability across all farm operations.</p></div>
+          <div className="flex items-center gap-2 shrink-0">
+            {/* Mobile: three-dot menu (CSV/PDF only) */}
+            <div className="lg:hidden relative" ref={dashMenuRef}>
+              <button onClick={()=>setDashMenuOpen(p=>!p)} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 hover:border-green-400 hover:text-green-600 transition-colors"><MoreVertical size={15}/></button>
+              {dashMenuOpen&&(
+                <div className="absolute right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl z-50 overflow-hidden min-w-[160px]">
+                  <button onClick={()=>{const label=customApplied?`${customStart}-${customEnd}`:`${dashFilterMonth==="All"?"Full Year":dashFilterMonth}-${dashFilterYear}`;downloadCSV(`expenses-${label}.csv`,["Date","Category","Amount","Pond","Description"],filtExp.map(e=>[e.date,e.category,e.amount,e.pond||"",e.desc]));setDashMenuOpen(false);}} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-2"><Download size={13}/> Export Expenses</button>
+                  <button onClick={()=>{const label=customApplied?`${customStart}-${customEnd}`:`${dashFilterMonth==="All"?"Full Year":dashFilterMonth}-${dashFilterYear}`;downloadCSV(`revenues-${label}.csv`,["Date","Source","Amount","Pond","Notes"],filtRev.map(r=>[r.date,r.source,r.amount,r.pond||"",r.notes]));setDashMenuOpen(false);}} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-2"><FileText size={13}/> Export Revenue</button>
+                </div>
+              )}
+            </div>
+            {/* Desktop: full buttons */}
+            <button onClick={()=>{const label=customApplied?`${customStart}-to-${customEnd}`:`${dashFilterMonth==="All"?"all":dashFilterMonth}-${dashFilterYear}`;downloadCSV(`expenses-${label}.csv`,["Date","Category",`Amount (${cs})`,`Pond`,"Description"],filtExp.map(e=>[e.date,e.category,e.amount,e.pond||"",e.desc]));}} className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 text-xs font-semibold hover:border-green-400 hover:text-green-600 transition-colors"><Download size={12}/> Export CSV</button>
+            <button onClick={()=>{const label=customApplied?`${customStart} to ${customEnd}`:`${dashFilterMonth==="All"?"All Months":dashFilterMonth} ${dashFilterYear}`;openPrintWindow(`Financial Statement — ${label}`,["Date","Category","Amount","Pond","Description"],filtExp.map(e=>[e.date,e.category,fmt(e.amount),e.pond||"",e.desc]));}} className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 text-xs font-semibold hover:border-green-400 hover:text-green-600 transition-colors"><FileText size={12}/> PDF</button>
+            <div className="hidden lg:flex gap-2">
+              <PBtn onClick={()=>setShowExp(true)} sm><Plus size={13}/> Add Expense</PBtn>
+              <PBtn onClick={()=>setShowRev(true)} sm><ArrowUpRight size={13}/> Add Revenue</PBtn>
+            </div>
           </div>
         </div>
-      </div>
-      {/* Mobile: add buttons row below header */}
-      <div className="flex gap-2 lg:hidden">
-        <PBtn onClick={()=>setShowExp(true)} sm><Plus size={13}/> Add Expense</PBtn>
-        <PBtn onClick={()=>setShowRev(true)} sm><ArrowUpRight size={13}/> Add Revenue</PBtn>
+        {/* Mobile: add buttons row below header */}
+        <div className="flex gap-2 lg:hidden">
+          <PBtn onClick={()=>setShowExp(true)} sm><Plus size={13}/> Add Expense</PBtn>
+          <PBtn onClick={()=>setShowRev(true)} sm><ArrowUpRight size={13}/> Add Revenue</PBtn>
+        </div>
       </div>
       <div className="flex flex-wrap gap-2 items-start">
         {/* Year select */}
@@ -792,8 +794,8 @@ function StaffPage({staff,onAdd,onEdit,onDelete,farms,activeFarmId}:{staff:Staff
   const pending=staff.filter(s=>s.status==="Pending").length;
 
   return(
-    <div className="p-4 sm:p-6 space-y-5 max-w-[1000px]">
-      <div className="flex flex-wrap items-start justify-between gap-3">
+    <div className="p-4 sm:p-6 space-y-5 w-full">
+      <div className="sticky top-0 z-10 bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Staff</h1>
           <p className="text-xs text-slate-400 mt-0.5">Manage team members with access to Feeding Records and Feed Stock</p>
@@ -1022,8 +1024,8 @@ function ReportsPage({reports,staff,onAdd,onEdit}:{reports:Report[];staff:StaffM
     return parts.map(p=>{const idx=p.indexOf(": ");return idx>-1?{label:p.slice(0,idx),value:p.slice(idx+2)}:{label:"",value:p};});
   };
   return(
-    <div className="p-4 sm:p-6 space-y-5 max-w-[1300px]">
-      <div className="flex items-center justify-between gap-3">
+    <div className="p-4 sm:p-6 space-y-5 w-full">
+      <div className="sticky top-0 z-10 bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 flex items-center justify-between gap-3">
         <div><h1 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Reports</h1><p className="text-xs text-slate-400 mt-0.5">Farm operational reports and incident logs</p></div>
         <PBtn onClick={()=>setShowModal(true)} sm><Plus size={13}/> Submit Report</PBtn>
       </div>
@@ -1175,8 +1177,8 @@ function NotificationsPage({notifications,onMarkRead,onMarkAllRead,farms,activeF
   const pagedNotifs=filtered.slice((notifPage-1)*PER_PAGE,notifPage*PER_PAGE);
   const grouped=pagedNotifs.reduce<{label:string;date:string;items:AppNotification[]}[]>((acc,n)=>{const lbl=dateLabel(n.date);const ex=acc.find(g=>g.date===n.date);if(ex)ex.items.push(n);else acc.push({label:lbl,date:n.date,items:[n]});return acc;},[]).sort((a,b)=>b.date.localeCompare(a.date));
   return(
-    <div className="p-4 sm:p-6 space-y-5 max-w-[760px]">
-      <div className="flex items-center justify-between">
+    <div className="p-4 sm:p-6 space-y-5 w-full">
+      <div className="sticky top-0 z-10 bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 flex items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Notifications</h1>
           <p className="text-xs text-slate-400 mt-0.5">{unread>0?`${unread} unread notification${unread!==1?"s":""}`:""}</p>
@@ -1476,24 +1478,24 @@ function SubscriptionPage({
   };
 
   return (
-    <div className="p-4 sm:p-6 space-y-6 max-w-5xl">
-      <div className="text-center pt-4 pb-2">
+    <div className="p-4 sm:p-6 space-y-6 w-full">
+      <div className="sticky top-0 z-10 bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 text-center">
         {adminOverride.hasFreeAccess ? (
-          <div className="inline-flex items-center gap-2 bg-purple-50 border border-purple-200 rounded-full px-4 py-1.5 text-purple-800 text-xs font-semibold mb-4">
+          <div className="inline-flex items-center gap-2 bg-purple-50 border border-purple-200 rounded-full px-4 py-1.5 text-purple-800 text-xs font-semibold mb-3">
             <Crown size={14} className="text-purple-600" /> <strong>Complimentary Lifetime Access:</strong> Your farm account has full VIP access with zero billing required.
           </div>
         ) : isPaidActive && formattedExpiryDate ? (
-          <div className="inline-flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-full px-4 py-1.5 text-emerald-800 text-xs font-semibold mb-4">
+          <div className="inline-flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-full px-4 py-1.5 text-emerald-800 text-xs font-semibold mb-3">
             <CheckCircle size={14} className="text-emerald-600" /> <strong>Active Paid Subscription:</strong> {activePlan} ({currentAdminUser?.billingFrequency || "monthly"}) — Expires on <strong>{formattedExpiryDate}</strong> {currentAdminUser?.paystackReference ? `· Ref: ${currentAdminUser.paystackReference}` : ""}
           </div>
         ) : trialExpiryDate ? (
-          <div className="inline-flex items-center gap-2 bg-green-50 border border-green-200 rounded-full px-4 py-1.5 text-green-700 text-xs font-semibold mb-4">
+          <div className="inline-flex items-center gap-2 bg-green-50 border border-green-200 rounded-full px-4 py-1.5 text-green-700 text-xs font-semibold mb-3">
             <Crown size={13} /> Your free trial expires on <strong>{trialExpiryDate}</strong>
           </div>
         ) : null}
 
         {adminOverride.customAmount !== null && (
-          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-3.5 text-xs text-amber-900 flex items-center justify-between gap-3 max-w-md mx-auto mb-4 shadow-sm">
+          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-3 text-xs text-amber-900 flex items-center justify-between gap-3 max-w-md mx-auto mb-3 shadow-sm">
             <div className="flex items-center gap-2">
               <Sparkles size={16} className="text-amber-600 shrink-0" />
               <div className="text-left">
@@ -1507,7 +1509,7 @@ function SubscriptionPage({
         <h1 className="text-3xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">
           Simple, Transparent Subscriptions
         </h1>
-        <p className="text-slate-400 text-sm mt-2 mb-5">Pay securely with Paystack. Instant activation. Cancel anytime.</p>
+        <p className="text-slate-400 text-sm mt-1">Pay securely with Paystack. Instant activation. Cancel anytime.</p>
       </div>
 
       {/* Tab switcher */}
@@ -1797,15 +1799,17 @@ function SettingsPage({farms,onAddFarm,onEditFarm,onDeleteFarm,userProfile,onUpd
   const L2="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1";
   const initials=(userProfile?.name||"U").split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase();
   return(
-    <div className="p-4 sm:p-6 space-y-5 max-w-3xl">
-      <div>
-        <h1 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Settings</h1>
-        <p className="text-xs text-slate-400 mt-1">Manage your profile and farm details.</p>
-      </div>
-      {/* Tab switcher */}
-      <div className="flex gap-1 bg-slate-100 p-1 rounded-xl w-fit">
-        <button onClick={()=>setTab("profile")} className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all ${tab==="profile"?"bg-white text-slate-900 shadow-sm":"text-slate-500 hover:text-slate-800"}`}>Profile Settings</button>
-        <button onClick={()=>setTab("farms")} className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all ${tab==="farms"?"bg-white text-slate-900 shadow-sm":"text-slate-500 hover:text-slate-800"}`}>Farm Settings</button>
+    <div className="p-4 sm:p-6 space-y-5 w-full">
+      <div className="sticky top-0 z-10 bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 flex flex-col gap-2">
+        <div>
+          <h1 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Settings</h1>
+          <p className="text-xs text-slate-400 mt-0.5">Manage your profile and farm details.</p>
+        </div>
+        {/* Tab switcher */}
+        <div className="flex gap-1 bg-slate-100 p-1 rounded-xl w-fit">
+          <button onClick={()=>setTab("profile")} className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all ${tab==="profile"?"bg-white text-slate-900 shadow-sm":"text-slate-500 hover:text-slate-800"}`}>Profile Settings</button>
+          <button onClick={()=>setTab("farms")} className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all ${tab==="farms"?"bg-white text-slate-900 shadow-sm":"text-slate-500 hover:text-slate-800"}`}>Farm Settings</button>
+        </div>
       </div>
 
       {/* ── Profile Settings ── */}
@@ -3242,7 +3246,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     try{
       const keys=Object.keys(localStorage);
       for(const k of keys){
-        if(k.startsWith("pondtora_")){
+        if(k.startsWith("pondtora_") && !k.startsWith("pondtora_admin_") && !k.startsWith("pondtora_custom_plans")){
           localStorage.removeItem(k);
         }
       }
@@ -3645,7 +3649,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       </div>
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Mobile top bar */}
-        <div className="lg:hidden flex items-center justify-between px-4 py-2.5 bg-slate-900 border-b border-slate-800 shrink-0">
+        <div className="lg:hidden flex items-center justify-between px-4 py-2.5 bg-slate-900 border-b border-slate-800 shrink-0 z-20">
           <div className="flex items-center gap-2.5">
             <button onClick={()=>setSideOpen(true)} className="p-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 transition-colors">
               <Menu size={20}/>
@@ -3681,7 +3685,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
             )}
           </div>
         </div>
-        <main ref={mainRef} className="flex-1 overflow-y-auto">
+        <main ref={mainRef} className="flex-1 overflow-y-auto bg-[#f5f7fa]">
           <AppErrorBoundary key={active}>
             {active==="financial"     &&(hasPerm("Financial Dashboard")?<FinancialDashboard expenses={farmExpenses} revenues={farmRevenues} onAddExpense={addExp} onAddRevenue={addRev} onEditExpense={editExp} onEditRevenue={editRev} onDeleteExpense={deleteExp} onDeleteRevenue={deleteRev} stockEvents={stockEvents} ponds={farmPonds} inventory={farmInventory} currency={cs} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}}/>:<AccessDenied/>)}
             {active==="ponds"         &&(hasPerm("Pond Management")?<PondManagementPage ponds={farmPonds} onAddPond={addPond} onClosePond={closePond} onRestockPond={restockPond} onTransfer={transferStock} onNurseryTransfer={nurseryTransfer} mortality={farmMortality} onAddMortality={addMort} onAddCost={addExp} feedingRecords={farmFeeding} stockEvents={stockEvents} treatments={farmTreatments} onAddTreatment={addTreatment} activeFarmId={activeFarmId} onDeletePond={deletePond} onEditFish={editFish} onSetMaxKg={setPondMaxKg} onEditPond={handleEditPond} onScrollTop={()=>mainRef.current?.scrollTo({top:0,behavior:"instant"})} currency={cs} inventory={farmInventory}/>:<AccessDenied/>)}

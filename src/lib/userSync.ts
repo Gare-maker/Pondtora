@@ -21,8 +21,12 @@ export const DUMMY_USER_EMAILS = new Set([
 
 export function isDummyUser(u: AdminUser | { id?: string; email?: string } | null | undefined): boolean {
   if (!u) return false;
+  // If user has a real UUID or long ID, they are definitely NOT a dummy user
+  if (u.id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(u.id)) {
+    return false;
+  }
   if (u.id && DUMMY_USER_IDS.has(String(u.id))) return true;
-  if (u.email && DUMMY_USER_EMAILS.has(u.email.toLowerCase().trim())) return true;
+  if (u.email && DUMMY_USER_EMAILS.has(u.email.toLowerCase().trim()) && (!u.id || u.id.length < 10)) return true;
   return false;
 }
 
@@ -31,7 +35,7 @@ export function loadAllAdminUsers(): AdminUser[] {
     const raw = localStorage.getItem(USERS_STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) {
+      if (Array.isArray(parsed) && parsed.length > 0) {
         return parsed.filter(u => u && typeof u === "object" && typeof u.id === "string");
       }
     }
@@ -47,8 +51,8 @@ export function saveAllAdminUsers(users: AdminUser[]) {
 }
 
 /**
- * Fetches all real registered users and farms directly from Supabase,
- * merges with existing administrative overrides, filters out dummy mock users,
+ * Fetches all real registered users, staff members, and farms directly from Supabase,
+ * merges with existing administrative overrides and cached user profiles,
  * and updates the admin users local cache.
  */
 export async function fetchLiveAdminUsers(): Promise<{
@@ -59,91 +63,138 @@ export async function fetchLiveAdminUsers(): Promise<{
   try {
     const existingLocal = loadAllAdminUsers();
 
-    // Query Supabase directly for all user profiles, farms, and ponds
-    const [profilesRes, farmsRes, pondsRes] = await Promise.all([
+    // Query Supabase directly for user profiles, staff members, farms, and ponds
+    const [profilesRes, staffRes, farmsRes, pondsRes] = await Promise.all([
       supabase.from("user_profiles").select("*").order("created_at", { ascending: false }),
+      supabase.from("staff_members").select("*").order("created_at", { ascending: false }),
       supabase.from("farms").select("id, user_id, name"),
       supabase.from("ponds").select("id, user_id, farm_id"),
     ]);
 
     const rawProfiles = profilesRes.data || [];
+    const rawStaff = staffRes.data || [];
     const rawFarms = farmsRes.data || [];
     const rawPonds = pondsRes.data || [];
 
-    if (rawProfiles.length > 0) {
-      const dbUsers: AdminUser[] = rawProfiles.map((p: any) => {
-        const userFarms = rawFarms.filter((f: any) => f.user_id === p.id);
-        const farmCount = Math.max(userFarms.length, 1);
-        const farmName = p.farm_name || userFarms[0]?.name || "Primary Farm";
+    const dbUsers: AdminUser[] = [];
 
-        // Find existing local record to preserve custom overrides (custom pricing, free access, etc.)
-        const local = existingLocal.find(
-          x => x.id === p.id || (x.email && x.email.toLowerCase() === (p.email || "").toLowerCase())
-        );
+    // 1. Process user profiles (farm owners)
+    rawProfiles.forEach((p: any) => {
+      const userFarms = rawFarms.filter((f: any) => f.user_id === p.id);
+      const farmCount = Math.max(userFarms.length, 1);
+      const farmName = p.farm_name || userFarms[0]?.name || "Primary Farm";
 
-        const u: AdminUser = {
-          id: p.id,
-          name: p.name || (p.email ? p.email.split("@")[0] : "Farmer"),
-          email: p.email || "",
-          farmName: farmName,
-          phone: p.phone || local?.phone || "",
-          city: p.city || local?.city || "Lagos",
-          state: p.state || local?.state || "Lagos",
-          country: p.country || local?.country || "Nigeria",
-          role: p.role || local?.role || "owner",
-          activePlan: p.active_plan || local?.activePlan || "Starter",
-          trialStartDate: p.trial_start_date ? p.trial_start_date.slice(0, 10) : (local?.trialStartDate || null),
-          billingFrequency: local?.billingFrequency || "monthly",
-          subscriptionAmount: typeof local?.subscriptionAmount === "number" ? local.subscriptionAmount : null,
-          subscriptionStatus: "Trial",
-          subscriptionStart: local?.subscriptionStart || (p.created_at ? p.created_at.slice(0, 10) : null),
-          subscriptionExpiry: local?.subscriptionExpiry || null,
-          accountStatus: (p.status === "Suspended" || local?.accountStatus === "Suspended") ? "Suspended" : "Active",
-          freeAccess: Boolean(local?.freeAccess),
-          farmCount: farmCount,
-          paystackReference: local?.paystackReference,
-          lastPaymentDate: local?.lastPaymentDate,
-          createdAt: p.created_at ? p.created_at.slice(0, 10) : (local?.createdAt || new Date().toISOString().slice(0, 10)),
-        };
-        u.subscriptionStatus = computeSubscriptionStatus(u);
-        return u;
-      });
-
-      // Filter out any dummy users completely
-      const dbIds = new Set(dbUsers.map(u => u.id));
-      const dbEmails = new Set(dbUsers.map(u => (u.email || "").toLowerCase()));
-      const extraLocal = existingLocal.filter(
-        u => !isDummyUser(u) && !dbIds.has(u.id) && !dbEmails.has((u.email || "").toLowerCase())
+      const local = existingLocal.find(
+        x => x.id === p.id || (x.email && x.email.toLowerCase() === (p.email || "").toLowerCase())
       );
 
-      const finalUsers = [...dbUsers, ...extraLocal].filter(u => !isDummyUser(u));
-      saveAllAdminUsers(finalUsers);
-      return { users: finalUsers, isLiveFromDb: true, count: finalUsers.length };
-    }
+      const u: AdminUser = {
+        id: p.id,
+        name: p.name || (p.email ? p.email.split("@")[0] : "Farmer"),
+        email: p.email || "",
+        farmName: farmName,
+        phone: p.phone || local?.phone || "",
+        city: p.city || local?.city || "Lagos",
+        state: p.state || local?.state || "Lagos",
+        country: p.country || local?.country || "Nigeria",
+        role: p.role || local?.role || "owner",
+        activePlan: p.active_plan || local?.activePlan || "Starter",
+        trialStartDate: p.trial_start_date ? p.trial_start_date.slice(0, 10) : (local?.trialStartDate || null),
+        billingFrequency: local?.billingFrequency || "monthly",
+        subscriptionAmount: typeof local?.subscriptionAmount === "number" ? local.subscriptionAmount : null,
+        subscriptionStatus: "Trial",
+        subscriptionStart: local?.subscriptionStart || (p.created_at ? p.created_at.slice(0, 10) : null),
+        subscriptionExpiry: local?.subscriptionExpiry || null,
+        accountStatus: (p.status === "Suspended" || local?.accountStatus === "Suspended") ? "Suspended" : "Active",
+        freeAccess: Boolean(local?.freeAccess),
+        farmCount: farmCount,
+        paystackReference: local?.paystackReference,
+        lastPaymentDate: local?.lastPaymentDate,
+        createdAt: p.created_at ? p.created_at.slice(0, 10) : (local?.createdAt || new Date().toISOString().slice(0, 10)),
+      };
+      u.subscriptionStatus = computeSubscriptionStatus(u);
+      dbUsers.push(u);
+    });
 
-    // Fallback: If query returned 0 rows (e.g. offline or RLS restricted),
-    // check if current active user profile exists in localStorage
+    // 2. Process staff members (include staff with logins/emails)
+    const existingEmails = new Set(dbUsers.map(u => (u.email || "").toLowerCase().trim()));
+    rawStaff.forEach((s: any) => {
+      const sEmail = (s.email || "").toLowerCase().trim();
+      if (!sEmail || existingEmails.has(sEmail)) return;
+      existingEmails.add(sEmail);
+
+      const ownerFarm = rawFarms.find((f: any) => f.id === s.farms?.[0]) || rawFarms.find((f: any) => f.user_id === s.user_id);
+      const ownerProfile = rawProfiles.find((p: any) => p.id === s.user_id);
+      const farmName = ownerFarm?.name || ownerProfile?.farm_name || "Assigned Farm";
+
+      const local = existingLocal.find(
+        x => x.id === s.id || (x.email && x.email.toLowerCase() === sEmail)
+      );
+
+      const u: AdminUser = {
+        id: s.id || s.staff_auth_id || crypto.randomUUID(),
+        name: s.name || sEmail.split("@")[0],
+        email: sEmail,
+        farmName: farmName,
+        phone: s.phone || local?.phone || "",
+        city: local?.city || "Lagos",
+        state: local?.state || "Lagos",
+        country: local?.country || "Nigeria",
+        role: s.role || "Staff Member",
+        activePlan: "Starter",
+        trialStartDate: null,
+        billingFrequency: "monthly",
+        subscriptionAmount: null,
+        subscriptionStatus: "Active",
+        subscriptionStart: s.created_at ? s.created_at.slice(0, 10) : null,
+        subscriptionExpiry: null,
+        accountStatus: (s.status === "Active" && local?.accountStatus !== "Suspended") ? "Active" : "Suspended",
+        freeAccess: true,
+        farmCount: (s.farms && s.farms.length) ? s.farms.length : 1,
+        createdAt: s.created_at ? s.created_at.slice(0, 10) : (local?.createdAt || new Date().toISOString().slice(0, 10)),
+      };
+      dbUsers.push(u);
+    });
+
+    // 3. Scan localStorage for any cached profiles
     try {
-      const activeProfRaw = localStorage.getItem("pondtora_user_profile");
-      if (activeProfRaw) {
-        const activeProf = JSON.parse(activeProfRaw);
-        if (activeProf?.email && !isDummyUser(activeProf)) {
-          syncUserProfileToAdmin(activeProf);
+      Object.keys(localStorage).forEach(key => {
+        if (key.endsWith("_user_profile") || key === "pondtora_user_profile") {
+          try {
+            const raw = localStorage.getItem(key);
+            if (raw) {
+              const prof = JSON.parse(raw);
+              if (prof?.email) {
+                const em = prof.email.toLowerCase().trim();
+                if (!existingEmails.has(em)) {
+                  existingEmails.add(em);
+                  const uObj = syncUserProfileToAdmin(prof);
+                  if (uObj) dbUsers.push(uObj);
+                }
+              }
+            }
+          } catch {}
         }
-      }
+      });
     } catch {}
 
-    const currentUsers = loadAllAdminUsers().filter(u => !isDummyUser(u));
-    return { users: currentUsers, isLiveFromDb: false, count: currentUsers.length };
+    const dbIds = new Set(dbUsers.map(u => u.id));
+    const extraLocal = existingLocal.filter(
+      u => !isDummyUser(u) && !dbIds.has(u.id) && !existingEmails.has((u.email || "").toLowerCase().trim())
+    );
+
+    const finalUsers = [...dbUsers, ...extraLocal];
+    saveAllAdminUsers(finalUsers);
+    return { users: finalUsers, isLiveFromDb: rawProfiles.length > 0 || rawStaff.length > 0, count: finalUsers.length };
   } catch (err) {
     console.warn("fetchLiveAdminUsers error:", err);
-    const cleanLocal = loadAllAdminUsers().filter(u => !isDummyUser(u));
+    const cleanLocal = loadAllAdminUsers();
     return { users: cleanLocal, isLiveFromDb: false, count: cleanLocal.length };
   }
 }
 
 /**
- * Persists an admin user modification to Supabase user_profiles
+ * Persists an admin user modification to Supabase user_profiles and staff_members
  */
 export async function updateAdminUserInDb(u: AdminUser): Promise<boolean> {
   try {
@@ -161,6 +212,17 @@ export async function updateAdminUserInDb(u: AdminUser): Promise<boolean> {
         role: u.role || "owner",
       })
       .eq("id", u.id);
+
+    if (u.role && u.role !== "owner") {
+      await supabase
+        .from("staff_members")
+        .update({
+          name: u.name,
+          role: u.role,
+          status: u.accountStatus === "Suspended" ? "Inactive" : "Active",
+        })
+        .or(`id.eq.${u.id},email.eq.${u.email}`);
+    }
     return !error;
   } catch {
     return false;
@@ -168,11 +230,12 @@ export async function updateAdminUserInDb(u: AdminUser): Promise<boolean> {
 }
 
 /**
- * Deletes a user profile from Supabase user_profiles
+ * Deletes a user profile from Supabase user_profiles and staff_members
  */
 export async function deleteAdminUserInDb(id: string): Promise<boolean> {
   try {
     const { error } = await supabase.from("user_profiles").delete().eq("id", id);
+    await supabase.from("staff_members").delete().eq("id", id);
     return !error;
   } catch {
     return false;

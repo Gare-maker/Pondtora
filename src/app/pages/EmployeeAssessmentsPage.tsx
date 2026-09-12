@@ -836,12 +836,12 @@ export default function EmployeeAssessmentsPage({
   const cSlice=filteredC.slice((cPage-1)*PER_PAGE,cPage*PER_PAGE);
 
   return(
-    <div className="p-4 sm:p-6 space-y-6">
+    <div className="p-4 sm:p-6 space-y-6 w-full">
       {/* Header */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+      <div className="sticky top-0 z-10 bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
         <div>
           <h1 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Staff Assessments</h1>
-          <p className="text-xs text-slate-400 mt-1">Manage assessment questions, distribute links, and review candidate results.</p>
+          <p className="text-xs text-slate-400 mt-0.5">Manage assessment questions, distribute links, and review candidate results.</p>
         </div>
         <div className="flex flex-wrap gap-2 shrink-0">
           {/* Test Questions dropdown */}

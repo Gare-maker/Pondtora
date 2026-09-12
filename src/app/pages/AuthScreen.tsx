@@ -22,31 +22,31 @@ function AuthLeftPanel() {
     "Generate reports and analytics",
   ];
   return (
-    <div className="hidden lg:flex flex-col justify-between h-full p-10 bg-gradient-to-br from-green-700 via-green-600 to-green-500 text-white relative overflow-hidden">
+    <div className="hidden lg:flex flex-col justify-between h-full p-10 bg-slate-900 border-r border-slate-800 text-white relative overflow-hidden">
       <div className="absolute inset-0 opacity-10 pointer-events-none" style={{ backgroundImage: "radial-gradient(circle at 20% 80%, white 1px, transparent 1px),radial-gradient(circle at 80% 20%, white 1px, transparent 1px)", backgroundSize: "40px 40px" }} />
-      <div className="absolute bottom-0 right-0 w-64 h-64 bg-white/5 rounded-full -translate-x-16 translate-y-16 pointer-events-none" />
+      <div className="absolute bottom-0 right-0 w-64 h-64 bg-emerald-500/5 rounded-full -translate-x-16 translate-y-16 pointer-events-none" />
       <div className="flex items-center gap-3 relative z-10">
         <img src={pondtoraLogo} alt="Pondtora" className="h-9 w-auto rounded-lg object-contain bg-white p-1 shadow-sm" />
         <div>
           <p className="text-xl font-extrabold font-['Barlow_Condensed',sans-serif] leading-none">Pondtora</p>
-          <p className="text-[10px] text-green-200 uppercase tracking-widest mt-0.5">Farm Management System</p>
+          <p className="text-[10px] text-emerald-400 uppercase tracking-widest mt-0.5 font-medium">Fish Farm Management</p>
         </div>
       </div>
       <div className="relative z-10 flex-1 flex flex-col justify-center py-10">
-        <h2 className="text-3xl font-extrabold font-['Barlow_Condensed',sans-serif] leading-tight mb-8">
+        <h2 className="text-3xl font-extrabold font-['Barlow_Condensed',sans-serif] leading-tight mb-8 text-white">
           Management System for Fish Farmers
         </h2>
         <ul className="space-y-4">
           {features.map(f => (
             <li key={f} className="flex items-start gap-3">
-              <span className="w-1.5 h-1.5 rounded-full bg-green-300 shrink-0 mt-1.5" />
-              <span className="text-sm text-green-50 leading-relaxed">{f}</span>
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0 mt-1.5" />
+              <span className="text-sm text-slate-200 leading-relaxed">{f}</span>
             </li>
           ))}
         </ul>
       </div>
-      <div className="relative z-10 border-t border-white/20 pt-6">
-        <p className="text-xs text-green-200 font-semibold">© 2026 Pondtora · All rights reserved</p>
+      <div className="relative z-10 border-t border-slate-800 pt-6">
+        <p className="text-xs text-slate-400 font-semibold">© 2026 Pondtora · All rights reserved</p>
       </div>
     </div>
   );

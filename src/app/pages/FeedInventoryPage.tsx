@@ -183,8 +183,27 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
   const filteredDailyRows = dailyGroupedRows.filter(r => {
     if (fDailyStock !== "All" && r.fishStock !== fDailyStock) return false;
     if (fDailyBrand !== "All" && r.brand !== fDailyBrand) return false;
+  const fmtFishStock = (stock: string) => {
+    if (!stock || stock === "—" || stock === "General Stock") return stock || "General Stock";
+    const match = stock.match(/^(.*?)\s*\((.*?)\)$/);
+    if (match) {
+      const species = match[1].trim();
+      const rawDate = match[2].trim();
+      const formatted = fmtStockingDate(rawDate);
+      return `${species} (${formatted !== "—" ? formatted : rawDate})`;
+    }
+    const formatted = fmtStockingDate(stock);
+    if (formatted !== "—" && formatted !== stock && !formatted.includes("NaN")) {
+      return formatted;
+    }
+    return stock;
+  };
+
+  const filteredDailyRows = dailyGroupedRows.filter(r => {
+    if (fDailyStock !== "All" && r.fishStock !== fDailyStock) return false;
+    if (fDailyBrand !== "All" && r.brand !== fDailyBrand) return false;
     if (fDailySize !== "All" && r.size !== fDailySize) return false;
-    if (dailySearch && !r.fishStock.toLowerCase().includes(dailySearch.toLowerCase()) && !r.brand.toLowerCase().includes(dailySearch.toLowerCase())) return false;
+    if (dailySearch && !r.fishStock.toLowerCase().includes(dailySearch.toLowerCase()) && !fmtFishStock(r.fishStock).toLowerCase().includes(dailySearch.toLowerCase()) && !r.brand.toLowerCase().includes(dailySearch.toLowerCase())) return false;
     return true;
   });
 
@@ -194,11 +213,14 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
   const dayTotalStocksCount = new Set(filteredDailyRows.map(r => r.fishStock)).size;
 
   return(
-    <div className="p-4 sm:p-6 space-y-5 max-w-[1100px]">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div><h1 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Feed Stock</h1><p className="text-xs text-slate-400 mt-1 mb-2 sm:mb-0">Manage purchased feed stock, track daily bags opened, and view usage.</p></div>
+    <div className="p-4 sm:p-6 space-y-5 w-full">
+      <div className="sticky top-0 z-10 bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Feed Stock</h1>
+          <p className="text-xs text-slate-400 mt-0.5">Manage purchased feed stock, track daily bags opened, and view usage.</p>
+        </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <button onClick={()=>{setShowCalc(true);setCalcStep("input");setShowCustomize(false);}} className="px-3 py-1.5 text-xs font-semibold text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 hover:border-slate-300 transition-colors flex items-center gap-1.5"><Layers size={12}/> Feed Requirement Calculator</button>
+          <button onClick={()=>{setShowCalc(true);setCalcStep("input");setShowCustomize(false);}} className="px-3 py-1.5 text-xs font-semibold text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 hover:border-slate-300 transition-colors flex items-center gap-1.5 bg-white"><Layers size={12}/> Feed Requirement Calculator</button>
           <PBtn onClick={()=>setShowBuy(true)} sm><Plus size={13}/> Add Purchased Feed</PBtn>
         </div>
       </div>
@@ -322,14 +344,14 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
               )}
             </div>
             <div className="flex items-center gap-2 flex-wrap">
-              <button onClick={()=>downloadCSV(`daily-feed-bags-${dailyDate}.csv`,["#","Fish Stock","Brand","Pellet Size","Bags Opened","Kg/Bag","Total Kg Opened","Remaining Kg in Bag"],dailyGroupedRows.map((r,i)=>[i+1,r.fishStock,r.brand,r.size,r.bagsOpened,r.kgPerBag,r.totalKgOpened,r.remainingKg]))} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 text-xs font-semibold hover:border-green-400 hover:text-green-600 transition-colors"><Download size={12}/> CSV</button>
-              <button onClick={()=>openPrintWindow(`Daily Feed Bags Report — ${dailyDate}`,["#","Fish Stock","Brand","Pellet Size","Bags Opened","Kg/Bag","Total Kg Opened","Remaining Kg in Bag"],dailyGroupedRows.map((r,i)=>[i+1,r.fishStock,r.brand,r.size,`${r.bagsOpened} bag${r.bagsOpened!==1?"s":""}`,`${r.kgPerBag}kg`,`${r.totalKgOpened}kg`,`${r.remainingKg}kg`]),`Daily Feed Bags Opened & Remaining Log for ${dailyDate}`)} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 text-xs font-semibold hover:border-green-400 hover:text-green-600 transition-colors"><FileText size={12}/> Print</button>
+              <button onClick={()=>downloadCSV(`daily-feed-bags-${dailyDate}.csv`,["#","Fish Stock","Brand","Pellet Size","Bags Opened","Kg/Bag","Total Kg Opened","Remaining Kg in Bag"],dailyGroupedRows.map((r,i)=>[i+1,fmtFishStock(r.fishStock),r.brand,r.size,r.bagsOpened,r.kgPerBag,r.totalKgOpened,r.remainingKg]))} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 text-xs font-semibold hover:border-green-400 hover:text-green-600 transition-colors"><Download size={12}/> CSV</button>
+              <button onClick={()=>openPrintWindow(`Daily Feed Bags Report — ${fmtStockingDate(dailyDate)}`,["#","Fish Stock","Brand","Pellet Size","Bags Opened","Kg/Bag","Total Kg Opened","Remaining Kg in Bag"],dailyGroupedRows.map((r,i)=>[i+1,fmtFishStock(r.fishStock),r.brand,r.size,`${r.bagsOpened} bag${r.bagsOpened!==1?"s":""}`,`${r.kgPerBag}kg`,`${r.totalKgOpened}kg`,`${r.remainingKg}kg`]),`Daily Feed Bags Opened & Remaining Log for ${fmtStockingDate(dailyDate)}`)} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 text-xs font-semibold hover:border-green-400 hover:text-green-600 transition-colors"><FileText size={12}/> Print</button>
             </div>
           </div>
 
           {/* KPI Stat Cards for that Day */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <StatCard label="Bags Opened" value={`${dayTotalBags} bag${dayTotalBags!==1?"s":""}`} sub={`On ${dailyDate}`} icon={Package} hi/>
+            <StatCard label="Bags Opened" value={`${dayTotalBags} bag${dayTotalBags!==1?"s":""}`} sub={`On ${fmtStockingDate(dailyDate)}`} icon={Package} hi/>
             <StatCard label="Total Feed Opened" value={`${dayTotalKgOpened}kg`} sub="Opened feed weight" icon={Layers}/>
             <StatCard label="Remaining In Opened Bags" value={`${dayTotalRemainingKg}kg`} sub="Across active stocks" icon={CheckCircle}/>
             <StatCard label="Fish Stocks Fed" value={String(dayTotalStocksCount)} sub="Stocks active on date" icon={Fish}/>
@@ -345,7 +367,7 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
               <span className="text-xs text-slate-400">Stock:</span>
               <select value={fDailyStock} onChange={e=>{setFDailyStock(e.target.value);setDailyPage(1);}} className={`${SC} py-1.5 text-xs w-auto`}>
                 <option value="All">All Stocks</option>
-                {allDailyStocks.map(s=><option key={s} value={s}>{s}</option>)}
+                {allDailyStocks.map(s=><option key={s} value={s}>{fmtFishStock(s)}</option>)}
               </select>
             </div>
             <div className="flex items-center gap-1.5">
@@ -369,7 +391,7 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
             <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between">
               <div>
                 <p className="text-xs font-bold uppercase tracking-wider text-slate-700">Feed Bags Opened & Remaining Log</p>
-                <p className="text-xs text-slate-400 mt-0.5">Feed bags opened for each fish stock, brand, pellet size, and the remaining kg on {dailyDate}.</p>
+                <p className="text-xs text-slate-400 mt-0.5">Feed bags opened for each fish stock, brand, pellet size, and the remaining kg on {fmtStockingDate(dailyDate)}.</p>
               </div>
               <span className="text-xs text-slate-400">{filteredDailyRows.length} record{filteredDailyRows.length!==1?"s":""}</span>
             </div>
@@ -389,7 +411,7 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
                 </thead>
                 <tbody className="divide-y divide-slate-50">
                   {filteredDailyRows.length===0?(
-                    <tr><td colSpan={8} className="text-center text-xs text-slate-400 py-10">No feed bags opened or recorded for {dailyDate}. Select another date or open bags from Feeding Records.</td></tr>
+                    <tr><td colSpan={8} className="text-center text-xs text-slate-400 py-10">No feed bags opened or recorded for {fmtStockingDate(dailyDate)}. Select another date or open bags from Feeding Records.</td></tr>
                   ):filteredDailyRows.slice((dailyPage-1)*PER_PAGE, dailyPage*PER_PAGE).map((r,i)=>(
                     <tr key={`${r.fishStock}__${r.brand}__${r.size}__${i}`} className="hover:bg-slate-50 transition-colors">
                       <td className="px-4 py-3.5 text-slate-300 text-xs font-mono sticky left-0 z-10 bg-white">{(dailyPage-1)*PER_PAGE+i+1}</td>
@@ -397,7 +419,7 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
                         <div className="flex items-center gap-2">
                           <span className="w-2 h-2 rounded-full bg-green-500 shrink-0"/>
                           <div>
-                            <p className="font-bold text-slate-900 text-sm">{r.fishStock}</p>
+                            <p className="font-bold text-slate-900 text-sm">{fmtFishStock(r.fishStock)}</p>
                             <p className="text-[10px] text-slate-400">Tied Stock</p>
                           </div>
                         </div>
@@ -434,14 +456,14 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
           <div className="md:hidden space-y-2.5">
             {filteredDailyRows.length===0?(
               <div className="bg-white border border-slate-200 rounded-xl p-6 text-center text-xs text-slate-400">
-                No feed bags opened or recorded for {dailyDate}.
+                No feed bags opened or recorded for {fmtStockingDate(dailyDate)}.
               </div>
             ):filteredDailyRows.map((r,i)=>(
               <div key={i} className="bg-white border border-slate-200 rounded-xl p-4 space-y-2.5 shadow-xs">
                 <div className="flex items-start justify-between gap-2">
                   <div>
                     <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Fish Stock</span>
-                    <p className="text-sm font-bold text-slate-900">{r.fishStock}</p>
+                    <p className="text-sm font-bold text-slate-900">{fmtFishStock(r.fishStock)}</p>
                   </div>
                   <Bdg label={r.size} color="blue"/>
                 </div>

@@ -337,7 +337,7 @@ export const auth = {
     try {
       const keys = Object.keys(localStorage);
       for (const k of keys) {
-        if (k.startsWith("pondtora_")) {
+        if (k.startsWith("pondtora_") && !k.startsWith("pondtora_admin_") && !k.startsWith("pondtora_custom_plans")) {
           localStorage.removeItem(k);
         }
       }

@@ -109,42 +109,44 @@ function PondDetail({pond,mortality,onAddMortality,onAddCost,feedingRecords,onBa
     setRestockF({species:"Catfish",initialStock:"",stockingDate:"",supplier:""});
   };
   return(
-    <div className="p-4 sm:p-6 space-y-4 max-w-[1100px]">
-      <div className="flex items-center gap-2 text-sm"><button onClick={onBack} className="text-green-600 hover:underline font-medium">← Ponds</button><span className="text-slate-300">/</span><span className="text-slate-700 font-semibold">{pond.name}</span></div>
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0 flex-1"><h1 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">{pond.name} — Operational Detail</h1><p className="text-xs text-slate-400">{pond.type} · {pond.species} · Stocked {fmtStockingDate(pond.stockingDate)}</p><div className="mt-1 flex items-center gap-1.5 flex-wrap"><Bdg label={pond.category||"Production"} color={pond.category==="Nursery"?"purple":"teal"}/><Bdg label={pond.status==="Active"?"Active":"Inactive"} color={pond.status==="Active"?"green":"gray"}/></div></div>
-        <div className="flex items-center gap-2 shrink-0">
-          {/* Mobile: only three-dot menu */}
-          <div className="lg:hidden relative" ref={pondMenuRef}>
-            <button onClick={()=>setShowPondMenu(p=>!p)} className="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 hover:border-green-400 hover:text-green-600 transition-colors"><MoreVertical size={17}/></button>
-            {showPondMenu&&(
-              <div className="absolute right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl z-50 overflow-hidden min-w-[180px]">
-                <button onClick={()=>{onEditThisPond?.(pond);setShowPondMenu(false);}} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-2"><Pencil size={13}/> Edit Pond</button>
-                {pond.status==="Active"&&<>
-                  <button onClick={()=>{setShowMort(true);setShowPondMenu(false);}} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-2"><Plus size={13}/> Log Mortality</button>
-                  <button onClick={()=>{setShowTreat(true);setShowPondMenu(false);}} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-2"><Plus size={13}/> Log Treatment</button>
-                  <button onClick={()=>{setShowUpdateQty(true);setShowPondMenu(false);}} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-2"><Plus size={13}/> Update Quantity</button>
-                  <button onClick={()=>{pond.category==="Nursery"?setShowNurseryTransfer(true):setShowTransfer(true);setShowPondMenu(false);}} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-2"><ArrowRightLeft size={13}/> Transfer Fish Stock</button>
-                  {pond.category!=="Nursery"&&<button onClick={()=>{setShowMaxKg(true);setShowPondMenu(false);}} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-2"><Layers size={13}/> Set Max kg per Pallet</button>}
-                  <button onClick={()=>{setShowClose(true);setShowPondMenu(false);}} className="w-full text-left px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"><X size={13}/> Clear Fish Stock</button>
-                </>}
-                {pond.status==="Empty"&&<button onClick={()=>{setShowRestock(true);setShowPondMenu(false);}} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-2"><Plus size={13}/> Add Fish Stock</button>}
-              </div>
-            )}
-          </div>
-          {/* Desktop: full button row */}
-          <div className="hidden lg:flex flex-wrap gap-2 items-center">
-            <PBtn sm outline onClick={()=>onEditThisPond?.(pond)}><Pencil size={12}/> Edit Pond</PBtn>
-            {pond.status==="Active"&&<>
-              <PBtn sm onClick={()=>setShowMort(true)}><Plus size={12}/> Log Mortality</PBtn>
-              <PBtn sm onClick={()=>setShowTreat(true)}><Plus size={12}/> Log Treatment</PBtn>
-              <PBtn sm outline onClick={()=>setShowUpdateQty(true)}>Update Qty</PBtn>
-              <PBtn sm outline onClick={()=>pond.category==="Nursery"?setShowNurseryTransfer(true):setShowTransfer(true)}><ArrowRightLeft size={12}/> Transfer Fish Stock</PBtn>
-              {pond.category!=="Nursery"&&<PBtn sm outline onClick={()=>setShowMaxKg(true)}>Max kg / Pallet</PBtn>}
-              <PBtn sm danger onClick={()=>setShowClose(true)}>Clear Fish Stock</PBtn>
-            </>}
-            {pond.status==="Empty"&&<PBtn sm onClick={()=>setShowRestock(true)}><Plus size={12}/> Add Fish Stock</PBtn>}
-            <Bdg label={pond.status==="Active"?"Active":"Inactive"} color={pond.status==="Active"?"green":"gray"}/>
+    <div className="p-4 sm:p-6 space-y-4 w-full">
+      <div className="sticky top-0 z-10 bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 space-y-2">
+        <div className="flex items-center gap-2 text-sm"><button onClick={onBack} className="text-green-600 hover:underline font-medium">← Ponds</button><span className="text-slate-300">/</span><span className="text-slate-700 font-semibold">{pond.name}</span></div>
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0 flex-1"><h1 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">{pond.name} — Operational Detail</h1><p className="text-xs text-slate-400">{pond.type} · {pond.species} · Stocked {fmtStockingDate(pond.stockingDate)}</p><div className="mt-1 flex items-center gap-1.5 flex-wrap"><Bdg label={pond.category||"Production"} color={pond.category==="Nursery"?"purple":"teal"}/><Bdg label={pond.status==="Active"?"Active":"Inactive"} color={pond.status==="Active"?"green":"gray"}/></div></div>
+          <div className="flex items-center gap-2 shrink-0">
+            {/* Mobile: only three-dot menu */}
+            <div className="lg:hidden relative" ref={pondMenuRef}>
+              <button onClick={()=>setShowPondMenu(p=>!p)} className="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 hover:border-green-400 hover:text-green-600 transition-colors"><MoreVertical size={17}/></button>
+              {showPondMenu&&(
+                <div className="absolute right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl z-50 overflow-hidden min-w-[180px]">
+                  <button onClick={()=>{onEditThisPond?.(pond);setShowPondMenu(false);}} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-2"><Pencil size={13}/> Edit Pond</button>
+                  {pond.status==="Active"&&<>
+                    <button onClick={()=>{setShowMort(true);setShowPondMenu(false);}} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-2"><Plus size={13}/> Log Mortality</button>
+                    <button onClick={()=>{setShowTreat(true);setShowPondMenu(false);}} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-2"><Plus size={13}/> Log Treatment</button>
+                    <button onClick={()=>{setShowUpdateQty(true);setShowPondMenu(false);}} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-2"><Plus size={13}/> Update Quantity</button>
+                    <button onClick={()=>{pond.category==="Nursery"?setShowNurseryTransfer(true):setShowTransfer(true);setShowPondMenu(false);}} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-2"><ArrowRightLeft size={13}/> Transfer Fish Stock</button>
+                    {pond.category!=="Nursery"&&<button onClick={()=>{setShowMaxKg(true);setShowPondMenu(false);}} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-2"><Layers size={13}/> Set Max kg per Pallet</button>}
+                    <button onClick={()=>{setShowClose(true);setShowPondMenu(false);}} className="w-full text-left px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"><X size={13}/> Clear Fish Stock</button>
+                  </>}
+                  {pond.status==="Empty"&&<button onClick={()=>{setShowRestock(true);setShowPondMenu(false);}} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-2"><Plus size={13}/> Add Fish Stock</button>}
+                </div>
+              )}
+            </div>
+            {/* Desktop: full button row */}
+            <div className="hidden lg:flex flex-wrap gap-2 items-center">
+              <PBtn sm outline onClick={()=>onEditThisPond?.(pond)}><Pencil size={12}/> Edit Pond</PBtn>
+              {pond.status==="Active"&&<>
+                <PBtn sm onClick={()=>setShowMort(true)}><Plus size={12}/> Log Mortality</PBtn>
+                <PBtn sm onClick={()=>setShowTreat(true)}><Plus size={12}/> Log Treatment</PBtn>
+                <PBtn sm outline onClick={()=>setShowUpdateQty(true)}>Update Qty</PBtn>
+                <PBtn sm outline onClick={()=>pond.category==="Nursery"?setShowNurseryTransfer(true):setShowTransfer(true)}><ArrowRightLeft size={12}/> Transfer Fish Stock</PBtn>
+                {pond.category!=="Nursery"&&<PBtn sm outline onClick={()=>setShowMaxKg(true)}>Max kg / Pallet</PBtn>}
+                <PBtn sm danger onClick={()=>setShowClose(true)}>Clear Fish Stock</PBtn>
+              </>}
+              {pond.status==="Empty"&&<PBtn sm onClick={()=>setShowRestock(true)}><Plus size={12}/> Add Fish Stock</PBtn>}
+              <Bdg label={pond.status==="Active"?"Active":"Inactive"} color={pond.status==="Active"?"green":"gray"}/>
+            </div>
           </div>
         </div>
       </div>
@@ -675,10 +677,13 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
   );
 
   return(
-    <div className="p-4 sm:p-6 space-y-5 max-w-[1100px]">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div><h1 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Pond Management</h1><p className="text-xs text-slate-400 mt-1 mb-2 sm:mb-0">View and manage all ponds — stock details, feeding history, and operational costs.</p></div>
-        <div className="flex gap-2">
+    <div className="p-4 sm:p-6 space-y-5 w-full">
+      <div className="sticky top-0 z-10 bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Pond Management</h1>
+          <p className="text-xs text-slate-400 mt-0.5">View and manage all ponds — stock details, feeding history, and operational costs.</p>
+        </div>
+        <div className="flex gap-2 flex-wrap">
           <PBtn onClick={()=>setShowStockHist(true)} sm outline><History size={13}/> Fish Stock History</PBtn>
           <PBtn onClick={()=>{setAddF({name:"",lengthFt:"",widthFt:"",type:"Earthen",notes:"",category:"Production"});setAddErr({});setShowAdd(true);}} sm><Plus size={13}/> Add Pond</PBtn>
         </div>

@@ -307,10 +307,10 @@ export default function AdminApp({ onExit }: { onExit?: () => void } = {}) {
   const [isLiveDb, setIsLiveDb] = useState(false);
   const [lastSynced, setLastSynced] = useState<Date | null>(null);
 
-  // Persistent Admin State (Live Supabase users only, no dummy mock accounts)
+  // Persistent Admin State (Live Supabase users and managed accounts)
   const [users, setUsers] = useState<AdminUser[]>(() => {
     const loaded = loadLocal("pondtora_admin_users", []);
-    return loaded.filter(u => !isDummyUser(u));
+    return loaded.length > 0 ? loaded : DUMMY_USERS;
   });
   const [plans, setPlans] = useState<AdminPlan[]>(() => {
     const loaded = loadLocal("pondtora_admin_plans", []);
@@ -330,7 +330,7 @@ export default function AdminApp({ onExit }: { onExit?: () => void } = {}) {
       setLastSynced(new Date());
       if (showToast) {
         if (res.isLiveFromDb) {
-          toast.success(`Synced ${res.users.length} live user account${res.users.length === 1 ? "" : "s"} from Supabase`);
+          toast.success(`Synced ${res.users.length} user account${res.users.length === 1 ? "" : "s"} from database`);
         } else {
           toast.info(`Database returned ${res.count} account${res.count === 1 ? "" : "s"}`);
         }
@@ -354,8 +354,11 @@ export default function AdminApp({ onExit }: { onExit?: () => void } = {}) {
   // Listen for live cross-window or inter-component user and plan updates
   useEffect(() => {
     const onUsersUpdate = (e: any) => {
-      if (e.detail) setUsers(e.detail.filter((u: AdminUser) => !isDummyUser(u)));
-      else setUsers(loadLocal("pondtora_admin_users", []).filter((u: AdminUser) => !isDummyUser(u)));
+      if (e.detail && Array.isArray(e.detail) && e.detail.length > 0) setUsers(e.detail);
+      else {
+        const loaded = loadLocal("pondtora_admin_users", []);
+        setUsers(loaded.length > 0 ? loaded : DUMMY_USERS);
+      }
     };
     const onLogsUpdate = (e: any) => {
       if (e.detail) setLogs(e.detail);
@@ -552,7 +555,7 @@ export default function AdminApp({ onExit }: { onExit?: () => void } = {}) {
                 }}
                 className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all text-left ${
                   active
-                    ? "bg-gradient-to-r from-green-600 to-emerald-600 text-white shadow-md shadow-green-600/20"
+                    ? "bg-[#00BB58] text-white shadow-md shadow-[#00BB58]/20"
                     : "text-slate-400 hover:text-white hover:bg-slate-800/60"
                 }`}
               >

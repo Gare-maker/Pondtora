@@ -543,31 +543,31 @@ function FeedDocumentation({
   const TS="w-full px-2 py-1.5 text-sm border border-slate-200 rounded-lg bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-green-300";
 
   return(
-    <div className="p-4 sm:p-6 space-y-5 max-w-[1300px]">
+    <div className="p-4 sm:p-6 space-y-5 w-full">
       {/* ── Header ── */}
-      <div className="space-y-4">
-        <div className="flex flex-col gap-4">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0 flex-1">
-              <h1 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Feeding Records</h1>
-              <p className="text-xs text-slate-400 mt-1">Record and review daily feeding sessions across all active ponds.</p>
-            </div>
-            <div className="shrinking-0 relative" ref={feedMobileMenuRef}>
-              <button onClick={()=>setFeedMobileMenuOpen(p=>!p)} className="flex items-center gap-1.5 p-2 rounded-lg border border-slate-200 bg-white text-slate-600 hover:border-green-400 hover:text-green-600 transition-colors"><MoreVertical size={15}/></button>
-              {feedMobileMenuOpen&&(
-                <div className="absolute right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl z-50 overflow-hidden min-w-[150px]">
-                  <button onClick={()=>{downloadDayCSV();setFeedMobileMenuOpen(false);}} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-2"><Download size={13}/> Export CSV</button>
-                  <button onClick={()=>{downloadDayPDF();setFeedMobileMenuOpen(false);}} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-2"><FileText size={13}/> Export PDF</button>
-                </div>
-              )}
-            </div>
+      <div className="sticky top-0 z-10 bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <h1 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Feeding Records</h1>
+            <p className="text-xs text-slate-400 mt-0.5">Record and review daily feeding sessions across all active ponds.</p>
           </div>
+          <div className="shrinking-0 relative" ref={feedMobileMenuRef}>
+            <button onClick={()=>setFeedMobileMenuOpen(p=>!p)} className="flex items-center gap-1.5 p-2 rounded-lg border border-slate-200 bg-white text-slate-600 hover:border-green-400 hover:text-green-600 transition-colors"><MoreVertical size={15}/></button>
+            {feedMobileMenuOpen&&(
+              <div className="absolute right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl z-50 overflow-hidden min-w-[150px]">
+                <button onClick={()=>{downloadDayCSV();setFeedMobileMenuOpen(false);}} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-2"><Download size={13}/> Export CSV</button>
+                <button onClick={()=>{downloadDayPDF();setFeedMobileMenuOpen(false);}} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-2"><FileText size={13}/> Export PDF</button>
+              </div>
+            )}
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-2">
           {/* Date selector */}
           <div className="relative">
-            <button onClick={()=>setShowCal(p=>!p)} className="flex items-center gap-2.5 px-4 py-2.5 bg-white border border-slate-200 rounded-xl shadow-sm hover:border-green-400 hover:shadow-md transition-all text-sm font-semibold text-slate-700">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-green-500"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
-              <span className="font-['Barlow_Condensed',sans-serif] text-base tracking-tight">{selDate}</span>
-              <ChevronDown size={14} className={`text-slate-400 transition-transform ${showCal?"rotate-180":""}`}/>
+            <button onClick={()=>setShowCal(p=>!p)} className="flex items-center gap-2.5 px-3 py-1.5 bg-white border border-slate-200 rounded-xl shadow-xs hover:border-green-400 hover:shadow-sm transition-all text-xs font-semibold text-slate-700">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-green-500"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+              <span className="font-['Barlow_Condensed',sans-serif] text-sm tracking-tight">{selDate}</span>
+              <ChevronDown size={13} className={`text-slate-400 transition-transform ${showCal?"rotate-180":""}`}/>
             </button>
             {showCal&&(<>
               <div className="fixed inset-0 z-20" onClick={()=>setShowCal(false)}/>

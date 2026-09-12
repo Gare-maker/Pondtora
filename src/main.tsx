@@ -51,7 +51,7 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   handleResetAndReload = () => {
     try {
       Object.keys(localStorage).forEach((key) => {
-        if (key.startsWith("pondtora_")) {
+        if (key.startsWith("pondtora_") && !key.startsWith("pondtora_admin_") && !key.startsWith("pondtora_custom_plans")) {
           localStorage.removeItem(key);
         }
       });
