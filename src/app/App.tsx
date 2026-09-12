@@ -70,12 +70,14 @@ function Sidebar({active,onNav,collapsed,onToggle,farms,activeFarmId,onSwitchFar
     document.addEventListener("mousedown",h);return()=>document.removeEventListener("mousedown",h);
   },[]);
   return(
-    <div className="flex flex-col border-r border-slate-200 bg-white w-full h-full">
-      <div className={`h-14 flex items-center gap-2.5 border-b border-slate-100 shrink-0 ${collapsed?"justify-center px-2":"px-4"}`}>
-        <img src={pondtoraLogo} alt="Pondtora" className="h-10 w-auto rounded-lg shrink-0" style={{objectFit:"contain",imageRendering:"auto"}}/>
-        {!collapsed&&<div className="min-w-0 flex-1"><p className="text-sm font-bold text-slate-900 leading-none font-['Barlow_Condensed',sans-serif]">Pondtora</p><p className="text-[10px] text-slate-400 mt-0.5">v1.0</p></div>}
+    <div className="flex flex-col border-r border-slate-800 bg-slate-900 text-slate-200 w-full h-full font-['Barlow',sans-serif]">
+      <div className={`h-16 flex items-center gap-3 border-b border-slate-800/80 bg-slate-950/50 shrink-0 ${collapsed?"justify-center px-2":"px-4"}`}>
+        <div className="bg-white rounded-xl p-1 shadow-sm shrink-0 flex items-center justify-center">
+          <img src={pondtoraLogo} alt="Pondtora" className="h-8 w-auto object-contain rounded" style={{objectFit:"contain",imageRendering:"auto"}}/>
+        </div>
+        {!collapsed&&<div className="min-w-0 flex-1"><p className="text-base font-bold text-white leading-none font-['Barlow_Condensed',sans-serif]">Pondtora</p><p className="text-[10px] text-emerald-400 uppercase tracking-widest font-semibold mt-0.5">Aquaculture Suite</p></div>}
         {onNotifications&&(
-          <button onClick={onNotifications} title="Notifications" className="relative p-1.5 rounded-lg text-slate-400 hover:text-green-600 hover:bg-slate-50 transition-colors shrink-0">
+          <button onClick={onNotifications} title="Notifications" className="relative p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors shrink-0">
             <Bell size={16}/>
             {(unreadCount??0)>0&&<span className="absolute top-0.5 right-0.5 w-2 h-2 rounded-full bg-red-500"/>}
           </button>
@@ -83,29 +85,29 @@ function Sidebar({active,onNav,collapsed,onToggle,farms,activeFarmId,onSwitchFar
       </div>
       {/* Farm Switcher */}
       {!collapsed&&(
-        <div ref={farmDropRef} className="px-3 py-2.5 border-b border-slate-100 relative">
-          <button onClick={()=>setFarmOpen(p=>!p)} className="w-full flex items-center gap-2 bg-slate-50 hover:bg-slate-100 rounded-lg px-3 py-2 transition-colors">
+        <div ref={farmDropRef} className="px-3 py-2.5 border-b border-slate-800/80 relative">
+          <button onClick={()=>setFarmOpen(p=>!p)} className="w-full flex items-center gap-2 bg-slate-800/70 hover:bg-slate-800 border border-slate-700/60 rounded-xl px-3 py-2 transition-colors">
             <div className="flex-1 min-w-0 text-left">
-              <p className="text-xs font-bold text-slate-800 truncate leading-tight">{activeFarm?.name||"Select Farm"}</p>
+              <p className="text-xs font-bold text-white truncate leading-tight">{activeFarm?.name||"Select Farm"}</p>
               <p className="text-[10px] text-slate-400 truncate">{activeFarm?.city}, {activeFarm?.state}</p>
             </div>
             <ChevronDown size={12} className={`text-slate-400 transition-transform shrink-0 ${farmOpen?"rotate-180":""}`}/>
           </button>
           {farmOpen&&(
-            <div className="absolute left-3 right-3 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg z-50 overflow-hidden">
+            <div className="absolute left-3 right-3 top-full mt-1 bg-slate-900 border border-slate-700/90 rounded-xl shadow-2xl z-50 overflow-hidden">
               {farms.map(f=>(
                 <button key={f.id} onClick={()=>{onSwitchFarm(f.id);setFarmOpen(false);}}
-                  className={`w-full flex items-center gap-2 px-3 py-2.5 text-left transition-colors hover:bg-slate-50 ${f.id===activeFarmId?"bg-green-50":""}`}>
-                  <div className={`w-1.5 h-1.5 rounded-full ${f.id===activeFarmId?"bg-green-500":"bg-slate-200"} shrink-0`}/>
+                  className={`w-full flex items-center gap-2 px-3 py-2.5 text-left transition-colors hover:bg-slate-800/80 ${f.id===activeFarmId?"bg-emerald-500/10 text-white":""}`}>
+                  <div className={`w-1.5 h-1.5 rounded-full ${f.id===activeFarmId?"bg-emerald-400":"bg-slate-600"} shrink-0`}/>
                   <div className="min-w-0">
-                    <p className="text-xs font-semibold text-slate-800 truncate">{f.name}</p>
+                    <p className={`text-xs font-semibold truncate ${f.id===activeFarmId?"text-emerald-300":"text-slate-200"}`}>{f.name}</p>
                     <p className="text-[10px] text-slate-400">{f.city}, {f.state}</p>
                   </div>
-                  {f.id===activeFarmId&&<CheckCircle size={12} className="text-green-500 shrink-0 ml-auto"/>}
+                  {f.id===activeFarmId&&<CheckCircle size={12} className="text-emerald-400 shrink-0 ml-auto"/>}
                 </button>
               ))}
-              {isOwner&&<div className="border-t border-slate-100">
-                <button onClick={()=>{onAddFarm();setFarmOpen(false);}} className="w-full flex items-center gap-2 px-3 py-2.5 text-xs text-green-600 font-semibold hover:bg-green-50 transition-colors">
+              {isOwner&&<div className="border-t border-slate-800">
+                <button onClick={()=>{onAddFarm();setFarmOpen(false);}} className="w-full flex items-center gap-2 px-3 py-2.5 text-xs text-emerald-400 font-semibold hover:bg-slate-800 transition-colors">
                   <Plus size={12}/> Add New Farm
                 </button>
               </div>}
@@ -113,7 +115,7 @@ function Sidebar({active,onNav,collapsed,onToggle,farms,activeFarmId,onSwitchFar
           )}
         </div>
       )}
-      <nav className="flex-1 py-3 px-2 overflow-y-auto">
+      <nav className="flex-1 py-3 px-2 overflow-y-auto space-y-0.5">
         {NAV.filter(({id})=>{
           if(id==="staff"||id==="pricing"||id==="settings")return isOwner===true;
           const perm=NAV_PERM[id];
@@ -124,10 +126,10 @@ function Sidebar({active,onNav,collapsed,onToggle,farms,activeFarmId,onSwitchFar
           const showDivider=id==="pricing";
           return(
             <React.Fragment key={id}>
-              {showDivider&&<div className={`${collapsed?"mx-1":"mx-2"} my-2 border-t border-slate-200`}/>}
+              {showDivider&&<div className={`${collapsed?"mx-1":"mx-2"} my-2 border-t border-slate-800`}/>}
               <button onClick={()=>onNav(id)} title={collapsed?label:undefined}
-                className={`w-full flex items-center gap-2.5 rounded-lg text-[13px] transition-all mb-0.5 ${collapsed?"justify-center px-0 py-2.5":"px-3 py-2.5"} ${isA?"bg-green-50 text-green-700 font-semibold":"text-slate-500 hover:text-slate-800 hover:bg-slate-50"}`}>
-                <Icon size={16} className={isA?"text-green-600":""}/>
+                className={`w-full flex items-center gap-2.5 rounded-xl text-[13px] font-medium transition-all mb-0.5 ${collapsed?"justify-center px-0 py-2.5":"px-3 py-2.5"} ${isA?"bg-gradient-to-r from-green-600 to-emerald-600 text-white shadow-md shadow-green-600/20 font-semibold":"text-slate-400 hover:text-white hover:bg-slate-800/60"}`}>
+                <Icon size={16} className={isA?"text-white":"text-slate-400"}/>
                 {!collapsed&&<span className="flex-1 text-left truncate">{label}</span>}
               </button>
             </React.Fragment>
@@ -139,20 +141,20 @@ function Sidebar({active,onNav,collapsed,onToggle,farms,activeFarmId,onSwitchFar
         const manager=staff.find(s=>s.role==="Farm Manager"&&s.farms&&s.farms.includes(activeFarmId)&&s.status==="Active");
         if(!director&&!manager)return null;
         return(
-          <div className="px-3 py-2 border-t border-slate-100">
-            {director&&<div className="text-[10px] text-slate-400"><span className="font-semibold text-slate-500">Director:</span> {director.name}</div>}
-            {manager&&<div className="text-[10px] text-slate-400"><span className="font-semibold text-slate-500">Farm Mgr:</span> {manager.name}</div>}
+          <div className="px-3 py-2 border-t border-slate-800/80 bg-slate-950/20">
+            {director&&<div className="text-[10px] text-slate-400"><span className="font-semibold text-slate-300">Director:</span> {director.name}</div>}
+            {manager&&<div className="text-[10px] text-slate-400"><span className="font-semibold text-slate-300">Farm Mgr:</span> {manager.name}</div>}
           </div>
         );
       })()}
-      <div className="border-t border-slate-100 shrink-0">
+      <div className="border-t border-slate-800/80 bg-slate-950/40 shrink-0">
         {!collapsed&&(
           <div className="flex items-center gap-2.5 px-4 py-3">
-            <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center text-green-700 text-xs font-bold shrink-0">
+            <div className="w-8 h-8 rounded-full bg-emerald-950 border border-emerald-500/30 flex items-center justify-center text-emerald-400 text-xs font-bold shrink-0">
               {userInitials}
             </div>
             <div className="min-w-0 flex-1">
-              <p className="text-xs font-semibold text-slate-800 truncate" title={displayName}>
+              <p className="text-xs font-semibold text-white truncate" title={displayName}>
                 {displayName}
               </p>
               <p className="text-[10px] text-slate-400 truncate capitalize">
@@ -163,25 +165,25 @@ function Sidebar({active,onNav,collapsed,onToggle,farms,activeFarmId,onSwitchFar
         )}
         {onLogout&&(
           <div className={`px-2 ${collapsed?"pt-2":""}`}>
-            <button onClick={()=>setShowLogoutModal(true)} title="Log Out" className={`w-full flex items-center gap-2 py-2 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors text-xs ${collapsed?"justify-center":""}`}>
+            <button onClick={()=>setShowLogoutModal(true)} title="Log Out" className={`w-full flex items-center gap-2 py-2 rounded-xl text-slate-400 hover:text-red-400 hover:bg-red-950/30 transition-colors text-xs ${collapsed?"justify-center":""}`}>
               <ArrowRightLeft size={14} className="rotate-90"/>
               {!collapsed&&<span>Log Out</span>}
             </button>
           </div>
         )}
         <div className={`px-2 pb-3 ${collapsed?"pt-1":""}`}>
-          <button onClick={onToggle} title={collapsed?"Expand":"Collapse"} className="w-full flex items-center justify-center gap-2 py-2 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-50 transition-colors text-xs">
+          <button onClick={onToggle} title={collapsed?"Expand":"Collapse"} className="w-full flex items-center justify-center gap-2 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800 transition-colors text-xs">
             {collapsed?<ChevronsRight size={16}/>:<><ChevronsLeft size={15}/><span>Collapse</span></>}
           </button>
         </div>
       </div>
       {showLogoutModal&&(
-        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full">
-            <h3 className="text-base font-bold text-slate-900 mb-2 font-['Barlow_Condensed',sans-serif]">Log Out</h3>
-            <p className="text-sm text-slate-500 mb-5">Are you sure you want to log out of your account?</p>
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl p-6 max-w-sm w-full">
+            <h3 className="text-base font-bold text-white mb-2 font-['Barlow_Condensed',sans-serif]">Log Out</h3>
+            <p className="text-sm text-slate-400 mb-5">Are you sure you want to log out of your account?</p>
             <div className="flex gap-3">
-              <button onClick={()=>setShowLogoutModal(false)} className="flex-1 py-2.5 border border-slate-200 rounded-xl text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors">Cancel</button>
+              <button onClick={()=>setShowLogoutModal(false)} className="flex-1 py-2.5 border border-slate-700 rounded-xl text-sm font-semibold text-slate-300 hover:bg-slate-800 transition-colors">Cancel</button>
               <button onClick={()=>{setShowLogoutModal(false);onLogout&&onLogout();}} className="flex-1 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-sm font-bold transition-colors">Log Out</button>
             </div>
           </div>
@@ -3386,10 +3388,46 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     } catch(err:any) {
       console.error("Failed to update invoice:", err);
     }
+
+    // Automatically record payment in Financials (Revenues)
+    const wasPaid = old?.status === "Paid";
+    const isPaid = inv.status === "Paid";
+    const newlyPaid = Math.max(0, (inv.amountPaid || 0) - (old?.amountPaid || 0));
+
+    if ((isPaid && !wasPaid) || newlyPaid > 0) {
+      const revAmount = isPaid && (!old || old.amountPaid === 0) ? inv.grandTotal : newlyPaid;
+      if (revAmount > 0) {
+        const revId = crypto.randomUUID();
+        const fid = inv.farmId || activeFarmId || farms[0]?.id || "";
+        const revDate = TODAY;
+        const newRev: Revenue = {
+          id: revId,
+          farmId: fid,
+          source: "Fish Sales",
+          amount: revAmount,
+          date: revDate,
+          month: toMon(revDate),
+          year: toYr(revDate),
+          pond: inv.pond || "",
+          fishStock: inv.species ? `${inv.species}${inv.pond ? ` (${inv.pond})` : ""}` : "",
+          notes: `Payment for Invoice ${inv.invNumber} (${inv.customer?.name || "Customer"})`,
+          createdBy: userProfile?.name || "Admin",
+          createdById: userProfile?.email || ""
+        };
+        setRevenues(prev => [newRev, ...prev]);
+        api.revenues.create(newRev).catch(err => console.warn("Failed to sync invoice revenue to backend:", err));
+      }
+    }
+
     if(old&&old.status!==inv.status){
       const farm=farms.find(f=>f.id===activeFarmId)||farms[0];
       const nid=`inv-status-${inv.id}`;
       setExtraNotifs(prev=>[...prev.filter(n=>n.id!==nid),{id:nid,type:"invoice" as any,farmId:activeFarmId,farmName:farm?.name||"",date:TODAY,read:false,message:`Invoice ${inv.invNumber} status: ${inv.status}`}]);
+    }
+    if (inv.status === "Paid") {
+      toast.success(`Invoice ${inv.invNumber} marked as Paid — recorded in Financials`);
+    } else {
+      toast.success(`Invoice ${inv.invNumber} updated`);
     }
   };
   const deleteInvoice=async(id:string)=>{
@@ -3607,26 +3645,37 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       </div>
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Mobile top bar */}
-        <div className="lg:hidden flex items-center justify-between px-4 py-3 bg-white border-b border-slate-200 shrink-0">
-          <button onClick={()=>setSideOpen(true)} className="p-1.5 rounded-lg hover:bg-slate-100 transition-colors"><Menu size={20} className="text-slate-600"/></button>
+        <div className="lg:hidden flex items-center justify-between px-4 py-2.5 bg-slate-900 border-b border-slate-800 shrink-0">
+          <div className="flex items-center gap-2.5">
+            <button onClick={()=>setSideOpen(true)} className="p-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 transition-colors">
+              <Menu size={20}/>
+            </button>
+            <div className="flex items-center gap-2">
+              <div className="bg-white rounded-lg p-1 shadow-sm shrink-0 flex items-center justify-center">
+                <img src={pondtoraLogo} alt="Pondtora" className="h-6 w-auto object-contain rounded" style={{objectFit:"contain",imageRendering:"auto"}}/>
+              </div>
+              <span className="text-sm font-bold text-white font-['Barlow_Condensed',sans-serif]">Pondtora</span>
+            </div>
+          </div>
           <div className="relative" ref={mFarmRef}>
-            <button onClick={()=>setMFarmOpen(p=>!p)} className="flex items-center gap-1.5 text-xs text-green-600 font-semibold bg-green-50 border border-green-200 px-2.5 py-1.5 rounded-lg">
-              <span className="truncate max-w-[140px]">{farms.find(f=>f.id===activeFarmId)?.name||"Select Farm"}</span><ChevronDown size={11} className={`transition-transform ${mFarmOpen?"rotate-180":""}`}/>
+            <button onClick={()=>setMFarmOpen(p=>!p)} className="flex items-center gap-1.5 text-xs text-emerald-400 font-semibold bg-slate-800 border border-slate-700/80 px-2.5 py-1.5 rounded-lg hover:bg-slate-700/80 transition-colors">
+              <span className="truncate max-w-[130px] text-slate-200">{farms.find(f=>f.id===activeFarmId)?.name||"Select Farm"}</span>
+              <ChevronDown size={11} className={`text-slate-400 transition-transform ${mFarmOpen?"rotate-180":""}`}/>
             </button>
             {mFarmOpen&&(
-              <div className="absolute right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl z-50 overflow-hidden min-w-[200px]">
+              <div className="absolute right-0 top-full mt-1 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl z-50 overflow-hidden min-w-[200px]">
                 {accessibleFarms.map(f=>(
-                  <button key={f.id} onClick={()=>{handleSwitchFarm(f.id);setMFarmOpen(false);}} className={`w-full flex items-center gap-2 px-3 py-2.5 text-left hover:bg-slate-50 transition-colors ${f.id===activeFarmId?"bg-green-50":""}`}>
-                    <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${f.id===activeFarmId?"bg-green-500":"bg-slate-200"}`}/>
+                  <button key={f.id} onClick={()=>{handleSwitchFarm(f.id);setMFarmOpen(false);}} className={`w-full flex items-center gap-2 px-3 py-2.5 text-left hover:bg-slate-800 transition-colors ${f.id===activeFarmId?"bg-emerald-500/10":""}`}>
+                    <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${f.id===activeFarmId?"bg-emerald-400":"bg-slate-600"}`}/>
                     <div className="min-w-0 flex-1">
-                      <p className="text-xs font-semibold text-slate-800 truncate">{f.name}</p>
+                      <p className={`text-xs font-semibold truncate ${f.id===activeFarmId?"text-emerald-300":"text-slate-200"}`}>{f.name}</p>
                       <p className="text-[10px] text-slate-400">{f.city}, {f.state}</p>
                     </div>
-                    {f.id===activeFarmId&&<CheckCircle size={12} className="text-green-500 shrink-0"/>}
+                    {f.id===activeFarmId&&<CheckCircle size={12} className="text-emerald-400 shrink-0"/>}
                   </button>
                 ))}
-                {isOwner&&<div className="border-t border-slate-100">
-                  <button onClick={()=>{setMFarmOpen(false);setShowAddFarm(true);}} className="w-full flex items-center gap-2 px-3 py-2.5 text-xs text-green-600 font-semibold hover:bg-green-50 transition-colors"><Plus size={12}/> Add New Farm</button>
+                {isOwner&&<div className="border-t border-slate-800">
+                  <button onClick={()=>{setMFarmOpen(false);setShowAddFarm(true);}} className="w-full flex items-center gap-2 px-3 py-2.5 text-xs text-emerald-400 font-semibold hover:bg-slate-800 transition-colors"><Plus size={12}/> Add New Farm</button>
                 </div>}
               </div>
             )}
@@ -3636,7 +3685,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
           <AppErrorBoundary key={active}>
             {active==="financial"     &&(hasPerm("Financial Dashboard")?<FinancialDashboard expenses={farmExpenses} revenues={farmRevenues} onAddExpense={addExp} onAddRevenue={addRev} onEditExpense={editExp} onEditRevenue={editRev} onDeleteExpense={deleteExp} onDeleteRevenue={deleteRev} stockEvents={stockEvents} ponds={farmPonds} inventory={farmInventory} currency={cs} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}}/>:<AccessDenied/>)}
             {active==="ponds"         &&(hasPerm("Pond Management")?<PondManagementPage ponds={farmPonds} onAddPond={addPond} onClosePond={closePond} onRestockPond={restockPond} onTransfer={transferStock} onNurseryTransfer={nurseryTransfer} mortality={farmMortality} onAddMortality={addMort} onAddCost={addExp} feedingRecords={farmFeeding} stockEvents={stockEvents} treatments={farmTreatments} onAddTreatment={addTreatment} activeFarmId={activeFarmId} onDeletePond={deletePond} onEditFish={editFish} onSetMaxKg={setPondMaxKg} onEditPond={handleEditPond} onScrollTop={()=>mainRef.current?.scrollTo({top:0,behavior:"instant"})} currency={cs} inventory={farmInventory}/>:<AccessDenied/>)}
-            {active==="inventory"     &&(hasPerm("Feed Stock")?<FeedInventoryPage inventory={farmInventory} onAdd={addInv} onDelete={delInv} feedingRecords={farmFeeding} bagLogs={farmBagLogs} onEditBagLog={editBagLog} onEditInv={editInv} currency={cs} canEditLocked={isOwner||currentStaff?.role==="Farm Manager"}/>:<AccessDenied/>)}
+            {active==="inventory"     &&(hasPerm("Feed Stock")?<FeedInventoryPage inventory={farmInventory} onAdd={addInv} onDelete={delInv} feedingRecords={farmFeeding} bagLogs={farmBagLogs} remainLogs={farmRemainLogs} ponds={farmPonds} onEditBagLog={editBagLog} onEditInv={editInv} currency={cs} canEditLocked={isOwner||currentStaff?.role==="Farm Manager"}/>:<AccessDenied/>)}
             {active==="documentation" &&(hasPerm("Feeding Records")?<FeedDocumentationPage feedingRecords={farmFeeding} onAddRecord={addFeed} onEditFeedRecord={editFeedRecord} onDeleteRecord={deleteFeedRecord} ponds={farmPonds} inventory={farmInventory} bagLogs={farmBagLogs} onAddBagLog={addBagLog} onEditBagLog={editBagLog} onEditInv={editInv} remainLogs={farmRemainLogs} onAddRemainLog={addRemainLog} onEditRemainLog={editRemainLog} onReconMismatches={onReconMismatches} reconFocus={reconFocus} canEditLocked={isOwner||currentStaff?.role==="Farm Manager"} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}}/>:<AccessDenied/>)}
             {active==="invoices"      &&(hasPerm("Invoice")?<InvoicesPage ponds={farmPonds} invoices={farmInvoices} customers={farmCustomers} priceGroups={farmPriceGroups} settings={invSettings} onAddInvoice={addInvoice} onEditInvoice={editInvoice} onDeleteInvoice={deleteInvoice} onAddCustomer={addCustomer} onAddPriceGroup={addPriceGroup} onEditPriceGroup={editPriceGroup} onDeletePriceGroup={delPriceGroup} onUpdateSettings={(s)=>{setInvSettings(s);api.invSettings.update(s).catch(console.warn);}} currentUser={userProfile?.name} currency={cs}/>:<AccessDenied/>)}
             {active==="staff"         &&(isOwner?<StaffPage staff={staff} onAdd={addStaff} onEdit={editStaff} onDelete={delStaff} farms={farms} activeFarmId={activeFarmId}/>:<AccessDenied/>)}

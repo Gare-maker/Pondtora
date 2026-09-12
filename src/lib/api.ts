@@ -469,12 +469,28 @@ async function dbUpdate<T extends { id?: string }>(table: string, item: T, cache
 
   try {
     if (targetId) {
-      const { data, error } = await supabase.from(table).update(snake).eq("id", targetId).select().single();
+      let { data, error } = await supabase.from(table).update(snake).eq("id", targetId).select().maybeSingle();
+      if (error && error.message && error.message.includes("column") && error.message.includes("does not exist")) {
+        const match = error.message.match(/column "([^"]+)"/);
+        if (match && match[1]) {
+          console.warn(`Column ${match[1]} does not exist on ${table}, stripping and retrying update...`);
+          delete snake[match[1]];
+          const retry = await supabase.from(table).update(snake).eq("id", targetId).select().maybeSingle();
+          data = retry.data;
+          error = retry.error;
+        }
+      }
+      if (!data && !error) {
+        // Row might not exist in Supabase yet (saved locally) — insert/upsert it
+        const upsertRes = await supabase.from(table).upsert({ ...snake, id: targetId }).select().maybeSingle();
+        data = upsertRes.data;
+        error = upsertRes.error;
+      }
       if (error) {
         console.error(`Supabase update in ${table} failed:`, error.message);
         throw error;
       }
-      return objToCamel<T>(data);
+      return data ? objToCamel<T>(data) : item;
     }
     return item;
   } catch (e) {

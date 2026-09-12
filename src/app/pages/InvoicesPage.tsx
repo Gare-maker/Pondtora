@@ -78,6 +78,23 @@ export default function InvoicesPage({ponds,invoices,customers,priceGroups,setti
     setViewInv(newInvoice);
   };
 
+  const markInvoiceAsPaid=(inv:Invoice)=>{
+    onEditInvoice({
+      ...inv,
+      amountPaid:inv.grandTotal,
+      outstanding:0,
+      status:"Paid",
+      paymentMethod:inv.paymentMethod||"Cash"
+    });
+  };
+
+  const openPaymentModal=(inv:Invoice)=>{
+    setEditPayment(inv);
+    setPayAmt(String(inv.outstanding>0?inv.outstanding:inv.grandTotal));
+    setPayMethod(inv.paymentMethod||"Cash");
+    setPayDate(TODAY);
+  };
+
   const handleUpdatePayment=()=>{
     if(!editPayment)return;
     const paid=Number(payAmt)||0; const totalPaid=editPayment.amountPaid+paid; const outstanding=Math.max(0,editPayment.grandTotal-totalPaid);
@@ -238,7 +255,12 @@ export default function InvoicesPage({ponds,invoices,customers,priceGroups,setti
                   <div className="flex items-center gap-1">
                     <button onClick={()=>setViewInv(inv)} title="View" className="p-1.5 rounded-lg text-slate-300 hover:text-green-600 hover:bg-green-50 transition-colors"><Eye size={13}/></button>
                     <button onClick={()=>printInvoice(inv)} title="Print" className="p-1.5 rounded-lg text-slate-300 hover:text-green-600 hover:bg-green-50 transition-colors"><FileText size={13}/></button>
-                    {inv.status!=="Error"&&<button onClick={()=>{setEditPayment(inv);setPayAmt("");setPayMethod(inv.paymentMethod);setPayDate(TODAY);}} title="Update Payment" className="p-1.5 rounded-lg text-slate-300 hover:text-green-600 hover:bg-green-50 transition-colors"><CheckCircle size={13}/></button>}
+                    {inv.status!=="Paid"&&inv.status!=="Error"&&(
+                      <button onClick={()=>markInvoiceAsPaid(inv)} title="Mark as Paid in Full" className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-bold bg-green-50 text-green-700 hover:bg-green-100 hover:text-green-800 transition-colors border border-green-200 shadow-xs">
+                        <CheckCircle size={12}/> Mark Paid
+                      </button>
+                    )}
+                    {inv.status!=="Error"&&<button onClick={()=>openPaymentModal(inv)} title="Update Custom Payment" className="p-1.5 rounded-lg text-slate-300 hover:text-green-600 hover:bg-green-50 transition-colors"><Layers size={13}/></button>}
                     {inv.status!=="Error"&&<button onClick={()=>onEditInvoice({...inv,status:"Error"})} title="Mark as Error" className="p-1.5 rounded-lg text-slate-300 hover:text-red-600 hover:bg-red-50 transition-colors"><AlertCircle size={13}/></button>}
                     {onDeleteInvoice&&<button onClick={()=>setDeleteInvId(inv.id)} title="Delete Invoice" className="p-1.5 rounded-lg text-slate-300 hover:text-red-600 hover:bg-red-50 transition-colors"><Trash2 size={13}/></button>}
                   </div>
@@ -488,8 +510,19 @@ export default function InvoicesPage({ponds,invoices,customers,priceGroups,setti
             <div className="px-4 sm:px-6 py-3 border-t border-slate-100 shrink-0 flex flex-wrap items-center justify-between gap-2 bg-slate-50 rounded-b-2xl">
               <button onClick={()=>setViewInv(null)} className="text-sm text-slate-500 hover:text-slate-800 font-semibold">← Close</button>
               <div className="flex items-center gap-2">
+                {viewInv.status!=="Paid"&&viewInv.status!=="Error"&&(
+                  <button
+                    onClick={()=>{
+                      markInvoiceAsPaid(viewInv);
+                      setViewInv(prev => prev ? { ...prev, amountPaid: prev.grandTotal, outstanding: 0, status: "Paid" } : null);
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-green-600 text-white text-xs font-bold hover:bg-green-700 transition-colors shadow-xs"
+                  >
+                    <CheckCircle size={13}/> Mark as Paid
+                  </button>
+                )}
                 <button onClick={()=>downloadInvoice(viewInv)} className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-slate-200 bg-white text-slate-600 text-xs font-semibold hover:border-green-400 hover:text-green-600 transition-colors"><Download size={13}/> Download</button>
-                <button onClick={()=>printInvoice(viewInv)} className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-green-600 text-white text-xs font-bold hover:bg-green-700 transition-colors"><FileText size={13}/> Print Invoice</button>
+                <button onClick={()=>printInvoice(viewInv)} className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-slate-900 text-white text-xs font-bold hover:bg-slate-800 transition-colors"><FileText size={13}/> Print Invoice</button>
               </div>
             </div>
           </div>
@@ -503,7 +536,17 @@ export default function InvoicesPage({ponds,invoices,customers,priceGroups,setti
           <div className="flex justify-between"><span>Already Paid</span><strong className="text-green-700">{fmt(editPayment.amountPaid)}</strong></div>
           <div className="flex justify-between border-t border-slate-200 pt-1 mt-1"><span>Outstanding</span><strong className="text-red-500">{fmt(editPayment.outstanding)}</strong></div>
         </div>
-        <F label="Amount Received"><input type="number" min="0" value={payAmt} onChange={e=>setPayAmt(e.target.value)} className={IC} placeholder="0"/></F>
+        <div>
+          <div className="flex justify-between items-center mb-1">
+            <span className="text-xs font-semibold text-slate-700">Amount Received</span>
+            {editPayment.outstanding>0&&(
+              <button type="button" onClick={()=>setPayAmt(String(editPayment.outstanding))} className="text-[11px] text-green-600 hover:text-green-800 font-semibold underline">
+                Pay Full Balance ({fmt(editPayment.outstanding)})
+              </button>
+            )}
+          </div>
+          <input type="number" min="0" value={payAmt} onChange={e=>setPayAmt(e.target.value)} className={IC} placeholder="0"/>
+        </div>
         <F label="Payment Method"><select value={payMethod} onChange={e=>setPayMethod(e.target.value)} className={SC}>{PAYMENT_METHODS.map(m=><option key={m}>{m}</option>)}</select></F>
         <F label="Payment Date"><input type="date" value={payDate} onChange={e=>setPayDate(e.target.value)} className={IC}/></F>
         <div className="flex gap-2 pt-1"><PBtn onClick={handleUpdatePayment}><CheckCircle size={14}/> Confirm Payment</PBtn><button onClick={()=>setEditPayment(null)} className="px-4 py-2 text-sm text-slate-400">Cancel</button></div>
