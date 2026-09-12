@@ -180,9 +180,6 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
     ...FEED_SIZES
   ])];
 
-  const filteredDailyRows = dailyGroupedRows.filter(r => {
-    if (fDailyStock !== "All" && r.fishStock !== fDailyStock) return false;
-    if (fDailyBrand !== "All" && r.brand !== fDailyBrand) return false;
   const fmtFishStock = (stock: string) => {
     if (!stock || stock === "—" || stock === "General Stock") return stock || "General Stock";
     const match = stock.match(/^(.*?)\s*\((.*?)\)$/);
