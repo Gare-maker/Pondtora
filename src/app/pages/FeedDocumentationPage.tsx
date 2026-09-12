@@ -737,6 +737,7 @@ function FeedDocumentation({
                       <td className="px-4 py-3.5 font-medium">{rec?`${rec.evening}kg`:<span className="text-slate-300">—</span>}</td>
                       <td className="px-4 py-3.5 text-slate-500 text-xs">{rec?.eveningTime||<span className="text-slate-300">—</span>}</td>
                       <td className="px-4 py-3.5">{rec?<span className="inline-flex items-center gap-1.5"><span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-green-100 text-green-800 font-bold text-sm font-['Barlow_Condensed',sans-serif]">{rec.total}kg</span>{isEdited&&<span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-700">Edited</span>}</span>:<span className="text-slate-200 text-xs">Not fed</span>}</td>
+                      <td className="px-4 py-3.5 text-slate-400 text-xs">{rec?.recordedBy||<span className="text-slate-300">—</span>}</td>
                       <td className="px-4 py-3.5" onClick={e=>e.stopPropagation()}>
                         <div className="flex items-center gap-1">
                           {rec&&(isRecordEditable(rec.date)?(
@@ -747,6 +748,7 @@ function FeedDocumentation({
                           ):<button onClick={()=>alert("This record can only be edited by an Administrator or Manager after 24 hours.")} className="p-1.5 rounded-lg text-slate-200 cursor-not-allowed" title="Locked after 24 hours"><Lock size={13}/></button>)}
                         </div>
                       </td>
+                    </tr>
                   );
                 })}
               </tbody>
