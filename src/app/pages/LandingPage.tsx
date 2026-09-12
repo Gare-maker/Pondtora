@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Menu, X, ArrowRight, Star, CheckCircle, ChevronDown, Fish } from "lucide-react";
-import imgLogo from "../../imports/Frame2147225822/efd37f2fdf789ba342a73e52a57e1d4e651320a0.png";
 const imgAboutFarmer = "https://images.unsplash.com/photo-1768248559000-0775a51b0413?crop=entropy&cs=tinysrgb&fit=max&fm=webp&w=1200&q=80";
 
 const TESTIMONIAL_AVATAR_1 = "https://images.unsplash.com/photo-1533108344127-a586d2b02479?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&w=200";
@@ -284,8 +283,7 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
       <header className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${scrolled ? "bg-white shadow-sm border-b border-slate-100" : "bg-white"}`}>
         <div className="max-w-7xl mx-auto px-5 lg:px-8 py-4 flex items-center justify-between gap-4">
           <div className="flex items-center gap-2.5 shrink-0">
-            <img src={imgLogo} alt="Pondtora" className="h-9 w-9 object-contain rounded-xl" />
-            <span className="font-semibold text-[22px] leading-none text-slate-900" style={{ fontFamily: "'Barlow Condensed', sans-serif" }}>Pondtora</span>
+            <span className="font-semibold text-[24px] leading-none text-slate-900" style={{ fontFamily: "'Barlow Condensed', sans-serif" }}>Pondtora</span>
           </div>
           <nav className="hidden md:flex items-center gap-7">
             {NAV_LINKS.map(l => (
@@ -775,8 +773,7 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
           <div className="flex flex-col lg:flex-row items-start justify-between gap-10 pb-10 border-b border-white/10">
             <div className="flex flex-col gap-4 max-w-xs">
               <div className="flex items-center gap-2.5">
-                <img src={imgLogo} alt="Pondtora" className="h-9 w-9 object-contain rounded-xl" />
-                <span className="font-semibold text-[22px] leading-none" style={{ fontFamily: "'Barlow Condensed', sans-serif" }}>Pondtora</span>
+                <span className="font-semibold text-[24px] leading-none" style={{ fontFamily: "'Barlow Condensed', sans-serif" }}>Pondtora</span>
               </div>
               <p className="text-white/50 text-sm leading-relaxed">The complete fish farm management platform. Manage ponds, feed, finances, staff and more.</p>
             </div>
