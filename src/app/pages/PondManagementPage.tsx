@@ -590,22 +590,64 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
   const stockGroups=(()=>{
     type SG={key:string;stockingDate:string;speciesList:string[];supplierList:string[];pondNames:string[];pondIds:string[];totalStartCount:number;isActive:boolean};
     const groups:Record<string,SG>={};
-    stockEvents.filter(e=>e.type==="Initial"||e.type==="Restock").forEach(ev=>{
+    (stockEvents||[]).filter(e=>e.type==="Initial"||e.type==="Restock").forEach(ev=>{
       const gk=ev.date;
+      if(!gk||gk==="—")return;
       if(!groups[gk])groups[gk]={key:gk,stockingDate:ev.date,speciesList:[],supplierList:[],pondNames:[],pondIds:[],totalStartCount:0,isActive:false};
-      if(!groups[gk].speciesList.includes(ev.species))groups[gk].speciesList.push(ev.species);
+      if(ev.species&&!groups[gk].speciesList.includes(ev.species))groups[gk].speciesList.push(ev.species);
       if(ev.supplier&&!groups[gk].supplierList.includes(ev.supplier))groups[gk].supplierList.push(ev.supplier);
-      if(!groups[gk].pondNames.includes(ev.pondName)){groups[gk].pondNames.push(ev.pondName);groups[gk].pondIds.push(ev.pondId);}
-      groups[gk].totalStartCount+=ev.count;
+      if(ev.pondName&&!groups[gk].pondNames.includes(ev.pondName)){groups[gk].pondNames.push(ev.pondName);groups[gk].pondIds.push(ev.pondId);}
+      groups[gk].totalStartCount+=(ev.count||0);
     });
-    ponds.filter(p=>p.status==="Active"&&p.species!=="—").forEach(p=>{if(groups[p.stockingDate])groups[p.stockingDate].isActive=true;});
+
+    // Also ensure all current active ponds with fish stocks are represented in history!
+    (ponds||[]).filter(p=>p.status==="Active"&&p.species&&p.species!=="—"&&p.stockingDate&&p.stockingDate!=="—").forEach(p=>{
+      const gk=p.stockingDate;
+      if(!groups[gk]){
+        groups[gk]={
+          key:gk,
+          stockingDate:p.stockingDate,
+          speciesList:[],
+          supplierList:[],
+          pondNames:[],
+          pondIds:[],
+          totalStartCount:0,
+          isActive:true
+        };
+      }
+      groups[gk].isActive=true;
+      if(p.species&&!groups[gk].speciesList.includes(p.species))groups[gk].speciesList.push(p.species);
+      if(p.name&&!groups[gk].pondNames.includes(p.name)){
+        groups[gk].pondNames.push(p.name);
+        groups[gk].pondIds.push(p.id);
+        const wasInEvents=(stockEvents||[]).some(e=>e.pondId===p.id&&(e.type==="Initial"||e.type==="Restock")&&e.date===p.stockingDate);
+        if(!wasInEvents){
+          groups[gk].totalStartCount+=(p.initialStock||p.currentCount||0);
+        }
+      }
+    });
+
     return Object.values(groups).sort((a,b)=>b.stockingDate.localeCompare(a.stockingDate));
   })();
-  const stockYears=[...new Set(stockGroups.map(g=>g.stockingDate.substring(0,4)).filter(Boolean))];
   const filtStockGroups=stockGroups.filter(g=>{
-    if(stockHistYear!=="All"&&!g.stockingDate.startsWith(stockHistYear))return false;
-    if(stockHistMonth!=="All"){try{const d=new Date(g.stockingDate);if(MONTHS_LIST[d.getMonth()]!==stockHistMonth)return false;}catch{return false;}}
-    if(stockHistDay!=="All"&&parseInt((g.stockingDate.split("-")[2])||"0",10)!==parseInt(stockHistDay,10))return false;
+    if(stockHistYear!=="All"&&!g.stockingDate.startsWith(stockHistYear)&&!g.stockingDate.includes(stockHistYear))return false;
+    if(stockHistMonth!=="All"){
+      const mi=MONTHS_LIST.indexOf(stockHistMonth);
+      const mNum=String(mi+1).padStart(2,"0");
+      const isIsoMatch=g.stockingDate.includes(`-${mNum}-`);
+      const isWordMatch=g.stockingDate.toLowerCase().includes(stockHistMonth.toLowerCase());
+      if(!isIsoMatch&&!isWordMatch)return false;
+    }
+    if(stockHistDay!=="All"){
+      const dayNum=parseInt(stockHistDay,10);
+      const isoMatch=g.stockingDate.match(/\d{4}-\d{2}-(\d{2})/);
+      if(isoMatch){
+        if(parseInt(isoMatch[1],10)!==dayNum)return false;
+      } else {
+        const generalMatch=g.stockingDate.match(/\b([1-9]|[12]\d|3[01])\b/);
+        if(generalMatch&&parseInt(generalMatch[1],10)!==dayNum)return false;
+      }
+    }
     return true;
   });
 
@@ -823,8 +865,8 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
               )}
               <div className="flex items-center gap-2">
                 {!stockDetailId&&<>
-                  <button onClick={()=>downloadCSV("fish-stock-history.csv",["#","Stocking Date","Fish Stock(s)","Supplier(s)","Total Fish (Initial)","Current Fish"],filtStockGroups.map((g,i)=>{const cur=ponds.filter(p=>p.stockingDate===g.stockingDate&&p.status==="Active").reduce((s,p)=>s+p.currentCount,0);return[i+1,g.stockingDate,g.speciesList.join("; "),g.supplierList.join("; ")||"—",g.totalStartCount,cur];}))} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 text-xs font-semibold hover:border-green-400 hover:text-green-600 transition-colors"><Download size={12}/> CSV</button>
-                  <button onClick={()=>openPrintWindow("Fish Stock History",["#","Stocking Date","Fish Stock(s)","Supplier(s)","Total Fish (Initial)","Current Fish"],filtStockGroups.map((g,i)=>{const cur=ponds.filter(p=>p.stockingDate===g.stockingDate&&p.status==="Active").reduce((s,p)=>s+p.currentCount,0);return[i+1,g.stockingDate,g.speciesList.join(", "),g.supplierList.join(", ")||"—",g.totalStartCount.toLocaleString(),cur.toLocaleString()]}),"Grouped by stocking date lifecycle")} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 text-xs font-semibold hover:border-green-400 hover:text-green-600 transition-colors"><FileText size={12}/> PDF</button>
+                  <button onClick={()=>downloadCSV("fish-stock-history.csv",["#","Stocking Date","Fish Stock(s)","Supplier(s)","Total Fish (Initial)","Current Fish"],filtStockGroups.map((g,i)=>{const cur=ponds.filter(p=>(p.stockingDate===g.stockingDate||g.pondIds.includes(p.id))&&p.status==="Active").reduce((s,p)=>s+p.currentCount,0);return[i+1,g.stockingDate,g.speciesList.join("; "),g.supplierList.join("; ")||"—",g.totalStartCount,cur];}))} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 text-xs font-semibold hover:border-green-400 hover:text-green-600 transition-colors"><Download size={12}/> CSV</button>
+                  <button onClick={()=>openPrintWindow("Fish Stock History",["#","Stocking Date","Fish Stock(s)","Supplier(s)","Total Fish (Initial)","Current Fish"],filtStockGroups.map((g,i)=>{const cur=ponds.filter(p=>(p.stockingDate===g.stockingDate||g.pondIds.includes(p.id))&&p.status==="Active").reduce((s,p)=>s+p.currentCount,0);return[i+1,g.stockingDate,g.speciesList.join(", "),g.supplierList.join(", ")||"—",g.totalStartCount.toLocaleString(),cur.toLocaleString()]}),"Grouped by stocking date lifecycle")} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 text-xs font-semibold hover:border-green-400 hover:text-green-600 transition-colors"><FileText size={12}/> PDF</button>
                 </>}
                 <button onClick={()=>{setShowStockHist(false);setStockDetailId(null);}} className="text-slate-400 hover:text-slate-700 p-1 ml-1"><X size={20}/></button>
               </div>
@@ -833,7 +875,7 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
             {/* LIST VIEW */}
             {!stockDetailId&&(<>
               <div className="px-6 py-3 border-b border-slate-100 bg-slate-50 shrink-0 flex flex-wrap gap-3 items-center">
-                <DateFilter year={stockHistYear} month={stockHistMonth} day={stockHistDay} onYear={setStockHistYear} onMonth={setStockHistMonth} onDay={setStockHistDay} onReset={()=>{setStockHistYear("All");setStockHistMonth("All");setStockHistDay("All");}} dates={[]}/>
+                <DateFilter year={stockHistYear} month={stockHistMonth} day={stockHistDay} onYear={setStockHistYear} onMonth={setStockHistMonth} onDay={setStockHistDay} onReset={()=>{setStockHistYear("All");setStockHistMonth("All");setStockHistDay("All");}} dates={stockGroups.map(g=>g.stockingDate)}/>
                 <span className="text-[11px] text-slate-400 ml-auto">{filtStockGroups.length} lifecycle{filtStockGroups.length!==1?"s":""}</span>
               </div>
               <div className="flex-1 overflow-y-auto overflow-x-auto">
@@ -849,7 +891,7 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
                   <tbody className="divide-y divide-slate-50">
                     {filtStockGroups.length===0&&<tr><td colSpan={6} className="text-center text-xs text-slate-400 py-10">No fish stock records found.</td></tr>}
                     {filtStockGroups.map((g,i)=>{
-                      const totalCurrent=ponds.filter(p=>p.stockingDate===g.stockingDate&&p.status==="Active").reduce((s,p)=>s+p.currentCount,0);
+                      const totalCurrent=ponds.filter(p=>(p.stockingDate===g.stockingDate||g.pondIds.includes(p.id))&&p.status==="Active").reduce((s,p)=>s+p.currentCount,0);
                       return(
                         <tr key={g.key} className="hover:bg-slate-50 transition-colors cursor-pointer" onClick={()=>setStockDetailId(g.key)}>
                           <td className="px-4 py-3 text-slate-300 text-xs font-mono">{i+1}</td>
@@ -875,7 +917,7 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
             {stockDetailId&&(()=>{
               const grp=stockGroups.find(g=>g.key===stockDetailId);
               if(!grp)return <div className="p-8 text-center text-sm text-slate-400">Record not found.</div>;
-              const totalCurrentFish=ponds.filter(p=>p.stockingDate===grp.stockingDate&&p.status==="Active").reduce((s,p)=>s+p.currentCount,0);
+              const totalCurrentFish=ponds.filter(p=>(p.stockingDate===grp.stockingDate||grp.pondIds.includes(p.id))&&p.status==="Active").reduce((s,p)=>s+p.currentCount,0);
               const allFeedRecs=feedingRecords.filter(r=>grp.pondNames.includes(r.pond));
               const totalFeedKg=allFeedRecs.reduce((s,r)=>s+r.total,0);
               const bySize=allFeedRecs.reduce<Record<string,number>>((acc,r)=>{acc[r.size]=(acc[r.size]||0)+r.total;return acc;},{});

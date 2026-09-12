@@ -8,7 +8,6 @@ import {
 import { Card, Bdg, PBtn, PER_PAGE } from "../shared";
 import { uid, TODAY } from "../data";
 import { api } from "../../lib/api";
-import pondtoraLogo from "../../imports/loo-2.svg";
 
 /* ─── Types ─────────────────────────────────────────────────── */
 export interface KQuestion { id:string; text:string; category:string; options:[string,string,string,string]; correctIndex:number; }
@@ -435,9 +434,8 @@ export function CandidateAssessment({
   /* ── Shared sticky header ── */
   const Hdr=({showClose=true}:{showClose?:boolean})=>(
     <header className="bg-white border-b border-slate-200 px-4 sm:px-6 py-4 flex items-center gap-3 sticky top-0 z-10 shrink-0">
-      <img src={pondtoraLogo} alt="Pondtora" className="h-8 w-auto"/>
       <div>
-        <p className="text-sm font-black text-slate-800">Pondtora</p>
+        <p className="text-base font-black text-slate-900 font-['Barlow_Condensed',sans-serif]">Pondtora</p>
         <p className="text-xs text-slate-400">{testLabel}</p>
       </div>
       {showClose&&(

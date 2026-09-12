@@ -167,6 +167,32 @@ export function DateFilter({year,month,day,onYear,onMonth,onDay,onReset,dates=[]
   const hasFilter=year!=="All"||month!=="All"||day!=="All";
   const allYears=[...new Set(dates.map(d=>d.slice(0,4)).filter(Boolean))].sort((a,b)=>b.localeCompare(a));
   const label=day!=="All"?`${day} ${month!=="All"?month:""} ${year!=="All"?year:""}`.trim():month!=="All"?`${month} ${year!=="All"?year:""}`.trim():year!=="All"?year:"Filter by Date";
+  const daysWithRecords = useMemo(() => {
+    const set = new Set<string>();
+    dates.forEach(dStr => {
+      if (!dStr) return;
+      const s = String(dStr).trim();
+      if (year !== "All" && !s.includes(year)) return;
+      if (month !== "All") {
+        const mi = DMONTHS_S.indexOf(month);
+        const mNum = String(mi + 1).padStart(2, "0");
+        const isIsoMatch = s.includes(`-${mNum}-`);
+        const isWordMatch = s.toLowerCase().includes(month.toLowerCase());
+        if (!isIsoMatch && !isWordMatch) return;
+      }
+      const isoMatch = s.match(/\d{4}-(\d{2})-(\d{2})/);
+      if (isoMatch) {
+        set.add(isoMatch[2]);
+        return;
+      }
+      const generalMatch = s.match(/\b([1-9]|[12]\d|3[01])\b/);
+      if (generalMatch) {
+        set.add(generalMatch[1].padStart(2, "0"));
+      }
+    });
+    return set;
+  }, [dates, year, month]);
+
   return(
     <div className="relative" ref={ref}>
       <div className="flex gap-2 items-center">
@@ -182,7 +208,46 @@ export function DateFilter({year,month,day,onYear,onMonth,onDay,onReset,dates=[]
           <div className="space-y-3">
             <div><p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">Year</p><div className="flex flex-wrap gap-1.5">{(["All",...allYears.length?allYears:["2025","2026"]] as string[]).map(y=><button key={y} onClick={()=>{onYear(y);if(y==="All"){onMonth("All");onDay("All");}}} className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors ${year===y?"bg-green-600 text-white":"bg-slate-100 text-slate-600 hover:bg-green-50 hover:text-green-700"}`}>{y==="All"?"All Years":y}</button>)}</div></div>
             <div><p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">Month</p><div className="grid grid-cols-4 gap-1">{["All",...DMONTHS_S].map(m=><button key={m} onClick={()=>onMonth(m==="All"?"All":m)} className={`px-1.5 py-1 rounded-lg text-xs font-semibold transition-colors ${month===(m==="All"?"All":m)?"bg-green-600 text-white":"bg-slate-100 text-slate-600 hover:bg-green-50 hover:text-green-700"}`}>{m==="All"?"All":m}</button>)}</div></div>
-            {month!=="All"&&<div><p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">Day</p><div className="grid grid-cols-7 gap-1">{["All",...Array.from({length:31},(_,i)=>String(i+1))].map(d=><button key={d} onClick={()=>onDay(d==="All"?"All":String(d).padStart(2,"0"))} className={`py-1 rounded-lg text-xs font-semibold transition-colors ${day===(d==="All"?"All":String(d).padStart(2,"0"))?"bg-green-600 text-white":"bg-slate-100 text-slate-600 hover:bg-green-50 hover:text-green-700"}`}>{d==="All"?"—":d}</button>)}</div></div>}
+            {month!=="All"&&(
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Day</p>
+                  {daysWithRecords.size > 0 && (
+                    <span className="text-[10px] text-emerald-600 font-semibold flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block"/>
+                      {daysWithRecords.size} active day{daysWithRecords.size!==1?"s":""}
+                    </span>
+                  )}
+                </div>
+                <div className="grid grid-cols-7 gap-1">
+                  {["All",...Array.from({length:31},(_,i)=>String(i+1))].map(d=>{
+                    const isAll = d === "All";
+                    const dPad = isAll ? "All" : String(d).padStart(2, "0");
+                    const isSelected = day === dPad;
+                    const hasRecord = !isAll && daysWithRecords.has(dPad);
+                    return(
+                      <button
+                        key={d}
+                        onClick={()=>onDay(dPad)}
+                        title={hasRecord ? `Day ${d} has entries` : undefined}
+                        className={`relative py-1 rounded-lg text-xs font-semibold transition-all flex flex-col items-center justify-center ${
+                          isSelected
+                            ? "bg-green-600 text-white shadow-sm ring-2 ring-green-300 font-bold"
+                            : hasRecord
+                            ? "bg-emerald-50 text-emerald-700 font-bold border border-emerald-300 hover:bg-emerald-100"
+                            : "bg-slate-100 text-slate-600 hover:bg-green-50 hover:text-green-700"
+                        }`}
+                      >
+                        <span>{isAll ? "—" : d}</span>
+                        {hasRecord && !isSelected && (
+                          <span className="w-1 h-1 rounded-full bg-emerald-500 mt-0.5"/>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
           <button onClick={()=>{setOpen(false);}} className="mt-3 w-full py-1.5 text-xs font-semibold text-green-700 bg-green-50 hover:bg-green-100 rounded-xl transition-colors">Done</button>
         </div>

@@ -167,6 +167,7 @@ export default function InvoicesPage({ponds,invoices,customers,priceGroups,setti
   }).sort((a,b)=>sortDir==="desc"?b.invoiceDate.localeCompare(a.invoiceDate):a.invoiceDate.localeCompare(b.invoiceDate));
 
   const totalRevInvoiced=statsSource.reduce((s,i)=>s+i.grandTotal,0);
+  const totalAmountPaid=statsSource.reduce((s,i)=>s+(i.amountPaid||0),0);
   const paidInv=statsSource.filter(i=>i.status==="Paid").length;
   const pendingInv=statsSource.filter(i=>i.status==="Pending"||i.status==="Sent").length;
   const partialInv=statsSource.filter(i=>i.status==="Partially Paid").length;
@@ -200,7 +201,7 @@ export default function InvoicesPage({ponds,invoices,customers,priceGroups,setti
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <StatCard label="Total Invoices"    value={String(statsSource.length)} icon={FileText}/>
         <StatCard label="Revenue Invoiced"  value={fmt(totalRevInvoiced)} icon={ArrowUpRight} hi/>
-        <StatCard label="Paid"              value={String(paidInv)} icon={CheckCircle}/>
+        <StatCard label="Amount Collected"  value={fmt(totalAmountPaid)} icon={CheckCircle} hi sub={`${paidInv} paid in full`}/>
         <StatCard label="Outstanding"       value={fmt(totalOutstanding)} icon={TrendingDown}/>
       </div>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">

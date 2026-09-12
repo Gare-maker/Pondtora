@@ -2,7 +2,6 @@ import React, { useState, useMemo, useRef, useEffect, useCallback } from "react"
 import { api, auth, remapId, isUuid } from "../lib/api";
 import { supabase } from "../lib/supabase";
 import { projectId } from "../../utils/supabase/info";
-import pondtoraLogo from "../imports/loo-2.svg";
 import {
   LayoutDashboard, Fish, Package, BookOpen, Tag,
   Plus, TrendingUp, TrendingDown, CheckCircle,
@@ -72,10 +71,14 @@ function Sidebar({active,onNav,collapsed,onToggle,farms,activeFarmId,onSwitchFar
   return(
     <div className="flex flex-col border-r border-slate-800 bg-slate-900 text-slate-200 w-full h-full font-['Barlow',sans-serif]">
       <div className={`h-16 flex items-center gap-3 border-b border-slate-800/80 bg-slate-950/50 shrink-0 ${collapsed?"justify-center px-2":"px-4"}`}>
-        <div className="bg-white rounded-xl p-1 shadow-sm shrink-0 flex items-center justify-center">
-          <img src={pondtoraLogo} alt="Pondtora" className="h-8 w-auto object-contain rounded" style={{objectFit:"contain",imageRendering:"auto"}}/>
-        </div>
-        {!collapsed&&<div className="min-w-0 flex-1"><p className="text-base font-bold text-white leading-none font-['Barlow_Condensed',sans-serif]">Pondtora</p><p className="text-[10px] text-emerald-400 uppercase tracking-widest font-semibold mt-0.5">Fish Farm Management</p></div>}
+        {!collapsed ? (
+          <div className="min-w-0 flex-1">
+            <p className="text-xl font-bold text-white leading-none font-['Barlow_Condensed',sans-serif] tracking-wide">Pondtora</p>
+            <p className="text-[10px] text-emerald-400 uppercase tracking-widest font-bold mt-1">FFM System</p>
+          </div>
+        ) : (
+          <div className="text-emerald-400 font-bold font-['Barlow_Condensed',sans-serif] text-lg">P</div>
+        )}
         {onNotifications&&(
           <button onClick={onNotifications} title="Notifications" className="relative p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors shrink-0">
             <Bell size={16}/>
@@ -1478,7 +1481,7 @@ function SubscriptionPage({
   };
 
   return (
-    <div className="p-4 sm:p-6 space-y-6 w-full">
+    <div className="p-4 sm:p-6 space-y-6 max-w-5xl mx-auto">
       <div className="sticky top-0 z-10 bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 text-center">
         {adminOverride.hasFreeAccess ? (
           <div className="inline-flex items-center gap-2 bg-purple-50 border border-purple-200 rounded-full px-4 py-1.5 text-purple-800 text-xs font-semibold mb-3">
@@ -2104,8 +2107,7 @@ function VerifyEmailScreen({email,onVerified,onChangeEmail}:{email:string;onVeri
     <div className="min-h-screen bg-white flex flex-col items-center justify-center px-6 py-10">
       <div className="w-full max-w-sm">
         <div className="flex items-center gap-2 mb-8 justify-center">
-          <img src={pondtoraLogo} alt="Pondtora" className="h-10 w-auto object-contain"/>
-          <span className="text-lg font-extrabold font-['Barlow_Condensed',sans-serif] text-slate-900">Pondtora</span>
+          <span className="text-2xl font-extrabold font-['Barlow_Condensed',sans-serif] text-slate-900 tracking-wide">Pondtora</span>
         </div>
         {status==="success"?(
           <div className="text-center space-y-4 py-6">
@@ -2173,8 +2175,7 @@ function ChoosePlanScreen({onSelectPlan}:{onSelectPlan:(plan:string)=>void;}){
       <div className="w-full max-w-4xl py-8">
         <div className="text-center mb-6">
           <div className="inline-flex items-center gap-2 mb-4">
-            <img src={pondtoraLogo} alt="Pondtora" className="h-10 w-auto object-contain"/>
-            <span className="text-lg font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Pondtora</span>
+            <span className="text-2xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] tracking-wide">Pondtora</span>
           </div>
           <h1 className="text-3xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] mb-2">Choose Your Subscription</h1>
           <p className="text-slate-500 text-sm max-w-md mx-auto">Start with a free 30-day trial. No payment required to start. Cancel anytime.</p>
@@ -3052,7 +3053,11 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       setExpenses(normExp);
     }
     if (d.revenues) {
-      const normRev = d.revenues.map((r: Revenue) => ({ ...r, farmId: normFid(r.farmId) }));
+      // Invoices marked as paid must not reflect in revenues or financial dashboard
+      const invoiceRevs = d.revenues.filter((r: Revenue) => r.notes?.startsWith("Payment for Invoice"));
+      invoiceRevs.forEach((r: Revenue) => api.revenues.remove(r.id).catch(console.warn));
+      const cleanRevs = d.revenues.filter((r: Revenue) => !r.notes?.startsWith("Payment for Invoice"));
+      const normRev = cleanRevs.map((r: Revenue) => ({ ...r, farmId: normFid(r.farmId) }));
       setRevenues(normRev);
     }
     if (d.mortalityEntries) {
@@ -3129,7 +3134,8 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
         const ce=loadLocal(`pondtora_${uid}_expenses`,[]);
         if(ce.length>0)setExpenses(ce);
         const cr=loadLocal(`pondtora_${uid}_revenues`,[]);
-        if(cr.length>0)setRevenues(cr);
+        const cleanCr=cr.filter((r: Revenue) => !r.notes?.startsWith("Payment for Invoice"));
+        if(cleanCr.length>0)setRevenues(cleanCr);
         const ci=loadLocal(`pondtora_${uid}_inventory`,[]);
         if(ci.length>0)setInventory(ci);
         const cfd=loadLocal(`pondtora_${uid}_feeding`,[]);
@@ -3393,43 +3399,13 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       console.error("Failed to update invoice:", err);
     }
 
-    // Automatically record payment in Financials (Revenues)
-    const wasPaid = old?.status === "Paid";
-    const isPaid = inv.status === "Paid";
-    const newlyPaid = Math.max(0, (inv.amountPaid || 0) - (old?.amountPaid || 0));
-
-    if ((isPaid && !wasPaid) || newlyPaid > 0) {
-      const revAmount = isPaid && (!old || old.amountPaid === 0) ? inv.grandTotal : newlyPaid;
-      if (revAmount > 0) {
-        const revId = crypto.randomUUID();
-        const fid = inv.farmId || activeFarmId || farms[0]?.id || "";
-        const revDate = TODAY;
-        const newRev: Revenue = {
-          id: revId,
-          farmId: fid,
-          source: "Fish Sales",
-          amount: revAmount,
-          date: revDate,
-          month: toMon(revDate),
-          year: toYr(revDate),
-          pond: inv.pond || "",
-          fishStock: inv.species ? `${inv.species}${inv.pond ? ` (${inv.pond})` : ""}` : "",
-          notes: `Payment for Invoice ${inv.invNumber} (${inv.customer?.name || "Customer"})`,
-          createdBy: userProfile?.name || "Admin",
-          createdById: userProfile?.email || ""
-        };
-        setRevenues(prev => [newRev, ...prev]);
-        api.revenues.create(newRev).catch(err => console.warn("Failed to sync invoice revenue to backend:", err));
-      }
-    }
-
     if(old&&old.status!==inv.status){
       const farm=farms.find(f=>f.id===activeFarmId)||farms[0];
       const nid=`inv-status-${inv.id}`;
       setExtraNotifs(prev=>[...prev.filter(n=>n.id!==nid),{id:nid,type:"invoice" as any,farmId:activeFarmId,farmName:farm?.name||"",date:TODAY,read:false,message:`Invoice ${inv.invNumber} status: ${inv.status}`}]);
     }
     if (inv.status === "Paid") {
-      toast.success(`Invoice ${inv.invNumber} marked as Paid — recorded in Financials`);
+      toast.success(`Invoice ${inv.invNumber} marked as Paid`);
     } else {
       toast.success(`Invoice ${inv.invNumber} updated`);
     }
@@ -3464,7 +3440,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   const farmFeeding=feeding.filter(r=>matchesFarm(r.farmId,r.pond));
   const farmInventory=inventory.filter(i=>matchesFarm(i.farmId));
   const farmExpenses=expenses.filter(e=>matchesFarm(e.farmId,e.pond));
-  const farmRevenues=revenues.filter(r=>matchesFarm(r.farmId,r.pond));
+  const farmRevenues=revenues.filter(r=>matchesFarm(r.farmId,r.pond)&&!r.notes?.startsWith("Payment for Invoice"));
   const farmReports=reports.filter(r=>matchesFarm(r.farmId));
   const farmTreatments=treatments.filter(t=>matchesFarm(t.farmId));
   const farmMortality=mortality.filter(m=>matchesFarm(m.farmId));
@@ -3655,10 +3631,8 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
               <Menu size={20}/>
             </button>
             <div className="flex items-center gap-2">
-              <div className="bg-white rounded-lg p-1 shadow-sm shrink-0 flex items-center justify-center">
-                <img src={pondtoraLogo} alt="Pondtora" className="h-6 w-auto object-contain rounded" style={{objectFit:"contain",imageRendering:"auto"}}/>
-              </div>
-              <span className="text-sm font-bold text-white font-['Barlow_Condensed',sans-serif]">Pondtora</span>
+              <span className="text-base font-bold text-white font-['Barlow_Condensed',sans-serif]">Pondtora</span>
+              <span className="text-[10px] text-emerald-400 font-semibold uppercase tracking-wider">FFM System</span>
             </div>
           </div>
           <div className="relative" ref={mFarmRef}>

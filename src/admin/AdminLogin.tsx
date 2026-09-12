@@ -1,6 +1,5 @@
 import React, { useState } from "react";
-import { Fish, Lock, Mail, Loader2, Eye, EyeOff, ShieldCheck, AlertCircle, ArrowLeft } from "lucide-react";
-import pondtoraLogo from "../imports/loo-2.svg";
+import { Fish, Lock, Mail, Loader2, Eye, EyeOff, ShieldCheck, AlertCircle, ArrowLeft, CheckCircle, ArrowRight } from "lucide-react";
 import { supabase } from "../lib/supabase";
 
 interface AdminLoginProps {
@@ -76,8 +75,7 @@ export default function AdminLogin({ onLogin, onExit }: AdminLoginProps) {
         {/* Brand Header */}
         <div className="flex flex-col items-center text-center mb-8">
           <div className="w-14 h-14 bg-gradient-to-br from-green-500 to-emerald-700 rounded-2xl flex items-center justify-center shadow-xl shadow-green-500/20 mb-3 border border-green-400/20">
-            <img src={pondtoraLogo} alt="Pondtora" className="w-9 h-9 object-contain brightness-0 invert" onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }} />
-            <Fish size={24} className="text-white hidden only:block" />
+            <Fish size={28} className="text-white" />
           </div>
           <h1 className="text-white font-extrabold text-2xl font-['Barlow_Condensed',sans-serif] tracking-wide">
             Pondtora Admin Portal
