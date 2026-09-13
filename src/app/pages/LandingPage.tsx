@@ -2310,11 +2310,11 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8 items-stretch">
             {currentPlans.map((plan, i) => {
-              const price = planBilling === "yearly" ? yearlyPrice(plan.price) : plan.price;
-              const isPopular = plan.badge || i === 1;
+              const isPopular = plan.badge === "Popular" || i === 1;
+              const displayPrice = planBilling === "yearly" ? (plan.yearlyPrice || yearlyPrice(plan.monthlyPrice)) : plan.monthlyPrice;
 
               return (
-                <FadeIn key={plan.name} delay={i * 100}>
+                <FadeIn key={plan.id || plan.name} delay={i * 100}>
                   <div
                     className={`h-full rounded-2xl p-8 flex flex-col justify-between transition-all ${
                       isPopular
@@ -2324,28 +2324,37 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
                   >
                     {isPopular && (
                       <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 bg-emerald-500 text-white px-3 py-1 rounded-full text-[10px] uppercase tracking-widest font-black shadow-md flex items-center gap-1">
-                        <Crown size={12} /> Most Popular For Commercial Farms
+                        <Crown size={12} /> {plan.badge || "Most Popular For Commercial Farms"}
                       </div>
                     )}
 
                     <div>
                       <h3 className="text-2xl font-bold font-['Barlow_Condensed',sans-serif]">{plan.name}</h3>
-                      <p className={`text-xs mt-1 ${isPopular ? "text-slate-300" : "text-slate-500"}`}>{plan.desc}</p>
+                      <p className={`text-xs mt-1 ${isPopular ? "text-slate-300" : "text-slate-500"}`}>{plan.desc || plan.limit}</p>
 
                       <div className="my-6">
                         <span className="text-4xl font-extrabold font-['Barlow_Condensed',sans-serif]">
-                          ₦{price.toLocaleString()}
+                          ₦{displayPrice.toLocaleString()}
                         </span>
                         <span className={`text-xs ml-1 ${isPopular ? "text-slate-400" : "text-slate-500"}`}>
                           /{planBilling === "yearly" ? "year" : "month"}
                         </span>
+                        {planBilling === "yearly" && (
+                          <p className="text-[11px] text-emerald-400 font-semibold mt-1">
+                            Save ₦{(plan.yearlySaving || Math.round(plan.monthlyPrice * 12 * 0.2)).toLocaleString()} per year
+                          </p>
+                        )}
                       </div>
 
                       <div className={`space-y-3 pt-6 border-t ${isPopular ? "border-slate-800" : "border-slate-100"}`}>
                         <p className={`text-[11px] uppercase tracking-wider font-extrabold ${isPopular ? "text-emerald-400" : "text-slate-400"}`}>
                           Included Features:
                         </p>
-                        {plan.features.map((feat, idx) => (
+                        <div className="flex items-start gap-2.5 text-xs">
+                          <Check size={15} className={`shrink-0 mt-0.5 ${isPopular ? "text-emerald-400" : "text-emerald-600"}`} />
+                          <span className={`font-semibold ${isPopular ? "text-white" : "text-slate-900"}`}>{plan.limit}</span>
+                        </div>
+                        {EVERY_PLAN_INCLUDES.map((feat, idx) => (
                           <div key={idx} className="flex items-start gap-2.5 text-xs">
                             <Check
                               size={15}
