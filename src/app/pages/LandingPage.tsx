@@ -8,7 +8,7 @@ import {
   FileText, ClipboardList, Crown, Settings, MoreVertical, ArrowDownRight,
   Layers, Calculator, Pencil, Trash2, History, AlertCircle, Smartphone,
   Monitor, Columns, Send, Lock, Power, Award, HelpCircle, Phone,
-  Mail, CheckSquare, DollarSign, SlidersHorizontal
+  Mail, CheckSquare, DollarSign, SlidersHorizontal, Bell, ChevronsLeft
 } from "lucide-react";
 import pondtoraLogo from "../../imports/loo-2.svg";
 import heroFarmImg from "../../assets/images/african_fish_farm_hero.jpg";
@@ -83,14 +83,16 @@ interface AppWindowShellProps {
 
 function AppWindowShell({ activeNav, activeFarmName = "Crown Fisheries", onSelectNav, children }: AppWindowShellProps) {
   const navItems = [
-    { id: "ponds", label: "Pond Management", icon: Droplets },
-    { id: "documentation", label: "Feeding Records", icon: BookOpen },
-    { id: "inventory", label: "Feed Stock", icon: Package },
-    { id: "staff", label: "Staff Management", icon: Users },
-    { id: "reports", label: "Daily Reports", icon: FileText },
-    { id: "assessments", label: "Staff Assessment", icon: ClipboardList },
     { id: "financial", label: "Financial Dashboard", icon: LayoutDashboard },
+    { id: "ponds", label: "Pond Management", icon: Droplets },
+    { id: "inventory", label: "Feed Stock", icon: Package },
+    { id: "documentation", label: "Feeding Records", icon: BookOpen },
+    { id: "reports", label: "Reports", icon: FileText },
     { id: "invoices", label: "Invoices", icon: Receipt },
+    { id: "staff", label: "Staff", icon: Users },
+    { id: "assessments", label: "Staff Assessments", icon: ClipboardList },
+    { id: "pricing", label: "Subscription", icon: Crown },
+    { id: "settings", label: "Settings", icon: Settings },
   ];
 
   return (
@@ -110,89 +112,87 @@ function AppWindowShell({ activeNav, activeFarmName = "Crown Fisheries", onSelec
       </div>
 
       {/* Main App Frame */}
-      <div className="flex min-h-[520px] md:min-h-[580px] bg-[#f5f7fa] text-slate-800">
+      <div className="flex min-h-[540px] md:min-h-[600px] bg-[#f5f7fa] text-slate-800">
         {/* Left Sidebar (Exact Pondtora App Sidebar) */}
-        <div className="hidden lg:flex flex-col w-56 bg-slate-900 border-r border-slate-800 text-slate-300 shrink-0 select-none">
+        <div className="hidden lg:flex flex-col w-60 bg-slate-900 border-r border-slate-800 text-slate-300 shrink-0 select-none">
           {/* Header */}
-          <div className="h-14 px-4 flex items-center gap-2.5 border-b border-slate-800/80 bg-slate-950/40">
-            <img src={pondtoraLogo} alt="Pondtora" className="h-8 w-auto object-contain shrink-0" />
-            <div>
-              <p className="text-base font-bold text-white font-['Barlow_Condensed',sans-serif] leading-none tracking-wide">Pondtora</p>
+          <div className="h-16 px-4 flex items-center gap-3 border-b border-slate-800/80 bg-slate-950/50 shrink-0">
+            <img src={pondtoraLogo} alt="Pondtora" className="h-9 w-auto object-contain shrink-0" />
+            <div className="min-w-0 flex-1">
+              <p className="text-xl font-bold text-white font-['Barlow_Condensed',sans-serif] leading-none tracking-wide">Pondtora</p>
+            </div>
+            <div title="Notifications" className="relative p-1.5 rounded-lg text-slate-400 shrink-0">
+              <Bell size={16} />
+              <span className="absolute top-0.5 right-0.5 w-2 h-2 rounded-full bg-red-500" />
             </div>
           </div>
 
-          {/* Farm Switcher in Sidebar (Exact App Layout) */}
+          {/* Farm Switcher */}
           <div className="px-3 py-2.5 border-b border-slate-800/80">
-            <div className="w-full flex items-center justify-between p-2 rounded-xl bg-slate-950/40 border border-slate-800 text-left">
-              <div className="flex items-center gap-2.5 min-w-0">
-                <div className="w-2 h-2 rounded-full bg-[#00bb58] shrink-0" />
-                <div className="min-w-0">
-                  <p className="text-xs font-bold text-white truncate leading-tight font-['Barlow_Condensed',sans-serif]">{activeFarmName}</p>
-                  <p className="text-[10px] text-slate-400 truncate">Epe, Lagos State</p>
-                </div>
+            <div className="w-full flex items-center gap-2 bg-slate-800/70 border border-slate-700/60 rounded-xl px-3 py-2">
+              <div className="flex-1 min-w-0 text-left">
+                <p className="text-xs font-bold text-white truncate leading-tight font-['Barlow_Condensed',sans-serif]">{activeFarmName}</p>
+                <p className="text-[10px] text-slate-400 truncate">Epe, Lagos State</p>
               </div>
-              <ChevronDown size={13} className="text-slate-400 shrink-0" />
+              <ChevronDown size={12} className="text-slate-400 shrink-0" />
             </div>
           </div>
 
           {/* Nav Links */}
-          <div className="p-2.5 space-y-0.5 flex-1 overflow-y-auto">
+          <nav className="flex-1 py-3 px-2 overflow-y-auto space-y-0.5">
             {navItems.map((item) => {
               const Icon = item.icon;
-              const isActive = item.id === activeNav;
+              const isA = item.id === activeNav;
+              const showDivider = item.id === "pricing";
               return (
-                <button
-                  key={item.id}
-                  onClick={() => onSelectNav && onSelectNav(item.id)}
-                  className={`w-full text-left flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
-                    isActive
-                      ? "bg-[#00bb58] text-white shadow-md shadow-[#00bb58]/20 font-bold"
-                      : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/60"
-                  }`}
-                >
-                  <Icon size={15} className={isActive ? "text-white" : "text-slate-400"} />
-                  <span className="truncate">{item.label}</span>
-                </button>
+                <React.Fragment key={item.id}>
+                  {showDivider && <div className="mx-2 my-2 border-t border-slate-800" />}
+                  <button
+                    key={item.id}
+                    onClick={() => onSelectNav && onSelectNav(item.id)}
+                    className={`w-full flex items-center gap-2.5 rounded-xl text-[13px] font-medium transition-all mb-0.5 px-3 py-2.5 ${
+                      isA
+                        ? "bg-[#00BB58] text-white shadow-md shadow-[#00BB58]/20 font-semibold"
+                        : "text-slate-400 hover:text-white hover:bg-slate-800/60"
+                    }`}
+                  >
+                    <Icon size={16} className={isA ? "text-white" : "text-slate-400"} />
+                    <span className="flex-1 text-left truncate">{item.label}</span>
+                  </button>
+                </React.Fragment>
               );
             })}
+          </nav>
+
+          {/* Staff Indicators */}
+          <div className="px-3 py-2 border-t border-slate-800/80 bg-slate-950/20">
+            <div className="text-[10px] text-slate-400"><span className="font-semibold text-slate-300">Director:</span> Babatunde Adeleke</div>
+            <div className="text-[10px] text-slate-400"><span className="font-semibold text-slate-300">Farm Mgr:</span> Segun Okon</div>
           </div>
 
-          {/* User profile at bottom */}
-          <div className="p-3 border-t border-slate-800/80 flex items-center gap-2.5 bg-slate-950/30">
-            <div className="w-8 h-8 rounded-full bg-emerald-950 border border-emerald-500/30 text-emerald-400 flex items-center justify-center font-bold text-xs shrink-0">
-              BA
+          {/* Bottom user profile & collapse */}
+          <div className="border-t border-slate-800/80 bg-slate-950/40 shrink-0">
+            <div className="flex items-center gap-2.5 px-4 py-3">
+              <div className="w-8 h-8 rounded-full bg-emerald-950 border border-emerald-500/30 flex items-center justify-center text-emerald-400 text-xs font-bold shrink-0">
+                BA
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-semibold text-white truncate">Babatunde Adeleke</p>
+                <p className="text-[10px] text-slate-400 truncate capitalize">Farm Owner</p>
+              </div>
             </div>
-            <div className="min-w-0 flex-1 text-[11px]">
-              <p className="font-semibold text-white truncate">Babatunde Adeleke</p>
-              <p className="text-slate-400 text-[10px] capitalize">Farm Owner (Admin)</p>
+            <div className="px-2 pb-3 pt-1">
+              <div className="w-full flex items-center justify-center gap-2 py-2 rounded-xl text-slate-400 text-xs">
+                <ChevronsLeft size={15} />
+                <span>Collapse</span>
+              </div>
             </div>
           </div>
         </div>
 
-        {/* Center / Right Content Panel */}
-        <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-[#f5f7fa]">
-          {/* Topbar */}
-          <div className="h-12 px-4 sm:px-6 bg-white border-b border-slate-200/80 flex items-center justify-between gap-3 shrink-0">
-            <div className="flex items-center gap-2 text-xs font-semibold text-slate-700">
-              <span className="font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] text-sm">{activeFarmName}</span>
-              <span className="text-slate-300">/</span>
-              <span className="text-slate-500 text-xs">Epe Station</span>
-            </div>
-
-            <div className="flex items-center gap-2.5 text-xs">
-              <span className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 text-slate-700 text-[11px] font-medium border border-slate-200">
-                <Calendar size={12} className="text-slate-400" /> Today, 13 Sep 2026
-              </span>
-              <span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-800 text-[11px] font-bold border border-emerald-200">
-                ₦ NGN
-              </span>
-            </div>
-          </div>
-
-          {/* Body Area */}
-          <div className="flex-1 p-4 sm:p-6 overflow-y-auto bg-[#f5f7fa]">
-            {children}
-          </div>
+        {/* Center / Right Content Panel (Direct Main Area, matching App.tsx) */}
+        <div className="flex-1 min-w-0 overflow-y-auto bg-[#f5f7fa] p-4 sm:p-6">
+          {children}
         </div>
       </div>
     </div>
@@ -207,9 +207,9 @@ interface MobilePhoneShellProps {
   children: React.ReactNode;
 }
 
-function MobilePhoneShell({ activeNav, activeFarmName = "Crown Fisheries", onSelectNav, children }: MobilePhoneShellProps) {
+function MobilePhoneShell({ activeFarmName = "Crown Fisheries", children }: MobilePhoneShellProps) {
   return (
-    <div className="relative mx-auto w-full max-w-[340px] sm:max-w-[360px] rounded-[42px] p-3 bg-slate-950 shadow-2xl border-4 border-slate-800 text-slate-800 font-['Barlow',sans-serif] select-none">
+    <div className="relative mx-auto w-full max-w-[340px] sm:max-w-[360px] rounded-[44px] p-3 bg-slate-950 shadow-2xl border-4 border-slate-800 text-slate-800 font-['Barlow',sans-serif] select-none">
       {/* Dynamic Island / Speaker Notch */}
       <div className="w-28 h-4 bg-slate-900 rounded-full mx-auto mb-2 flex items-center justify-center gap-1.5">
         <div className="w-2.5 h-2.5 rounded-full bg-slate-950 border border-slate-800" />
@@ -217,77 +217,34 @@ function MobilePhoneShell({ activeNav, activeFarmName = "Crown Fisheries", onSel
       </div>
 
       {/* Screen Area */}
-      <div className="rounded-[32px] overflow-hidden bg-[#f5f7fa] flex flex-col h-[560px] border border-slate-200/40">
-        {/* Mobile App Topbar (Exact Pondtora Mobile Header) */}
-        <div className="bg-slate-900 px-3.5 py-2.5 flex items-center justify-between border-b border-slate-800 text-white shrink-0">
+      <div className="rounded-[32px] overflow-hidden bg-[#f5f7fa] flex flex-col h-[580px] border border-slate-200/40">
+        {/* Mobile App Topbar (Exact Pondtora Mobile Header from App.tsx lines 3658-3691) */}
+        <div className="flex items-center justify-between px-3.5 py-2.5 bg-slate-900 border-b border-slate-800 shrink-0 z-20 text-white">
           <div className="flex items-center gap-2">
-            <Menu size={16} className="text-slate-400" />
-            <img src={pondtoraLogo} alt="Pondtora" className="h-6 w-auto object-contain shrink-0" />
-            <span className="text-sm font-bold tracking-wide font-['Barlow_Condensed',sans-serif]">Pondtora</span>
+            <div className="p-1 rounded-lg text-slate-300">
+              <Menu size={18} />
+            </div>
+            <div className="flex items-center gap-1.5">
+              <img src={pondtoraLogo} alt="Pondtora" className="h-6 w-auto object-contain shrink-0" />
+              <span className="text-base font-bold text-white font-['Barlow_Condensed',sans-serif] tracking-wide">Pondtora</span>
+            </div>
           </div>
-          <div className="flex items-center gap-1 text-[11px] font-semibold text-emerald-400 bg-slate-800/80 px-2 py-0.5 rounded-md border border-slate-700">
-            <span className="truncate max-w-[90px]">{activeFarmName}</span>
-            <ChevronDown size={10} />
+          <div className="flex items-center gap-1.5 text-xs text-emerald-400 font-semibold bg-slate-800 border border-slate-700/80 px-2.5 py-1 rounded-lg">
+            <span className="truncate max-w-[110px] text-slate-200">{activeFarmName}</span>
+            <ChevronDown size={11} className="text-slate-400 shrink-0" />
           </div>
         </div>
 
-        {/* Mobile Page Content Area */}
-        <div className="flex-1 overflow-y-auto p-3 space-y-3">
+        {/* Mobile Page Content Area (No bottom navbar) */}
+        <div className="flex-1 overflow-y-auto p-3.5 space-y-3.5">
           {children}
         </div>
 
-        {/* Mobile Bottom Navigation Bar (Exact Pondtora Mobile Bottom Nav) */}
-        <div className="bg-white border-t border-slate-200/90 px-2 py-1.5 flex items-center justify-around shrink-0 text-[9px] font-semibold text-slate-500">
-          <button
-            onClick={() => onSelectNav && onSelectNav("ponds")}
-            className={`flex flex-col items-center gap-0.5 py-1 px-2 rounded-lg transition-colors ${
-              activeNav === "ponds" ? "text-[#00bb58] font-bold" : "hover:text-slate-800"
-            }`}
-          >
-            <Droplets size={16} />
-            <span>Ponds</span>
-          </button>
-          <button
-            onClick={() => onSelectNav && onSelectNav("documentation")}
-            className={`flex flex-col items-center gap-0.5 py-1 px-2 rounded-lg transition-colors ${
-              activeNav === "documentation" ? "text-[#00bb58] font-bold" : "hover:text-slate-800"
-            }`}
-          >
-            <BookOpen size={16} />
-            <span>Feeding</span>
-          </button>
-          <button
-            onClick={() => onSelectNav && onSelectNav("inventory")}
-            className={`flex flex-col items-center gap-0.5 py-1 px-2 rounded-lg transition-colors ${
-              activeNav === "inventory" ? "text-[#00bb58] font-bold" : "hover:text-slate-800"
-            }`}
-          >
-            <Package size={16} />
-            <span>Stock</span>
-          </button>
-          <button
-            onClick={() => onSelectNav && onSelectNav("reports")}
-            className={`flex flex-col items-center gap-0.5 py-1 px-2 rounded-lg transition-colors ${
-              activeNav === "reports" ? "text-[#00bb58] font-bold" : "hover:text-slate-800"
-            }`}
-          >
-            <FileText size={16} />
-            <span>Reports</span>
-          </button>
-          <button
-            onClick={() => onSelectNav && onSelectNav("staff")}
-            className={`flex flex-col items-center gap-0.5 py-1 px-2 rounded-lg transition-colors ${
-              activeNav === "staff" ? "text-[#00bb58] font-bold" : "hover:text-slate-800"
-            }`}
-          >
-            <Users size={16} />
-            <span>Staff</span>
-          </button>
+        {/* Home Gesture Bar */}
+        <div className="py-2.5 flex justify-center bg-[#f5f7fa] shrink-0 border-t border-slate-200/40">
+          <div className="w-24 h-1 bg-slate-400/60 rounded-full" />
         </div>
       </div>
-
-      {/* Home Gesture Bar */}
-      <div className="w-28 h-1 bg-slate-700 rounded-full mx-auto mt-2" />
     </div>
   );
 }
@@ -299,15 +256,16 @@ function MobilePhoneShell({ activeNav, activeFarmName = "Crown Fisheries", onSel
 /* 1. Pond Management Preview */
 function renderPondManagementShowcase() {
   const ponds = [
-    { id: 1, name: "Pond 01", type: "Concrete", species: "Catfish", count: 8500, status: "Active", date: "12 May 2026", cat: "Nursery" },
-    { id: 2, name: "Pond 02", type: "Earthen", species: "Catfish", count: 14200, status: "Active", date: "18 Apr 2026", cat: "Production" },
-    { id: 3, name: "Pond 03", type: "Tarpaulin", species: "Catfish", count: 4200, status: "Active", date: "02 Jun 2026", cat: "Production" },
-    { id: 4, name: "Pond 04", type: "Earthen", species: "Tilapia", count: 9600, status: "Active", date: "10 May 2026", cat: "Production" },
-    { id: 5, name: "Pond 05", type: "Concrete", species: "Catfish", count: 12000, status: "Active", date: "24 Jun 2026", cat: "Production" },
+    { id: 1, name: "Pond 01", type: "Concrete", species: "Catfish", count: 8500, status: "Active", date: "12 May 2026", cat: "Nursery", mort: "0.8%", size: "2,400" },
+    { id: 2, name: "Pond 02", type: "Earthen", species: "Catfish", count: 14200, status: "Active", date: "18 Apr 2026", cat: "Production", mort: "1.2%", size: "4,200" },
+    { id: 3, name: "Pond 03", type: "Tarpaulin", species: "Catfish", count: 4200, status: "Active", date: "02 Jun 2026", cat: "Production", mort: "0.5%", size: "1,800" },
+    { id: 4, name: "Pond 04", type: "Earthen", species: "Tilapia", count: 9600, status: "Active", date: "10 May 2026", cat: "Production", mort: "1.0%", size: "3,600" },
+    { id: 5, name: "Pond 05", type: "Concrete", species: "Catfish", count: 12000, status: "Active", date: "24 Jun 2026", cat: "Production", mort: "0.9%", size: "2,800" },
   ];
 
   const desktopContent = (
     <div className="space-y-4 text-slate-800 font-['Barlow',sans-serif]">
+      {/* Header matching PondManagementPage.tsx */}
       <div className="flex flex-wrap items-center justify-between gap-3 bg-[#f5f7fa] pb-1">
         <div>
           <h1 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] tracking-wide">Pond Management</h1>
@@ -323,18 +281,19 @@ function renderPondManagementShowcase() {
         </div>
       </div>
 
+      {/* Stat Cards */}
       <div className="grid grid-cols-3 gap-3">
         <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-2xs flex items-center justify-between">
           <div>
             <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Total Ponds</p>
-            <p className="text-2xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] mt-0.5">8</p>
+            <p className="text-2xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] mt-0.5">5</p>
           </div>
           <div className="w-9 h-9 rounded-xl bg-slate-100 flex items-center justify-center text-slate-500"><Droplets size={18} /></div>
         </div>
         <div className="bg-emerald-50/70 border border-emerald-300 rounded-xl p-3.5 shadow-2xs flex items-center justify-between">
           <div>
             <p className="text-[11px] font-bold text-emerald-800 uppercase tracking-wider">Active</p>
-            <p className="text-2xl font-bold text-emerald-800 font-['Barlow_Condensed',sans-serif] mt-0.5">7</p>
+            <p className="text-2xl font-bold text-emerald-800 font-['Barlow_Condensed',sans-serif] mt-0.5">5</p>
           </div>
           <div className="w-9 h-9 rounded-xl bg-emerald-100 flex items-center justify-center text-emerald-700"><CheckCircle size={18} /></div>
         </div>
@@ -347,6 +306,7 @@ function renderPondManagementShowcase() {
         </div>
       </div>
 
+      {/* Filters */}
       <div className="flex flex-wrap gap-2 items-center">
         <div className="relative">
           <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -364,10 +324,11 @@ function renderPondManagementShowcase() {
         </div>
       </div>
 
+      {/* Table Card */}
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-2xs">
         <div className="px-4 py-3 border-b border-slate-100">
           <p className="text-xs font-bold uppercase tracking-wider text-slate-700">List of Ponds</p>
-          <p className="text-[11px] text-slate-500 mt-0.5">Open any pond to view fish stock, manage feeding, record mortality, and track transfers.</p>
+          <p className="text-[11px] text-slate-500 mt-0.5">After creating a pond, open it to add Fish Stock, manage feeding records, transfer fish, and view all activities related to that pond.</p>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-xs text-left">
@@ -378,7 +339,7 @@ function renderPondManagementShowcase() {
                 <th className="py-2.5 px-3">Type</th>
                 <th className="py-2.5 px-3">Species</th>
                 <th className="py-2.5 px-3">Fish Count</th>
-                <th className="py-2.5 px-3">Stocking Date</th>
+                <th className="py-2.5 px-3">Category</th>
                 <th className="py-2.5 px-3">Status</th>
                 <th className="py-2.5 px-3 text-right">Actions</th>
               </tr>
@@ -387,51 +348,63 @@ function renderPondManagementShowcase() {
               {ponds.map((p, idx) => (
                 <tr key={p.id} className="hover:bg-slate-50/80 transition-colors">
                   <td className="py-2.5 px-3 text-slate-400 font-mono">{idx + 1}</td>
-                  <td className="py-2.5 px-3 font-bold text-slate-900 flex items-center gap-1.5">
-                    {p.name}
-                    <span className="text-[10px] font-normal text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">{p.cat}</span>
+                  <td className="py-2.5 px-3">
+                    <p className="font-bold text-slate-900">{p.name}</p>
+                    <p className="text-[10px] text-slate-400">{p.size} ft²</p>
                   </td>
                   <td className="py-2.5 px-3 text-slate-600">{p.type}</td>
                   <td className="py-2.5 px-3 text-slate-700 font-medium">{p.species}</td>
-                  <td className="py-2.5 px-3 font-bold text-emerald-700 font-['Barlow_Condensed',sans-serif] text-sm">{p.count.toLocaleString()}</td>
-                  <td className="py-2.5 px-3 text-slate-500">{p.date}</td>
                   <td className="py-2.5 px-3">
-                    <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full">
+                    <p className="font-bold text-slate-900">{p.count.toLocaleString()}</p>
+                    <p className="text-[10px] text-slate-400">Mort: {p.mort}</p>
+                  </td>
+                  <td className="py-2.5 px-3">
+                    <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${p.cat === "Nursery" ? "bg-purple-100 text-purple-800" : "bg-teal-100 text-teal-800"}`}>
+                      {p.cat}
+                    </span>
+                  </td>
+                  <td className="py-2.5 px-3">
+                    <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full">
                       <span className="w-1.5 h-1.5 rounded-full bg-emerald-600" /> {p.status}
                     </span>
                   </td>
                   <td className="py-2.5 px-3 text-right">
-                    <button className="text-emerald-700 font-bold hover:text-emerald-800 text-xs">View →</button>
+                    <button className="text-emerald-700 font-bold hover:text-emerald-800 text-xs inline-flex items-center gap-1">
+                      <Eye size={12} /> View
+                    </button>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+        <div className="px-4 py-2.5 bg-slate-50 border-t border-slate-100 text-[11px] text-slate-500">
+          <span className="font-semibold text-slate-700">Tip:</span> Open any pond to add Fish Stock, manage feeding records, and view the Fish Stock currently assigned to that pond.
+        </div>
       </div>
     </div>
   );
 
   const mobileContent = (
-    <div className="space-y-3 text-slate-800 text-xs">
+    <div className="space-y-3 text-slate-800 text-xs font-['Barlow',sans-serif]">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-base font-bold font-['Barlow_Condensed',sans-serif] text-slate-900">Pond Management</h2>
-          <p className="text-[10px] text-slate-500">8 Ponds · 48,500 Total Fish</p>
+          <p className="text-[10px] text-slate-500">5 Ponds · 48,500 Total Fish</p>
         </div>
         <button className="px-2.5 py-1 rounded-lg bg-[#00bb58] text-white font-bold text-[11px]">
-          + Add
+          + Add Pond
         </button>
       </div>
 
       <div className="grid grid-cols-3 gap-2">
         <div className="bg-white p-2 rounded-xl border border-slate-200 text-center">
           <p className="text-[9px] text-slate-400 font-bold uppercase">Total</p>
-          <p className="text-base font-bold text-slate-900">8</p>
+          <p className="text-base font-bold text-slate-900">5</p>
         </div>
         <div className="bg-emerald-50 p-2 rounded-xl border border-emerald-200 text-center">
           <p className="text-[9px] text-emerald-700 font-bold uppercase">Active</p>
-          <p className="text-base font-bold text-emerald-700">7</p>
+          <p className="text-base font-bold text-emerald-700">5</p>
         </div>
         <div className="bg-white p-2 rounded-xl border border-slate-200 text-center">
           <p className="text-[9px] text-slate-400 font-bold uppercase">Fish</p>
@@ -440,21 +413,26 @@ function renderPondManagementShowcase() {
       </div>
 
       <div className="space-y-2">
-        {ponds.slice(0, 3).map((p) => (
-          <div key={p.id} className="bg-white p-3 rounded-xl border border-slate-200 space-y-2">
-            <div className="flex items-center justify-between">
-              <div>
+        {ponds.map((p) => (
+          <div key={p.id} className="bg-white p-3 rounded-xl border border-slate-200 flex items-center justify-between shadow-2xs hover:border-emerald-400 transition-colors">
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-1.5 flex-wrap">
                 <p className="font-bold text-slate-900 text-xs">{p.name}</p>
-                <p className="text-[10px] text-slate-500">{p.type} · {p.cat}</p>
+                <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded ${p.cat === "Nursery" ? "bg-purple-100 text-purple-800" : "bg-teal-100 text-teal-800"}`}>
+                  {p.cat}
+                </span>
+                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800">
+                  Active
+                </span>
               </div>
-              <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md">
-                Active
-              </span>
+              <p className="text-[11px] text-slate-600 mt-1 font-semibold">
+                {p.count.toLocaleString()} fish <span className="text-slate-400 font-normal">· {p.type}</span>
+              </p>
+              <p className="text-[10px] text-slate-400 mt-0.5">
+                {p.species} · Stocked {p.date}
+              </p>
             </div>
-            <div className="flex items-center justify-between pt-1 border-t border-slate-100 text-[11px]">
-              <span className="text-slate-500">Count: <strong className="text-slate-900">{p.count.toLocaleString()}</strong></span>
-              <span className="text-slate-500">{p.date}</span>
-            </div>
+            <ChevronRight size={16} className="text-slate-400 shrink-0 ml-2" />
           </div>
         ))}
       </div>
@@ -467,64 +445,73 @@ function renderPondManagementShowcase() {
 /* 2. Daily Feeding & Pallet Limits Preview */
 function renderFeedingDocumentationShowcase() {
   const feedingRows = [
-    { id: 1, pond: "Pond 01", stock: "Catfish (Nursery)", count: 8500, brand: "Coppens", size: "1.5 mm", morning: 4.5, amTime: "08:15 AM", evening: 4.5, pmTime: "05:30 PM", total: 9.0, by: "Ibrahim Musa", status: "OK" },
-    { id: 2, pond: "Pond 02", stock: "Catfish (Batch A)", count: 14200, brand: "Durante", size: "4.0 mm", morning: 18.0, amTime: "08:30 AM", evening: 18.0, pmTime: "05:45 PM", total: 36.0, by: "Emmanuel Okafor", status: "OK" },
-    { id: 3, pond: "Pond 03", stock: "Catfish (Batch B)", count: 4200, brand: "Aller Aqua", size: "2.0 mm", morning: 6.0, amTime: "08:45 AM", evening: 6.0, pmTime: "06:00 PM", total: 12.0, by: "Emmanuel Okafor", status: "Pallet Alert" },
-    { id: 4, pond: "Pond 04", stock: "Tilapia (Batch C)", count: 9600, brand: "Vital Feed", size: "3.0 mm", morning: 10.0, amTime: "09:00 AM", evening: 10.0, pmTime: "06:15 PM", total: 20.0, by: "Blessing Adeyemi", status: "OK" },
+    { id: 1, pond: "Pond 01", stock: "Catfish (Nursery)", count: 8500, brand: "Coppens", size: "1.5 mm", morning: 4.5, evening: 4.5, total: 9.0, by: "Ibrahim Musa", status: "Normal" },
+    { id: 2, pond: "Pond 02", stock: "Catfish (Batch A)", count: 14200, brand: "Durante", size: "4.0 mm", morning: 18.0, evening: 18.0, total: 36.0, by: "Emmanuel Okafor", status: "Normal" },
+    { id: 3, pond: "Pond 03", stock: "Catfish (Batch B)", count: 4200, brand: "Aller Aqua", size: "2.0 mm", morning: 6.0, evening: 6.0, total: 12.0, by: "Emmanuel Okafor", status: "Pallet Alert" },
+    { id: 4, pond: "Pond 04", stock: "Tilapia (Batch C)", count: 9600, brand: "Vital Feed", size: "3.0 mm", morning: 10.0, evening: 10.0, total: 20.0, by: "Blessing Adeyemi", status: "Normal" },
   ];
 
   const desktopContent = (
     <div className="space-y-4 text-slate-800 font-['Barlow',sans-serif]">
+      {/* Header matching FeedDocumentationPage.tsx */}
       <div className="flex flex-wrap items-center justify-between gap-3 bg-[#f5f7fa] pb-1">
         <div>
           <h1 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] tracking-wide">Feeding Records</h1>
-          <p className="text-xs text-slate-500 mt-0.5">Record morning and evening feeding amounts (kg) and monitor pallet limit warnings.</p>
+          <p className="text-xs text-slate-500 mt-0.5">Log daily pond feeding, track opened feed bags, and reconcile feed usage against stock.</p>
         </div>
         <div className="flex gap-2">
-          <button className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-slate-700 text-xs font-semibold shadow-2xs">
-            <Package size={13} className="text-blue-600" /> Log Opened Bags
-          </button>
           <button className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#00bb58] text-white text-xs font-bold shadow-xs">
-            <Plus size={13} /> Bulk Log Feed
+            <Plus size={13} /> Log Feeding
+          </button>
+          <button className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-slate-700 text-xs font-semibold shadow-2xs">
+            <Package size={13} className="text-slate-500" /> Log Opened Bags
+          </button>
+          <button className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-slate-700 text-xs font-semibold shadow-2xs">
+            <Droplets size={13} className="text-slate-500" /> Log Remaining Feed
           </button>
         </div>
       </div>
 
+      {/* Feeding Alert */}
+      <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+        <div className="w-6 h-6 rounded-full bg-amber-200 flex items-center justify-center shrink-0 mt-0.5">
+          <span className="text-amber-800 font-bold text-xs">!</span>
+        </div>
+        <div>
+          <p className="text-xs font-bold text-amber-800">Feeding Alert — 2 ponds not yet fed today</p>
+          <p className="text-xs text-amber-700 mt-0.5">Pond 03, Pond 05 have not been fed today.</p>
+        </div>
+      </div>
+
+      {/* 4 Stat Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-2xs">
           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total Ponds</p>
-          <p className="text-2xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] mt-0.5">8</p>
-          <p className="text-[10px] text-slate-400">active ponds</p>
+          <p className="text-2xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] mt-0.5">5</p>
+          <p className="text-[10px] text-slate-400">active</p>
         </div>
         <div className="bg-emerald-50/70 border border-emerald-300 rounded-xl p-3 shadow-2xs">
           <p className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider">Ponds Fed</p>
-          <p className="text-2xl font-bold text-emerald-800 font-['Barlow_Condensed',sans-serif] mt-0.5">6</p>
+          <p className="text-2xl font-bold text-emerald-800 font-['Barlow_Condensed',sans-serif] mt-0.5">3</p>
           <p className="text-[10px] text-emerald-600 font-medium">today</p>
         </div>
         <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-2xs">
-          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Remaining</p>
+          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Ponds Remaining</p>
           <p className="text-2xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] mt-0.5">2</p>
           <p className="text-[10px] text-slate-400">not yet fed</p>
         </div>
-        <div className="bg-blue-50/70 border border-blue-300 rounded-xl p-3 shadow-2xs">
-          <p className="text-[10px] font-bold text-blue-800 uppercase tracking-wider">Bags Opened</p>
-          <p className="text-2xl font-bold text-blue-800 font-['Barlow_Condensed',sans-serif] mt-0.5">5</p>
-          <p className="text-[10px] text-blue-600 font-medium">reconciled</p>
+        <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-2xs">
+          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Bags Opened</p>
+          <p className="text-2xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] mt-0.5">4</p>
+          <p className="text-[10px] text-slate-400">today</p>
         </div>
       </div>
 
-      {/* Quick bar for opened bags */}
-      <div className="bg-blue-50/80 border border-blue-200 rounded-xl px-4 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="font-bold text-blue-900 flex items-center gap-1.5"><Package size={13} className="text-blue-600" /> Opened Bags Today:</span>
-          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-white border border-blue-200 text-blue-800 font-medium text-[11px]">
-            Coppens 2.0mm (Catfish Nursery): <strong>2 bags</strong>
-          </span>
-          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md bg-white border border-blue-200 text-blue-800 font-medium text-[11px]">
-            Durante 4.0mm (General Stock): <strong>3 bags</strong>
-          </span>
-        </div>
-        <span className="text-blue-700 font-bold text-[11px]">Reconciled with Store ✓</span>
+      {/* Tabs */}
+      <div className="flex gap-1 bg-slate-100 p-1 rounded-xl w-fit text-xs font-semibold">
+        <span className="px-4 py-1.5 bg-white text-emerald-800 rounded-lg shadow-2xs font-bold">Daily Feed</span>
+        <span className="px-4 py-1.5 text-slate-500">Opened Bags</span>
+        <span className="px-4 py-1.5 text-slate-500">Reconciliation</span>
       </div>
 
       {/* Daily Feeding Table */}
@@ -535,7 +522,7 @@ function renderFeedingDocumentationShowcase() {
             <p className="text-[11px] text-slate-500 mt-0.5">Morning and evening feeding breakdown per pond.</p>
           </div>
           <span className="text-xs font-bold text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200">
-            Total Today: 77.0 kg
+            Total Fed: 77.0 kg
           </span>
         </div>
         <div className="overflow-x-auto">
@@ -549,8 +536,8 @@ function renderFeedingDocumentationShowcase() {
                 <th className="py-2.5 px-3">Morning (kg)</th>
                 <th className="py-2.5 px-3">Evening (kg)</th>
                 <th className="py-2.5 px-3">Total (kg)</th>
-                <th className="py-2.5 px-3">Recorded By</th>
                 <th className="py-2.5 px-3">Pallet Status</th>
+                <th className="py-2.5 px-3 text-right">Recorded By</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -559,7 +546,7 @@ function renderFeedingDocumentationShowcase() {
                   <td className="py-2.5 px-3 text-slate-400 font-mono">{idx + 1}</td>
                   <td className="py-2.5 px-3 font-bold text-slate-900">{r.pond}</td>
                   <td className="py-2.5 px-3 text-slate-700">
-                    <p>{r.stock}</p>
+                    <p className="font-semibold">{r.stock}</p>
                     <p className="text-[10px] text-slate-400">{r.count.toLocaleString()} fish</p>
                   </td>
                   <td className="py-2.5 px-3 font-medium text-slate-800">
@@ -568,11 +555,10 @@ function renderFeedingDocumentationShowcase() {
                   <td className="py-2.5 px-3 text-slate-800 font-semibold">{r.morning} kg</td>
                   <td className="py-2.5 px-3 text-slate-800 font-semibold">{r.evening} kg</td>
                   <td className="py-2.5 px-3 font-bold text-emerald-700 font-['Barlow_Condensed',sans-serif] text-sm">{r.total} kg</td>
-                  <td className="py-2.5 px-3 text-slate-600">{r.by}</td>
                   <td className="py-2.5 px-3">
                     {r.status === "Pallet Alert" ? (
                       <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded-full">
-                        <AlertTriangle size={11} className="text-amber-700" /> Max Kg Reached (150kg)
+                        <AlertTriangle size={11} className="text-amber-700" /> Max Kg Reached
                       </span>
                     ) : (
                       <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full">
@@ -580,6 +566,7 @@ function renderFeedingDocumentationShowcase() {
                       </span>
                     )}
                   </td>
+                  <td className="py-2.5 px-3 text-right text-slate-600">{r.by}</td>
                 </tr>
               ))}
             </tbody>
@@ -590,25 +577,35 @@ function renderFeedingDocumentationShowcase() {
   );
 
   const mobileContent = (
-    <div className="space-y-3 text-slate-800 text-xs">
+    <div className="space-y-3 text-slate-800 text-xs font-['Barlow',sans-serif]">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-base font-bold font-['Barlow_Condensed',sans-serif] text-slate-900">Feeding Records</h2>
-          <p className="text-[10px] text-slate-500">6 of 8 Ponds Fed Today</p>
+          <p className="text-[10px] text-slate-500">3 of 5 Ponds Fed Today</p>
         </div>
         <button className="px-2.5 py-1 rounded-lg bg-[#00bb58] text-white font-bold text-[11px]">
           + Log Feed
         </button>
       </div>
 
-      <div className="bg-blue-50 p-2.5 rounded-xl border border-blue-200 flex items-center justify-between text-[11px]">
-        <span className="text-blue-900 font-bold flex items-center gap-1"><Package size={12} /> Bags Opened Today:</span>
-        <strong className="text-blue-700">5 Bags</strong>
+      <div className="bg-amber-50 p-2.5 rounded-xl border border-amber-200 text-amber-900 text-[11px] font-semibold">
+        Feeding Alert: 2 ponds not yet fed today
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        <div className="bg-white p-2 rounded-xl border border-slate-200">
+          <p className="text-[9px] text-slate-400 uppercase font-bold">Fed Today</p>
+          <p className="text-base font-bold text-emerald-700">3 Ponds</p>
+        </div>
+        <div className="bg-white p-2 rounded-xl border border-slate-200">
+          <p className="text-[9px] text-slate-400 uppercase font-bold">Bags Opened</p>
+          <p className="text-base font-bold text-slate-900">4 Bags</p>
+        </div>
       </div>
 
       <div className="space-y-2">
         {feedingRows.slice(0, 3).map((r) => (
-          <div key={r.id} className="bg-white p-3 rounded-xl border border-slate-200 space-y-1.5">
+          <div key={r.id} className="bg-white p-3 rounded-xl border border-slate-200 space-y-1.5 shadow-2xs">
             <div className="flex items-center justify-between">
               <span className="font-bold text-slate-900">{r.pond}</span>
               <span className="text-[10px] bg-slate-100 text-slate-700 px-2 py-0.5 rounded font-mono">{r.brand} {r.size}</span>
@@ -619,7 +616,7 @@ function renderFeedingDocumentationShowcase() {
             </div>
             <div className="flex items-center justify-between pt-1 border-t border-slate-100 text-[11px]">
               <span className="text-emerald-700 font-bold">Total: {r.total} kg</span>
-              <span className="text-slate-400">{r.by.split(" ")[0]}</span>
+              <span className="text-slate-500">{r.by.split(" ")[0]}</span>
             </div>
           </div>
         ))}
@@ -641,50 +638,50 @@ function renderFeedStockInventoryShowcase() {
 
   const desktopContent = (
     <div className="space-y-4 text-slate-800 font-['Barlow',sans-serif]">
+      {/* Header matching FeedInventoryPage.tsx */}
       <div className="flex flex-wrap items-center justify-between gap-3 bg-[#f5f7fa] pb-1">
         <div>
           <h1 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] tracking-wide">Feed Stock</h1>
-          <p className="text-xs text-slate-500 mt-0.5">Manage purchased feed stock, track daily bags opened, and view warehouse balance.</p>
+          <p className="text-xs text-slate-500 mt-0.5">Manage purchased feed stock, track daily bags opened, and view usage.</p>
         </div>
         <div className="flex gap-2">
           <button className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-slate-700 text-xs font-semibold shadow-2xs">
             <Layers size={13} className="text-slate-500" /> Feed Requirement Calculator
           </button>
           <button className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#00bb58] text-white text-xs font-bold shadow-xs">
-            <Plus size={13} /> Buy Feed
+            <Plus size={13} /> Add Purchased Feed
           </button>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-2xs">
-          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total Bags in Stock</p>
-          <p className="text-2xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] mt-0.5">142</p>
-          <p className="text-[10px] text-slate-400">across 4 brands</p>
+      {/* 2 Stat Cards matching FeedInventoryPage.tsx */}
+      <div className="grid grid-cols-2 gap-3">
+        <div className="bg-emerald-50/70 border border-emerald-300 rounded-xl p-3.5 shadow-2xs flex items-center justify-between">
+          <div>
+            <p className="text-[11px] font-bold text-emerald-800 uppercase tracking-wider">Total Bags</p>
+            <p className="text-2xl font-bold text-emerald-800 font-['Barlow_Condensed',sans-serif] mt-0.5">142</p>
+            <p className="text-[10px] text-emerald-700 font-medium">18 opened · 160 purchased</p>
+          </div>
+          <div className="w-9 h-9 rounded-xl bg-emerald-100 flex items-center justify-center text-emerald-700"><Package size={18} /></div>
         </div>
-        <div className="bg-emerald-50/70 border border-emerald-300 rounded-xl p-3 shadow-2xs">
-          <p className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider">Total Kg in Stock</p>
-          <p className="text-2xl font-bold text-emerald-800 font-['Barlow_Condensed',sans-serif] mt-0.5">2,130 kg</p>
-          <p className="text-[10px] text-emerald-600 font-medium">available biomass feed</p>
-        </div>
-        <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-2xs">
-          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Feed Value (Cost)</p>
-          <p className="text-2xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] mt-0.5">₦4,850,000</p>
-          <p className="text-[10px] text-slate-400">current warehouse value</p>
-        </div>
-        <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-2xs">
-          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Bags Opened</p>
-          <p className="text-2xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] mt-0.5">38</p>
-          <p className="text-[10px] text-slate-400">this cycle</p>
+        <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-2xs flex items-center justify-between">
+          <div>
+            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Total Kg</p>
+            <p className="text-2xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] mt-0.5">2,130kg</p>
+            <p className="text-[10px] text-slate-400">in stock</p>
+          </div>
+          <div className="w-9 h-9 rounded-xl bg-slate-100 flex items-center justify-center text-slate-500"><Layers size={18} /></div>
         </div>
       </div>
 
+      {/* Tabs */}
       <div className="flex gap-1 bg-slate-100 p-1 rounded-xl w-fit text-xs font-semibold">
-        <span className="px-3 py-1 bg-white text-emerald-800 rounded-lg shadow-2xs font-bold">Active Stock</span>
-        <span className="px-3 py-1 text-slate-500">Daily Bags Opened</span>
-        <span className="px-3 py-1 text-slate-500">Purchase History</span>
+        <span className="px-4 py-1.5 bg-white text-slate-900 rounded-lg shadow-2xs font-bold">Stock</span>
+        <span className="px-4 py-1.5 text-slate-500">Daily Bags Opened</span>
+        <span className="px-4 py-1.5 text-slate-500">Purchase History</span>
       </div>
 
+      {/* Table Card */}
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-2xs">
         <div className="overflow-x-auto">
           <table className="w-full text-xs text-left">
@@ -692,13 +689,12 @@ function renderFeedStockInventoryShowcase() {
               <tr>
                 <th className="py-2.5 px-3 w-8">#</th>
                 <th className="py-2.5 px-3">Brand</th>
-                <th className="py-2.5 px-3">Pallet Size</th>
+                <th className="py-2.5 px-3">Pellet Size</th>
                 <th className="py-2.5 px-3">Bags in Stock</th>
                 <th className="py-2.5 px-3">Weight / Bag</th>
                 <th className="py-2.5 px-3">Total Weight</th>
-                <th className="py-2.5 px-3">Supplier</th>
                 <th className="py-2.5 px-3">Cost / Bag</th>
-                <th className="py-2.5 px-3">Status</th>
+                <th className="py-2.5 px-3 text-right">Status</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -710,9 +706,8 @@ function renderFeedStockInventoryShowcase() {
                   <td className="py-2.5 px-3 font-bold text-slate-900">{item.bags} bags</td>
                   <td className="py-2.5 px-3 text-slate-600">{item.wpb} kg</td>
                   <td className="py-2.5 px-3 font-bold text-emerald-700 font-['Barlow_Condensed',sans-serif] text-sm">{item.totalKg} kg</td>
-                  <td className="py-2.5 px-3 text-slate-600">{item.supplier}</td>
                   <td className="py-2.5 px-3 text-slate-800 font-semibold">₦{item.cost.toLocaleString()}</td>
-                  <td className="py-2.5 px-3">
+                  <td className="py-2.5 px-3 text-right">
                     <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full">
                       In Stock
                     </span>
@@ -727,7 +722,7 @@ function renderFeedStockInventoryShowcase() {
   );
 
   const mobileContent = (
-    <div className="space-y-3 text-slate-800 text-xs">
+    <div className="space-y-3 text-slate-800 text-xs font-['Barlow',sans-serif]">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-base font-bold font-['Barlow_Condensed',sans-serif] text-slate-900">Feed Stock</h2>
@@ -751,7 +746,7 @@ function renderFeedStockInventoryShowcase() {
 
       <div className="space-y-2">
         {stockItems.slice(0, 3).map((item) => (
-          <div key={item.id} className="bg-white p-3 rounded-xl border border-slate-200 space-y-1.5">
+          <div key={item.id} className="bg-white p-3 rounded-xl border border-slate-200 space-y-1.5 shadow-2xs">
             <div className="flex items-center justify-between">
               <span className="font-bold text-slate-900">{item.brand} ({item.size})</span>
               <span className="font-bold text-emerald-700">{item.bags} bags</span>
@@ -780,6 +775,7 @@ function renderStaffManagementShowcase() {
 
   const desktopContent = (
     <div className="space-y-4 text-slate-800 font-['Barlow',sans-serif]">
+      {/* Header matching StaffPage in App.tsx */}
       <div className="flex flex-wrap items-center justify-between gap-3 bg-[#f5f7fa] pb-1">
         <div>
           <h1 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] tracking-wide">Staff</h1>
@@ -790,6 +786,7 @@ function renderStaffManagementShowcase() {
         </button>
       </div>
 
+      {/* 3 Stat Cards matching App.tsx */}
       <div className="grid grid-cols-3 gap-3">
         <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-2xs">
           <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Total Staff</p>
@@ -805,23 +802,30 @@ function renderStaffManagementShowcase() {
         </div>
       </div>
 
+      {/* Staff List Cards matching App.tsx lines 825-867 */}
       <div className="space-y-2.5">
         {staffList.map((s) => (
-          <div key={s.id} className="bg-white p-4 rounded-xl border border-slate-200 flex items-start gap-3 shadow-2xs">
+          <div key={s.id} className="bg-white p-4 rounded-xl border border-slate-200 flex items-start gap-3 shadow-2xs hover:border-emerald-300 transition-colors">
             <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm shrink-0 ${s.color}`}>
               {s.name.split(" ").map(w => w[0]).join("")}
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <p className="font-bold text-slate-900 text-sm">{s.name}</p>
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${s.status === "Active" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>
+                    {s.status}
+                  </span>
                   <span className="text-[10px] font-semibold bg-slate-100 text-slate-700 px-2 py-0.5 rounded-md">{s.role}</span>
                 </div>
-                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${s.status === "Active" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>
-                  {s.status}
-                </span>
+                <div className="flex items-center gap-1.5">
+                  {s.status === "Pending" && (
+                    <span className="text-xs font-semibold text-blue-600 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-lg">Copy Link</span>
+                  )}
+                  <span className="text-xs font-semibold text-slate-500 border border-slate-200 px-2 py-0.5 rounded-lg">Edit</span>
+                </div>
               </div>
-              <p className="text-xs text-slate-500 mt-0.5">{s.phone} · {s.email}</p>
+              <p className="text-xs text-slate-500 mt-1">{s.email} · {s.phone}</p>
               <div className="flex flex-wrap gap-1 mt-2">
                 {s.perms.map(p => (
                   <span key={p} className="text-[10px] font-medium bg-slate-50 border border-slate-200 text-slate-600 px-2 py-0.5 rounded">
@@ -837,7 +841,7 @@ function renderStaffManagementShowcase() {
   );
 
   const mobileContent = (
-    <div className="space-y-3 text-slate-800 text-xs">
+    <div className="space-y-3 text-slate-800 text-xs font-['Barlow',sans-serif]">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-base font-bold font-['Barlow_Condensed',sans-serif] text-slate-900">Staff</h2>
@@ -850,7 +854,7 @@ function renderStaffManagementShowcase() {
 
       <div className="space-y-2">
         {staffList.slice(0, 3).map((s) => (
-          <div key={s.id} className="bg-white p-3 rounded-xl border border-slate-200 flex items-center gap-2.5">
+          <div key={s.id} className="bg-white p-3 rounded-xl border border-slate-200 flex items-center gap-2.5 shadow-2xs">
             <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs shrink-0 ${s.color}`}>
               {s.name.split(" ").map(w => w[0]).join("")}
             </div>
@@ -874,16 +878,18 @@ function renderStaffManagementShowcase() {
 function renderDailyReportsShowcase() {
   const desktopContent = (
     <div className="space-y-4 text-slate-800 font-['Barlow',sans-serif]">
+      {/* Header matching ReportsPage in App.tsx */}
       <div className="flex flex-wrap items-center justify-between gap-3 bg-[#f5f7fa] pb-1">
         <div>
-          <h1 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] tracking-wide">Daily Reports</h1>
-          <p className="text-xs text-slate-500 mt-0.5">Submit and review daily farm handover reports and security checklists.</p>
+          <h1 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] tracking-wide">Reports</h1>
+          <p className="text-xs text-slate-500 mt-0.5">Farm operational reports — daily checklists, weekly summaries, and monthly reviews.</p>
         </div>
         <button className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#00bb58] text-white text-xs font-bold shadow-xs">
-          <Plus size={13} /> Submit Daily Report
+          <Plus size={13} /> New Report
         </button>
       </div>
 
+      {/* Filter tabs */}
       <div className="flex gap-1 bg-slate-100 p-1 rounded-xl w-fit text-xs font-semibold">
         <span className="px-3 py-1 text-slate-500">All</span>
         <span className="px-3 py-1 bg-white text-emerald-800 rounded-lg shadow-2xs font-bold">Daily (Checklists)</span>
@@ -891,14 +897,14 @@ function renderDailyReportsShowcase() {
         <span className="px-3 py-1 text-slate-500">Monthly</span>
       </div>
 
-      {/* Daily Handover Report Card */}
+      {/* Daily Handover Report Card matching real app checklist pairs */}
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-2xs p-5 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
           <div>
             <h3 className="font-bold text-slate-900 text-base font-['Barlow_Condensed',sans-serif]">
               Evening Handover & Pond Security Inspection
             </h3>
-            <p className="text-xs text-slate-500 mt-0.5">Author: <strong>Emmanuel Okafor</strong> · Today, 6:15 PM</p>
+            <p className="text-xs text-slate-500 mt-0.5">Author: <strong>Emmanuel Okafor (Farm Manager)</strong> · Today, 6:15 PM</p>
           </div>
           <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-800 bg-emerald-100 px-2.5 py-1 rounded-full">
             <CheckCircle size={12} className="text-emerald-700" /> Verified by Admin
@@ -910,7 +916,7 @@ function renderDailyReportsShowcase() {
             <CheckCircle size={15} className="text-emerald-600 shrink-0 mt-0.5" />
             <div>
               <p className="font-bold text-slate-900">Fed fish today?</p>
-              <p className="text-slate-600 text-[11px]">Yes — Morning & evening sessions completed on all 8 ponds.</p>
+              <p className="text-slate-600 text-[11px]">Yes — Morning & evening sessions completed on all ponds.</p>
             </div>
           </div>
           <div className="flex items-start gap-2.5 p-3 rounded-lg bg-slate-50 border border-slate-200/80">
@@ -931,7 +937,7 @@ function renderDailyReportsShowcase() {
             <CheckCircle size={15} className="text-emerald-600 shrink-0 mt-0.5" />
             <div>
               <p className="font-bold text-slate-900">Equipment properly stored?</p>
-              <p className="text-slate-600 text-[11px]">Yes — Scoop nets, buckets, and weighing scales stored in room.</p>
+              <p className="text-slate-600 text-[11px]">Yes — Scoop nets, buckets, and weighing scales stored in tool room.</p>
             </div>
           </div>
         </div>
@@ -945,7 +951,7 @@ function renderDailyReportsShowcase() {
   );
 
   const mobileContent = (
-    <div className="space-y-3 text-slate-800 text-xs">
+    <div className="space-y-3 text-slate-800 text-xs font-['Barlow',sans-serif]">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-base font-bold font-['Barlow_Condensed',sans-serif] text-slate-900">Daily Reports</h2>
@@ -956,7 +962,7 @@ function renderDailyReportsShowcase() {
         </button>
       </div>
 
-      <div className="bg-white p-3.5 rounded-xl border border-slate-200 space-y-2.5">
+      <div className="bg-white p-3.5 rounded-xl border border-slate-200 space-y-2.5 shadow-2xs">
         <div className="flex items-center justify-between">
           <div>
             <p className="font-bold text-slate-900 text-xs">Evening Handover</p>
@@ -990,6 +996,7 @@ function renderStaffAssessmentsShowcase() {
 
   const desktopContent = (
     <div className="space-y-4 text-slate-800 font-['Barlow',sans-serif]">
+      {/* Header matching EmployeeAssessmentsPage.tsx */}
       <div className="flex flex-wrap items-center justify-between gap-3 bg-[#f5f7fa] pb-1">
         <div>
           <h1 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] tracking-wide">Staff Assessments</h1>
@@ -1005,11 +1012,13 @@ function renderStaffAssessmentsShowcase() {
         </div>
       </div>
 
+      {/* Tabs */}
       <div className="flex gap-1 bg-slate-100 p-1 rounded-xl w-fit text-xs font-semibold">
         <span className="px-3 py-1 text-slate-500">Compatibility Test</span>
         <span className="px-3 py-1 bg-white text-emerald-800 rounded-lg shadow-2xs font-bold">Knowledge Test</span>
       </div>
 
+      {/* Candidate Table Card */}
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-2xs">
         <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
           <div className="relative w-64">
@@ -1061,7 +1070,7 @@ function renderStaffAssessmentsShowcase() {
   );
 
   const mobileContent = (
-    <div className="space-y-3 text-slate-800 text-xs">
+    <div className="space-y-3 text-slate-800 text-xs font-['Barlow',sans-serif]">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-base font-bold font-['Barlow_Condensed',sans-serif] text-slate-900">Staff Assessments</h2>
@@ -1074,7 +1083,7 @@ function renderStaffAssessmentsShowcase() {
 
       <div className="space-y-2">
         {candidates.map((c) => (
-          <div key={c.id} className="bg-white p-3 rounded-xl border border-slate-200 space-y-1.5">
+          <div key={c.id} className="bg-white p-3 rounded-xl border border-slate-200 space-y-1.5 shadow-2xs">
             <div className="flex items-center justify-between">
               <span className="font-bold text-slate-900">{c.name}</span>
               <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${c.color}`}>{c.rec}</span>
@@ -1096,10 +1105,11 @@ function renderStaffAssessmentsShowcase() {
 function renderFinancialDashboardShowcase() {
   const desktopContent = (
     <div className="space-y-4 text-slate-800 font-['Barlow',sans-serif]">
+      {/* Header matching FinancialDashboard in App.tsx */}
       <div className="flex flex-wrap items-center justify-between gap-3 bg-[#f5f7fa] pb-1">
         <div>
           <h1 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] tracking-wide">Financial Dashboard</h1>
-          <p className="text-xs text-slate-500 mt-0.5">Track fish sales, feed costs, overhead expenses, and farm net profit.</p>
+          <p className="text-xs text-slate-500 mt-0.5">Track revenue, expenses, and profitability across all farm operations.</p>
         </div>
         <div className="flex gap-2">
           <button className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-slate-700 text-xs font-semibold shadow-2xs">
@@ -1114,6 +1124,7 @@ function renderFinancialDashboardShowcase() {
         </div>
       </div>
 
+      {/* 4 Stat Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-2xs">
           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total Revenue</p>
@@ -1170,7 +1181,7 @@ function renderFinancialDashboardShowcase() {
   );
 
   const mobileContent = (
-    <div className="space-y-3 text-slate-800 text-xs">
+    <div className="space-y-3 text-slate-800 text-xs font-['Barlow',sans-serif]">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-base font-bold font-['Barlow_Condensed',sans-serif] text-slate-900">Financial Dashboard</h2>
@@ -1192,7 +1203,7 @@ function renderFinancialDashboardShowcase() {
         </div>
       </div>
 
-      <div className="bg-white p-3 rounded-xl border border-slate-200 space-y-2">
+      <div className="bg-white p-3 rounded-xl border border-slate-200 space-y-2 shadow-2xs">
         <p className="text-[10px] font-bold uppercase text-slate-500">Expenses Breakdown</p>
         <div className="space-y-1.5 text-[11px]">
           <div className="flex justify-between"><span>Feed (69%)</span><strong>₦8,400,000</strong></div>
@@ -1216,10 +1227,11 @@ function renderInvoicesShowcase() {
 
   const desktopContent = (
     <div className="space-y-4 text-slate-800 font-['Barlow',sans-serif]">
+      {/* Header matching InvoicesPage.tsx */}
       <div className="flex flex-wrap items-center justify-between gap-3 bg-[#f5f7fa] pb-1">
         <div>
           <h1 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] tracking-wide">Invoices</h1>
-          <p className="text-xs text-slate-500 mt-0.5">Create invoices for fish buyers, print receipts, and manage outstanding balances.</p>
+          <p className="text-xs text-slate-500 mt-0.5">Issue fish sales receipts, track customer payments, and manage balances.</p>
         </div>
         <div className="flex gap-2">
           <button className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-slate-700 text-xs font-semibold shadow-2xs">
@@ -1231,6 +1243,7 @@ function renderInvoicesShowcase() {
         </div>
       </div>
 
+      {/* 4 Stat Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-2xs">
           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total Invoices</p>
@@ -1254,6 +1267,7 @@ function renderInvoicesShowcase() {
         </div>
       </div>
 
+      {/* Invoices Table Card */}
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-2xs">
         <div className="overflow-x-auto">
           <table className="w-full text-xs text-left">
@@ -1299,7 +1313,7 @@ function renderInvoicesShowcase() {
   );
 
   const mobileContent = (
-    <div className="space-y-3 text-slate-800 text-xs">
+    <div className="space-y-3 text-slate-800 text-xs font-['Barlow',sans-serif]">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-base font-bold font-['Barlow_Condensed',sans-serif] text-slate-900">Invoices</h2>
@@ -1312,7 +1326,7 @@ function renderInvoicesShowcase() {
 
       <div className="space-y-2">
         {invoices.map((inv) => (
-          <div key={inv.id} className="bg-white p-3 rounded-xl border border-slate-200 space-y-1.5">
+          <div key={inv.id} className="bg-white p-3 rounded-xl border border-slate-200 space-y-1.5 shadow-2xs">
             <div className="flex items-center justify-between">
               <span className="font-bold text-slate-900">{inv.customer}</span>
               <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${inv.status === "Paid" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>
@@ -1666,9 +1680,9 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
           </FadeIn>
 
           <FadeIn delay={100}>
-            <h1 className="text-4xl sm:text-6xl md:text-7xl font-bold font-['Barlow_Condensed',sans-serif] tracking-tight uppercase max-w-5xl mx-auto leading-[1.05] text-white">
-              Stop Fish Mortality. <br />
-              <span className="text-[#00bb58] underline decoration-emerald-500/30">Stop Feed Waste.</span> <br />
+            <h1 className="text-4xl sm:text-6xl md:text-7xl font-bold font-['Barlow_Condensed',sans-serif] tracking-tight uppercase max-w-5xl mx-auto leading-[1.08] text-white">
+              Stop Managing On WhatsApp & Exercise Books. <br />
+              <span className="text-[#00bb58]">Stop Fish Mortality. Stop Feed Waste.</span> <br />
               Grow Your Farm Profit.
             </h1>
           </FadeIn>
@@ -2264,9 +2278,10 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
                 All plans include full platform access, staff accounts, opened bags reconciliation, and automated invoice receipts.
               </p>
 
-              {/* Single / Multi Farm Toggle */}
-              <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-4">
-                <div className="bg-slate-200/80 p-1 rounded-xl inline-flex">
+              {/* Single / Multi Farm Toggle & Billing Toggle (Stacked vertically: Monthly/Yearly under first tab) */}
+              <div className="mt-8 flex flex-col items-center justify-center gap-3">
+                {/* 1st Tab: Single Farm vs Multi-Farm */}
+                <div className="bg-slate-200/80 p-1 rounded-xl inline-flex shadow-2xs">
                   <button
                     onClick={() => setPlanType("single")}
                     className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${
@@ -2285,7 +2300,8 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
                   </button>
                 </div>
 
-                <div className="bg-slate-200/80 p-1 rounded-xl inline-flex">
+                {/* 2nd Tab: Monthly vs Yearly (Directly under the first tab) */}
+                <div className="bg-slate-200/80 p-1 rounded-xl inline-flex shadow-2xs">
                   <button
                     onClick={() => setPlanBilling("monthly")}
                     className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${
@@ -2301,7 +2317,7 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
                     }`}
                   >
                     <span>Yearly</span>
-                    <span className="bg-emerald-500 text-white text-[10px] px-1.5 py-0.5 rounded font-black">2 Months Free</span>
+                    <span className="bg-[#00bb58] text-white text-[10px] px-1.5 py-0.5 rounded font-black">2 Months Free</span>
                   </button>
                 </div>
               </div>
