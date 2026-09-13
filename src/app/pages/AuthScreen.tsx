@@ -527,8 +527,14 @@ function AuthScreen({
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 pt-1">
                 {trialPlans.map((plan) => {
                   const isSelected = selectedTrialPlan === plan.name;
-                  const displayPrice = trialBilling === "yearly" ? yearlyPrice(plan.price) : plan.price;
+                  const displayPrice = trialBilling === "yearly" ? plan.yearlyPrice : plan.monthlyPrice;
                   const cycleLabel = trialBilling === "yearly" ? "/yr after trial" : "/mo after trial";
+                  const planHighlights = [
+                    plan.limit,
+                    plan.farms || "1 Farm",
+                    "Complete Financial & Feed Records",
+                    "Full 30-Day Free Access",
+                  ];
                   return (
                     <div
                       key={plan.id}
@@ -553,7 +559,7 @@ function AuthScreen({
                             30 Days Free
                           </span>
                         </div>
-                        <p className="text-[11px] text-slate-500 mt-0.5 font-medium">{plan.ponds} · {plan.farms || "1 Farm"}</p>
+                        <p className="text-[11px] text-slate-500 mt-0.5 font-medium">{plan.pondLimit} · {plan.farms || "1 Farm"}</p>
 
                         <div className="mt-2.5 pt-2.5 border-t border-slate-100">
                           <span className="text-xl font-black font-['Barlow_Condensed',sans-serif] text-slate-900">
@@ -563,7 +569,7 @@ function AuthScreen({
                         </div>
 
                         <ul className="space-y-1.5 mt-3 text-[11px] text-slate-600">
-                          {(plan.features || []).slice(0, 4).map((f, i) => (
+                          {planHighlights.map((f, i) => (
                             <li key={i} className="flex items-start gap-1.5">
                               <Check size={12} className="text-emerald-600 shrink-0 mt-0.5" />
                               <span className="leading-tight">{f}</span>
