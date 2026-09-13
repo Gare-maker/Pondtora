@@ -1353,9 +1353,9 @@ function renderFinancialDashboardShowcase() {
 /* 8. Invoices Preview */
 function renderInvoicesShowcase() {
   const invoices = [
-    { id: 1, inv: "INV-0104", customer: "Alh. Danladi Fish Depot", pond: "Pond 02", weight: "1,450 kg", total: "₦4,350,000", status: "Paid", date: "12 Sep 2026" },
-    { id: 2, inv: "INV-0105", customer: "Madam Grace Smoked Fish", pond: "Pond 04", weight: "620 kg", total: "₦1,860,000", status: "Paid", date: "11 Sep 2026" },
-    { id: 3, inv: "INV-0106", customer: "Mama Nkechi Catering", pond: "Pond 01", weight: "350 kg", total: "₦980,000", status: "Partial", date: "09 Sep 2026" },
+    { id: 1, inv: "INV-0104", customer: "Alh. Danladi Fish Depot", weight: "1,450 kg", total: "₦4,350,000", status: "Paid", date: "12 Sep 2026" },
+    { id: 2, inv: "INV-0105", customer: "Madam Grace Smoked Fish", weight: "620 kg", total: "₦1,860,000", status: "Paid", date: "11 Sep 2026" },
+    { id: 3, inv: "INV-0106", customer: "Mama Nkechi Catering", weight: "350 kg", total: "₦980,000", status: "Partial", date: "09 Sep 2026" },
   ];
 
   const desktopContent = (
@@ -1366,65 +1366,63 @@ function renderInvoicesShowcase() {
           <h1 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] tracking-wide">Invoices</h1>
           <p className="text-xs text-slate-500 mt-0.5">Issue fish sales receipts, track customer payments, and manage balances.</p>
         </div>
-        <div className="flex gap-2">
-          <button className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-slate-700 text-xs font-semibold shadow-2xs">
-            <Layers size={13} className="text-slate-500" /> Price Groups
-          </button>
-          <button className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#00bb58] text-white text-xs font-bold shadow-xs">
-            <Plus size={13} /> Create Invoice
-          </button>
-        </div>
+        <button className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#00bb58] text-white text-xs font-bold shadow-xs">
+          <Plus size={13} /> Create Invoice
+        </button>
       </div>
 
-      {/* 4 Stat Cards */}
+      {/* 4 Clean Stat Cards with compact figures (no massive 11-digit text) */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-2xs">
           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total Invoices</p>
-          <p className="text-2xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] mt-0.5">24</p>
-          <p className="text-[10px] text-slate-400">generated</p>
+          <p className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] mt-0.5">24</p>
+          <p className="text-[10px] text-slate-400">all issued</p>
         </div>
         <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-2xs">
-          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Revenue Invoiced</p>
-          <p className="text-2xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] mt-0.5">₦14,820,000</p>
-          <p className="text-[10px] text-slate-400">total sales</p>
+          <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total Invoiced</p>
+          <p className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] mt-0.5">₦14.8M</p>
+          <p className="text-[10px] text-slate-400">gross sales</p>
         </div>
         <div className="bg-emerald-50/70 border border-emerald-300 rounded-xl p-3 shadow-2xs">
-          <p className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider">Amount Collected</p>
-          <p className="text-2xl font-bold text-emerald-800 font-['Barlow_Condensed',sans-serif] mt-0.5">₦13,420,000</p>
+          <p className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider">Collected</p>
+          <p className="text-xl font-bold text-emerald-800 font-['Barlow_Condensed',sans-serif] mt-0.5">₦13.4M</p>
           <p className="text-[10px] text-emerald-700 font-medium">21 paid in full</p>
         </div>
         <div className="bg-amber-50/70 border border-amber-300 rounded-xl p-3 shadow-2xs">
-          <p className="text-[10px] font-bold text-amber-800 uppercase tracking-wider">Outstanding Balance</p>
-          <p className="text-2xl font-bold text-amber-800 font-['Barlow_Condensed',sans-serif] mt-0.5">₦1,400,000</p>
+          <p className="text-[10px] font-bold text-amber-800 uppercase tracking-wider">Outstanding</p>
+          <p className="text-xl font-bold text-amber-800 font-['Barlow_Condensed',sans-serif] mt-0.5">₦1.4M</p>
           <p className="text-[10px] text-amber-700 font-medium">pending collection</p>
         </div>
       </div>
 
-      {/* Invoices Table Card */}
+      {/* Clean Uncluttered Invoices Table */}
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-2xs">
+        <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-wider text-slate-700">Recent Invoices</p>
+            <p className="text-[11px] text-slate-500 mt-0.5">Manage customer orders and receipts.</p>
+          </div>
+          <span className="text-xs font-semibold text-slate-500">Showing 3 of 24</span>
+        </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-xs text-left min-w-[950px] whitespace-nowrap">
+          <table className="w-full text-xs text-left min-w-[720px] whitespace-nowrap">
             <thead className="bg-slate-50 text-slate-500 font-bold border-b border-slate-200">
               <tr>
-                <th className="py-3 px-4 w-10 text-center">#</th>
-                <th className="py-3 px-4 min-w-[130px]">Invoice #</th>
-                <th className="py-3 px-4 min-w-[160px]">Customer</th>
-                <th className="py-3 px-4 min-w-[110px]">Pond</th>
-                <th className="py-3 px-4 min-w-[110px]">Total Wt.</th>
+                <th className="py-3 px-4 min-w-[110px]">Invoice #</th>
+                <th className="py-3 px-4 min-w-[180px]">Customer</th>
+                <th className="py-3 px-4 min-w-[110px]">Weight</th>
                 <th className="py-3 px-4 min-w-[120px]">Grand Total</th>
                 <th className="py-3 px-4 min-w-[110px]">Status</th>
                 <th className="py-3 px-4 min-w-[110px]">Date</th>
-                <th className="py-3 px-4 text-right min-w-[100px]">Actions</th>
+                <th className="py-3 px-4 text-right min-w-[90px]">Receipt</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {invoices.map((inv, idx) => (
+              {invoices.map((inv) => (
                 <tr key={inv.id} className="hover:bg-slate-50/80 transition-colors">
-                  <td className="py-3 px-4 text-slate-400 font-mono text-center">{idx + 1}</td>
                   <td className="py-3 px-4 font-mono font-bold text-emerald-700">{inv.inv}</td>
                   <td className="py-3 px-4 font-bold text-slate-900">{inv.customer}</td>
-                  <td className="py-3 px-4 text-slate-600">{inv.pond}</td>
-                  <td className="py-3 px-4 text-slate-800 font-semibold">{inv.weight}</td>
+                  <td className="py-3 px-4 text-slate-700 font-medium">{inv.weight}</td>
                   <td className="py-3 px-4 font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] text-sm">{inv.total}</td>
                   <td className="py-3 px-4">
                     <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full ${inv.status === "Paid" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>
@@ -1432,9 +1430,8 @@ function renderInvoicesShowcase() {
                     </span>
                   </td>
                   <td className="py-3 px-4 text-slate-500">{inv.date}</td>
-                  <td className="py-3 px-4 text-right space-x-2">
-                    <button className="text-emerald-700 font-bold hover:text-emerald-800">Print</button>
-                    <button className="text-slate-600 hover:text-slate-900">View</button>
+                  <td className="py-3 px-4 text-right">
+                    <button className="text-emerald-700 font-bold hover:text-emerald-800 text-xs">Print Receipt →</button>
                   </td>
                 </tr>
               ))}
@@ -1457,6 +1454,19 @@ function renderInvoicesShowcase() {
         </button>
       </div>
 
+      <div className="grid grid-cols-2 gap-2">
+        <div className="bg-white p-2.5 rounded-xl border border-slate-200 shadow-2xs">
+          <p className="text-[9px] text-slate-400 uppercase font-bold">Collected</p>
+          <p className="text-base font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">₦13.4M</p>
+          <p className="text-[9px] text-emerald-700 font-semibold">21 Paid</p>
+        </div>
+        <div className="bg-amber-50/80 p-2.5 rounded-xl border border-amber-200 shadow-2xs">
+          <p className="text-[9px] text-amber-800 uppercase font-bold">Outstanding</p>
+          <p className="text-base font-bold text-amber-800 font-['Barlow_Condensed',sans-serif]">₦1.4M</p>
+          <p className="text-[9px] text-amber-700 font-semibold">3 Pending</p>
+        </div>
+      </div>
+
       <div className="space-y-2">
         {invoices.map((inv) => (
           <div key={inv.id} className="bg-white p-3 rounded-xl border border-slate-200 space-y-1.5 shadow-2xs">
@@ -1469,7 +1479,7 @@ function renderInvoicesShowcase() {
             <div className="flex items-center justify-between text-[11px] text-slate-500">
               <span className="font-mono text-emerald-700 font-bold">{inv.inv}</span>
               <span>{inv.weight}</span>
-              <span className="font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] text-xs">{inv.total}</span>
+              <strong className="text-slate-900 font-['Barlow_Condensed',sans-serif] text-xs">{inv.total}</strong>
             </div>
           </div>
         ))}
