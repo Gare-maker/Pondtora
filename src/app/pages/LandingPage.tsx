@@ -4,7 +4,9 @@ import {
   Droplets, Package, BookOpen, Receipt, LayoutDashboard, TrendingUp,
   Users, ShieldCheck, Waves, Sparkles, ExternalLink, Calendar, Plus,
   Clock, Activity, AlertTriangle, ArrowUpRight, Check, ChevronRight,
-  TrendingDown, Search, Filter, RefreshCw, Eye, Printer, Download
+  TrendingDown, Search, Filter, RefreshCw, Eye, Printer, Download,
+  FileText, ClipboardList, Crown, Settings, MoreVertical, ArrowDownRight,
+  Layers, Calculator, Pencil, Trash2, History, AlertCircle
 } from "lucide-react";
 import pondtoraLogo from "../../imports/loo-2.svg";
 import heroFarmImg from "../../assets/images/african_fish_farm_hero.jpg";
@@ -25,8 +27,7 @@ interface Props {
 const NAV_LINKS = [
   { label: "Solutions", href: "solutions" },
   { label: "Pond Types", href: "fields" },
-  { label: "App Showcase", href: "showcase" },
-  { label: "Forecasting", href: "forecasting" },
+  { label: "App Showcase", href: "solutions" },
   { label: "Testimonials", href: "testimonials" },
   { label: "Pricing", href: "pricing" },
   { label: "FAQ", href: "faq" },
@@ -78,119 +79,120 @@ interface AppShowcaseChromeProps {
   children: React.ReactNode;
 }
 
-function AppWindowShell({ activeNav, activeFarmName = "Crown Fisheries — Epe Farm, Lagos", children }: AppShowcaseChromeProps) {
-  const [farmDropdownOpen, setFarmDropdownOpen] = useState(false);
+function AppWindowShell({ activeNav, activeFarmName = "Crown Fisheries", children }: AppShowcaseChromeProps) {
   const navItems = [
     { id: "financial", label: "Financial Dashboard", icon: LayoutDashboard },
     { id: "ponds", label: "Pond Management", icon: Droplets },
     { id: "inventory", label: "Feed Stock", icon: Package },
     { id: "documentation", label: "Feeding Records", icon: BookOpen },
+    { id: "reports", label: "Reports", icon: FileText },
     { id: "invoices", label: "Invoices", icon: Receipt },
     { id: "staff", label: "Staff", icon: Users },
+    { id: "assessments", label: "Staff Assessments", icon: ClipboardList },
+    { id: "pricing", label: "Subscription", icon: Crown },
+    { id: "settings", label: "Settings", icon: Settings },
   ];
 
   return (
     <div className="w-full rounded-2xl overflow-hidden shadow-2xl border border-slate-700/60 bg-slate-900 text-slate-100 font-['Barlow',sans-serif]">
-      {/* Browser / Window Header */}
+      {/* Window Title Bar */}
       <div className="bg-slate-950 px-4 py-2.5 flex items-center justify-between border-b border-slate-800 text-xs select-none">
         <div className="flex items-center gap-2">
           <div className="w-3 h-3 rounded-full bg-red-500/80" />
           <div className="w-3 h-3 rounded-full bg-amber-500/80" />
           <div className="w-3 h-3 rounded-full bg-emerald-500/80" />
-          <span className="ml-2 text-slate-500 text-[11px] font-mono hidden sm:inline">app.pondtora.com/live-demo</span>
+          <span className="ml-2 text-slate-500 text-[11px] font-mono hidden sm:inline">app.pondtora.com</span>
         </div>
         <div className="flex items-center gap-2 text-slate-400 text-[11px]">
-          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-          <span className="font-semibold text-emerald-400">Live System Online</span>
+          <span className="w-2 h-2 rounded-full bg-[#00bb58] animate-pulse" />
+          <span className="font-semibold text-[#00bb58]">Live System Online</span>
         </div>
       </div>
 
       {/* Main App Frame */}
-      <div className="flex min-h-[460px] md:min-h-[520px] bg-[#f8fafc] text-slate-800">
-        {/* Left Sidebar */}
-        <div className="hidden lg:flex flex-col w-56 bg-slate-900 border-r border-slate-800 text-slate-300 shrink-0">
-          <div className="h-14 px-4 flex items-center gap-2.5 border-b border-slate-800 bg-slate-950/40">
-            <img src={pondtoraLogo} alt="Pondtora" className="h-7 w-auto object-contain shrink-0" />
+      <div className="flex min-h-[500px] md:min-h-[560px] bg-[#f5f7fa] text-slate-800">
+        {/* Left Sidebar (Exact Pondtora App Sidebar) */}
+        <div className="hidden lg:flex flex-col w-56 bg-slate-900 border-r border-slate-800 text-slate-300 shrink-0 select-none">
+          {/* Header */}
+          <div className="h-14 px-4 flex items-center gap-2.5 border-b border-slate-800/80 bg-slate-950/40">
+            <img src={pondtoraLogo} alt="Pondtora" className="h-8 w-auto object-contain shrink-0" />
             <div>
-              <p className="text-sm font-bold text-white font-['Barlow_Condensed',sans-serif] leading-tight">Pondtora</p>
-              <p className="text-[9px] text-emerald-400 font-semibold uppercase tracking-wider">FFM System</p>
+              <p className="text-base font-bold text-white font-['Barlow_Condensed',sans-serif] leading-none tracking-wide">Pondtora</p>
             </div>
           </div>
-          <div className="p-3 space-y-1 flex-1">
-            {navItems.map(item => {
+
+          {/* Farm Switcher in Sidebar (Exact App Layout) */}
+          <div className="px-3 py-2.5 border-b border-slate-800/80">
+            <div className="w-full flex items-center justify-between p-2 rounded-xl bg-slate-950/40 border border-slate-800 text-left">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-2 h-2 rounded-full bg-[#00bb58] shrink-0" />
+                <div className="min-w-0">
+                  <p className="text-xs font-bold text-white truncate leading-tight font-['Barlow_Condensed',sans-serif]">{activeFarmName}</p>
+                  <p className="text-[10px] text-slate-400 truncate">Epe, Lagos State</p>
+                </div>
+              </div>
+              <ChevronDown size={13} className="text-slate-400 shrink-0" />
+            </div>
+          </div>
+
+          {/* Nav Links */}
+          <div className="p-2.5 space-y-0.5 flex-1 overflow-y-auto">
+            {navItems.map((item, idx) => {
               const Icon = item.icon;
               const isActive = item.id === activeNav;
+              const isDivider = item.id === "pricing";
               return (
-                <div
-                  key={item.id}
-                  className={`flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold transition-colors cursor-default ${
-                    isActive
-                      ? "bg-emerald-600 text-white shadow-sm"
-                      : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/60"
-                  }`}
-                >
-                  <Icon size={15} className={isActive ? "text-white" : "text-slate-400"} />
-                  <span className="truncate">{item.label}</span>
-                </div>
+                <React.Fragment key={item.id}>
+                  {isDivider && <div className="mx-2 my-2 border-t border-slate-800" />}
+                  <div
+                    className={`flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all cursor-default ${
+                      isActive
+                        ? "bg-[#00bb58] text-white shadow-md shadow-[#00bb58]/20 font-bold"
+                        : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/60"
+                    }`}
+                  >
+                    <Icon size={15} className={isActive ? "text-white" : "text-slate-400"} />
+                    <span className="truncate">{item.label}</span>
+                  </div>
+                </React.Fragment>
               );
             })}
           </div>
-          {/* User profile snippet in sidebar */}
-          <div className="p-3 border-t border-slate-800 flex items-center gap-2.5 bg-slate-950/30">
-            <div className="w-8 h-8 rounded-full bg-emerald-600/30 border border-emerald-500/40 text-emerald-300 flex items-center justify-center font-bold text-xs">
+
+          {/* User profile at bottom */}
+          <div className="p-3 border-t border-slate-800/80 flex items-center gap-2.5 bg-slate-950/30">
+            <div className="w-8 h-8 rounded-full bg-emerald-950 border border-emerald-500/30 text-emerald-400 flex items-center justify-center font-bold text-xs shrink-0">
               BA
             </div>
             <div className="min-w-0 flex-1 text-[11px]">
               <p className="font-semibold text-white truncate">Babatunde Adeleke</p>
-              <p className="text-slate-400 text-[10px]">Farm Owner · Lagos</p>
+              <p className="text-slate-400 text-[10px] capitalize">Farm Owner</p>
             </div>
           </div>
         </div>
 
         {/* Center / Right Content Panel */}
-        <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-[#f5f7fa]">
           {/* Topbar */}
-          <div className="h-14 px-4 sm:px-6 bg-white border-b border-slate-200/80 flex items-center justify-between gap-3 shrink-0">
-            {/* Active Farm Switcher with Dropdown Simulation */}
-            <div className="relative">
-              <button
-                onClick={() => setFarmDropdownOpen(v => !v)}
-                className="flex items-center gap-2 text-xs font-bold text-slate-800 bg-slate-100/80 hover:bg-slate-200/80 border border-slate-200 px-3 py-1.5 rounded-xl transition-colors shadow-xs"
-              >
-                <div className="w-2 h-2 rounded-full bg-emerald-500" />
-                <span className="truncate max-w-[170px] sm:max-w-[260px]">{activeFarmName}</span>
-                <ChevronDown size={13} className={`text-slate-500 transition-transform ${farmDropdownOpen ? "rotate-180" : ""}`} />
-              </button>
-              {farmDropdownOpen && (
-                <div className="absolute left-0 top-full mt-1.5 w-64 bg-white border border-slate-200 rounded-xl shadow-xl z-30 p-1.5 text-xs text-slate-700">
-                  <div className="px-2.5 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Your Farms</div>
-                  <div className="px-2.5 py-1.5 bg-emerald-50 text-emerald-800 rounded-lg font-semibold flex items-center justify-between">
-                    <span>Crown Fisheries — Epe, Lagos (Commercial)</span>
-                    <Check size={12} className="text-emerald-600" />
-                  </div>
-                  <div className="px-2.5 py-1.5 hover:bg-slate-50 rounded-lg text-slate-600 cursor-pointer">
-                    <span>Green Valley Ponds — Ibadan (Family Farm)</span>
-                  </div>
-                  <div className="px-2.5 py-1.5 hover:bg-slate-50 rounded-lg text-slate-600 cursor-pointer">
-                    <span>Niger Delta Ponds — Port Harcourt (Medium)</span>
-                  </div>
-                </div>
-              )}
+          <div className="h-12 px-4 sm:px-6 bg-white border-b border-slate-200/80 flex items-center justify-between gap-3 shrink-0">
+            <div className="flex items-center gap-2 text-xs font-semibold text-slate-700">
+              <span className="font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] text-sm">Crown Fisheries</span>
+              <span className="text-slate-300">/</span>
+              <span className="text-slate-500 text-xs">Epe Farm, Lagos</span>
             </div>
 
-            {/* Quick status & action buttons */}
-            <div className="flex items-center gap-2.5">
+            <div className="flex items-center gap-2.5 text-xs">
               <span className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 text-slate-600 text-[11px] font-medium border border-slate-200">
-                <Calendar size={12} className="text-slate-400" /> 13 Sep 2026
+                <Calendar size={12} className="text-slate-400" /> Today, 13 Sep 2026
               </span>
-              <span className="inline-flex items-center px-2 py-1 rounded-lg bg-emerald-50 text-emerald-700 text-[11px] font-bold border border-emerald-200">
+              <span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 text-[11px] font-bold border border-emerald-200">
                 ₦ NGN
               </span>
             </div>
           </div>
 
           {/* Body Area */}
-          <div className="flex-1 p-4 sm:p-6 overflow-y-auto bg-[#f8fafc]">
+          <div className="flex-1 p-4 sm:p-6 overflow-y-auto bg-[#f5f7fa]">
             {children}
           </div>
         </div>
@@ -199,124 +201,230 @@ function AppWindowShell({ activeNav, activeFarmName = "Crown Fisheries — Epe F
   );
 }
 
-/* 1. Pond Management Preview */
+/* 1. Pond Management Preview (Exact App Layout) */
 function PondManagementFullPreview() {
   return (
     <AppWindowShell activeNav="ponds">
       <div className="space-y-4 text-slate-800 font-['Barlow',sans-serif]">
-        {/* Top Metric Strip */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <div className="bg-white p-3.5 rounded-xl border border-slate-200/80 shadow-xs">
-            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Active Ponds</p>
-            <p className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] mt-0.5">8 <span className="text-xs text-slate-400 font-normal">/ 10 Total</span></p>
+        {/* Sticky Page Header */}
+        <div className="flex flex-wrap items-center justify-between gap-3 bg-[#f5f7fa] pb-1">
+          <div>
+            <h1 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] tracking-wide">Pond Management</h1>
+            <p className="text-xs text-slate-400 mt-0.5">View and manage all ponds — stock details, feeding history, and operational costs.</p>
           </div>
-          <div className="bg-white p-3.5 rounded-xl border border-slate-200/80 shadow-xs">
-            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Total Stock</p>
-            <p className="text-xl font-bold text-emerald-600 font-['Barlow_Condensed',sans-serif] mt-0.5">48,250 <span className="text-xs font-normal text-slate-400">fish</span></p>
-          </div>
-          <div className="bg-white p-3.5 rounded-xl border border-slate-200/80 shadow-xs">
-            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Mortality Rate</p>
-            <p className="text-xl font-bold text-emerald-600 font-['Barlow_Condensed',sans-serif] mt-0.5">0.8% <span className="text-xs font-normal text-slate-400">(384 dead)</span></p>
-          </div>
-          <div className="bg-white p-3.5 rounded-xl border border-slate-200/80 shadow-xs">
-            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Feed Pallet Limits</p>
-            <p className="text-xl font-bold text-blue-600 font-['Barlow_Condensed',sans-serif] mt-0.5">3 Ponds <span className="text-xs font-normal text-slate-400">Active</span></p>
-          </div>
-        </div>
-
-        {/* Filter bar & Actions */}
-        <div className="flex flex-wrap items-center justify-between gap-2.5 pt-1">
-          <div className="flex items-center gap-1.5 bg-white border border-slate-200 p-1 rounded-xl text-xs font-semibold">
-            <span className="px-2.5 py-1 bg-emerald-600 text-white rounded-lg shadow-xs">All (8)</span>
-            <span className="px-2.5 py-1 text-slate-500 hover:text-slate-800">Concrete (3)</span>
-            <span className="px-2.5 py-1 text-slate-500 hover:text-slate-800">Earthen (3)</span>
-            <span className="px-2.5 py-1 text-slate-500 hover:text-slate-800">Tarpaulin (2)</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white rounded-xl text-xs font-bold shadow-xs">
-              <Plus size={13} /> Add Pond
+          <div className="flex gap-2 flex-wrap">
+            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-700 text-xs font-semibold shadow-xs">
+              <History size={12} /> Fish Stock History
             </span>
-            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 text-slate-700 rounded-xl text-xs font-semibold">
-              Transfer Stock
-            </span>
-            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 text-slate-700 rounded-xl text-xs font-semibold">
-              Nursery Transfer
+            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#00bb58] text-white text-xs font-bold shadow-xs">
+              <Plus size={12} /> Add Pond
             </span>
           </div>
         </div>
 
-        {/* Pond Cards Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
-          {/* Card 1: Concrete Nursery */}
-          <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs hover:border-emerald-300 transition-colors">
-            <div className="flex items-start justify-between">
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Pond 01 — Concrete Nursery A</span>
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">Active</span>
-                </div>
-                <p className="text-xs text-slate-500 mt-0.5">African Catfish (Clarias) · Stocked 12 Aug 2026</p>
-                <span className="inline-block mt-1 text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md">Age: 1 month 1 day</span>
-              </div>
-              <span className="text-xs font-extrabold text-emerald-600 font-mono">14,200 fish</span>
+        {/* 3 Top StatCards (Exact App Components) */}
+        <div className="grid grid-cols-3 gap-3">
+          <div className="bg-white border border-slate-200/80 rounded-xl p-3.5 shadow-xs flex items-center justify-between">
+            <div>
+              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Total Ponds</p>
+              <p className="text-2xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] mt-0.5">8</p>
             </div>
-            <div className="mt-3 grid grid-cols-3 gap-2 bg-slate-50 rounded-lg p-2 text-center text-xs">
-              <div><p className="text-[10px] text-slate-400">Initial Stock</p><p className="font-bold text-slate-800 font-['Barlow_Condensed',sans-serif]">15,000</p></div>
-              <div><p className="text-[10px] text-slate-400">Avg. Weight</p><p className="font-bold text-slate-800 font-['Barlow_Condensed',sans-serif]">85g</p></div>
-              <div><p className="text-[10px] text-slate-400">Mortality</p><p className="font-bold text-emerald-600 font-['Barlow_Condensed',sans-serif]">1.2% (80)</p></div>
-            </div>
-            <div className="mt-3 flex items-center justify-between text-xs pt-2 border-t border-slate-100">
-              <span className="text-slate-500 text-[11px]">Pallet Limit: <strong className="text-amber-600">2.0mm max 350kg (280kg fed)</strong></span>
-              <span className="text-xs font-bold text-emerald-600">View History →</span>
+            <div className="w-9 h-9 rounded-xl bg-slate-100 text-slate-600 flex items-center justify-center">
+              <Droplets size={18} />
             </div>
           </div>
-
-          {/* Card 2: Earthen Grow-out */}
-          <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs hover:border-emerald-300 transition-colors">
-            <div className="flex items-start justify-between">
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Pond 02 — Main Earthen Grow-out</span>
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">Active</span>
-                </div>
-                <p className="text-xs text-slate-500 mt-0.5">Table Catfish · Stocked 15 May 2026</p>
-                <span className="inline-block mt-1 text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md">Age: 3 months 29 days</span>
-              </div>
-              <span className="text-xs font-extrabold text-emerald-600 font-mono">6,800 fish</span>
+          <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3.5 shadow-xs flex items-center justify-between">
+            <div>
+              <p className="text-[11px] font-bold text-emerald-700 uppercase tracking-wider">Active</p>
+              <p className="text-2xl font-bold text-emerald-800 font-['Barlow_Condensed',sans-serif] mt-0.5">6</p>
             </div>
-            <div className="mt-3 grid grid-cols-3 gap-2 bg-slate-50 rounded-lg p-2 text-center text-xs">
-              <div><p className="text-[10px] text-slate-400">Est. Biomass</p><p className="font-bold text-slate-800 font-['Barlow_Condensed',sans-serif]">6,256 kg</p></div>
-              <div><p className="text-[10px] text-slate-400">Avg. Weight</p><p className="font-bold text-slate-800 font-['Barlow_Condensed',sans-serif]">920g</p></div>
-              <div><p className="text-[10px] text-slate-400">Batch Value</p><p className="font-bold text-emerald-600 font-['Barlow_Condensed',sans-serif]">₦14.0M</p></div>
-            </div>
-            <div className="mt-3 flex items-center justify-between text-xs pt-2 border-t border-slate-100">
-              <span className="text-slate-500 text-[11px]">Pallet Limit: <strong className="text-slate-800">4.0mm max 1,800kg</strong></span>
-              <span className="text-xs font-bold text-emerald-600">Log Feeding →</span>
+            <div className="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center">
+              <CheckCircle size={18} />
             </div>
           </div>
+          <div className="bg-white border border-slate-200/80 rounded-xl p-3.5 shadow-xs flex items-center justify-between">
+            <div>
+              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Total Fish</p>
+              <p className="text-2xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] mt-0.5">48,250</p>
+            </div>
+            <div className="w-9 h-9 rounded-xl bg-slate-100 text-slate-600 flex items-center justify-center">
+              <Fish size={18} />
+            </div>
+          </div>
+        </div>
 
-          {/* Card 3: Backyard / Normal Tarpaulin Vat */}
-          <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs hover:border-emerald-300 transition-colors">
-            <div className="flex items-start justify-between">
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Pond 03 — Tarpaulin Vat 1</span>
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">Active</span>
-                </div>
-                <p className="text-xs text-slate-500 mt-0.5">Heterobranchus · Stocked 01 Jul 2026</p>
-                <span className="inline-block mt-1 text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md">Age: 2 months 12 days</span>
-              </div>
-              <span className="text-xs font-extrabold text-emerald-600 font-mono">2,460 fish</span>
-            </div>
-            <div className="mt-3 grid grid-cols-3 gap-2 bg-slate-50 rounded-lg p-2 text-center text-xs">
-              <div><p className="text-[10px] text-slate-400">Initial Stock</p><p className="font-bold text-slate-800 font-['Barlow_Condensed',sans-serif]">2,500</p></div>
-              <div><p className="text-[10px] text-slate-400">Avg. Weight</p><p className="font-bold text-slate-800 font-['Barlow_Condensed',sans-serif]">420g</p></div>
-              <div><p className="text-[10px] text-slate-400">Mortality</p><p className="font-bold text-emerald-600 font-['Barlow_Condensed',sans-serif]">1.6% (40)</p></div>
-            </div>
-            <div className="mt-3 flex items-center justify-between text-xs pt-2 border-t border-slate-100">
-              <span className="text-slate-500 text-[11px]">Pallet Limit: <strong className="text-slate-800">3.0mm max 600kg (410kg fed)</strong></span>
-              <span className="text-xs font-bold text-emerald-600">View History →</span>
-            </div>
+        {/* Search and Filters Strip */}
+        <div className="flex flex-wrap gap-2 items-center">
+          <div className="relative">
+            <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <span className="inline-block pl-8 pr-3 py-1.5 text-xs bg-white border border-slate-200 rounded-lg text-slate-400 w-36">
+              Search…
+            </span>
+          </div>
+          <div className="flex items-center gap-1.5 text-xs">
+            <span className="text-slate-400 font-medium">Status:</span>
+            <span className="px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-slate-700 font-semibold">Active</span>
+          </div>
+          <div className="flex items-center gap-1.5 text-xs">
+            <span className="text-slate-400 font-medium">Type:</span>
+            <span className="px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-slate-700 font-semibold">All</span>
+          </div>
+        </div>
+
+        {/* List of Ponds Card (Exact App Table) */}
+        <div className="bg-white rounded-xl border border-slate-200/90 overflow-hidden shadow-xs">
+          <div className="px-4 pt-3.5 pb-2.5 border-b border-slate-100">
+            <p className="text-xs font-bold uppercase tracking-wider text-slate-700">List of Ponds</p>
+            <p className="text-[11px] text-slate-400 mt-0.5">After creating a pond, open it to add Fish Stock, manage feeding records, transfer fish, and view all activities related to that pond.</p>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs text-left">
+              <thead className="bg-slate-50 border-b border-slate-100 text-slate-500 font-semibold uppercase tracking-wider text-[10px]">
+                <tr>
+                  <th className="px-3.5 py-2.5 w-8">#</th>
+                  <th className="px-3.5 py-2.5">Pond Name</th>
+                  <th className="px-3.5 py-2.5">Type</th>
+                  <th className="px-3.5 py-2.5">Species</th>
+                  <th className="px-3.5 py-2.5">Fish Count</th>
+                  <th className="px-3.5 py-2.5">Category</th>
+                  <th className="px-3.5 py-2.5">Status</th>
+                  <th className="px-3.5 py-2.5 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                <tr className="hover:bg-slate-50/80 transition-colors">
+                  <td className="px-3.5 py-2.5 text-slate-400 font-mono">1</td>
+                  <td className="px-3.5 py-2.5">
+                    <p className="font-bold text-slate-900 hover:text-emerald-700 cursor-pointer">Pond 01</p>
+                    <p className="text-[10px] text-slate-400">800 ft²</p>
+                  </td>
+                  <td className="px-3.5 py-2.5 text-slate-600 font-medium">Concrete</td>
+                  <td className="px-3.5 py-2.5 text-slate-600">Catfish</td>
+                  <td className="px-3.5 py-2.5">
+                    <p className="font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] text-sm">8,500</p>
+                    <p className="text-[10px] text-slate-400">Mort: 0.6%</p>
+                  </td>
+                  <td className="px-3.5 py-2.5"><span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-100 text-purple-700">Nursery</span></td>
+                  <td className="px-3.5 py-2.5"><span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">Active</span></td>
+                  <td className="px-3.5 py-2.5 text-right">
+                    <div className="inline-flex items-center gap-1">
+                      <span className="inline-flex items-center gap-0.5 text-[11px] font-bold text-[#00bb58] hover:underline cursor-pointer"><Eye size={12} /> View</span>
+                      <span className="p-1 text-slate-400 hover:text-slate-600 cursor-pointer"><Pencil size={12} /></span>
+                    </div>
+                  </td>
+                </tr>
+                <tr className="hover:bg-slate-50/80 transition-colors">
+                  <td className="px-3.5 py-2.5 text-slate-400 font-mono">2</td>
+                  <td className="px-3.5 py-2.5">
+                    <p className="font-bold text-slate-900 hover:text-emerald-700 cursor-pointer">Pond 02</p>
+                    <p className="text-[10px] text-slate-400">1,500 ft²</p>
+                  </td>
+                  <td className="px-3.5 py-2.5 text-slate-600 font-medium">Earthen</td>
+                  <td className="px-3.5 py-2.5 text-slate-600">Catfish</td>
+                  <td className="px-3.5 py-2.5">
+                    <p className="font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] text-sm">14,200</p>
+                    <p className="text-[10px] text-slate-400">Mort: 0.8%</p>
+                  </td>
+                  <td className="px-3.5 py-2.5"><span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-teal-100 text-teal-700">Production</span></td>
+                  <td className="px-3.5 py-2.5"><span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">Active</span></td>
+                  <td className="px-3.5 py-2.5 text-right">
+                    <div className="inline-flex items-center gap-1">
+                      <span className="inline-flex items-center gap-0.5 text-[11px] font-bold text-[#00bb58] hover:underline cursor-pointer"><Eye size={12} /> View</span>
+                      <span className="p-1 text-slate-400 hover:text-slate-600 cursor-pointer"><Pencil size={12} /></span>
+                    </div>
+                  </td>
+                </tr>
+                <tr className="hover:bg-slate-50/80 transition-colors">
+                  <td className="px-3.5 py-2.5 text-slate-400 font-mono">3</td>
+                  <td className="px-3.5 py-2.5">
+                    <p className="font-bold text-slate-900 hover:text-emerald-700 cursor-pointer">Pond 03</p>
+                    <p className="text-[10px] text-slate-400">600 ft²</p>
+                  </td>
+                  <td className="px-3.5 py-2.5 text-slate-600 font-medium">Tarpaulin</td>
+                  <td className="px-3.5 py-2.5 text-slate-600">Catfish</td>
+                  <td className="px-3.5 py-2.5">
+                    <p className="font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] text-sm">4,200</p>
+                    <p className="text-[10px] text-slate-400">Mort: 0.5%</p>
+                  </td>
+                  <td className="px-3.5 py-2.5"><span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-teal-100 text-teal-700">Production</span></td>
+                  <td className="px-3.5 py-2.5"><span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">Active</span></td>
+                  <td className="px-3.5 py-2.5 text-right">
+                    <div className="inline-flex items-center gap-1">
+                      <span className="inline-flex items-center gap-0.5 text-[11px] font-bold text-[#00bb58] hover:underline cursor-pointer"><Eye size={12} /> View</span>
+                      <span className="p-1 text-slate-400 hover:text-slate-600 cursor-pointer"><Pencil size={12} /></span>
+                    </div>
+                  </td>
+                </tr>
+                <tr className="hover:bg-slate-50/80 transition-colors">
+                  <td className="px-3.5 py-2.5 text-slate-400 font-mono">4</td>
+                  <td className="px-3.5 py-2.5">
+                    <p className="font-bold text-slate-900 hover:text-emerald-700 cursor-pointer">Pond 04</p>
+                    <p className="text-[10px] text-slate-400">1,200 ft²</p>
+                  </td>
+                  <td className="px-3.5 py-2.5 text-slate-600 font-medium">Earthen</td>
+                  <td className="px-3.5 py-2.5 text-slate-600">Tilapia</td>
+                  <td className="px-3.5 py-2.5">
+                    <p className="font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] text-sm">9,600</p>
+                    <p className="text-[10px] text-slate-400">Mort: 1.1%</p>
+                  </td>
+                  <td className="px-3.5 py-2.5"><span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-teal-100 text-teal-700">Production</span></td>
+                  <td className="px-3.5 py-2.5"><span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">Active</span></td>
+                  <td className="px-3.5 py-2.5 text-right">
+                    <div className="inline-flex items-center gap-1">
+                      <span className="inline-flex items-center gap-0.5 text-[11px] font-bold text-[#00bb58] hover:underline cursor-pointer"><Eye size={12} /> View</span>
+                      <span className="p-1 text-slate-400 hover:text-slate-600 cursor-pointer"><Pencil size={12} /></span>
+                    </div>
+                  </td>
+                </tr>
+                <tr className="hover:bg-slate-50/80 transition-colors">
+                  <td className="px-3.5 py-2.5 text-slate-400 font-mono">5</td>
+                  <td className="px-3.5 py-2.5">
+                    <p className="font-bold text-slate-900 hover:text-emerald-700 cursor-pointer">Pond 05</p>
+                    <p className="text-[10px] text-slate-400">800 ft²</p>
+                  </td>
+                  <td className="px-3.5 py-2.5 text-slate-600 font-medium">Concrete</td>
+                  <td className="px-3.5 py-2.5 text-slate-600">Catfish</td>
+                  <td className="px-3.5 py-2.5">
+                    <p className="font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] text-sm">7,100</p>
+                    <p className="text-[10px] text-slate-400">Mort: 0.4%</p>
+                  </td>
+                  <td className="px-3.5 py-2.5"><span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-100 text-purple-700">Nursery</span></td>
+                  <td className="px-3.5 py-2.5"><span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">Active</span></td>
+                  <td className="px-3.5 py-2.5 text-right">
+                    <div className="inline-flex items-center gap-1">
+                      <span className="inline-flex items-center gap-0.5 text-[11px] font-bold text-[#00bb58] hover:underline cursor-pointer"><Eye size={12} /> View</span>
+                      <span className="p-1 text-slate-400 hover:text-slate-600 cursor-pointer"><Pencil size={12} /></span>
+                    </div>
+                  </td>
+                </tr>
+                <tr className="hover:bg-slate-50/80 transition-colors">
+                  <td className="px-3.5 py-2.5 text-slate-400 font-mono">6</td>
+                  <td className="px-3.5 py-2.5">
+                    <p className="font-bold text-slate-900 hover:text-emerald-700 cursor-pointer">Pond 06</p>
+                    <p className="text-[10px] text-slate-400">1,800 ft²</p>
+                  </td>
+                  <td className="px-3.5 py-2.5 text-slate-600 font-medium">Earthen</td>
+                  <td className="px-3.5 py-2.5 text-slate-600">Catfish</td>
+                  <td className="px-3.5 py-2.5">
+                    <p className="font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] text-sm">4,650</p>
+                    <p className="text-[10px] text-slate-400">Mort: 0.9%</p>
+                  </td>
+                  <td className="px-3.5 py-2.5"><span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-teal-100 text-teal-700">Production</span></td>
+                  <td className="px-3.5 py-2.5"><span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">Active</span></td>
+                  <td className="px-3.5 py-2.5 text-right">
+                    <div className="inline-flex items-center gap-1">
+                      <span className="inline-flex items-center gap-0.5 text-[11px] font-bold text-[#00bb58] hover:underline cursor-pointer"><Eye size={12} /> View</span>
+                      <span className="p-1 text-slate-400 hover:text-slate-600 cursor-pointer"><Pencil size={12} /></span>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div className="px-4 py-2 border-t border-slate-50 bg-slate-50/50">
+            <p className="text-[11px] text-slate-400"><span className="font-semibold text-slate-600">Tip:</span> Open any pond to add Fish Stock, manage feeding records, and view the Fish Stock currently assigned to that pond.</p>
           </div>
         </div>
       </div>
@@ -324,115 +432,122 @@ function PondManagementFullPreview() {
   );
 }
 
-/* 2. Feeding Records & Pallet Limits Preview */
+/* 2. Feeding Records & Pallet Limits Preview (Exact App Layout) */
 function FeedingDocumentationFullPreview() {
   return (
     <AppWindowShell activeNav="documentation">
       <div className="space-y-4 text-slate-800 font-['Barlow',sans-serif]">
-        {/* Navigation Tabs matching FeedDocumentationPage */}
-        <div className="flex items-center gap-1 bg-white border border-slate-200 p-1 rounded-xl text-xs font-semibold w-fit">
-          <span className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg shadow-xs">Daily Feeding Records</span>
-          <span className="px-3 py-1.5 text-slate-600 hover:text-slate-900 cursor-pointer">Bags Opened Log (42)</span>
-          <span className="px-3 py-1.5 text-slate-600 hover:text-slate-900 cursor-pointer">Feed Reconciliation</span>
-        </div>
-
-        {/* Today's Feed Overview banner */}
-        <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold">
-              <BookOpen size={20} />
-            </div>
-            <div>
-              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Today's Total Feed Disbursed</p>
-              <p className="text-2xl font-black text-slate-900 font-['Barlow_Condensed',sans-serif]">
-                144.5 kg <span className="text-xs font-medium text-emerald-600 ml-1.5">✓ Morning (68kg) + Evening (76.5kg)</span>
-              </p>
-            </div>
+        {/* Sticky Header */}
+        <div className="flex flex-wrap items-center justify-between gap-3 bg-[#f5f7fa] pb-1">
+          <div>
+            <h1 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] tracking-wide">Feeding Records</h1>
+            <p className="text-xs text-slate-400 mt-0.5">Record and review daily feeding sessions across all active ponds.</p>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="px-3 py-1.5 bg-emerald-600 text-white rounded-xl text-xs font-bold shadow-xs">
-              + Log Daily Feeding
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-700 text-xs font-semibold shadow-xs">
+              <Calendar size={12} className="text-[#00bb58]" /> 13 Sep 2026
             </span>
-            <span className="px-3 py-1.5 bg-slate-100 border border-slate-200 text-slate-700 rounded-xl text-xs font-semibold">
-              Log Bags Opened
+            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#00bb58] text-white text-xs font-bold shadow-xs">
+              <Plus size={12} /> Log Feeding
+            </span>
+            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-700 text-xs font-semibold shadow-xs">
+              <Package size={12} /> Log Opened Bags
             </span>
           </div>
         </div>
 
-        {/* Max Kg Alert Notification Banner */}
-        <div className="bg-amber-50 border border-amber-200/80 rounded-xl p-3 flex items-center justify-between text-xs text-amber-800">
-          <div className="flex items-center gap-2">
-            <AlertTriangle size={15} className="text-amber-600 shrink-0" />
-            <span><strong>Pallet Limit Alert:</strong> Pond 01 (Concrete Nursery A) reached <strong>280kg / 350kg (80%)</strong> of 2.0mm feed. Consider sizing up to 3.0mm soon.</span>
+        {/* Pallet Limit Alert Notice Banner */}
+        <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-start gap-3 text-xs text-amber-800">
+          <div className="w-5 h-5 rounded-full bg-amber-200 text-amber-900 flex items-center justify-center font-bold text-xs shrink-0 mt-0.5">!</div>
+          <div className="flex-1">
+            <p className="font-bold text-amber-900">Pallet Limit Warning: Pond 03 (Tarpaulin Vat) at 88%</p>
+            <p className="text-amber-700 mt-0.5">Pond 03 has consumed 440 kg of its 500 kg 2.0mm maximum feed limit. Prepare to grade and step up to 3.0mm pallet.</p>
           </div>
-          <span className="font-bold text-amber-900 shrink-0 ml-2 cursor-pointer underline">Review</span>
         </div>
 
-        {/* Feeding Table */}
-        <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-xs">
-          <div className="px-4 py-3 border-b border-slate-100 bg-slate-50/70 flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">Today's Feeding Records (13 Sep 2026)</span>
-            <span className="text-xs text-emerald-700 font-semibold bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">🟢 4 of 4 Ponds Reconciled</span>
+        {/* 4 StatCards matching FeedDocumentationPage */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="bg-white border border-slate-200/80 rounded-xl p-3 shadow-xs">
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total Ponds</p>
+            <p className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] mt-0.5">8 <span className="text-[10px] text-slate-400 font-normal">active</span></p>
           </div>
+          <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 shadow-xs">
+            <p className="text-[10px] font-bold text-emerald-700 uppercase tracking-wider">Ponds Fed</p>
+            <p className="text-xl font-bold text-emerald-800 font-['Barlow_Condensed',sans-serif] mt-0.5">6 <span className="text-[10px] text-emerald-600 font-normal">today</span></p>
+          </div>
+          <div className="bg-white border border-slate-200/80 rounded-xl p-3 shadow-xs">
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Ponds Remaining</p>
+            <p className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] mt-0.5">2 <span className="text-[10px] text-slate-400 font-normal">pending</span></p>
+          </div>
+          <div className="bg-white border border-slate-200/80 rounded-xl p-3 shadow-xs">
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Bags Opened</p>
+            <p className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] mt-0.5">3 <span className="text-[10px] text-slate-400 font-normal">45 kg</span></p>
+          </div>
+        </div>
+
+        {/* Tab Navigation */}
+        <div className="flex gap-1 bg-slate-200/60 p-1 rounded-xl w-fit text-xs font-semibold">
+          <span className="px-3 py-1.5 bg-white text-emerald-800 rounded-lg shadow-xs font-bold">Daily Feed</span>
+          <span className="px-3 py-1.5 text-slate-600 cursor-pointer">Opened Bags (3)</span>
+          <span className="px-3 py-1.5 text-slate-600 cursor-pointer">Reconciliation</span>
+        </div>
+
+        {/* Table of Daily Feeding */}
+        <div className="bg-white rounded-xl border border-slate-200/90 overflow-hidden shadow-xs">
           <div className="overflow-x-auto">
             <table className="w-full text-xs text-left">
-              <thead className="bg-slate-50 text-slate-500 font-semibold border-b border-slate-100">
+              <thead className="bg-slate-50 border-b border-slate-100 text-slate-500 font-semibold uppercase tracking-wider text-[10px]">
                 <tr>
-                  <th className="px-4 py-2.5">Pond Name</th>
-                  <th className="px-4 py-2.5">Feed Brand</th>
-                  <th className="px-4 py-2.5">Pallet Size</th>
-                  <th className="px-4 py-2.5">Morning</th>
-                  <th className="px-4 py-2.5">Evening</th>
-                  <th className="px-4 py-2.5">Total Feed</th>
-                  <th className="px-4 py-2.5">Pallet Limit Status</th>
-                  <th className="px-4 py-2.5">Status</th>
-                  <th className="px-4 py-2.5">Logged By</th>
+                  <th className="px-3.5 py-2.5">Pond</th>
+                  <th className="px-3.5 py-2.5">Fish Stock</th>
+                  <th className="px-3.5 py-2.5">Brand & Size</th>
+                  <th className="px-3.5 py-2.5 text-right">Morning</th>
+                  <th className="px-3.5 py-2.5 text-right">Evening</th>
+                  <th className="px-3.5 py-2.5 text-right">Total Feed</th>
+                  <th className="px-3.5 py-2.5">Recorded By</th>
+                  <th className="px-3.5 py-2.5">Status</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 font-medium">
-                <tr className="hover:bg-slate-50">
-                  <td className="px-4 py-3 font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Pond 01 — Concrete Nursery A</td>
-                  <td className="px-4 py-3">Aller Aqua</td>
-                  <td className="px-4 py-3"><span className="px-2 py-0.5 rounded bg-slate-100 font-mono font-bold">2.0mm</span></td>
-                  <td className="px-4 py-3">14.0 kg</td>
-                  <td className="px-4 py-3">16.0 kg</td>
-                  <td className="px-4 py-3 font-bold text-emerald-700 font-['Barlow_Condensed',sans-serif]">30.0 kg</td>
-                  <td className="px-4 py-3"><span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-bold">80% of 350kg</span></td>
-                  <td className="px-4 py-3"><span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded">🟢 Matched</span></td>
-                  <td className="px-4 py-3 text-slate-500">Sola Bello (Staff)</td>
+              <tbody className="divide-y divide-slate-100">
+                <tr className="hover:bg-slate-50/80">
+                  <td className="px-3.5 py-2.5 font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Pond 01</td>
+                  <td className="px-3.5 py-2.5 text-slate-600">Catfish (12 Aug)</td>
+                  <td className="px-3.5 py-2.5"><span className="font-semibold text-slate-800">Coppens</span> <span className="px-1.5 py-0.5 bg-slate-100 rounded font-mono text-[10px]">1.2mm</span></td>
+                  <td className="px-3.5 py-2.5 text-right text-slate-600 font-medium">4.0 kg</td>
+                  <td className="px-3.5 py-2.5 text-right text-slate-600 font-medium">4.5 kg</td>
+                  <td className="px-3.5 py-2.5 text-right font-bold text-emerald-700 font-['Barlow_Condensed',sans-serif]">8.5 kg</td>
+                  <td className="px-3.5 py-2.5 text-slate-500">Sola Bello</td>
+                  <td className="px-3.5 py-2.5"><span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">Logged</span></td>
                 </tr>
-                <tr className="hover:bg-slate-50">
-                  <td className="px-4 py-3 font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Pond 02 — Main Earthen Grow-out</td>
-                  <td className="px-4 py-3">Coppens</td>
-                  <td className="px-4 py-3"><span className="px-2 py-0.5 rounded bg-slate-100 font-mono font-bold">4.0mm</span></td>
-                  <td className="px-4 py-3">32.0 kg</td>
-                  <td className="px-4 py-3">38.0 kg</td>
-                  <td className="px-4 py-3 font-bold text-emerald-700 font-['Barlow_Condensed',sans-serif]">70.0 kg</td>
-                  <td className="px-4 py-3"><span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold">62% of 1,800kg</span></td>
-                  <td className="px-4 py-3"><span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded">🟢 Matched</span></td>
-                  <td className="px-4 py-3 text-slate-500">Ibrahim Musa</td>
+                <tr className="hover:bg-slate-50/80">
+                  <td className="px-3.5 py-2.5 font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Pond 02</td>
+                  <td className="px-3.5 py-2.5 text-slate-600">Catfish (15 May)</td>
+                  <td className="px-3.5 py-2.5"><span className="font-semibold text-slate-800">Vital Feed</span> <span className="px-1.5 py-0.5 bg-slate-100 rounded font-mono text-[10px]">3.0mm</span></td>
+                  <td className="px-3.5 py-2.5 text-right text-slate-600 font-medium">8.0 kg</td>
+                  <td className="px-3.5 py-2.5 text-right text-slate-600 font-medium">8.0 kg</td>
+                  <td className="px-3.5 py-2.5 text-right font-bold text-emerald-700 font-['Barlow_Condensed',sans-serif]">16.0 kg</td>
+                  <td className="px-3.5 py-2.5 text-slate-500">Ibrahim Musa</td>
+                  <td className="px-3.5 py-2.5"><span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">Logged</span></td>
                 </tr>
-                <tr className="hover:bg-slate-50">
-                  <td className="px-4 py-3 font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Pond 03 — Tarpaulin Vat 1</td>
-                  <td className="px-4 py-3">Skretting</td>
-                  <td className="px-4 py-3"><span className="px-2 py-0.5 rounded bg-slate-100 font-mono font-bold">3.0mm</span></td>
-                  <td className="px-4 py-3">12.0 kg</td>
-                  <td className="px-4 py-3">14.0 kg</td>
-                  <td className="px-4 py-3 font-bold text-emerald-700 font-['Barlow_Condensed',sans-serif]">26.0 kg</td>
-                  <td className="px-4 py-3"><span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold">68% of 600kg</span></td>
-                  <td className="px-4 py-3"><span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded">🟢 Matched</span></td>
-                  <td className="px-4 py-3 text-slate-500">Emeka Eze</td>
+                <tr className="hover:bg-slate-50/80">
+                  <td className="px-3.5 py-2.5 font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Pond 03</td>
+                  <td className="px-3.5 py-2.5 text-slate-600">Catfish (01 Jul)</td>
+                  <td className="px-3.5 py-2.5"><span className="font-semibold text-slate-800">Durante</span> <span className="px-1.5 py-0.5 bg-slate-100 rounded font-mono text-[10px]">2.0mm</span></td>
+                  <td className="px-3.5 py-2.5 text-right text-slate-600 font-medium">3.5 kg</td>
+                  <td className="px-3.5 py-2.5 text-right text-slate-600 font-medium">3.5 kg</td>
+                  <td className="px-3.5 py-2.5 text-right font-bold text-emerald-700 font-['Barlow_Condensed',sans-serif]">7.0 kg</td>
+                  <td className="px-3.5 py-2.5 text-slate-500">Emeka Eze</td>
+                  <td className="px-3.5 py-2.5"><span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">Near Limit</span></td>
                 </tr>
-                <tr className="hover:bg-slate-50">
-                  <td className="px-4 py-3 font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Pond 04 — Concrete Grow-out B</td>
-                  <td className="px-4 py-3">Durante</td>
-                  <td className="px-4 py-3"><span className="px-2 py-0.5 rounded bg-slate-100 font-mono font-bold">4.0mm</span></td>
-                  <td className="px-4 py-3">10.0 kg</td>
-                  <td className="px-4 py-3">8.5 kg</td>
-                  <td className="px-4 py-3 font-bold text-emerald-700 font-['Barlow_Condensed',sans-serif]">18.5 kg</td>
-                  <td className="px-4 py-3"><span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold">42% of 900kg</span></td>
-                  <td className="px-4 py-3"><span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded">🟢 Matched</span></td>
-                  <td className="px-4 py-3 text-slate-500">Sola Bello</td>
+                <tr className="hover:bg-slate-50/80">
+                  <td className="px-3.5 py-2.5 font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Pond 04</td>
+                  <td className="px-3.5 py-2.5 text-slate-600">Tilapia (20 Jun)</td>
+                  <td className="px-3.5 py-2.5"><span className="font-semibold text-slate-800">Aller Aqua</span> <span className="px-1.5 py-0.5 bg-slate-100 rounded font-mono text-[10px]">2.0mm</span></td>
+                  <td className="px-3.5 py-2.5 text-right text-slate-600 font-medium">5.5 kg</td>
+                  <td className="px-3.5 py-2.5 text-right text-slate-600 font-medium">5.5 kg</td>
+                  <td className="px-3.5 py-2.5 text-right font-bold text-emerald-700 font-['Barlow_Condensed',sans-serif]">11.0 kg</td>
+                  <td className="px-3.5 py-2.5 text-slate-500">Ibrahim Musa</td>
+                  <td className="px-3.5 py-2.5"><span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">Logged</span></td>
                 </tr>
               </tbody>
             </table>
@@ -443,82 +558,135 @@ function FeedingDocumentationFullPreview() {
   );
 }
 
-/* 3. Financial Dashboard Preview */
+/* 3. Financial Dashboard Preview (Exact App Layout) */
 function FinancialDashboardFullPreview() {
   return (
     <AppWindowShell activeNav="financial">
       <div className="space-y-4 text-slate-800 font-['Barlow',sans-serif]">
-        {/* Metric Cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <div className="bg-white p-4 rounded-xl border border-slate-200/80 shadow-xs">
-            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Gross Fish Sales</p>
-            <p className="text-xl font-black text-emerald-600 font-['Barlow_Condensed',sans-serif] mt-1">₦16,850,000</p>
-            <p className="text-[10px] text-emerald-700 font-semibold mt-0.5 flex items-center gap-1"><ArrowUpRight size={10} /> +28% vs last cycle</p>
+        {/* Sticky Header */}
+        <div className="flex flex-wrap items-center justify-between gap-3 bg-[#f5f7fa] pb-1">
+          <div>
+            <h1 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] tracking-wide">Financial Dashboard</h1>
+            <p className="text-xs text-slate-400 mt-0.5">Track revenue, expenses, and profitability across all farm operations.</p>
           </div>
-          <div className="bg-white p-4 rounded-xl border border-slate-200/80 shadow-xs">
-            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Feed Expenses</p>
-            <p className="text-xl font-black text-slate-900 font-['Barlow_Condensed',sans-serif] mt-1">₦6,280,000</p>
-            <p className="text-[10px] text-slate-400 mt-0.5">66.7% of total cost</p>
-          </div>
-          <div className="bg-white p-4 rounded-xl border border-slate-200/80 shadow-xs">
-            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Operating Costs</p>
-            <p className="text-xl font-black text-slate-900 font-['Barlow_Condensed',sans-serif] mt-1">₦3,140,000</p>
-            <p className="text-[10px] text-slate-400 mt-0.5">Pumping, fuel, labor</p>
-          </div>
-          <div className="bg-emerald-600 text-white p-4 rounded-xl shadow-md">
-            <p className="text-[11px] font-bold text-emerald-100 uppercase tracking-wider">Net Farm Profit</p>
-            <p className="text-2xl font-black font-['Barlow_Condensed',sans-serif] mt-1">₦7,430,000</p>
-            <p className="text-[10px] text-emerald-100 font-medium mt-0.5">44.1% Operating Margin</p>
+          <div className="flex gap-2 flex-wrap">
+            <span className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-700 text-xs font-semibold shadow-xs">
+              <Download size={12} /> Export CSV
+            </span>
+            <span className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-700 text-xs font-semibold shadow-xs">
+              <FileText size={12} /> PDF
+            </span>
+            <span className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-[#00bb58] text-white text-xs font-bold shadow-xs">
+              <Plus size={12} /> Add Expense
+            </span>
+            <span className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-[#00bb58] text-white text-xs font-bold shadow-xs">
+              <ArrowUpRight size={12} /> Add Revenue
+            </span>
           </div>
         </div>
 
-        {/* Financial Visual Chart Simulation */}
-        <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs">
-          <div className="flex items-center justify-between mb-3">
-            <div>
-              <p className="text-xs font-bold text-slate-800 uppercase tracking-wider">Monthly Revenue vs Operating Costs (₦)</p>
-              <p className="text-[11px] text-slate-400">Tracking continuous cycle margins across all active ponds</p>
+        {/* Filter bar */}
+        <div className="flex flex-wrap gap-2 items-center text-xs">
+          <span className="text-slate-400 font-bold uppercase text-[10px]">Year:</span>
+          <span className="px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-slate-800 font-semibold">2026</span>
+          <span className="text-slate-400 font-bold uppercase text-[10px] ml-2">Month:</span>
+          <span className="px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-slate-800 font-semibold">All Months</span>
+          <span className="px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-slate-600 font-medium ml-2">Custom Range</span>
+        </div>
+
+        {/* 4 StatCards Row 1 (Exact App Dashboard Metrics) */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="bg-white p-3.5 rounded-xl border border-slate-200/80 shadow-xs">
+            <div className="flex items-center justify-between">
+              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Total Revenue</p>
+              <ArrowUpRight size={14} className="text-emerald-600" />
             </div>
-            <div className="flex items-center gap-3 text-xs">
-              <span className="flex items-center gap-1 text-slate-600"><span className="w-2.5 h-2.5 rounded-sm bg-emerald-600" /> Fish Revenue</span>
-              <span className="flex items-center gap-1 text-slate-600"><span className="w-2.5 h-2.5 rounded-sm bg-slate-300" /> Feed Costs</span>
-            </div>
+            <p className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] mt-1">₦14,850,000</p>
+            <p className="text-[10px] text-emerald-600 font-semibold mt-0.5">24 entries · 61% margin</p>
           </div>
-          {/* Visual bar graph representation */}
-          <div className="h-32 flex items-end gap-3 pt-4 border-b border-slate-100 px-2">
-            {[
-              { m: "Apr", rev: 45, exp: 28 },
-              { m: "May", rev: 62, exp: 35 },
-              { m: "Jun", rev: 55, exp: 32 },
-              { m: "Jul", rev: 78, exp: 42 },
-              { m: "Aug", rev: 85, exp: 46 },
-              { m: "Sep (Current)", rev: 100, exp: 52 },
-            ].map((bar, idx) => (
-              <div key={idx} className="flex-1 flex flex-col items-center gap-1.5 h-full justify-end">
-                <div className="w-full flex items-end justify-center gap-1 h-full">
-                  <div className="w-1/2 bg-emerald-600 rounded-t-sm" style={{ height: `${bar.rev}%` }} />
-                  <div className="w-1/2 bg-slate-300 rounded-t-sm" style={{ height: `${bar.exp}%` }} />
+          <div className="bg-white p-3.5 rounded-xl border border-slate-200/80 shadow-xs">
+            <div className="flex items-center justify-between">
+              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Total Expenses</p>
+              <ArrowDownRight size={14} className="text-rose-500" />
+            </div>
+            <p className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] mt-1">₦5,720,000</p>
+            <p className="text-[10px] text-slate-400 mt-0.5">48 entries</p>
+          </div>
+          <div className="bg-emerald-50 p-3.5 rounded-xl border border-emerald-200 shadow-xs">
+            <div className="flex items-center justify-between">
+              <p className="text-[11px] font-bold text-emerald-800 uppercase tracking-wider">Net Profit</p>
+              <TrendingUp size={14} className="text-emerald-600" />
+            </div>
+            <p className="text-xl font-bold text-emerald-800 font-['Barlow_Condensed',sans-serif] mt-1">₦9,130,000</p>
+            <p className="text-[10px] text-emerald-700 font-semibold mt-0.5">61% margin</p>
+          </div>
+          <div className="bg-white p-3.5 rounded-xl border border-slate-200/80 shadow-xs">
+            <div className="flex items-center justify-between">
+              <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Feed Costs</p>
+              <Layers size={14} className="text-slate-400" />
+            </div>
+            <p className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] mt-1">₦3,850,000</p>
+            <p className="text-[10px] text-slate-400 mt-0.5">67% of total expenses</p>
+          </div>
+        </div>
+
+        {/* Cost vs Revenue Chart & Expense Breakdown (App Layout) */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-3.5">
+          <div className="lg:col-span-2 bg-white rounded-xl border border-slate-200/80 p-4 shadow-xs">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-bold uppercase tracking-wider text-slate-700">Cost vs Revenue</p>
+              <span className="text-[11px] text-slate-400">Year 2026</span>
+            </div>
+            <div className="h-32 flex items-end gap-3 pt-3 border-b border-slate-100 px-2">
+              {[
+                { m: "Jan", rev: 35, exp: 20 },
+                { m: "Feb", rev: 42, exp: 25 },
+                { m: "Mar", rev: 55, exp: 30 },
+                { m: "Apr", rev: 68, exp: 35 },
+                { m: "May", rev: 72, exp: 38 },
+                { m: "Jun", rev: 80, exp: 40 },
+                { m: "Jul", rev: 92, exp: 45 },
+                { m: "Aug", rev: 95, exp: 48 },
+                { m: "Sep", rev: 100, exp: 50 },
+              ].map((bar, idx) => (
+                <div key={idx} className="flex-1 flex flex-col items-center gap-1 h-full justify-end">
+                  <div className="w-full flex items-end justify-center gap-1 h-full">
+                    <div className="w-1/2 bg-[#00bb58] rounded-t-sm" style={{ height: `${bar.rev}%` }} />
+                    <div className="w-1/2 bg-[#f43f5e] rounded-t-sm" style={{ height: `${bar.exp}%` }} />
+                  </div>
+                  <span className="text-[9px] font-semibold text-slate-400">{bar.m}</span>
                 </div>
-                <span className="text-[10px] font-semibold text-slate-500">{bar.m}</span>
-              </div>
-            ))}
+              ))}
+            </div>
+            <div className="flex items-center justify-center gap-6 mt-2 text-[11px]">
+              <span className="flex items-center gap-1 text-slate-600"><span className="w-2.5 h-2.5 rounded-sm bg-[#00bb58]" /> Revenue</span>
+              <span className="flex items-center gap-1 text-slate-600"><span className="w-2.5 h-2.5 rounded-sm bg-[#f43f5e]" /> Expenses</span>
+            </div>
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-3 text-[11px] text-slate-600">
-            <div className="bg-slate-50 p-2 rounded-lg border border-slate-100">
-              <p className="text-[10px] text-slate-400 uppercase font-bold">Feed Purchases</p>
-              <p className="font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">₦6,280,000 (66.7%)</p>
-            </div>
-            <div className="bg-slate-50 p-2 rounded-lg border border-slate-100">
-              <p className="text-[10px] text-slate-400 uppercase font-bold">Fuel & Pumping</p>
-              <p className="font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">₦1,520,000 (16.1%)</p>
-            </div>
-            <div className="bg-slate-50 p-2 rounded-lg border border-slate-100">
-              <p className="text-[10px] text-slate-400 uppercase font-bold">Staff & Labor</p>
-              <p className="font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">₦1,080,000 (11.5%)</p>
-            </div>
-            <div className="bg-slate-50 p-2 rounded-lg border border-slate-100">
-              <p className="text-[10px] text-slate-400 uppercase font-bold">Medication & Care</p>
-              <p className="font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">₦540,000 (5.7%)</p>
+
+          <div className="bg-white rounded-xl border border-slate-200/80 p-4 shadow-xs flex flex-col justify-between">
+            <p className="text-xs font-bold uppercase tracking-wider text-slate-700 mb-2">Expense Breakdown</p>
+            <div className="space-y-2 text-xs">
+              <div>
+                <div className="flex justify-between text-slate-600 text-[11px] mb-0.5"><span>Feed</span><span className="font-bold text-slate-800">67.3% · ₦3.85M</span></div>
+                <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden"><div className="bg-[#00bb58] h-full" style={{ width: "67.3%" }} /></div>
+              </div>
+              <div>
+                <div className="flex justify-between text-slate-600 text-[11px] mb-0.5"><span>Fuel & Pumping</span><span className="font-bold text-slate-800">14.2% · ₦810K</span></div>
+                <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden"><div className="bg-amber-500 h-full" style={{ width: "14.2%" }} /></div>
+              </div>
+              <div>
+                <div className="flex justify-between text-slate-600 text-[11px] mb-0.5"><span>Fingerlings / Stock</span><span className="font-bold text-slate-800">11.0% · ₦630K</span></div>
+                <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden"><div className="bg-blue-500 h-full" style={{ width: "11%" }} /></div>
+              </div>
+              <div>
+                <div className="flex justify-between text-slate-600 text-[11px] mb-0.5"><span>Medication</span><span className="font-bold text-slate-800">4.5% · ₦260K</span></div>
+                <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden"><div className="bg-lime-500 h-full" style={{ width: "4.5%" }} /></div>
+              </div>
+              <div>
+                <div className="flex justify-between text-slate-600 text-[11px] mb-0.5"><span>Labor & Attendants</span><span className="font-bold text-slate-800">3.0% · ₦170K</span></div>
+                <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden"><div className="bg-slate-400 h-full" style={{ width: "3%" }} /></div>
+              </div>
             </div>
           </div>
         </div>
@@ -527,97 +695,145 @@ function FinancialDashboardFullPreview() {
   );
 }
 
-/* 4. Customer Invoicing Preview */
+/* 4. Customer Invoices Preview (Exact App Layout) */
 function InvoicesFullPreview() {
   return (
     <AppWindowShell activeNav="invoices">
       <div className="space-y-4 text-slate-800 font-['Barlow',sans-serif]">
-        {/* Metric strip */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs">
-            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Total Invoiced</p>
-            <p className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] mt-0.5">₦22,400,000</p>
+        {/* Sticky Header */}
+        <div className="flex flex-wrap items-center justify-between gap-3 bg-[#f5f7fa] pb-1">
+          <div>
+            <h1 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] tracking-wide">Customer Invoices</h1>
+            <p className="text-xs text-slate-400 mt-0.5">Create invoices, track fish sales payments, and manage buyer balances.</p>
           </div>
-          <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs">
-            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Amount Collected</p>
-            <p className="text-xl font-bold text-emerald-600 font-['Barlow_Condensed',sans-serif] mt-0.5">₦19,250,000</p>
-          </div>
-          <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs">
-            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Pending Balance</p>
-            <p className="text-xl font-bold text-amber-600 font-['Barlow_Condensed',sans-serif] mt-0.5">₦3,150,000</p>
-          </div>
-          <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs">
-            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Active Customers</p>
-            <p className="text-xl font-bold text-slate-800 font-['Barlow_Condensed',sans-serif] mt-0.5">28 Buyers</p>
+          <div className="flex gap-2 flex-wrap">
+            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#00bb58] text-white text-xs font-bold shadow-xs">
+              <Plus size={12} /> Create Invoice
+            </span>
+            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-700 text-xs font-semibold shadow-xs">
+              Price Groups
+            </span>
           </div>
         </div>
 
-        {/* Action bar */}
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2 text-xs font-semibold">
-            <span className="px-3 py-1.5 bg-emerald-600 text-white rounded-xl shadow-xs">+ Create Customer Invoice</span>
-            <span className="px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-slate-600">Price Groups (₦/kg)</span>
-            <span className="px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-slate-600">Print Receipt</span>
+        {/* 4 StatCards matching InvoicesPage */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="bg-white border border-slate-200/80 rounded-xl p-3 shadow-xs">
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total Invoices</p>
+            <p className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] mt-0.5">18</p>
           </div>
-          <span className="text-xs text-slate-400 font-medium">Automatic PDF & WhatsApp Receipts</span>
+          <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 shadow-xs">
+            <p className="text-[10px] font-bold text-emerald-700 uppercase tracking-wider">Revenue Invoiced</p>
+            <p className="text-xl font-bold text-emerald-800 font-['Barlow_Condensed',sans-serif] mt-0.5">₦14,850,000</p>
+          </div>
+          <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 shadow-xs">
+            <p className="text-[10px] font-bold text-emerald-700 uppercase tracking-wider">Amount Collected</p>
+            <p className="text-xl font-bold text-emerald-800 font-['Barlow_Condensed',sans-serif] mt-0.5">₦12,900,000</p>
+          </div>
+          <div className="bg-white border border-slate-200/80 rounded-xl p-3 shadow-xs">
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Outstanding</p>
+            <p className="text-xl font-bold text-rose-600 font-['Barlow_Condensed',sans-serif] mt-0.5">₦1,950,000</p>
+          </div>
         </div>
 
         {/* Invoices List Table */}
-        <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-xs">
+        <div className="bg-white rounded-xl border border-slate-200/90 overflow-hidden shadow-xs">
+          <div className="px-4 pt-3.5 pb-2.5 border-b border-slate-100 flex items-center justify-between">
+            <p className="text-xs font-bold uppercase tracking-wider text-slate-700">All Invoices</p>
+            <span className="text-[11px] text-slate-400">18 invoices</span>
+          </div>
+
           <div className="overflow-x-auto">
             <table className="w-full text-xs text-left">
-              <thead className="bg-slate-50 text-slate-500 font-semibold border-b border-slate-100">
+              <thead className="bg-slate-50 border-b border-slate-100 text-slate-500 font-semibold uppercase tracking-wider text-[10px]">
                 <tr>
-                  <th className="px-4 py-2.5">Invoice #</th>
-                  <th className="px-4 py-2.5">Customer / Buyer</th>
-                  <th className="px-4 py-2.5">Fish Batch</th>
-                  <th className="px-4 py-2.5">Weight (Kg)</th>
-                  <th className="px-4 py-2.5">Unit Rate</th>
-                  <th className="px-4 py-2.5">Total (₦)</th>
-                  <th className="px-4 py-2.5">Payment</th>
-                  <th className="px-4 py-2.5">Action</th>
+                  <th className="px-3.5 py-2.5 w-8">#</th>
+                  <th className="px-3.5 py-2.5">Invoice #</th>
+                  <th className="px-3.5 py-2.5">Customer</th>
+                  <th className="px-3.5 py-2.5">Pond</th>
+                  <th className="px-3.5 py-2.5">Fish Groups</th>
+                  <th className="px-3.5 py-2.5">Total Wt.</th>
+                  <th className="px-3.5 py-2.5">Grand Total</th>
+                  <th className="px-3.5 py-2.5">Status</th>
+                  <th className="px-3.5 py-2.5 text-right">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 font-medium">
-                <tr className="hover:bg-slate-50">
-                  <td className="px-4 py-3 font-mono font-bold text-slate-800">INV-2026-104</td>
-                  <td className="px-4 py-3 font-bold text-slate-900">Mama Chinyere Coldrooms (Lagos)</td>
-                  <td className="px-4 py-3 text-slate-500">Pond 02 Table Catfish</td>
-                  <td className="px-4 py-3 font-bold">2,800 kg</td>
-                  <td className="px-4 py-3">₦2,250/kg</td>
-                  <td className="px-4 py-3 font-extrabold text-emerald-700 font-['Barlow_Condensed',sans-serif]">₦6,300,000</td>
-                  <td className="px-4 py-3"><span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold">Paid</span></td>
-                  <td className="px-4 py-3"><button className="text-slate-400 hover:text-slate-700"><Printer size={13} /></button></td>
+              <tbody className="divide-y divide-slate-100">
+                <tr className="hover:bg-slate-50/80 transition-colors">
+                  <td className="px-3.5 py-2.5 text-slate-400 font-mono">1</td>
+                  <td className="px-3.5 py-2.5 font-mono font-bold text-[#00bb58] cursor-pointer hover:underline">INV-2026-084</td>
+                  <td className="px-3.5 py-2.5">
+                    <p className="font-bold text-slate-900">Bodija Fresh Fish Market</p>
+                    <p className="text-[10px] text-slate-400">Ibadan, Oyo State</p>
+                  </td>
+                  <td className="px-3.5 py-2.5 text-slate-600">Pond 02</td>
+                  <td className="px-3.5 py-2.5 text-slate-600">Large Catfish (1kg+)</td>
+                  <td className="px-3.5 py-2.5 font-medium text-slate-800">740 kg</td>
+                  <td className="px-3.5 py-2.5 font-bold font-['Barlow_Condensed',sans-serif] text-sm text-slate-900">₦1,850,000</td>
+                  <td className="px-3.5 py-2.5"><span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">Paid</span></td>
+                  <td className="px-3.5 py-2.5 text-right">
+                    <div className="inline-flex items-center gap-1 text-slate-400">
+                      <span className="p-1 hover:text-slate-600 cursor-pointer"><Eye size={12} /></span>
+                      <span className="p-1 hover:text-slate-600 cursor-pointer"><Printer size={12} /></span>
+                    </div>
+                  </td>
                 </tr>
-                <tr className="hover:bg-slate-50">
-                  <td className="px-4 py-3 font-mono font-bold text-slate-800">INV-2026-103</td>
-                  <td className="px-4 py-3 font-bold text-slate-900">Grand Ocean Hotels (Victoria Island)</td>
-                  <td className="px-4 py-3 text-slate-500">Pond 03 Fresh Tilapia</td>
-                  <td className="px-4 py-3 font-bold">950 kg</td>
-                  <td className="px-4 py-3">₦2,700/kg</td>
-                  <td className="px-4 py-3 font-extrabold text-emerald-700 font-['Barlow_Condensed',sans-serif]">₦2,565,000</td>
-                  <td className="px-4 py-3"><span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold">Paid</span></td>
-                  <td className="px-4 py-3"><button className="text-slate-400 hover:text-slate-700"><Printer size={13} /></button></td>
+                <tr className="hover:bg-slate-50/80 transition-colors">
+                  <td className="px-3.5 py-2.5 text-slate-400 font-mono">2</td>
+                  <td className="px-3.5 py-2.5 font-mono font-bold text-[#00bb58] cursor-pointer hover:underline">INV-2026-083</td>
+                  <td className="px-3.5 py-2.5">
+                    <p className="font-bold text-slate-900">Alaba Fish Wholesalers Ltd</p>
+                    <p className="text-[10px] text-slate-400">Lagos State</p>
+                  </td>
+                  <td className="px-3.5 py-2.5 text-slate-600">Pond 04</td>
+                  <td className="px-3.5 py-2.5 text-slate-600">Table Size Catfish</td>
+                  <td className="px-3.5 py-2.5 font-medium text-slate-800">1,280 kg</td>
+                  <td className="px-3.5 py-2.5 font-bold font-['Barlow_Condensed',sans-serif] text-sm text-slate-900">₦3,200,000</td>
+                  <td className="px-3.5 py-2.5"><span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">Paid</span></td>
+                  <td className="px-3.5 py-2.5 text-right">
+                    <div className="inline-flex items-center gap-1 text-slate-400">
+                      <span className="p-1 hover:text-slate-600 cursor-pointer"><Eye size={12} /></span>
+                      <span className="p-1 hover:text-slate-600 cursor-pointer"><Printer size={12} /></span>
+                    </div>
+                  </td>
                 </tr>
-                <tr className="hover:bg-slate-50">
-                  <td className="px-4 py-3 font-mono font-bold text-slate-800">INV-2026-102</td>
-                  <td className="px-4 py-3 font-bold text-slate-900">Alaba Central Fish Market</td>
-                  <td className="px-4 py-3 text-slate-500">Pond 02 Table Catfish</td>
-                  <td className="px-4 py-3 font-bold">3,500 kg</td>
-                  <td className="px-4 py-3">₦2,200/kg</td>
-                  <td className="px-4 py-3 font-extrabold text-amber-700 font-['Barlow_Condensed',sans-serif]">₦7,700,000</td>
-                  <td className="px-4 py-3"><span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-bold">Partially Paid</span></td>
-                  <td className="px-4 py-3"><button className="text-slate-400 hover:text-slate-700"><Printer size={13} /></button></td>
+                <tr className="hover:bg-slate-50/80 transition-colors">
+                  <td className="px-3.5 py-2.5 text-slate-400 font-mono">3</td>
+                  <td className="px-3.5 py-2.5 font-mono font-bold text-[#00bb58] cursor-pointer hover:underline">INV-2026-082</td>
+                  <td className="px-3.5 py-2.5">
+                    <p className="font-bold text-slate-900">Mama Grace Fish Depot</p>
+                    <p className="text-[10px] text-slate-400">Warri, Delta State</p>
+                  </td>
+                  <td className="px-3.5 py-2.5 text-slate-600">Pond 03</td>
+                  <td className="px-3.5 py-2.5 text-slate-600">Medium Melange</td>
+                  <td className="px-3.5 py-2.5 font-medium text-slate-800">420 kg</td>
+                  <td className="px-3.5 py-2.5 font-bold font-['Barlow_Condensed',sans-serif] text-sm text-slate-900">₦950,000</td>
+                  <td className="px-3.5 py-2.5"><span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">Pending</span></td>
+                  <td className="px-3.5 py-2.5 text-right">
+                    <div className="inline-flex items-center gap-1 text-slate-400">
+                      <span className="p-1 hover:text-slate-600 cursor-pointer"><Eye size={12} /></span>
+                      <span className="p-1 hover:text-slate-600 cursor-pointer"><Printer size={12} /></span>
+                    </div>
+                  </td>
                 </tr>
-                <tr className="hover:bg-slate-50">
-                  <td className="px-4 py-3 font-mono font-bold text-slate-800">INV-2026-101</td>
-                  <td className="px-4 py-3 font-bold text-slate-900">Bodija Fish Wholesalers (Ibadan)</td>
-                  <td className="px-4 py-3 text-slate-500">Pond 04 Catfish</td>
-                  <td className="px-4 py-3 font-bold">1,400 kg</td>
-                  <td className="px-4 py-3">₦2,200/kg</td>
-                  <td className="px-4 py-3 font-extrabold text-emerald-700 font-['Barlow_Condensed',sans-serif]">₦3,080,000</td>
-                  <td className="px-4 py-3"><span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold">Paid</span></td>
-                  <td className="px-4 py-3"><button className="text-slate-400 hover:text-slate-700"><Printer size={13} /></button></td>
+                <tr className="hover:bg-slate-50/80 transition-colors">
+                  <td className="px-3.5 py-2.5 text-slate-400 font-mono">4</td>
+                  <td className="px-3.5 py-2.5 font-mono font-bold text-[#00bb58] cursor-pointer hover:underline">INV-2026-081</td>
+                  <td className="px-3.5 py-2.5">
+                    <p className="font-bold text-slate-900">Epe Waterfront Coldroom</p>
+                    <p className="text-[10px] text-slate-400">Lagos State</p>
+                  </td>
+                  <td className="px-3.5 py-2.5 text-slate-600">Pond 02</td>
+                  <td className="px-3.5 py-2.5 text-slate-600">Premium Catfish</td>
+                  <td className="px-3.5 py-2.5 font-medium text-slate-800">960 kg</td>
+                  <td className="px-3.5 py-2.5 font-bold font-['Barlow_Condensed',sans-serif] text-sm text-slate-900">₦2,400,000</td>
+                  <td className="px-3.5 py-2.5"><span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">Paid</span></td>
+                  <td className="px-3.5 py-2.5 text-right">
+                    <div className="inline-flex items-center gap-1 text-slate-400">
+                      <span className="p-1 hover:text-slate-600 cursor-pointer"><Eye size={12} /></span>
+                      <span className="p-1 hover:text-slate-600 cursor-pointer"><Printer size={12} /></span>
+                    </div>
+                  </td>
                 </tr>
               </tbody>
             </table>
@@ -726,7 +942,7 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
               onClick={onSignup}
               className="px-5 py-2.5 rounded-full bg-[#00bb58] hover:bg-[#00a84e] text-white text-xs font-black uppercase tracking-wider shadow-lg shadow-emerald-600/30 transition-all hover:scale-[1.02] active:scale-95"
             >
-              Start Free Trial
+              Start 30 Days Free Trial
             </button>
           </div>
 
@@ -762,7 +978,7 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
                 onClick={() => { setMobileMenuOpen(false); onSignup(); }}
                 className="w-full py-2.5 text-center text-xs uppercase tracking-wider font-black bg-[#00bb58] text-white rounded-xl shadow-lg"
               >
-                Start Free Trial
+                Start 30 Days Free Trial
               </button>
             </div>
           </div>
@@ -788,20 +1004,20 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
             <FadeIn delay={100}>
               <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-emerald-500/20 border border-emerald-400/30 text-emerald-300 text-xs uppercase tracking-widest font-bold">
                 <Sparkles size={13} />
-                <span>Fish Farm Management System</span>
+                <span>#1 Fish Farm Management System in Nigeria</span>
               </div>
             </FadeIn>
 
             <FadeIn delay={200}>
               <h1 className="text-4xl sm:text-6xl lg:text-7xl font-bold font-['Barlow_Condensed',sans-serif] leading-[0.95] tracking-tight text-white">
-                Smart Fish Farming <br />
-                For <span className="font-['Barlow_Condensed',sans-serif] text-emerald-400 font-bold">Higher Yields</span>
+                Stop Managing Your Fish Farm <br />
+                On <span className="font-['Barlow_Condensed',sans-serif] text-emerald-400 font-bold">Exercise Books & WhatsApp</span>
               </h1>
             </FadeIn>
 
             <FadeIn delay={300}>
               <p className="text-base sm:text-xl text-slate-200/90 font-normal leading-relaxed max-w-2xl font-['Barlow',sans-serif]">
-                The modern farm management system engineered specifically for fish farmers across Nigeria and Africa — built for normal family farms and commercial operations alike. Eliminate feed waste, prevent mortality spikes, and keep your farm profitable.
+                Pondtora replaces lost paper notebooks, messy records, and chaotic WhatsApp chats with one complete system built for Nigerian fish farmers — normal family farms and commercial operations alike. Track daily morning & evening feedings, enforce feed pallet limits, monitor pond stock & mortality, and bill buyers right from your phone.
               </p>
             </FadeIn>
 
@@ -811,10 +1027,10 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
                   onClick={onSignup}
                   className="px-8 py-3.5 rounded-full bg-[#00bb58] hover:bg-[#00a84e] text-white text-xs sm:text-sm font-black uppercase tracking-wider shadow-xl shadow-emerald-900/40 transition-all hover:scale-105 active:scale-95"
                 >
-                  Get Started Free
+                  Start 30 Days Free Trial
                 </button>
                 <button
-                  onClick={() => scrollTo("showcase")}
+                  onClick={() => scrollTo("solutions")}
                   className="px-7 py-3.5 rounded-full bg-white/10 hover:bg-white/20 text-white text-xs sm:text-sm font-bold uppercase tracking-wider border border-white/20 backdrop-blur-xs transition-all"
                 >
                   Explore System
@@ -1083,82 +1299,7 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
         </div>
       </section>
 
-      {/* ─── 7. SMART FORECASTING SECTION (DARK GREEN) ───────────────────────── */}
-      <section id="forecasting" className="py-20 sm:py-28 bg-[#062319] text-white">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <FadeIn>
-            <div className="max-w-3xl mb-12">
-              <span className="text-xs uppercase tracking-widest font-black text-emerald-400 block mb-1">
-                [ SMART FORECASTING ]
-              </span>
-              <h2 className="text-3xl sm:text-5xl font-bold font-['Barlow_Condensed',sans-serif] tracking-tight">
-                Smart Production & Weather Forecasting For Fish Farms
-              </h2>
-              <p className="text-slate-300 text-sm sm:text-base mt-2">
-                Anticipate water oxygen changes, rainy season temperature shifts, and feed consumption curves to protect your stock.
-              </p>
-            </div>
-          </FadeIn>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-            {/* Forecast Card 1 */}
-            <FadeIn delay={100}>
-              <div className="bg-[#0a2e22] rounded-2xl overflow-hidden border border-emerald-900/60 p-6 space-y-4">
-                <div className="h-52 rounded-xl overflow-hidden relative">
-                  <img
-                    src="https://images.unsplash.com/photo-1516214104703-d870798883c5?auto=format&fit=crop&w=800&q=80"
-                    alt="Pond water condition"
-                    className="w-full h-full object-cover"
-                  />
-                  <div className="absolute inset-0 bg-gradient-to-t from-[#0a2e22] via-transparent to-transparent" />
-                </div>
-                <div>
-                  <span className="text-emerald-400 text-xs font-bold uppercase tracking-wider">Feed Optimization</span>
-                  <h3 className="text-2xl font-bold font-['Barlow_Condensed',sans-serif] mt-1 text-white">
-                    Optimize Feeding & Harvest Schedules
-                  </h3>
-                  <p className="text-slate-300 text-sm leading-relaxed mt-2">
-                    Adjust feeding rations dynamically when sudden rain drops water temperatures. Forecast harvest dates when your fish reach target table weights for prime market pricing.
-                  </p>
-                </div>
-                <div className="pt-2">
-                  <span className="text-xs font-bold text-emerald-400 hover:text-emerald-300 inline-flex items-center gap-1 cursor-pointer">
-                    Explore Harvest Forecasting →
-                  </span>
-                </div>
-              </div>
-            </FadeIn>
-
-            {/* Forecast Card 2 */}
-            <FadeIn delay={200}>
-              <div className="bg-[#0a2e22] rounded-2xl overflow-hidden border border-emerald-900/60 p-6 space-y-4">
-                <div className="h-52 rounded-xl overflow-hidden relative">
-                  <img
-                    src="https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=800&q=80"
-                    alt="Aquaculture ecosystem"
-                    className="w-full h-full object-cover"
-                  />
-                  <div className="absolute inset-0 bg-gradient-to-t from-[#0a2e22] via-transparent to-transparent" />
-                </div>
-                <div>
-                  <span className="text-emerald-400 text-xs font-bold uppercase tracking-wider">Biosecurity & Health</span>
-                  <h3 className="text-2xl font-bold font-['Barlow_Condensed',sans-serif] mt-1 text-white">
-                    Water Quality & Mortality Prevention
-                  </h3>
-                  <p className="text-slate-300 text-sm leading-relaxed mt-2">
-                    Log treatment medications, track symptoms early, and pinpoint mortality spikes by pond before infections spread across your entire farm.
-                  </p>
-                </div>
-                <div className="pt-2">
-                  <span className="text-xs font-bold text-emerald-400 hover:text-emerald-300 inline-flex items-center gap-1 cursor-pointer">
-                    Explore Biosecurity Logging →
-                  </span>
-                </div>
-              </div>
-            </FadeIn>
-          </div>
-        </div>
-      </section>
 
       {/* ─── 8. TESTIMONIALS (NIGERIAN FARMERS) ───────────────────────────────── */}
       <section id="testimonials" className="py-20 sm:py-28 bg-white">
@@ -1341,7 +1482,7 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
                           : "bg-slate-900 hover:bg-slate-800 text-white"
                       }`}
                     >
-                      Start 30-Day Free Trial
+                      Start 30 Days Free Trial
                     </button>
                   </div>
                 </div>
@@ -1442,7 +1583,7 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
                 onClick={onSignup}
                 className="px-8 py-4 rounded-full bg-[#00bb58] hover:bg-[#00a84e] text-white text-xs sm:text-sm font-black uppercase tracking-wider shadow-2xl transition-all hover:scale-105 active:scale-95"
               >
-                Create Your Free Account
+                Start 30 Days Free Trial
               </button>
             </div>
           </div>
@@ -1469,10 +1610,7 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
               <p className="text-slate-300 text-xs sm:text-sm max-w-sm leading-relaxed font-['Barlow',sans-serif]">
                 The dedicated farm management system built for normal and commercial catfish and tilapia farmers across Nigeria and Sub-Saharan Africa.
               </p>
-              <div className="pt-1 text-xs text-slate-400">
-                <p>📍 Lagos & Nationwide, Nigeria</p>
-                <p className="mt-0.5">📧 support@pondtora.com</p>
-              </div>
+
             </div>
 
             {/* Quick Links Column 1 */}
@@ -1495,7 +1633,7 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
                 <li><button onClick={() => scrollTo("testimonials")} className="hover:text-white">Farmer Stories</button></li>
                 <li><button onClick={() => scrollTo("pricing")} className="hover:text-white">Pricing & Plans</button></li>
                 <li><button onClick={() => scrollTo("faq")} className="hover:text-white">FAQ</button></li>
-                <li><button onClick={onAdmin} className="text-emerald-400 hover:underline">Admin Portal</button></li>
+
               </ul>
             </div>
           </div>
