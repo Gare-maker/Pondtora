@@ -261,7 +261,11 @@ export function objToCamel<T = any>(obj: Record<string, any>): T {
   const out: Record<string, any> = {};
   for (const [k, v] of Object.entries(obj)) {
     const key = CAMEL_MAP[k] || toCamel(k);
-    out[key] = v;
+    let val = v;
+    if (key === "maxKgByPallet" && typeof v === "string") {
+      try { val = JSON.parse(v); } catch {}
+    }
+    out[key] = val;
   }
   return out as T;
 }
@@ -854,6 +858,9 @@ export const api = {
       if (p.initialStock !== undefined) dbPond.initialStock = parseInt(String(p.initialStock), 10) || 0;
       if (p.currentCount !== undefined) dbPond.currentCount = parseInt(String(p.currentCount), 10) || 0;
       if (p.totalCost !== undefined) dbPond.totalCost = parseFloat(String(p.totalCost)) || 0;
+      if (p.maxKgByPallet !== undefined) {
+        dbPond.maxKgByPallet = p.maxKgByPallet || {};
+      }
       if (!p.stockingDate || p.stockingDate === "—" || !String(p.stockingDate).trim()) {
         dbPond.stockingDate = null;
       } else {

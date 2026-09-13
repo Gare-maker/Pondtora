@@ -1,813 +1,1442 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Menu, X, ArrowRight, Star, CheckCircle, ChevronDown, Fish } from "lucide-react";
-const imgAboutFarmer = "https://images.unsplash.com/photo-1768248559000-0775a51b0413?crop=entropy&cs=tinysrgb&fit=max&fm=webp&w=1200&q=80";
-
-const TESTIMONIAL_AVATAR_1 = "https://images.unsplash.com/photo-1533108344127-a586d2b02479?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&w=200";
-const TESTIMONIAL_AVATAR_2 = "https://images.unsplash.com/photo-1756588534346-e8899364757b?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&w=200";
-const TESTIMONIAL_AVATAR_3 = "https://images.unsplash.com/photo-1504199367641-aba8151af406?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&w=200";
-const TESTIMONIAL_AVATAR_4 = "https://images.unsplash.com/photo-1573497019189-90a00bb1f26f?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&w=200";
+import {
+  Menu, X, ArrowRight, Star, CheckCircle, ChevronDown, Fish,
+  Droplets, Package, BookOpen, Receipt, LayoutDashboard, TrendingUp,
+  Users, ShieldCheck, Waves, Sparkles, ExternalLink, Calendar, Plus,
+  Clock, Activity, AlertTriangle, ArrowUpRight, Check, ChevronRight,
+  TrendingDown, Search, Filter, RefreshCw, Eye, Printer, Download
+} from "lucide-react";
+import pondtoraLogo from "../../imports/loo-2.svg";
+import heroFarmImg from "../../assets/images/african_fish_farm_hero.jpg";
+import panoFarmImg from "../../assets/images/commercial_catfish_farm.jpg";
+import nurseryPondImg from "../../assets/images/african_nursery_ponds.jpg";
 import {
   EVERY_PLAN_INCLUDES,
   useDynamicPlans,
   yearlyPrice,
 } from "../pricingData";
 
-interface Props { onLogin: () => void; onSignup: () => void; onAdmin?: () => void; }
+interface Props {
+  onLogin: () => void;
+  onSignup: () => void;
+  onAdmin?: () => void;
+}
 
 const NAV_LINKS = [
-  { label: "Home", href: "home" },
-  { label: "About Us", href: "about" },
-  { label: "Features", href: "features" },
+  { label: "Solutions", href: "solutions" },
+  { label: "Fields of Operation", href: "fields" },
+  { label: "App Showcase", href: "showcase" },
+  { label: "Forecasting", href: "forecasting" },
+  { label: "Testimonials", href: "testimonials" },
   { label: "Pricing", href: "pricing" },
   { label: "FAQ", href: "faq" },
 ];
 
-/* ── Fade-in on scroll ── */
+/* ── Smooth Fade-in on scroll hook ── */
 function useFadeIn() {
   const ref = useRef<HTMLDivElement>(null);
-  const [v, setV] = useState(false);
+  const [visible, setVisible] = useState(false);
   useEffect(() => {
-    const el = ref.current; if (!el) return;
+    const el = ref.current;
+    if (!el) return;
     const obs = new IntersectionObserver(
-      ([e]) => { if (e.isIntersecting) { setV(true); obs.disconnect(); } },
+      ([e]) => { if (e.isIntersecting) { setVisible(true); obs.disconnect(); } },
       { threshold: 0.1 }
     );
-    obs.observe(el); return () => obs.disconnect();
+    obs.observe(el);
+    return () => obs.disconnect();
   }, []);
-  return { ref, v };
+  return { ref, visible };
 }
+
 function FadeIn({ children, delay = 0, className = "" }: { children: React.ReactNode; delay?: number; className?: string }) {
-  const { ref, v } = useFadeIn();
+  const { ref, visible } = useFadeIn();
   return (
-    <div ref={ref} className={className}
-      style={{ transition: `opacity 0.55s ease ${delay}ms, transform 0.55s ease ${delay}ms`, opacity: v ? 1 : 0, transform: v ? "none" : "translateY(20px)" }}>
+    <div
+      ref={ref}
+      className={className}
+      style={{
+        transition: `opacity 0.6s cubic-bezier(0.16, 1, 0.3, 1) ${delay}ms, transform 0.6s cubic-bezier(0.16, 1, 0.3, 1) ${delay}ms`,
+        opacity: visible ? 1 : 0,
+        transform: visible ? "none" : "translateY(24px)",
+      }}
+    >
       {children}
     </div>
   );
 }
 
-/* ═══════════════════════════════════════════════
-   MINI-MOCKUPS — coded app-screen previews
-   ═══════════════════════════════════════════════ */
+/* ═══════════════════════════════════════════════════════════════════════════
+   FULL APPLICATION UI SHOWCASE PREVIEWS
+   Realistic, complete views of Pondtora with full topbars, sidebars,
+   farm dropdowns, live charts, data tables, and badges.
+   ═══════════════════════════════════════════════════════════════════════════ */
 
-function MockRow({ label, val, green }: { label: string; val: string; green?: boolean }) {
-  return (
-    <div className="flex items-center justify-between py-1 border-b border-slate-100 last:border-0 text-[10px]">
-      <span className="text-slate-500 truncate mr-2">{label}</span>
-      <span className={`font-semibold shrink-0 ${green ? "text-green-600" : "text-slate-800"}`}>{val}</span>
-    </div>
-  );
-}
-function MockBadge({ label, color }: { label: string; color: "green" | "amber" | "blue" | "slate" }) {
-  const cls = { green: "bg-green-100 text-green-700", amber: "bg-amber-100 text-amber-700", blue: "bg-blue-100 text-blue-700", slate: "bg-slate-100 text-slate-600" }[color];
-  return <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${cls}`}>{label}</span>;
-}
-function MockBar({ pct, color = "bg-green-500" }: { pct: number; color?: string }) {
-  return <div className="w-full bg-slate-100 rounded-full h-1.5 mt-0.5"><div className={`h-1.5 rounded-full ${color}`} style={{ width: `${pct}%` }} /></div>;
+interface AppShowcaseChromeProps {
+  activeNav: string;
+  activeFarmName?: string;
+  children: React.ReactNode;
 }
 
-function MockFinancial() {
+function AppWindowShell({ activeNav, activeFarmName = "Crown Fisheries — Epe Farm, Lagos", children }: AppShowcaseChromeProps) {
+  const [farmDropdownOpen, setFarmDropdownOpen] = useState(false);
+  const navItems = [
+    { id: "financial", label: "Financial Dashboard", icon: LayoutDashboard },
+    { id: "ponds", label: "Pond Management", icon: Droplets },
+    { id: "inventory", label: "Feed Stock", icon: Package },
+    { id: "documentation", label: "Feeding Records", icon: BookOpen },
+    { id: "invoices", label: "Invoices", icon: Receipt },
+    { id: "staff", label: "Staff", icon: Users },
+  ];
+
   return (
-    <div className="bg-white rounded-xl border border-slate-100 p-3 space-y-2 shadow-sm">
-      <div className="grid grid-cols-2 gap-2">
-        <div className="bg-green-50 rounded-lg p-2"><p className="text-green-600 font-semibold text-[9px] mb-0.5">Revenue</p><p className="text-green-700 font-bold text-xs">₦580,000</p></div>
-        <div className="bg-red-50 rounded-lg p-2"><p className="text-red-500 font-semibold text-[9px] mb-0.5">Expenses</p><p className="text-red-600 font-bold text-xs">₦320,000</p></div>
-      </div>
-      <div>
-        <p className="text-slate-400 text-[9px] mb-1">Monthly Overview</p>
-        <div className="flex items-end gap-1 h-10">
-          {[45, 62, 38, 75, 55, 80].map((h, i) => <div key={i} className="flex-1 bg-green-500 rounded-t-sm opacity-80" style={{ height: `${h}%` }} />)}
+    <div className="w-full rounded-2xl overflow-hidden shadow-2xl border border-slate-700/60 bg-slate-900 text-slate-100 font-['Barlow',sans-serif]">
+      {/* Browser / Window Header */}
+      <div className="bg-slate-950 px-4 py-2.5 flex items-center justify-between border-b border-slate-800 text-xs select-none">
+        <div className="flex items-center gap-2">
+          <div className="w-3 h-3 rounded-full bg-red-500/80" />
+          <div className="w-3 h-3 rounded-full bg-amber-500/80" />
+          <div className="w-3 h-3 rounded-full bg-emerald-500/80" />
+          <span className="ml-2 text-slate-500 text-[11px] font-mono hidden sm:inline">app.pondtora.com/live-demo</span>
         </div>
-        <div className="flex justify-between text-[8px] text-slate-300 mt-0.5">
-          {["J","F","M","A","M","J"].map((m, i) => <span key={i}>{m}</span>)}
-        </div>
-      </div>
-      <MockRow label="Net Profit" val="₦260,000" green />
-    </div>
-  );
-}
-
-function MockPond() {
-  return (
-    <div className="bg-white rounded-xl border border-slate-100 p-3 space-y-1.5 shadow-sm">
-      <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-wider mb-2">Active Ponds</p>
-      {[{n:"Pond A",s:"Catfish",c:"850 fish"},{n:"Pond B",s:"Tilapia",c:"620 fish"},{n:"Pond C",s:"Catfish",c:"430 fish"}].map(p => (
-        <div key={p.n} className="flex items-center gap-2 py-1 border-b border-slate-50 last:border-0">
-          <div className="w-1.5 h-1.5 rounded-full bg-green-500 shrink-0" />
-          <div className="flex-1 min-w-0 text-[10px]">
-            <p className="font-semibold text-slate-800">{p.n} <span className="font-normal text-slate-400">· {p.s}</span></p>
-            <p className="text-slate-400">{p.c}</p>
-          </div>
-          <MockBadge label="Active" color="green" />
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function MockFeedStock() {
-  return (
-    <div className="bg-white rounded-xl border border-slate-100 p-3 shadow-sm">
-      <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-wider mb-2">Feed Inventory</p>
-      <div className="grid grid-cols-4 gap-1 text-[8px] text-slate-400 font-semibold mb-1">
-        {["Brand","Size","Bags","kg"].map(h => <span key={h}>{h}</span>)}
-      </div>
-      {[["Coppens","3.0mm","24","480"],["Vital","2.0mm","12","240"],["Durante","1.5mm","8","120"]].map(([b,s,bags,kg]) => (
-        <div key={b} className="grid grid-cols-4 gap-1 py-1 border-b border-slate-50 last:border-0 text-[10px]">
-          <span className="text-slate-700 font-semibold">{b}</span>
-          <span className="text-slate-500">{s}</span>
-          <span className="text-slate-600">{bags}</span>
-          <span className="text-green-600 font-semibold">{kg}kg</span>
-        </div>
-      ))}
-      <div className="mt-2 flex items-center justify-between text-[9px] bg-green-50 rounded-lg px-2 py-1.5">
-        <span className="text-green-600 font-semibold">Total Stock</span>
-        <span className="text-green-700 font-bold">840 kg</span>
-      </div>
-    </div>
-  );
-}
-
-function MockFeeding() {
-  return (
-    <div className="bg-white rounded-xl border border-slate-100 p-3 shadow-sm">
-      <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-wider mb-2">Today's Feeding Log</p>
-      <div className="grid grid-cols-4 gap-1 text-[8px] text-slate-400 font-semibold mb-1">
-        {["Pond","Brand","AM","PM"].map(h => <span key={h}>{h}</span>)}
-      </div>
-      {[["Pond A","Coppens","2.5","2.5"],["Pond B","Vital","3.0","3.0"],["Pond C","Coppens","1.8","1.8"]].map(([pond,brand,am,pm]) => (
-        <div key={pond} className="grid grid-cols-4 gap-1 py-1 border-b border-slate-50 last:border-0 text-[10px]">
-          <span className="text-slate-700 font-semibold">{pond}</span>
-          <span className="text-slate-500">{brand}</span>
-          <span className="text-slate-600">{am}kg</span>
-          <span className="text-green-600 font-semibold">{pm}kg</span>
-        </div>
-      ))}
-      <div className="mt-2 text-[9px] text-slate-400 flex justify-between">
-        <span>Total fed today</span><span className="font-bold text-slate-700">15.1 kg</span>
-      </div>
-    </div>
-  );
-}
-
-function MockInvoice() {
-  return (
-    <div className="bg-white rounded-xl border border-slate-100 p-3 shadow-sm">
-      <div className="flex items-center justify-between mb-2">
-        <p className="font-bold text-slate-800 text-[10px]">INV-024</p>
-        <MockBadge label="Paid" color="green" />
-      </div>
-      <p className="text-slate-400 text-[9px] mb-2">Musa Farms · Jun 25, 2026</p>
-      <div className="border border-slate-100 rounded-lg overflow-hidden mb-2">
-        <div className="grid grid-cols-3 gap-1 text-[8px] text-slate-400 font-semibold bg-slate-50 px-2 py-1">{["Item","Qty","Total"].map(h=><span key={h}>{h}</span>)}</div>
-        <div className="grid grid-cols-3 gap-1 px-2 py-1.5 text-[10px]">
-          <span className="text-slate-700">Catfish</span><span className="text-slate-500">500 kg</span><span className="text-slate-800 font-semibold">₦425,000</span>
+        <div className="flex items-center gap-2 text-slate-400 text-[11px]">
+          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+          <span className="font-semibold text-emerald-400">Live System Online</span>
         </div>
       </div>
-      <div className="flex justify-between font-bold text-[9px]">
-        <span className="text-slate-500">Grand Total</span><span className="text-green-600">₦425,000</span>
-      </div>
-    </div>
-  );
-}
 
-function MockReports() {
-  return (
-    <div className="bg-white rounded-xl border border-slate-100 p-3 shadow-sm">
-      <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-wider mb-2">Farm Reports</p>
-      {[{t:"Daily Report — Jun 25",type:"Daily",s:"Open",c:"amber"},{t:"Weekly Summary — Jun 23",type:"Weekly",s:"Resolved",c:"green"},{t:"Monthly — May 2026",type:"Monthly",s:"Resolved",c:"green"}].map(r=>(
-        <div key={r.t} className="flex items-center gap-2 py-1.5 border-b border-slate-50 last:border-0">
-          <div className="flex-1 min-w-0">
-            <p className="font-semibold text-slate-800 text-[10px] truncate">{r.t}</p>
-            <MockBadge label={r.type} color="blue" />
-          </div>
-          <MockBadge label={r.s} color={r.c as "green"|"amber"} />
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function MockStaff() {
-  return (
-    <div className="bg-white rounded-xl border border-slate-100 p-3 shadow-sm">
-      <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-wider mb-2">Staff Members</p>
-      {[{n:"Ahmed Ibrahim",r:"Farm Manager",s:"Active"},{n:"Bola Adeyemi",r:"Feeding Staff",s:"Active"},{n:"Grace Nwosu",r:"General Staff",s:"Pending"}].map(s=>(
-        <div key={s.n} className="flex items-center gap-2 py-1.5 border-b border-slate-50 last:border-0">
-          <div className="w-6 h-6 rounded-full bg-green-100 flex items-center justify-center text-[8px] font-bold text-green-700 shrink-0">{s.n[0]}</div>
-          <div className="flex-1 min-w-0 text-[10px]">
-            <p className="font-semibold text-slate-800">{s.n}</p>
-            <p className="text-slate-400">{s.r}</p>
-          </div>
-          <MockBadge label={s.s} color={s.s==="Active"?"green":"amber"} />
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function MockAssessments() {
-  return (
-    <div className="bg-white rounded-xl border border-slate-100 p-3 shadow-sm">
-      <p className="text-[9px] font-semibold text-slate-400 uppercase tracking-wider mb-2">Assessment Results</p>
-      <div className="space-y-2">
-        {[{n:"Aminu Garba",t:"Knowledge",sc:86,pass:true},{n:"Fatima Bello",t:"Compatibility",sc:87,pass:null},{n:"Chidi Okonkwo",t:"Knowledge",sc:57,pass:false}].map(a=>(
-          <div key={a.n} className="border border-slate-100 rounded-lg p-2">
-            <div className="flex items-center justify-between mb-1">
-              <p className="font-semibold text-slate-800 text-[10px]">{a.n}</p>
-              {a.pass!==null?<MockBadge label={a.pass?"Pass":"Fail"} color={a.pass?"green":"amber"}/>:<MockBadge label="Recommended" color="green"/>}
+      {/* Main App Frame */}
+      <div className="flex min-h-[460px] md:min-h-[520px] bg-[#f8fafc] text-slate-800">
+        {/* Left Sidebar */}
+        <div className="hidden lg:flex flex-col w-56 bg-slate-900 border-r border-slate-800 text-slate-300 shrink-0">
+          <div className="h-14 px-4 flex items-center gap-2.5 border-b border-slate-800 bg-slate-950/40">
+            <img src={pondtoraLogo} alt="Pondtora" className="h-7 w-auto object-contain shrink-0" />
+            <div>
+              <p className="text-sm font-bold text-white font-['Barlow_Condensed',sans-serif] leading-tight">Pondtora</p>
+              <p className="text-[9px] text-emerald-400 font-semibold uppercase tracking-wider">FFM System</p>
             </div>
-            <div className="flex items-center gap-1 text-[9px] text-slate-400 mb-1">
-              <span>{a.t}</span><span>·</span><span className="font-semibold text-slate-600">{a.sc}%</span>
-            </div>
-            <MockBar pct={a.sc} color={a.sc>=70?"bg-green-500":"bg-amber-400"} />
           </div>
-        ))}
+          <div className="p-3 space-y-1 flex-1">
+            {navItems.map(item => {
+              const Icon = item.icon;
+              const isActive = item.id === activeNav;
+              return (
+                <div
+                  key={item.id}
+                  className={`flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold transition-colors cursor-default ${
+                    isActive
+                      ? "bg-emerald-600 text-white shadow-sm"
+                      : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/60"
+                  }`}
+                >
+                  <Icon size={15} className={isActive ? "text-white" : "text-slate-400"} />
+                  <span className="truncate">{item.label}</span>
+                </div>
+              );
+            })}
+          </div>
+          {/* User profile snippet in sidebar */}
+          <div className="p-3 border-t border-slate-800 flex items-center gap-2.5 bg-slate-950/30">
+            <div className="w-8 h-8 rounded-full bg-emerald-600/30 border border-emerald-500/40 text-emerald-300 flex items-center justify-center font-bold text-xs">
+              BA
+            </div>
+            <div className="min-w-0 flex-1 text-[11px]">
+              <p className="font-semibold text-white truncate">Babatunde Adeleke</p>
+              <p className="text-slate-400 text-[10px]">Farm Owner · Lagos</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Center / Right Content Panel */}
+        <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+          {/* Topbar */}
+          <div className="h-14 px-4 sm:px-6 bg-white border-b border-slate-200/80 flex items-center justify-between gap-3 shrink-0">
+            {/* Active Farm Switcher with Dropdown Simulation */}
+            <div className="relative">
+              <button
+                onClick={() => setFarmDropdownOpen(v => !v)}
+                className="flex items-center gap-2 text-xs font-bold text-slate-800 bg-slate-100/80 hover:bg-slate-200/80 border border-slate-200 px-3 py-1.5 rounded-xl transition-colors shadow-xs"
+              >
+                <div className="w-2 h-2 rounded-full bg-emerald-500" />
+                <span className="truncate max-w-[170px] sm:max-w-[260px]">{activeFarmName}</span>
+                <ChevronDown size={13} className={`text-slate-500 transition-transform ${farmDropdownOpen ? "rotate-180" : ""}`} />
+              </button>
+              {farmDropdownOpen && (
+                <div className="absolute left-0 top-full mt-1.5 w-64 bg-white border border-slate-200 rounded-xl shadow-xl z-30 p-1.5 text-xs text-slate-700">
+                  <div className="px-2.5 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Your Commercial Farms</div>
+                  <div className="px-2.5 py-1.5 bg-emerald-50 text-emerald-800 rounded-lg font-semibold flex items-center justify-between">
+                    <span>Crown Fisheries — Epe, Lagos</span>
+                    <Check size={12} className="text-emerald-600" />
+                  </div>
+                  <div className="px-2.5 py-1.5 hover:bg-slate-50 rounded-lg text-slate-600 cursor-pointer">
+                    <span>Niger Delta Mega Ponds — Port Harcourt</span>
+                  </div>
+                  <div className="px-2.5 py-1.5 hover:bg-slate-50 rounded-lg text-slate-600 cursor-pointer">
+                    <span>Oyo River Hatchery — Ibadan</span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Quick status & action buttons */}
+            <div className="flex items-center gap-2.5">
+              <span className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 text-slate-600 text-[11px] font-medium border border-slate-200">
+                <Calendar size={12} className="text-slate-400" /> 13 Sep 2026
+              </span>
+              <span className="inline-flex items-center px-2 py-1 rounded-lg bg-emerald-50 text-emerald-700 text-[11px] font-bold border border-emerald-200">
+                ₦ NGN
+              </span>
+            </div>
+          </div>
+
+          {/* Body Area */}
+          <div className="flex-1 p-4 sm:p-6 overflow-y-auto bg-[#f8fafc]">
+            {children}
+          </div>
+        </div>
       </div>
     </div>
   );
 }
 
-const FEATURES = [
-  { title: "Financial Dashboard", desc: "See exactly how much your farm is earning and spending. Know your profit at the end of every month without needing an accountant or exercise book.", bullets: ["Record every expense and income on your farm", "See which part of your farm costs you the most money", "Check your profit or loss for any month", "Download your financial records as Excel or PDF"], Mockup: MockFinancial },
-  { title: "Pond Management", desc: "Keep proper records for every pond on your farm — from the day you stock fish to the day you harvest. No more losing records or relying on memory.", bullets: ["Add and track all your ponds in one place", "Record fish stocking, growth, and full pond history", "Log fish deaths and any medical treatments given", "Move fish between ponds and keep a record of the transfer"], Mockup: MockPond },
-  { title: "Feed Stock", desc: "Always know how much feed you have on your farm. Track every bag you buy, what type it is, and how much is remaining so you are never caught off guard.", bullets: ["See how many bags of feed you have at any time", "Record every feed purchase with price and supplier details", "Track total kilograms available per feed type", "Know exactly how much feed your farm needs and what it will cost"], Mockup: MockFeedStock },
-  { title: "Feeding Records", desc: "Record exactly how much feed is given to each pond every morning and evening. Your staff can log feeding from their phone, and you can check it from anywhere — even when you are not on the farm.", bullets: ["Log morning and evening feed amounts for each pond", "Track the number of feed bags opened each day", "See total feed used per pond at any time", "Download feeding records as a report whenever you need it"], Mockup: MockFeeding },
-  { title: "Sales & Invoicing", desc: "Create proper sale documents for every fish you sell. Know which customers have paid and who still owes you money — all organized in one place so nothing slips through.", bullets: ["Create and send professional invoices to your buyers", "Manage your customer list with different price groups", "See clearly which invoices are paid and which are outstanding", "Download invoices as PDF to share with customers"], Mockup: MockInvoice },
-  { title: "Reports & Analytics", desc: "Your staff submit a report at the end of each work day before leaving the farm. The system collects all these reports and organizes them into daily, weekly, and monthly summaries — so you always know exactly what happened on your farm.", bullets: ["Staff submit their end-of-day report before leaving the farm", "View daily, weekly, and monthly farm summaries in one place", "See feed usage, pond activity, and staff updates together", "Quickly spot problems on your farm before they become costly"], Mockup: MockReports },
-  { title: "Staff Management", desc: "Add your farm workers to the system, give each one a role, and choose exactly what they can see and do on the app. You stay in control — staff can only access the parts you allow them to.", bullets: ["Add staff members and assign their job roles", "Set exact permissions for each team member", "Assign staff to specific farms you manage", "Update or remove staff access at any time"], Mockup: MockStaff },
-  { title: "Staff Assessments", desc: "Before hiring or after training, use this tool to test how much a candidate or staff member knows about fish farming — and whether they will be a good fit for your team.", bullets: ["Test farming knowledge with practical, real-world questions", "Check work attitude and personality fit with 100 questions", "Get a full score breakdown by category", "Share the test link directly with candidates by email or WhatsApp"], Mockup: MockAssessments },
-];
+/* 1. Pond Management Preview */
+function PondManagementFullPreview() {
+  return (
+    <AppWindowShell activeNav="ponds">
+      <div className="space-y-4 text-slate-800">
+        {/* Top Metric Strip */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="bg-white p-3.5 rounded-xl border border-slate-200/80 shadow-xs">
+            <p className="text-[11px] font-semibold text-slate-400 uppercase">Active Ponds</p>
+            <p className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] mt-0.5">8 <span className="text-xs text-slate-400 font-normal">/ 10 Total</span></p>
+          </div>
+          <div className="bg-white p-3.5 rounded-xl border border-slate-200/80 shadow-xs">
+            <p className="text-[11px] font-semibold text-slate-400 uppercase">Total Stock</p>
+            <p className="text-xl font-bold text-emerald-600 font-['Barlow_Condensed',sans-serif] mt-0.5">48,250 <span className="text-xs font-normal text-slate-400">fish</span></p>
+          </div>
+          <div className="bg-white p-3.5 rounded-xl border border-slate-200/80 shadow-xs">
+            <p className="text-[11px] font-semibold text-slate-400 uppercase">Est. Biomass</p>
+            <p className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] mt-0.5">31.4 <span className="text-xs font-normal text-slate-400">Tons</span></p>
+          </div>
+          <div className="bg-white p-3.5 rounded-xl border border-slate-200/80 shadow-xs">
+            <p className="text-[11px] font-semibold text-slate-400 uppercase">Average Weight</p>
+            <p className="text-xl font-bold text-blue-600 font-['Barlow_Condensed',sans-serif] mt-0.5">650g <span className="text-xs font-normal text-slate-400">(Table Size)</span></p>
+          </div>
+        </div>
 
-const TESTIMONIALS = [
-  { name: "Chukwuemeka Okafor", role: "Catfish Farm Owner, Enugu", avatar: TESTIMONIAL_AVATAR_1, quote: "Before Pondtora, I was using exercise books and it was always a mess. Now everything is on my phone — feeding, expenses, stock. My staff cannot play with the records again." },
-  { name: "Fatima Abdullahi", role: "Fish Farmer, Kano", avatar: TESTIMONIAL_AVATAR_2, quote: "Honestly, I was not sure at first but after one week I could see the difference. I now know exactly how many bags of feed we open every day. No more confusion." },
-  { name: "Emeka Nwosu", role: "Commercial Fish Farmer, Lagos", avatar: TESTIMONIAL_AVATAR_3, quote: "I manage three farms and I used to miss things every week. Now my managers log everything and I see it all from my phone. My feed costs have gone down because nothing is wasted." },
-  { name: "Aisha Musa", role: "Fish Farm Manager, Abuja", avatar: TESTIMONIAL_AVATAR_4, quote: "The staff reports feature alone is worth it. I know everything that happened on the farm every day — who fed, how much, what problems came up. No more stories." },
-];
+        {/* Filter bar & Actions */}
+        <div className="flex flex-wrap items-center justify-between gap-2.5 pt-1">
+          <div className="flex items-center gap-1.5 bg-white border border-slate-200 p-1 rounded-xl text-xs font-semibold">
+            <span className="px-2.5 py-1 bg-emerald-600 text-white rounded-lg shadow-xs">All (8)</span>
+            <span className="px-2.5 py-1 text-slate-500 hover:text-slate-800">Nursery (2)</span>
+            <span className="px-2.5 py-1 text-slate-500 hover:text-slate-800">Production (6)</span>
+            <span className="px-2.5 py-1 text-slate-500 hover:text-slate-800">Empty (2)</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white rounded-xl text-xs font-bold shadow-xs">
+              <Plus size={13} /> Add Pond
+            </span>
+            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 text-slate-700 rounded-xl text-xs font-semibold">
+              Transfer Stock
+            </span>
+          </div>
+        </div>
 
-const FAQ_ITEMS = [
-  { q: "Do I need a computer to use Pondtora?", a: "No. Pondtora works on any smartphone. Your staff can record feeding, submit reports, and track stock from their phones. You can review everything from your own phone or any computer." },
-  { q: "Does it work for catfish farming?", a: "Yes. Pondtora is built specifically for catfish and tilapia farmers in Nigeria. It supports earthen, concrete, and tarpaulin ponds of any size." },
-  { q: "Can my staff use it too, or only me?", a: "Both. You add your staff to the system, set exactly what each person can see and do, and they log in with their own email and password. You stay in control of who has access to what." },
-  { q: "What happens after the 30-day free trial?", a: "After the trial you pick a plan that fits your farm size. Plans start at ₦3,000 per month. There is no credit card required to start the trial." },
-  { q: "Is my farm data safe?", a: "Yes. Your data is stored securely in the cloud and only you and your authorized staff can see it. We do not share your information with anyone." },
-  { q: "Can I use Pondtora if I am not tech-savvy?", a: "Pondtora is designed to be simple. If you can use WhatsApp, you can use Pondtora. Our support team is available to help you get started if you need assistance." },
-];
+        {/* Pond Cards Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+          {/* Card 1 */}
+          <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs hover:border-emerald-300 transition-colors">
+            <div className="flex items-start justify-between">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Pond 01 — Concrete Nursery A</span>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">Active</span>
+                </div>
+                <p className="text-xs text-slate-500 mt-0.5">African Catfish (Clarias) · Stocked 12 Aug 2026</p>
+              </div>
+              <span className="text-xs font-extrabold text-emerald-600 font-mono">14,200 fish</span>
+            </div>
+            <div className="mt-3 grid grid-cols-3 gap-2 bg-slate-50 rounded-lg p-2.5 text-center text-xs">
+              <div><p className="text-[10px] text-slate-400">Initial Stock</p><p className="font-bold text-slate-800">15,000</p></div>
+              <div><p className="text-[10px] text-slate-400">Avg. Weight</p><p className="font-bold text-slate-800">85g</p></div>
+              <div><p className="text-[10px] text-slate-400">Mortality</p><p className="font-bold text-emerald-600">1.2%</p></div>
+            </div>
+            <div className="mt-3 flex items-center justify-between text-xs pt-1 border-t border-slate-100">
+              <span className="text-slate-500 text-[11px]">Pallet Limit: <strong className="text-slate-800">2.0mm max 350kg</strong> (280kg fed)</span>
+              <span className="text-xs font-bold text-emerald-600">View History →</span>
+            </div>
+          </div>
+
+          {/* Card 2 */}
+          <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs hover:border-emerald-300 transition-colors">
+            <div className="flex items-start justify-between">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Pond 02 — Main Earthen Grow-out</span>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">Active</span>
+                </div>
+                <p className="text-xs text-slate-500 mt-0.5">Table Catfish · Stocked 15 May 2026</p>
+              </div>
+              <span className="text-xs font-extrabold text-emerald-600 font-mono">6,800 fish</span>
+            </div>
+            <div className="mt-3 grid grid-cols-3 gap-2 bg-slate-50 rounded-lg p-2.5 text-center text-xs">
+              <div><p className="text-[10px] text-slate-400">Est. Biomass</p><p className="font-bold text-slate-800">6,256 kg</p></div>
+              <div><p className="text-[10px] text-slate-400">Avg. Weight</p><p className="font-bold text-slate-800">920g</p></div>
+              <div><p className="text-[10px] text-slate-400">Batch Value</p><p className="font-bold text-emerald-600">₦14.0M</p></div>
+            </div>
+            <div className="mt-3 flex items-center justify-between text-xs pt-1 border-t border-slate-100">
+              <span className="text-slate-500 text-[11px]">Pallet Limit: <strong className="text-slate-800">4.0mm max 1,800kg</strong></span>
+              <span className="text-xs font-bold text-emerald-600">Log Feeding →</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </AppWindowShell>
+  );
+}
+
+/* 2. Feeding Records & Pallet Limits Preview */
+function FeedingDocumentationFullPreview() {
+  return (
+    <AppWindowShell activeNav="documentation">
+      <div className="space-y-4 text-slate-800">
+        {/* Today's Feed Overview banner */}
+        <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold">
+              <BookOpen size={20} />
+            </div>
+            <div>
+              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Today's Total Feed Disbursed</p>
+              <p className="text-2xl font-black text-slate-900 font-['Barlow_Condensed',sans-serif]">
+                144.5 kg <span className="text-xs font-medium text-emerald-600 ml-1.5">✓ Morning (68kg) + Evening (76.5kg)</span>
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="px-3 py-1.5 bg-emerald-600 text-white rounded-xl text-xs font-bold shadow-xs">
+              + Log Daily Feeding
+            </span>
+          </div>
+        </div>
+
+        {/* Max Kg Alert Notification Banner */}
+        <div className="bg-amber-50 border border-amber-200/80 rounded-xl p-3 flex items-center justify-between text-xs text-amber-800">
+          <div className="flex items-center gap-2">
+            <AlertTriangle size={15} className="text-amber-600 shrink-0" />
+            <span><strong>Pallet Limit Alert:</strong> Pond 01 (Nursery A) reached <strong>280kg / 350kg (80%)</strong> of 2.0mm feed. Consider sizing up to 3.0mm soon.</span>
+          </div>
+          <span className="font-bold text-amber-900 shrink-0 ml-2 cursor-pointer underline">Review</span>
+        </div>
+
+        {/* Feeding Table */}
+        <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-xs">
+          <div className="px-4 py-3 border-b border-slate-100 bg-slate-50/70 flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">Today's Feeding Records (13 Sep 2026)</span>
+            <span className="text-xs text-slate-400">Showing 4 of 4 Ponds</span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs text-left">
+              <thead className="bg-slate-50 text-slate-500 font-semibold border-b border-slate-100">
+                <tr>
+                  <th className="px-4 py-2.5">Pond Name</th>
+                  <th className="px-4 py-2.5">Feed Brand</th>
+                  <th className="px-4 py-2.5">Pallet Size</th>
+                  <th className="px-4 py-2.5">Morning</th>
+                  <th className="px-4 py-2.5">Evening</th>
+                  <th className="px-4 py-2.5">Total Feed</th>
+                  <th className="px-4 py-2.5">Pallet Limit Status</th>
+                  <th className="px-4 py-2.5">Logged By</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 font-medium">
+                <tr className="hover:bg-slate-50">
+                  <td className="px-4 py-3 font-bold text-slate-900">Pond 01 — Nursery A</td>
+                  <td className="px-4 py-3">Aller Aqua</td>
+                  <td className="px-4 py-3"><span className="px-2 py-0.5 rounded bg-slate-100 font-mono font-bold">2.0mm</span></td>
+                  <td className="px-4 py-3">14.0 kg</td>
+                  <td className="px-4 py-3">16.0 kg</td>
+                  <td className="px-4 py-3 font-bold text-emerald-700">30.0 kg</td>
+                  <td className="px-4 py-3"><span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-bold">80% of 350kg</span></td>
+                  <td className="px-4 py-3 text-slate-500">Sola Bello (Staff)</td>
+                </tr>
+                <tr className="hover:bg-slate-50">
+                  <td className="px-4 py-3 font-bold text-slate-900">Pond 02 — Grow-out 1</td>
+                  <td className="px-4 py-3">Coppens</td>
+                  <td className="px-4 py-3"><span className="px-2 py-0.5 rounded bg-slate-100 font-mono font-bold">4.0mm</span></td>
+                  <td className="px-4 py-3">32.0 kg</td>
+                  <td className="px-4 py-3">38.0 kg</td>
+                  <td className="px-4 py-3 font-bold text-emerald-700">70.0 kg</td>
+                  <td className="px-4 py-3"><span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold">62% of 1,800kg</span></td>
+                  <td className="px-4 py-3 text-slate-500">Ibrahim Musa</td>
+                </tr>
+                <tr className="hover:bg-slate-50">
+                  <td className="px-4 py-3 font-bold text-slate-900">Pond 03 — Tilapia Tank</td>
+                  <td className="px-4 py-3">Skretting</td>
+                  <td className="px-4 py-3"><span className="px-2 py-0.5 rounded bg-slate-100 font-mono font-bold">3.0mm</span></td>
+                  <td className="px-4 py-3">22.0 kg</td>
+                  <td className="px-4 py-3">22.5 kg</td>
+                  <td className="px-4 py-3 font-bold text-emerald-700">44.5 kg</td>
+                  <td className="px-4 py-3"><span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold">45% of 1,200kg</span></td>
+                  <td className="px-4 py-3 text-slate-500">Emeka Eze</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </AppWindowShell>
+  );
+}
+
+/* 3. Financial Dashboard Preview */
+function FinancialDashboardFullPreview() {
+  return (
+    <AppWindowShell activeNav="financial">
+      <div className="space-y-4 text-slate-800">
+        {/* Metric Cards */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="bg-white p-4 rounded-xl border border-slate-200/80 shadow-xs">
+            <p className="text-[11px] font-bold text-slate-400 uppercase">Gross Fish Sales</p>
+            <p className="text-xl font-black text-emerald-600 font-['Barlow_Condensed',sans-serif] mt-1">₦16,850,000</p>
+            <p className="text-[10px] text-emerald-700 font-semibold mt-0.5 flex items-center gap-1"><ArrowUpRight size={10} /> +28% vs last cycle</p>
+          </div>
+          <div className="bg-white p-4 rounded-xl border border-slate-200/80 shadow-xs">
+            <p className="text-[11px] font-bold text-slate-400 uppercase">Total Feed Expenses</p>
+            <p className="text-xl font-black text-slate-900 font-['Barlow_Condensed',sans-serif] mt-1">₦6,280,000</p>
+            <p className="text-[10px] text-slate-400 mt-0.5">66.7% of total cost</p>
+          </div>
+          <div className="bg-white p-4 rounded-xl border border-slate-200/80 shadow-xs">
+            <p className="text-[11px] font-bold text-slate-400 uppercase">Operating Costs</p>
+            <p className="text-xl font-black text-slate-900 font-['Barlow_Condensed',sans-serif] mt-1">₦3,140,000</p>
+            <p className="text-[10px] text-slate-400 mt-0.5">Pumping, fingerlings, labor</p>
+          </div>
+          <div className="bg-emerald-600 text-white p-4 rounded-xl shadow-md">
+            <p className="text-[11px] font-bold text-emerald-100 uppercase">Net Farm Profit</p>
+            <p className="text-2xl font-black font-['Barlow_Condensed',sans-serif] mt-1">₦7,430,000</p>
+            <p className="text-[10px] text-emerald-100 font-medium mt-0.5">44.1% Operating Margin</p>
+          </div>
+        </div>
+
+        {/* Financial Visual Chart Simulation */}
+        <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <p className="text-xs font-bold text-slate-800 uppercase tracking-wider">Monthly Revenue vs Operating Costs (₦)</p>
+              <p className="text-[11px] text-slate-400">Tracking continuous cycle margins across all 8 ponds</p>
+            </div>
+            <div className="flex items-center gap-3 text-xs">
+              <span className="flex items-center gap-1 text-slate-600"><span className="w-2.5 h-2.5 rounded-sm bg-emerald-600" /> Fish Revenue</span>
+              <span className="flex items-center gap-1 text-slate-600"><span className="w-2.5 h-2.5 rounded-sm bg-slate-300" /> Feed Costs</span>
+            </div>
+          </div>
+          {/* Visual bar graph representation */}
+          <div className="h-32 flex items-end gap-3 pt-4 border-b border-slate-100 px-2">
+            {[
+              { m: "Apr", rev: 45, exp: 28 },
+              { m: "May", rev: 62, exp: 35 },
+              { m: "Jun", rev: 55, exp: 32 },
+              { m: "Jul", rev: 78, exp: 42 },
+              { m: "Aug", rev: 85, exp: 46 },
+              { m: "Sep (Current)", rev: 100, exp: 52 },
+            ].map((bar, idx) => (
+              <div key={idx} className="flex-1 flex flex-col items-center gap-1.5 h-full justify-end">
+                <div className="w-full flex items-end justify-center gap-1 h-full">
+                  <div className="w-1/2 bg-emerald-600 rounded-t-sm" style={{ height: `${bar.rev}%` }} />
+                  <div className="w-1/2 bg-slate-300 rounded-t-sm" style={{ height: `${bar.exp}%` }} />
+                </div>
+                <span className="text-[10px] font-semibold text-slate-500">{bar.m}</span>
+              </div>
+            ))}
+          </div>
+          <div className="flex items-center justify-between pt-2.5 text-[11px] text-slate-500">
+            <span>Cycle Feed Conversion Ratio (FCR): <strong className="text-slate-800">1.18 kg feed / kg fish</strong></span>
+            <span className="text-emerald-700 font-bold">Highest monthly ROI recorded this season</span>
+          </div>
+        </div>
+      </div>
+    </AppWindowShell>
+  );
+}
+
+/* 4. Commercial Invoicing Preview */
+function InvoicesFullPreview() {
+  return (
+    <AppWindowShell activeNav="invoices">
+      <div className="space-y-4 text-slate-800">
+        {/* Metric strip */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs">
+            <p className="text-[11px] font-semibold text-slate-400 uppercase">Total Invoiced</p>
+            <p className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] mt-0.5">₦22,400,000</p>
+          </div>
+          <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs">
+            <p className="text-[11px] font-semibold text-slate-400 uppercase">Amount Collected</p>
+            <p className="text-xl font-bold text-emerald-600 font-['Barlow_Condensed',sans-serif] mt-0.5">₦19,250,000</p>
+          </div>
+          <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs">
+            <p className="text-[11px] font-semibold text-slate-400 uppercase">Pending Balance</p>
+            <p className="text-xl font-bold text-amber-600 font-['Barlow_Condensed',sans-serif] mt-0.5">₦3,150,000</p>
+          </div>
+          <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs">
+            <p className="text-[11px] font-semibold text-slate-400 uppercase">Wholesale Buyers</p>
+            <p className="text-xl font-bold text-slate-800 font-['Barlow_Condensed',sans-serif] mt-0.5">28 Active</p>
+          </div>
+        </div>
+
+        {/* Action bar */}
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 text-xs font-semibold">
+            <span className="px-3 py-1.5 bg-emerald-600 text-white rounded-xl shadow-xs">+ Create Customer Invoice</span>
+            <span className="px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-slate-600">Print Receipt</span>
+          </div>
+          <span className="text-xs text-slate-400 font-medium">Automatic PDF Generation</span>
+        </div>
+
+        {/* Invoices List Table */}
+        <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-xs">
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs text-left">
+              <thead className="bg-slate-50 text-slate-500 font-semibold border-b border-slate-100">
+                <tr>
+                  <th className="px-4 py-2.5">Invoice #</th>
+                  <th className="px-4 py-2.5">Customer / Distributor</th>
+                  <th className="px-4 py-2.5">Fish Batch</th>
+                  <th className="px-4 py-2.5">Weight (Kg)</th>
+                  <th className="px-4 py-2.5">Unit Rate</th>
+                  <th className="px-4 py-2.5">Total (₦)</th>
+                  <th className="px-4 py-2.5">Payment</th>
+                  <th className="px-4 py-2.5">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 font-medium">
+                <tr className="hover:bg-slate-50">
+                  <td className="px-4 py-3 font-mono font-bold text-slate-800">INV-2026-104</td>
+                  <td className="px-4 py-3 font-bold text-slate-900">Mama Chinyere Coldrooms (Lagos)</td>
+                  <td className="px-4 py-3 text-slate-500">Pond 02 Table Catfish</td>
+                  <td className="px-4 py-3 font-bold">2,800 kg</td>
+                  <td className="px-4 py-3">₦2,250/kg</td>
+                  <td className="px-4 py-3 font-extrabold text-emerald-700">₦6,300,000</td>
+                  <td className="px-4 py-3"><span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold">Paid</span></td>
+                  <td className="px-4 py-3"><button className="text-slate-400 hover:text-slate-700"><Printer size={13} /></button></td>
+                </tr>
+                <tr className="hover:bg-slate-50">
+                  <td className="px-4 py-3 font-mono font-bold text-slate-800">INV-2026-103</td>
+                  <td className="px-4 py-3 font-bold text-slate-900">Grand Ocean Hotels (Victoria Island)</td>
+                  <td className="px-4 py-3 text-slate-500">Pond 03 Fresh Tilapia</td>
+                  <td className="px-4 py-3 font-bold">950 kg</td>
+                  <td className="px-4 py-3">₦2,700/kg</td>
+                  <td className="px-4 py-3 font-extrabold text-emerald-700">₦2,565,000</td>
+                  <td className="px-4 py-3"><span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold">Paid</span></td>
+                  <td className="px-4 py-3"><button className="text-slate-400 hover:text-slate-700"><Printer size={13} /></button></td>
+                </tr>
+                <tr className="hover:bg-slate-50">
+                  <td className="px-4 py-3 font-mono font-bold text-slate-800">INV-2026-102</td>
+                  <td className="px-4 py-3 font-bold text-slate-900">Alaba Central Fish Market</td>
+                  <td className="px-4 py-3 text-slate-500">Pond 02 Table Catfish</td>
+                  <td className="px-4 py-3 font-bold">3,500 kg</td>
+                  <td className="px-4 py-3">₦2,200/kg</td>
+                  <td className="px-4 py-3 font-extrabold text-amber-700">₦7,700,000</td>
+                  <td className="px-4 py-3"><span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-bold">Partially Paid</span></td>
+                  <td className="px-4 py-3"><button className="text-slate-400 hover:text-slate-700"><Printer size={13} /></button></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </AppWindowShell>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   MAIN LANDING PAGE COMPONENT
+   ═══════════════════════════════════════════════════════════════════════════ */
 
 export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
-  const { singleFarmPlans, multiFarmPlans } = useDynamicPlans();
-  const [mobileOpen, setMobileOpen] = useState(false);
-  const [billing, setBilling] = useState<"monthly" | "yearly">("monthly");
-  const [planTab, setPlanTab] = useState<"single" | "multi">("single");
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const [activeSolutionTab, setActiveSolutionTab] = useState<"ponds" | "feeding" | "financial" | "invoices">("ponds");
   const [openFaq, setOpenFaq] = useState<number | null>(null);
+  const [planBilling, setPlanBilling] = useState<"monthly" | "yearly">("monthly");
+  const [planType, setPlanType] = useState<"single" | "multi">("single");
+
+  const { singlePlans, multiPlans } = useDynamicPlans();
 
   useEffect(() => {
-    const h = () => setScrolled(window.scrollY > 40);
-    window.addEventListener("scroll", h, { passive: true });
-    return () => window.removeEventListener("scroll", h);
+    const handleScroll = () => {
+      setScrolled(window.scrollY > 20);
+    };
+    window.addEventListener("scroll", handleScroll);
+    return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
   const scrollTo = (id: string) => {
-    document.getElementById(id)?.scrollIntoView({ behavior: "smooth" });
-    setMobileOpen(false);
+    setMobileMenuOpen(false);
+    const el = document.getElementById(id);
+    if (el) el.scrollIntoView({ behavior: "smooth" });
   };
-  const dp = (mp: number) => billing === "yearly" ? yearlyPrice(mp) : mp;
-  const periodLabel = billing === "yearly" ? "/yr" : "/mo";
+
+  const solutions = [
+    {
+      id: "ponds" as const,
+      title: "Pond & Fish Stock Lifecycle Management",
+      subtitle: "Track stocking dates, stocking density, daily mortality, biomass growth, and pond-to-pond stock transfers with automated audit history.",
+      component: <PondManagementFullPreview />,
+    },
+    {
+      id: "feeding" as const,
+      title: "Precision Feeding Documentation & Pallet Limits",
+      subtitle: "Log morning and evening feeds, monitor pallet sizes (2mm to 9mm), and enforce maximum kg limits per pond to eliminate overfeeding waste.",
+      component: <FeedingDocumentationFullPreview />,
+    },
+    {
+      id: "financial" as const,
+      title: "Aquaculture Financials & Profit Analytics",
+      subtitle: "Track feed purchases, energy, labor, and fingerling costs against commercial harvest revenue with live ROI and gross margin calculations.",
+      component: <FinancialDashboardFullPreview />,
+    },
+    {
+      id: "invoices" as const,
+      title: "Commercial Buyer Invoicing & Direct Sales",
+      subtitle: "Issue branded fish sales invoices, configure customer price groups (kg or pieces), track partial payments, and generate printable receipts.",
+      component: <InvoicesFullPreview />,
+    },
+  ];
 
   return (
-    <div className="min-h-screen bg-white overflow-x-hidden" style={{ fontFamily: "'Barlow', sans-serif" }}>
-
-      {/* ── NAVBAR ── */}
-      <header className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${scrolled ? "bg-white shadow-sm border-b border-slate-100" : "bg-white"}`}>
-        <div className="max-w-7xl mx-auto px-5 lg:px-8 py-4 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-2.5 shrink-0">
-            <span className="font-semibold text-[24px] leading-none text-slate-900" style={{ fontFamily: "'Barlow Condensed', sans-serif" }}>Pondtora</span>
+    <div className="min-h-screen bg-white text-slate-900 font-['Barlow',sans-serif] selection:bg-emerald-500 selection:text-white">
+      {/* ─── 1. NAVBAR ────────────────────────────────────────────────────────── */}
+      <header
+        className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
+          scrolled ? "bg-slate-950/95 backdrop-blur-md py-3 shadow-lg border-b border-slate-800" : "bg-transparent py-5"
+        }`}
+      >
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between">
+          {/* Brand Logo & Title */}
+          <div className="flex items-center gap-3 cursor-pointer" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>
+            <img src={pondtoraLogo} alt="Pondtora" className="h-9 w-auto object-contain shrink-0" />
+            <div>
+              <span className="text-xl font-black text-white font-['Barlow_Condensed',sans-serif] tracking-wider leading-none">
+                Pondtora
+              </span>
+              <p className="text-[9px] text-emerald-400 uppercase tracking-widest font-semibold leading-none mt-0.5">
+                Fish Farm Management System
+              </p>
+            </div>
           </div>
-          <nav className="hidden md:flex items-center gap-7">
-            {NAV_LINKS.map(l => (
-              <button key={l.label} onClick={() => scrollTo(l.href)} className="text-slate-700 text-[15px] font-medium hover:text-green-600 transition-colors">{l.label}</button>
+
+          {/* Desktop Navigation Links */}
+          <nav className="hidden lg:flex items-center gap-7">
+            {NAV_LINKS.map(link => (
+              <button
+                key={link.href}
+                onClick={() => scrollTo(link.href)}
+                className="text-xs uppercase tracking-wider font-semibold text-slate-300 hover:text-emerald-400 transition-colors"
+              >
+                {link.label}
+              </button>
             ))}
           </nav>
-          <div className="hidden md:flex items-center gap-3">
-            <button onClick={onLogin} className="px-5 py-2 rounded-xl border border-green-600 text-green-600 text-[14px] font-semibold hover:bg-green-50 transition-all">Login</button>
-            <button onClick={onSignup} className="px-5 py-2 rounded-xl bg-green-600 text-white text-[14px] font-semibold hover:bg-green-700 transition-all shadow-md shadow-green-100">Try Free for 30 Days</button>
+
+          {/* Auth Action Buttons */}
+          <div className="hidden sm:flex items-center gap-3">
+            <button
+              onClick={onLogin}
+              className="text-xs uppercase tracking-wider font-bold text-white px-4 py-2 hover:text-emerald-400 transition-colors"
+            >
+              Sign In
+            </button>
+            <button
+              onClick={onSignup}
+              className="px-5 py-2.5 rounded-full bg-[#00bb58] hover:bg-[#00a84e] text-white text-xs font-black uppercase tracking-wider shadow-lg shadow-emerald-600/30 transition-all hover:scale-[1.02] active:scale-95"
+            >
+              Start Free Trial
+            </button>
           </div>
-          <button className="md:hidden p-2 rounded-lg text-slate-600 hover:bg-slate-100" onClick={() => setMobileOpen(o => !o)}>
-            {mobileOpen ? <X size={20} /> : <Menu size={20} />}
+
+          {/* Mobile Menu Toggle */}
+          <button
+            onClick={() => setMobileMenuOpen(v => !v)}
+            className="lg:hidden p-2 rounded-xl text-slate-300 hover:text-white hover:bg-slate-800"
+          >
+            {mobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
           </button>
         </div>
-        {mobileOpen && (
-          <div className="md:hidden bg-white border-t border-slate-100 px-5 pb-6 pt-3 flex flex-col gap-1">
-            {NAV_LINKS.map(l => (
-              <button key={l.label} onClick={() => scrollTo(l.href)} className="text-left py-3 px-2 text-[16px] font-medium hover:text-green-600 border-b border-slate-50 last:border-0">{l.label}</button>
+
+        {/* Mobile Dropdown Menu */}
+        {mobileMenuOpen && (
+          <div className="lg:hidden bg-slate-950 border-b border-slate-800 px-6 py-6 space-y-4">
+            {NAV_LINKS.map(link => (
+              <button
+                key={link.href}
+                onClick={() => scrollTo(link.href)}
+                className="block w-full text-left text-sm uppercase tracking-wider font-bold text-slate-300 hover:text-emerald-400"
+              >
+                {link.label}
+              </button>
             ))}
-            <div className="flex flex-col gap-2.5 pt-4">
-              <button onClick={onLogin} className="w-full py-3 rounded-xl border border-green-600 text-green-600 text-[15px] font-semibold">Login</button>
-              <button onClick={onSignup} className="w-full py-3 rounded-xl bg-green-600 text-white text-[15px] font-semibold">Try Free for 30 Days</button>
+            <div className="pt-4 border-t border-slate-800 flex flex-col gap-2.5">
+              <button
+                onClick={() => { setMobileMenuOpen(false); onLogin(); }}
+                className="w-full py-2.5 text-center text-xs uppercase tracking-wider font-bold text-white border border-slate-700 rounded-xl"
+              >
+                Sign In
+              </button>
+              <button
+                onClick={() => { setMobileMenuOpen(false); onSignup(); }}
+                className="w-full py-2.5 text-center text-xs uppercase tracking-wider font-black bg-[#00bb58] text-white rounded-xl shadow-lg"
+              >
+                Start Free Trial
+              </button>
             </div>
           </div>
         )}
       </header>
 
-      {/* ── HERO ── */}
-      <section id="home" className="relative min-h-screen flex items-center overflow-hidden bg-white pt-20">
-        <div className="max-w-7xl mx-auto px-5 lg:px-8 w-full py-16 lg:py-24 relative z-10">
-          <div className="max-w-3xl" style={{ animation: "lpFadeUp 0.75s ease both" }}>
-            <span className="inline-block text-[13px] font-semibold text-green-900 border border-green-900/30 bg-green-50 px-3 py-1.5 rounded-lg mb-6">
-              #1 Fish Farm Management Platform in Nigeria
-            </span>
-            <h1 className="mb-6" style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: "clamp(40px, 5.5vw, 72px)", lineHeight: 1.03, letterSpacing: "-0.01em" }}>
-              <span className="font-semibold text-slate-900">Stop Running Your Fish Farm</span>
-              <br />
-              <span style={{ color: "#4b8c6e" }}>on Exercise Books and WhatsApp.</span>
-            </h1>
-            <p className="text-slate-600 text-xl leading-relaxed max-w-2xl mb-8">
-              Pondtora keeps all your farm records in one place — ponds, feeding, feed stock, expenses, staff, sales, and reports. Know exactly what is happening on your farm, even when you are not there.
-            </p>
-            <div className="flex flex-col sm:flex-row gap-3 mb-10">
-              <button onClick={onSignup}
-                className="inline-flex items-center justify-center gap-2 px-8 py-4 rounded-xl bg-green-600 text-white text-[16px] font-bold hover:bg-green-700 transition-all shadow-lg shadow-green-200/60">
-                Start Free for 30 Days <ArrowRight size={17} />
-              </button>
-              <button onClick={onLogin}
-                className="inline-flex items-center justify-center gap-2 px-8 py-4 rounded-xl border border-slate-200 text-slate-700 text-[16px] font-semibold hover:border-green-600 hover:text-green-600 transition-all">
-                Sign In to My Account
-              </button>
-            </div>
-            <div className="flex flex-wrap items-center gap-5">
-              <div className="flex items-center gap-2">
-                <div className="flex gap-0.5">{[1,2,3,4,5].map(i => <Star key={i} size={14} fill="#f59e0b" stroke="none" />)}</div>
-                <p className="text-sm text-slate-500 font-medium">4.9 / 5 from farmers</p>
+      {/* ─── 2. HERO SECTION ─────────────────────────────────────────────────── */}
+      <section className="relative min-h-[90vh] lg:min-h-screen flex flex-col justify-between bg-slate-950 text-white overflow-hidden pt-28 sm:pt-36">
+        {/* Background Image of Clean Nigerian Fish Farm with Gradient Overlay */}
+        <div className="absolute inset-0 z-0">
+          <img
+            src={heroFarmImg}
+            alt="Commercial African Fish Farm"
+            className="w-full h-full object-cover object-center opacity-45"
+          />
+          <div className="absolute inset-0 bg-gradient-to-t from-[#062319] via-[#062319]/75 to-transparent" />
+          <div className="absolute inset-0 bg-gradient-to-r from-[#062319] via-[#062319]/80 to-transparent" />
+        </div>
+
+        {/* Hero Content Area */}
+        <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full my-auto py-12">
+          <div className="max-w-3xl space-y-6">
+            <FadeIn delay={100}>
+              <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-emerald-500/20 border border-emerald-400/30 text-emerald-300 text-xs uppercase tracking-widest font-bold">
+                <Sparkles size={13} />
+                <span>Commercial Aquaculture System</span>
               </div>
-              <span className="w-px h-4 bg-slate-200 hidden sm:block" />
-              <p className="text-sm text-slate-500"><span className="font-semibold text-slate-700">No credit card</span> required to start</p>
-              <span className="w-px h-4 bg-slate-200 hidden sm:block" />
-              <p className="text-sm text-slate-500"><span className="font-semibold text-slate-700">Works on any phone</span> — Android or iPhone</p>
-            </div>
+            </FadeIn>
+
+            <FadeIn delay={200}>
+              <h1 className="text-4xl sm:text-6xl lg:text-7xl font-bold font-['Barlow_Condensed',sans-serif] leading-[0.95] tracking-tight text-white">
+                Smart Fish Farming <br />
+                For <span className="italic font-serif font-normal text-emerald-400">Higher Yields</span>
+              </h1>
+            </FadeIn>
+
+            <FadeIn delay={300}>
+              <p className="text-base sm:text-xl text-slate-200/90 font-normal leading-relaxed max-w-2xl">
+                The modern farm management system engineered specifically for commercial catfish and tilapia aquaculture in Nigeria and across Africa. Eliminate feed waste, prevent mortality spikes, and scale your harvest profits.
+              </p>
+            </FadeIn>
+
+            <FadeIn delay={400}>
+              <div className="flex flex-wrap items-center gap-4 pt-2">
+                <button
+                  onClick={onSignup}
+                  className="px-8 py-3.5 rounded-full bg-[#00bb58] hover:bg-[#00a84e] text-white text-xs sm:text-sm font-black uppercase tracking-wider shadow-xl shadow-emerald-900/40 transition-all hover:scale-105 active:scale-95"
+                >
+                  Get Started Free
+                </button>
+                <button
+                  onClick={() => scrollTo("showcase")}
+                  className="px-7 py-3.5 rounded-full bg-white/10 hover:bg-white/20 text-white text-xs sm:text-sm font-bold uppercase tracking-wider border border-white/20 backdrop-blur-xs transition-all"
+                >
+                  Explore System
+                </button>
+              </div>
+            </FadeIn>
+
+            {/* Social proof floating pill */}
+            <FadeIn delay={500}>
+              <div className="pt-4 flex items-center gap-3 text-xs text-slate-300">
+                <div className="flex -space-x-2">
+                  <div className="w-8 h-8 rounded-full border-2 border-slate-900 bg-emerald-700 flex items-center justify-center font-bold text-[10px]">BA</div>
+                  <div className="w-8 h-8 rounded-full border-2 border-slate-900 bg-blue-700 flex items-center justify-center font-bold text-[10px]">KO</div>
+                  <div className="w-8 h-8 rounded-full border-2 border-slate-900 bg-amber-700 flex items-center justify-center font-bold text-[10px]">EN</div>
+                </div>
+                <span>Trusted by <strong>10,000+</strong> commercial fish farmers across Nigeria & West Africa</span>
+              </div>
+            </FadeIn>
           </div>
         </div>
 
+        {/* Hero Bottom Dark Stats Strip */}
+        <div className="relative z-10 bg-[#062319] border-t border-emerald-950/80 py-8 px-4 sm:px-6 lg:px-8">
+          <div className="max-w-7xl mx-auto grid grid-cols-2 md:grid-cols-4 gap-6 text-center">
+            <div>
+              <p className="text-3xl sm:text-4xl font-black text-white font-['Barlow_Condensed',sans-serif]">30+ Years</p>
+              <p className="text-xs uppercase tracking-wider text-emerald-400/90 font-semibold mt-1">Aquaculture Experience</p>
+            </div>
+            <div>
+              <p className="text-3xl sm:text-4xl font-black text-white font-['Barlow_Condensed',sans-serif]">450+ Ponds</p>
+              <p className="text-xs uppercase tracking-wider text-emerald-400/90 font-semibold mt-1">Active Ponds Managed</p>
+            </div>
+            <div>
+              <p className="text-3xl sm:text-4xl font-black text-white font-['Barlow_Condensed',sans-serif]">160K+ Fish</p>
+              <p className="text-xs uppercase tracking-wider text-emerald-400/90 font-semibold mt-1">Fish Stocked Monthly</p>
+            </div>
+            <div>
+              <p className="text-3xl sm:text-4xl font-black text-white font-['Barlow_Condensed',sans-serif]">10K+ Farmers</p>
+              <p className="text-xs uppercase tracking-wider text-emerald-400/90 font-semibold mt-1">Commercial Farm Owners</p>
+            </div>
+          </div>
+        </div>
       </section>
 
-      {/* ── Social proof bar (separate section, no overlap) ── */}
-      <div className="bg-white border-t border-b border-slate-100">
-        <div className="max-w-7xl mx-auto px-5 lg:px-8 py-6 flex flex-wrap justify-start gap-x-10 gap-y-4">
-          {[
-            { num: "100+", label: "Active farms" },
-            { num: "2,500+", label: "Ponds tracked" },
-            { num: "30 days", label: "Free trial" },
-            { num: "24/7", label: "Access from any device" },
-          ].map(s => (
-            <div key={s.num} className="flex flex-col items-start min-w-[120px]">
-              <p className="font-bold text-green-700 text-2xl leading-none mb-1" style={{ fontFamily: "'Barlow Condensed', sans-serif" }}>{s.num}</p>
-              <p className="text-xs text-slate-400 font-medium">{s.label}</p>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* ── HOW IT WORKS ── */}
-      <section id="how" className="py-24 bg-[#f0fdf4]">
-        <div className="max-w-7xl mx-auto px-5 lg:px-8">
+      {/* ─── 3. COLLABORATIVE PLATFORM STATEMENT BANNER ───────────────────────── */}
+      <section className="py-16 sm:py-24 bg-[#f8fafc] border-b border-slate-200">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 text-center">
           <FadeIn>
-            <div className="text-center mb-14">
-              <span className="text-[13px] font-semibold text-green-700 border border-green-700/30 bg-green-50 px-3 py-1.5 rounded-lg inline-block mb-4">How It Works</span>
-              <h2 className="font-semibold text-slate-900 tracking-tight" style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: "clamp(30px, 4vw, 48px)" }}>
-                Get started in 3 simple steps
+            <p className="text-xs uppercase tracking-widest font-black text-emerald-700 mb-3">
+              [ CONNECTING AQUACULTURE ]
+            </p>
+            <h2 className="text-2xl sm:text-4xl md:text-5xl font-bold font-['Barlow_Condensed',sans-serif] leading-tight text-slate-900">
+              We Are A Collaborative Aquaculture Platform That Brings Fish Farmers, Feed Suppliers, And Wholesale Buyers Together To Create A Sustainable And High-Yield Fish Farming Ecosystem.
+            </h2>
+          </FadeIn>
+        </div>
+      </section>
+
+      {/* ─── 4. CORE SOLUTIONS & FULL APP SHOWCASE ───────────────────────────── */}
+      <section id="solutions" className="py-20 sm:py-28 bg-white">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <FadeIn>
+            <div className="max-w-3xl mb-12 sm:mb-16">
+              <span className="text-xs uppercase tracking-widest font-black text-emerald-700 block mb-2">
+                [ OUR PLATFORM SOLUTIONS ]
+              </span>
+              <h2 className="text-3xl sm:text-5xl font-bold font-['Barlow_Condensed',sans-serif] text-slate-900 tracking-tight leading-tight">
+                Transforming Aquaculture, One Solution At A Time
               </h2>
+              <p className="text-slate-600 text-sm sm:text-base mt-3 leading-relaxed">
+                From stocking fingerlings and setting pallet limits to balancing feed logs and billing cold room distributors, Pondtora delivers a comprehensive operating system built for serious fish farming.
+              </p>
             </div>
           </FadeIn>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            {[
-              { step: "01", title: "Create your free account", desc: "Sign up with your email in under two minutes. No credit card. No complicated setup. Your 30-day trial starts immediately." },
-              { step: "02", title: "Add your ponds and staff", desc: "Enter your ponds, fish stock, and invite your farm workers. Give each staff member only the access they need — feeding staff, managers, or admin." },
-              { step: "03", title: "Manage your farm from anywhere", desc: "Your staff record feeding and submit daily reports. You see everything on your phone in real time — expenses, feed, ponds, invoices, and staff activity." },
-            ].map((item, i) => (
-              <FadeIn key={i} delay={i * 100}>
-                <div className="flex flex-col gap-4">
-                  <div className="w-14 h-14 rounded-2xl bg-green-600 flex items-center justify-center shrink-0">
-                    <span className="text-white font-bold text-xl" style={{ fontFamily: "'Barlow Condensed', sans-serif" }}>{item.step}</span>
+
+          {/* Tab Selection Bar */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-8">
+            {solutions.map(sol => {
+              const isSelected = activeSolutionTab === sol.id;
+              return (
+                <button
+                  key={sol.id}
+                  onClick={() => setActiveSolutionTab(sol.id)}
+                  className={`p-4 rounded-xl text-left border transition-all ${
+                    isSelected
+                      ? "bg-[#062319] text-white border-[#062319] shadow-lg scale-[1.01]"
+                      : "bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200"
+                  }`}
+                >
+                  <p className={`text-xs uppercase tracking-wider font-extrabold ${isSelected ? "text-emerald-400" : "text-slate-400"}`}>
+                    Solution {solutions.indexOf(sol) + 1}
+                  </p>
+                  <p className="text-sm font-bold mt-1 font-['Barlow_Condensed',sans-serif] leading-tight">
+                    {sol.title}
+                  </p>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Active Solution Full Page Application Screen Showcase */}
+          <div className="mt-6">
+            <FadeIn key={activeSolutionTab}>
+              <div className="mb-4">
+                <p className="text-slate-600 text-sm max-w-2xl">
+                  {solutions.find(s => s.id === activeSolutionTab)?.subtitle}
+                </p>
+              </div>
+              {solutions.find(s => s.id === activeSolutionTab)?.component}
+            </FadeIn>
+          </div>
+        </div>
+      </section>
+
+      {/* ─── 5. FULL-WIDTH PANORAMIC AFRICAN FISH FARM BANNER ─────────────────── */}
+      <section className="relative h-[400px] sm:h-[480px] flex items-center justify-center overflow-hidden">
+        <img
+          src={panoFarmImg}
+          alt="Panoramic African Fish Farm Aerial View"
+          className="absolute inset-0 w-full h-full object-cover"
+        />
+        <div className="absolute inset-0 bg-gradient-to-r from-[#062319]/90 via-[#062319]/60 to-[#062319]/90" />
+        <div className="relative z-10 max-w-4xl mx-auto px-4 text-center text-white space-y-4">
+          <FadeIn>
+            <span className="px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 text-xs font-bold uppercase tracking-widest border border-emerald-400/30">
+              Modern Farm Infrastructure
+            </span>
+            <h2 className="text-3xl sm:text-5xl font-black font-['Barlow_Condensed',sans-serif] mt-3">
+              Commercial Aquaculture & Fish Cultivation
+            </h2>
+            <p className="text-slate-200 text-sm sm:text-base max-w-xl mx-auto leading-relaxed">
+              Engineered to support concrete nursery tanks, earthen production ponds, tarpaulin vats, and high-density recirculating systems.
+            </p>
+            <div className="pt-2">
+              <button
+                onClick={() => scrollTo("fields")}
+                className="px-6 py-2.5 rounded-full bg-white text-slate-900 hover:bg-slate-100 text-xs font-black uppercase tracking-wider transition-all"
+              >
+                See All Fields Of Operation →
+              </button>
+            </div>
+          </FadeIn>
+        </div>
+      </section>
+
+      {/* ─── 6. SEE ALL OUR FIELDS OF OPERATION ──────────────────────────────── */}
+      <section id="fields" className="py-20 sm:py-28 bg-[#f8fafc]">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <FadeIn>
+            <div className="flex flex-col md:flex-row md:items-end justify-between mb-12 gap-4">
+              <div>
+                <span className="text-xs uppercase tracking-widest font-black text-emerald-700 block mb-1">
+                  [ OUR PRODUCTION UNITS ]
+                </span>
+                <h2 className="text-3xl sm:text-5xl font-bold font-['Barlow_Condensed',sans-serif] text-slate-900 tracking-tight">
+                  See All Our Fields Of Operation
+                </h2>
+              </div>
+              <p className="text-slate-500 text-sm max-w-md">
+                Specialized tracking workflows designed for each stage of commercial fish development in tropical climates.
+              </p>
+            </div>
+          </FadeIn>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            {/* Field 1 */}
+            <FadeIn delay={50}>
+              <div className="bg-white rounded-2xl overflow-hidden border border-slate-200 shadow-sm hover:shadow-md transition-shadow group flex flex-col h-full">
+                <div className="h-44 overflow-hidden relative">
+                  <img src={nurseryPondImg} alt="Nursery & Fingerling Tanks" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                  <div className="absolute top-3 right-3 w-8 h-8 rounded-full bg-emerald-500 text-white flex items-center justify-center font-bold text-xs shadow-md">
+                    01
                   </div>
+                </div>
+                <div className="p-5 flex-1 flex flex-col justify-between">
                   <div>
-                    <h3 className="font-semibold text-slate-900 text-[20px] mb-2" style={{ fontFamily: "'Barlow Condensed', sans-serif" }}>{item.title}</h3>
-                    <p className="text-slate-600 text-[15px] leading-relaxed">{item.desc}</p>
+                    <h3 className="text-lg font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">
+                      Nursery & Fingerling Ponds
+                    </h3>
+                    <p className="text-xs text-slate-600 mt-2 leading-relaxed">
+                      Grading, starter feeds (0.5mm - 2mm), daily mortality monitoring, and partial transfers into grow-out ponds.
+                    </p>
+                  </div>
+                  <span className="text-xs font-bold text-emerald-700 mt-4 inline-flex items-center gap-1">
+                    Grading & Mortality Tracking →
+                  </span>
+                </div>
+              </div>
+            </FadeIn>
+
+            {/* Field 2 */}
+            <FadeIn delay={100}>
+              <div className="bg-white rounded-2xl overflow-hidden border border-slate-200 shadow-sm hover:shadow-md transition-shadow group flex flex-col h-full">
+                <div className="h-44 overflow-hidden relative">
+                  <img src={panoFarmImg} alt="Production & Grow-Out Ponds" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                  <div className="absolute top-3 right-3 w-8 h-8 rounded-full bg-emerald-500 text-white flex items-center justify-center font-bold text-xs shadow-md">
+                    02
+                  </div>
+                </div>
+                <div className="p-5 flex-1 flex flex-col justify-between">
+                  <div>
+                    <h3 className="text-lg font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">
+                      Production & Grow-Out
+                    </h3>
+                    <p className="text-xs text-slate-600 mt-2 leading-relaxed">
+                      Biomass calculations, maximum feed kg limits per pallet size, and table-size harvesting management.
+                    </p>
+                  </div>
+                  <span className="text-xs font-bold text-emerald-700 mt-4 inline-flex items-center gap-1">
+                    Biomass & Max Kg Limits →
+                  </span>
+                </div>
+              </div>
+            </FadeIn>
+
+            {/* Field 3 */}
+            <FadeIn delay={150}>
+              <div className="bg-white rounded-2xl overflow-hidden border border-slate-200 shadow-sm hover:shadow-md transition-shadow group flex flex-col h-full">
+                <div className="h-44 overflow-hidden relative">
+                  <img src="https://images.unsplash.com/photo-1544551763-46a013bb70d5?auto=format&fit=crop&w=600&q=80" alt="Hatchery & Spawning" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                  <div className="absolute top-3 right-3 w-8 h-8 rounded-full bg-emerald-500 text-white flex items-center justify-center font-bold text-xs shadow-md">
+                    03
+                  </div>
+                </div>
+                <div className="p-5 flex-1 flex flex-col justify-between">
+                  <div>
+                    <h3 className="text-lg font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">
+                      Hatchery & Spawning Units
+                    </h3>
+                    <p className="text-xs text-slate-600 mt-2 leading-relaxed">
+                      Broodstock pairing records, hormone induction logs, egg incubation batch counts, and fry nursing stages.
+                    </p>
+                  </div>
+                  <span className="text-xs font-bold text-emerald-700 mt-4 inline-flex items-center gap-1">
+                    Broodstock Management →
+                  </span>
+                </div>
+              </div>
+            </FadeIn>
+
+            {/* Field 4 */}
+            <FadeIn delay={200}>
+              <div className="bg-white rounded-2xl overflow-hidden border border-slate-200 shadow-sm hover:shadow-md transition-shadow group flex flex-col h-full">
+                <div className="h-44 overflow-hidden relative">
+                  <img src={heroFarmImg} alt="Flow-Through Systems" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                  <div className="absolute top-3 right-3 w-8 h-8 rounded-full bg-emerald-500 text-white flex items-center justify-center font-bold text-xs shadow-md">
+                    04
+                  </div>
+                </div>
+                <div className="p-5 flex-1 flex flex-col justify-between">
+                  <div>
+                    <h3 className="text-lg font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">
+                      Flow-Through & Tarpaulin
+                    </h3>
+                    <p className="text-xs text-slate-600 mt-2 leading-relaxed">
+                      Water exchange schedules, treatment and medication logging, and multi-vat inventory tracking.
+                    </p>
+                  </div>
+                  <span className="text-xs font-bold text-emerald-700 mt-4 inline-flex items-center gap-1">
+                    Water Exchange Tracking →
+                  </span>
+                </div>
+              </div>
+            </FadeIn>
+          </div>
+        </div>
+      </section>
+
+      {/* ─── 7. SMART FORECASTING SECTION (DARK GREEN) ───────────────────────── */}
+      <section id="forecasting" className="py-20 sm:py-28 bg-[#062319] text-white">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <FadeIn>
+            <div className="max-w-3xl mb-12">
+              <span className="text-xs uppercase tracking-widest font-black text-emerald-400 block mb-1">
+                [ SMART FORECASTING ]
+              </span>
+              <h2 className="text-3xl sm:text-5xl font-bold font-['Barlow_Condensed',sans-serif] tracking-tight">
+                Smart Production & Weather Forecasting For Fish Farms
+              </h2>
+              <p className="text-slate-300 text-sm sm:text-base mt-2">
+                Anticipate water oxygen changes, rainy season temperature shifts, and feed consumption curves to protect your stock.
+              </p>
+            </div>
+          </FadeIn>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            {/* Forecast Card 1 */}
+            <FadeIn delay={100}>
+              <div className="bg-[#0a2e22] rounded-2xl overflow-hidden border border-emerald-900/60 p-6 space-y-4">
+                <div className="h-52 rounded-xl overflow-hidden relative">
+                  <img
+                    src="https://images.unsplash.com/photo-1516214104703-d870798883c5?auto=format&fit=crop&w=800&q=80"
+                    alt="Pond water condition"
+                    className="w-full h-full object-cover"
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-t from-[#0a2e22] via-transparent to-transparent" />
+                </div>
+                <div>
+                  <span className="text-emerald-400 text-xs font-bold uppercase tracking-wider">Feed Optimization</span>
+                  <h3 className="text-2xl font-bold font-['Barlow_Condensed',sans-serif] mt-1 text-white">
+                    Optimize Feeding & Harvest Schedules
+                  </h3>
+                  <p className="text-slate-300 text-sm leading-relaxed mt-2">
+                    Adjust feeding rations dynamically when sudden rain drops water temperatures. Forecast harvest dates when your fish reach target table weights for prime market pricing.
+                  </p>
+                </div>
+                <div className="pt-2">
+                  <span className="text-xs font-bold text-emerald-400 hover:text-emerald-300 inline-flex items-center gap-1 cursor-pointer">
+                    Explore Harvest Forecasting →
+                  </span>
+                </div>
+              </div>
+            </FadeIn>
+
+            {/* Forecast Card 2 */}
+            <FadeIn delay={200}>
+              <div className="bg-[#0a2e22] rounded-2xl overflow-hidden border border-emerald-900/60 p-6 space-y-4">
+                <div className="h-52 rounded-xl overflow-hidden relative">
+                  <img
+                    src="https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=800&q=80"
+                    alt="Aquaculture ecosystem"
+                    className="w-full h-full object-cover"
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-t from-[#0a2e22] via-transparent to-transparent" />
+                </div>
+                <div>
+                  <span className="text-emerald-400 text-xs font-bold uppercase tracking-wider">Biosecurity & Health</span>
+                  <h3 className="text-2xl font-bold font-['Barlow_Condensed',sans-serif] mt-1 text-white">
+                    Water Quality & Mortality Prevention
+                  </h3>
+                  <p className="text-slate-300 text-sm leading-relaxed mt-2">
+                    Log treatment medications, track symptoms early, and pinpoint mortality spikes by pond before infections spread across your entire farm.
+                  </p>
+                </div>
+                <div className="pt-2">
+                  <span className="text-xs font-bold text-emerald-400 hover:text-emerald-300 inline-flex items-center gap-1 cursor-pointer">
+                    Explore Biosecurity Logging →
+                  </span>
+                </div>
+              </div>
+            </FadeIn>
+          </div>
+        </div>
+      </section>
+
+      {/* ─── 8. TESTIMONIALS (NIGERIAN FARMERS) ───────────────────────────────── */}
+      <section id="testimonials" className="py-20 sm:py-28 bg-white">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <FadeIn>
+            <div className="text-center max-w-2xl mx-auto mb-16">
+              <span className="text-xs uppercase tracking-widest font-black text-emerald-700 block mb-2">
+                [ FARMER TESTIMONIALS ]
+              </span>
+              <h2 className="text-3xl sm:text-5xl font-bold font-['Barlow_Condensed',sans-serif] text-slate-900 tracking-tight">
+                Trusted By Farmers Across Nigeria
+              </h2>
+              <p className="text-slate-500 text-sm sm:text-base mt-2">
+                Hear from commercial fish farmers who replaced disorganized notebooks with Pondtora.
+              </p>
+            </div>
+          </FadeIn>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            {[
+              {
+                quote: "Setting max kg per pallet changed everything for us. Our farm hands used to overfeed 4mm pallets into grow-out ponds. Now the system alerts us the moment a limit is reached.",
+                name: "Babatunde Adeleke",
+                role: "Managing Director, Opebi Catfish Farms",
+                location: "Lagos, Nigeria",
+                avatar: "https://images.unsplash.com/photo-1531384441138-2736e62e0919?auto=format&fit=crop&w=200&q=80",
+              },
+              {
+                quote: "The stock transfer feature is flawless. When we grade fingerlings from our concrete nursery into production earthen ponds, the feed history and biomass follow automatically.",
+                name: "Dr. Amina Bello",
+                role: "Chief Aquaculturist, Sahel Hatcheries",
+                location: "Abuja, Nigeria",
+                avatar: "https://images.unsplash.com/photo-1573497019940-1c28c88b4f3e?auto=format&fit=crop&w=200&q=80",
+              },
+              {
+                quote: "Direct invoicing for our hotel and cold room buyers in Port Harcourt saves us hours each harvest. Our customers get instant professional receipts on their WhatsApp.",
+                name: "Chief Emeka Nwankwo",
+                role: "Proprietor, Niger Delta Mega Ponds",
+                location: "Port Harcourt, Rivers",
+                avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=200&q=80",
+              },
+              {
+                quote: "Pondtora showed us that feed was eating 72% of our harvest revenue. By tracking our FCR with daily morning and evening feeding logs, we cut our feed costs by ₦1.8M in one cycle.",
+                name: "Engr. Kayode Ogundipe",
+                role: "Lead Farmer, Crown Tilapia Estate",
+                location: "Ibadan, Oyo State",
+                avatar: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=200&q=80",
+              },
+            ].map((t, idx) => (
+              <FadeIn key={idx} delay={idx * 80}>
+                <div className="bg-[#f8fafc] rounded-2xl p-6 border border-slate-200/80 flex flex-col justify-between h-full shadow-xs hover:shadow-md transition-shadow">
+                  <div className="space-y-3">
+                    <div className="flex gap-1">
+                      {[1, 2, 3, 4, 5].map(s => (
+                        <Star key={s} size={14} fill="#00bb58" stroke="none" />
+                      ))}
+                    </div>
+                    <p className="text-slate-700 text-xs sm:text-sm leading-relaxed italic">
+                      "{t.quote}"
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-3 pt-4 mt-4 border-t border-slate-200/60">
+                    <img src={t.avatar} alt={t.name} className="w-10 h-10 rounded-full object-cover ring-2 ring-emerald-500/30" />
+                    <div className="min-w-0">
+                      <p className="font-bold text-slate-900 text-xs truncate">{t.name}</p>
+                      <p className="text-slate-500 text-[11px] truncate">{t.role}</p>
+                      <p className="text-emerald-700 text-[10px] font-semibold">{t.location}</p>
+                    </div>
                   </div>
                 </div>
               </FadeIn>
             ))}
           </div>
-          <FadeIn delay={300}>
-            <div className="mt-12 text-center">
-              <button onClick={onSignup} className="inline-flex items-center gap-2 px-8 py-4 rounded-xl bg-green-600 text-white text-[15px] font-bold hover:bg-green-700 transition-all shadow-lg shadow-green-100">
-                Get Started Free <ArrowRight size={16} />
-              </button>
-            </div>
-          </FadeIn>
         </div>
       </section>
 
-      {/* ── ABOUT US ── */}
-      <section id="about" className="py-20 lg:py-28 bg-[#f0fdf4] overflow-hidden border-y border-green-100/60">
-        <div className="max-w-7xl mx-auto px-5 lg:px-8">
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 lg:gap-14 items-center">
-            {/* Image Container — neatly framed beside the text */}
-            <FadeIn className="lg:col-span-5 order-2 lg:order-1">
-              <div className="relative mx-auto max-w-md lg:max-w-none">
-                <div className="relative rounded-2xl overflow-hidden shadow-xl shadow-green-900/10 border border-green-200/60 aspect-[4/5] sm:aspect-[4/3] lg:aspect-[4/5] max-h-[460px] bg-emerald-900/10">
-                  <img
-                    src={imgAboutFarmer}
-                    alt="Fish farmer holding fresh catch"
-                    className="w-full h-full object-cover object-center transform hover:scale-105 transition-transform duration-500"
-                  />
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/30 via-transparent to-transparent pointer-events-none" />
-                </div>
-                {/* Floating badge */}
-                <div className="absolute -bottom-3.5 -right-3.5 bg-white/95 backdrop-blur-sm border border-green-100 rounded-xl px-4 py-3 shadow-lg hidden sm:flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-lg bg-green-100 flex items-center justify-center text-green-700 font-bold shrink-0">
-                    <Fish size={20} />
-                  </div>
-                  <div>
-                    <p className="text-xs font-bold text-slate-800">Built For Fish Farmers</p>
-                    <p className="text-[11px] text-slate-500">Real-time farm clarity</p>
-                  </div>
+      {/* ─── 9. PRICING SECTION ──────────────────────────────────────────────── */}
+      <section id="pricing" className="py-20 sm:py-28 bg-[#f8fafc] border-t border-slate-200">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <FadeIn>
+            <div className="text-center max-w-xl mx-auto mb-12">
+              <span className="text-xs uppercase tracking-widest font-black text-emerald-700 block mb-2">
+                [ SUBSCRIPTION PLANS ]
+              </span>
+              <h2 className="text-3xl sm:text-5xl font-bold font-['Barlow_Condensed',sans-serif] text-slate-900 tracking-tight">
+                Simple, Transparent Pricing
+              </h2>
+              <p className="text-slate-500 text-sm mt-2">
+                Start with a 30-day free trial. No credit card required to begin.
+              </p>
+
+              {/* Single / Multi Farm Toggle */}
+              <div className="flex items-center justify-center gap-2 mt-6">
+                <div className="bg-slate-200/70 p-1 rounded-xl flex text-xs font-bold">
+                  <button
+                    onClick={() => setPlanType("single")}
+                    className={`px-4 py-1.5 rounded-lg transition-all ${planType === "single" ? "bg-white text-slate-900 shadow-xs" : "text-slate-600"}`}
+                  >
+                    Single Farm
+                  </button>
+                  <button
+                    onClick={() => setPlanType("multi")}
+                    className={`px-4 py-1.5 rounded-lg transition-all ${planType === "multi" ? "bg-white text-slate-900 shadow-xs" : "text-slate-600"}`}
+                  >
+                    Multiple Farms
+                  </button>
                 </div>
               </div>
-            </FadeIn>
 
-            {/* Text — RIGHT column */}
-            <FadeIn delay={100} className="lg:col-span-7 order-1 lg:order-2 flex flex-col justify-center">
-              <span className="text-green-700 font-bold text-[12px] uppercase tracking-widest border border-green-600/30 bg-green-100/70 px-3 py-1.5 rounded-lg inline-block w-fit mb-4">
-                About Us
+              {/* Monthly / Yearly Toggle */}
+              <div className="flex items-center justify-center gap-2 mt-3 text-xs">
+                <span className={planBilling === "monthly" ? "font-bold text-slate-900" : "text-slate-500"}>Monthly</span>
+                <button
+                  onClick={() => setPlanBilling(b => (b === "monthly" ? "yearly" : "monthly"))}
+                  className={`w-10 h-5 rounded-full p-0.5 transition-colors ${planBilling === "yearly" ? "bg-emerald-600" : "bg-slate-300"}`}
+                >
+                  <div className={`w-4 h-4 rounded-full bg-white transition-transform ${planBilling === "yearly" ? "translate-x-5" : ""}`} />
+                </button>
+                <span className={planBilling === "yearly" ? "font-bold text-slate-900" : "text-slate-500"}>
+                  Yearly <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-1.5 py-0.5 rounded-full">Save 20%</span>
+                </span>
+              </div>
+            </div>
+          </FadeIn>
+
+          {/* Pricing Cards Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl mx-auto">
+            {(planType === "single" ? singlePlans : multiPlans).map((plan, idx) => {
+              const isPopular = idx === 1;
+              const displayPrice = planBilling === "yearly" ? yearlyPrice(plan.price) : plan.price;
+              return (
+                <div
+                  key={plan.name}
+                  className={`rounded-2xl p-6 sm:p-8 flex flex-col justify-between transition-all ${
+                    isPopular
+                      ? "bg-[#062319] text-white shadow-2xl border-2 border-emerald-500 scale-[1.02]"
+                      : "bg-white text-slate-900 border border-slate-200 shadow-sm"
+                  }`}
+                >
+                  <div>
+                    {isPopular && (
+                      <span className="px-3 py-1 rounded-full bg-emerald-500 text-white text-[10px] font-extrabold uppercase tracking-widest inline-block mb-3">
+                        Most Popular for Commercial Farms
+                      </span>
+                    )}
+                    <h3 className="text-2xl font-bold font-['Barlow_Condensed',sans-serif]">{plan.name}</h3>
+                    <p className={`text-xs mt-1 ${isPopular ? "text-slate-300" : "text-slate-500"}`}>{plan.description}</p>
+                    <div className="mt-4 pb-4 border-b border-slate-100/20">
+                      <span className="text-3xl sm:text-4xl font-black font-['Barlow_Condensed',sans-serif]">₦{displayPrice.toLocaleString()}</span>
+                      <span className={`text-xs ml-1 ${isPopular ? "text-emerald-300" : "text-slate-400"}`}>
+                        / {planBilling === "yearly" ? "year" : "month"}
+                      </span>
+                    </div>
+
+                    <ul className="space-y-3 mt-6 text-xs">
+                      {plan.features.map(f => (
+                        <li key={f} className="flex items-start gap-2">
+                          <Check size={14} className={`shrink-0 mt-0.5 ${isPopular ? "text-emerald-400" : "text-emerald-600"}`} />
+                          <span className={isPopular ? "text-slate-200" : "text-slate-700"}>{f}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+
+                  <div className="pt-8">
+                    <button
+                      onClick={onSignup}
+                      className={`w-full py-3 rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-md ${
+                        isPopular
+                          ? "bg-[#00bb58] hover:bg-[#00a84e] text-white shadow-emerald-900/40"
+                          : "bg-slate-900 hover:bg-slate-800 text-white"
+                      }`}
+                    >
+                      Start 30-Day Free Trial
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </section>
+
+      {/* ─── 10. FAQ SECTION ─────────────────────────────────────────────────── */}
+      <section id="faq" className="py-20 sm:py-28 bg-white">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6">
+          <FadeIn>
+            <div className="text-center mb-12">
+              <span className="text-xs uppercase tracking-widest font-black text-emerald-700 block mb-1">
+                [ FREQUENTLY ASKED QUESTIONS ]
               </span>
-              <h2 className="font-semibold text-green-950 leading-tight mb-6"
-                style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: "clamp(30px, 3.5vw, 46px)" }}>
-                Built for the African fish farmer
+              <h2 className="text-3xl sm:text-5xl font-bold font-['Barlow_Condensed',sans-serif] text-slate-900">
+                Got Questions? We Have Answers.
               </h2>
-              <div className="space-y-4 text-slate-700 text-[15.5px] lg:text-[17px] leading-relaxed">
-                <p>
-                  Pondtora is a farm management platform built to help fish farmers manage their entire operation from one place — without exercise books, spreadsheets, or WhatsApp groups.
-                </p>
-                <p>
-                  From pond and fish stock management to <strong className="text-green-950 font-semibold">feed inventory, feeding records, finances, sales, invoices, reports, and staff management,</strong> Pondtora keeps your farm organized and your records always accessible.
-                </p>
-                <div className="pt-2">
-                  <p className="text-green-800 font-medium bg-white/80 border border-green-200/80 rounded-xl p-4 shadow-sm text-[14.5px] lg:text-[15.5px]">
-                    💡 <strong className="text-green-900">Our goal:</strong> help farmers spend less time on paperwork and more time making better decisions for their farms.
+            </div>
+          </FadeIn>
+
+          <div className="divide-y divide-slate-200">
+            {[
+              {
+                q: "How does the maximum kg limit per pallet work?",
+                a: "When you restock or edit a pond, you can specify the maximum cumulative feed limit (in kg) for specific pallet sizes like 2mm, 3mm, or 4mm. As your staff logs daily morning and evening feedings, Pondtora tracks the total. When a pond reaches 80% or 100% of the limit, instant notifications alert you so you don't waste expensive starter feed on fish ready for larger pallets.",
+              },
+              {
+                q: "Does stock data follow fish during pond transfers?",
+                a: "Yes! When performing a full stock transfer or a nursery grading transfer, Pondtora automatically remaps cumulative feeding records, treatments, stocking dates, and proportional pallet limits to the destination pond. The source pond is automatically cleared if fully emptied.",
+              },
+              {
+                q: "Can I use Pondtora offline at my farm location?",
+                a: "Yes. Pondtora caches all active farm ponds, feeding records, and inventory locally on your phone, tablet, or computer. You can log feedings, mortality, and stock events without an active internet connection, and they will automatically sync to your database once network is restored.",
+              },
+              {
+                q: "Can my staff log feedings without seeing our financial profits?",
+                a: "Absolutely. With staff permission roles, you can assign your attendants access solely to Feeding Records or Pond Management, while keeping Financial Dashboards, Invoices, and Revenue restricted to the Farm Owner and Manager.",
+              },
+              {
+                q: "What payment methods are supported in Nigeria?",
+                a: "We support seamless payment via Paystack, including Nigerian Naira debit cards (Mastercard, Visa, Verve), direct bank transfer, USSD, and Apple Pay.",
+              },
+            ].map((faq, idx) => {
+              const isOpen = openFaq === idx;
+              return (
+                <div key={idx} className="py-4">
+                  <button
+                    onClick={() => setOpenFaq(isOpen ? null : idx)}
+                    className="w-full flex items-center justify-between text-left text-sm sm:text-base font-bold text-slate-900 hover:text-emerald-700 transition-colors py-2"
+                  >
+                    <span>{faq.q}</span>
+                    <ChevronDown size={18} className={`shrink-0 transition-transform ${isOpen ? "rotate-180 text-emerald-600" : "text-slate-400"}`} />
+                  </button>
+                  {isOpen && (
+                    <p className="mt-2 text-xs sm:text-sm text-slate-600 leading-relaxed pr-6">
+                      {faq.a}
+                    </p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </section>
+
+      {/* ─── 11. FINAL CTA BANNER ────────────────────────────────────────────── */}
+      <section className="py-20 bg-[#f8fafc]">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="relative rounded-3xl overflow-hidden bg-slate-950 p-8 sm:p-14 text-white flex flex-col md:flex-row items-center justify-between gap-8 shadow-2xl">
+            <img
+              src={panoFarmImg}
+              alt="Fish Farm Background"
+              className="absolute inset-0 w-full h-full object-cover opacity-30"
+            />
+            <div className="absolute inset-0 bg-gradient-to-r from-[#062319] via-[#062319]/90 to-transparent" />
+            
+            <div className="relative z-10 max-w-xl space-y-3 text-left">
+              <span className="text-emerald-400 text-xs font-black uppercase tracking-widest">
+                Start Today
+              </span>
+              <h2 className="text-3xl sm:text-5xl font-black font-['Barlow_Condensed',sans-serif] leading-tight">
+                Start Growing Smarter Today. We're Here To Help.
+              </h2>
+              <p className="text-slate-300 text-xs sm:text-sm leading-relaxed">
+                Join thousands of forward-thinking African commercial fish farmers scaling their production yields with Pondtora.
+              </p>
+            </div>
+
+            <div className="relative z-10 shrink-0">
+              <button
+                onClick={onSignup}
+                className="px-8 py-4 rounded-full bg-[#00bb58] hover:bg-[#00a84e] text-white text-xs sm:text-sm font-black uppercase tracking-wider shadow-2xl transition-all hover:scale-105 active:scale-95"
+              >
+                Create Your Free Account
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ─── 12. RICH DARK GREEN FOOTER ──────────────────────────────────────── */}
+      <footer className="bg-[#062319] text-white pt-16 pb-12 border-t border-emerald-950">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-10 pb-12 border-b border-emerald-900/60">
+            {/* Left brand column */}
+            <div className="md:col-span-2 space-y-4">
+              <div className="flex items-center gap-3">
+                <img src={pondtoraLogo} alt="Pondtora" className="h-10 w-auto object-contain shrink-0" />
+                <div>
+                  <p className="text-2xl font-black font-['Barlow_Condensed',sans-serif] tracking-wider leading-none">
+                    Pondtora
+                  </p>
+                  <p className="text-[10px] text-emerald-400 uppercase tracking-widest font-bold mt-0.5">
+                    Fish Farm Management System
                   </p>
                 </div>
               </div>
-            </FadeIn>
-          </div>
-        </div>
-      </section>
-
-      {/* ── FEATURES ── */}
-      <section id="features" className="py-24 bg-white">
-        <div className="max-w-7xl mx-auto px-5 lg:px-8">
-          <FadeIn>
-            <div className="flex flex-col lg:flex-row items-start justify-between gap-8 mb-16">
-              <div className="max-w-lg">
-                <span className="text-[13px] font-semibold text-slate-600 border border-slate-400/40 bg-slate-50 px-3 py-1.5 rounded-lg inline-block mb-5">What we offer</span>
-                <h2 className="font-semibold text-slate-900 leading-tight tracking-tight"
-                  style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: "clamp(34px, 4vw, 56px)" }}>
-                  Everything you need to run a professional fish farm
-                </h2>
-              </div>
-              <p className="text-slate-500 text-[17px] leading-relaxed max-w-md lg:mt-8">
-                Pondtora brings every aspect of your fish farm — from daily feeding logs to financial reporting — into a single, easy-to-use system.
+              <p className="text-slate-300 text-xs sm:text-sm max-w-sm leading-relaxed">
+                The leading software platform built specifically for commercial catfish and tilapia farmers across Nigeria and Sub-Saharan Africa.
               </p>
             </div>
-          </FadeIn>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {FEATURES.map((f, i) => (
-              <FadeIn key={i} delay={Math.min(i * 50, 200)}>
-                <div className="group flex flex-col bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-xl hover:shadow-green-50/60 hover:-translate-y-1 transition-all duration-300 border border-slate-100 hover:border-green-200 h-full">
-                  <div className="h-1 bg-gradient-to-r from-green-500 to-emerald-400 shrink-0" />
-                  <div className="flex flex-col sm:flex-row flex-1">
-                    {/* Text */}
-                    <div className="flex-1 p-6 lg:p-7 flex flex-col gap-4">
-                      <div>
-                        <span className="text-[11px] font-bold text-green-600 uppercase tracking-widest">{String(i + 1).padStart(2, "0")}</span>
-                        <h3 className="font-semibold text-slate-900 text-[22px] leading-tight mt-1 mb-2"
-                          style={{ fontFamily: "'Barlow Condensed', sans-serif" }}>{f.title}</h3>
-                        <p className="text-slate-500 text-[13.5px] leading-relaxed">{f.desc}</p>
-                      </div>
-                      <ul className="flex flex-col gap-2 mt-auto">
-                        {f.bullets.map((b, j) => (
-                          <li key={j} className="flex items-start gap-2.5">
-                            <span className="w-[3px] h-3 bg-green-500 rounded-sm shrink-0 mt-0.5" />
-                            <span className="text-slate-600 text-[13px] font-medium leading-relaxed">{b}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                    {/* Mockup panel */}
-                    <div className="sm:w-[210px] shrink-0 flex items-center justify-center p-5 border-t sm:border-t-0 sm:border-l border-slate-100"
-                      style={{ background: "linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 60%, #f8fafc 100%)" }}>
-                      <f.Mockup />
-                    </div>
-                  </div>
-                </div>
-              </FadeIn>
-            ))}
-          </div>
-        </div>
-      </section>
 
-      {/* ── TESTIMONIALS ── */}
-      <section className="py-24 bg-[#f0fdf4]">
-        <div className="max-w-7xl mx-auto px-5 lg:px-8">
-          <FadeIn>
-            <div className="text-center mb-14">
-              <span className="text-[13px] font-semibold text-slate-600 border border-slate-400/40 bg-white px-3 py-1.5 rounded-lg inline-block mb-4">Testimonials</span>
-              <h2 className="font-medium text-slate-900 tracking-tight"
-                style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: "clamp(30px, 4vw, 46px)" }}>
-                What Nigerian farmers are saying
-              </h2>
-              <p className="text-slate-500 text-base mt-3 max-w-md mx-auto">Real stories from fish farmers who switched from exercise books to Pondtora.</p>
+            {/* Quick Links Column 1 */}
+            <div>
+              <p className="text-xs uppercase tracking-widest font-black text-emerald-400 mb-3">Platform</p>
+              <ul className="space-y-2 text-xs text-slate-300">
+                <li><button onClick={() => scrollTo("solutions")} className="hover:text-white">Pond Management</button></li>
+                <li><button onClick={() => scrollTo("solutions")} className="hover:text-white">Feeding Records</button></li>
+                <li><button onClick={() => scrollTo("solutions")} className="hover:text-white">Pallet Limits</button></li>
+                <li><button onClick={() => scrollTo("solutions")} className="hover:text-white">Financial Dashboard</button></li>
+                <li><button onClick={() => scrollTo("solutions")} className="hover:text-white">Commercial Invoicing</button></li>
+              </ul>
             </div>
-          </FadeIn>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {TESTIMONIALS.map((t, i) => (
-              <FadeIn key={i} delay={Math.min(i * 80, 200)}>
-                <div className="bg-white rounded-2xl p-8 flex flex-col gap-6 shadow-sm border border-slate-100 hover:shadow-md transition-shadow h-full">
-                  <div className="flex gap-1">{[1,2,3,4,5].map(s => <Star key={s} size={16} fill="#f59e0b" stroke="none" />)}</div>
-                  <p className="text-slate-800 text-[17px] leading-relaxed flex-1">&ldquo;{t.quote}&rdquo;</p>
-                  <div className="flex items-center gap-4 border-t border-slate-100 pt-5">
-                    <img src={t.avatar} alt={t.name} className="w-12 h-12 rounded-full object-cover ring-2 ring-green-100" />
-                    <div>
-                      <p className="font-bold text-slate-900 text-[14px]">{t.name}</p>
-                      <p className="text-slate-400 text-[13px]">{t.role}</p>
-                    </div>
-                  </div>
-                </div>
-              </FadeIn>
-            ))}
-          </div>
-        </div>
-      </section>
 
-      {/* ── FAQ ── */}
-      <section id="faq" className="py-24 bg-white">
-        <div className="max-w-3xl mx-auto px-5 lg:px-8">
-          <FadeIn>
-            <div className="text-center mb-12">
-              <span className="text-[13px] font-semibold text-slate-600 border border-slate-400/40 bg-slate-50 px-3 py-1.5 rounded-lg inline-block mb-4">FAQ</span>
-              <h2 className="font-semibold text-slate-900 tracking-tight" style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: "clamp(30px, 4vw, 48px)" }}>
-                Common questions
-              </h2>
+            {/* Quick Links Column 2 */}
+            <div>
+              <p className="text-xs uppercase tracking-widest font-black text-emerald-400 mb-3">Company</p>
+              <ul className="space-y-2 text-xs text-slate-300">
+                <li><button onClick={() => scrollTo("fields")} className="hover:text-white">Fields of Operation</button></li>
+                <li><button onClick={() => scrollTo("testimonials")} className="hover:text-white">Farmer Stories</button></li>
+                <li><button onClick={() => scrollTo("pricing")} className="hover:text-white">Pricing & Plans</button></li>
+                <li><button onClick={() => scrollTo("faq")} className="hover:text-white">FAQ</button></li>
+                <li><button onClick={onAdmin} className="text-emerald-400 hover:underline">Admin Portal</button></li>
+              </ul>
             </div>
-          </FadeIn>
-          <div className="divide-y divide-slate-100">
-            {FAQ_ITEMS.map((item, i) => (
-              <FadeIn key={i} delay={i * 50}>
-                <div className="py-5">
-                  <button
-                    onClick={() => setOpenFaq(openFaq === i ? null : i)}
-                    className="w-full flex items-start justify-between gap-4 text-left group">
-                    <span className="text-slate-900 font-semibold text-[16px] leading-snug group-hover:text-green-700 transition-colors">{item.q}</span>
-                    <ChevronDown size={18} className={`shrink-0 mt-0.5 text-slate-400 transition-transform duration-200 ${openFaq === i ? "rotate-180 text-green-600" : ""}`} />
-                  </button>
-                  {openFaq === i && (
-                    <p className="mt-3 text-slate-600 text-[15px] leading-relaxed pr-8">{item.a}</p>
-                  )}
-                </div>
-              </FadeIn>
-            ))}
-          </div>
-        </div>
-      </section>
 
-      {/* ── PRICING ── */}
-      <section id="pricing" className="py-24 bg-white">
-        <div className="max-w-7xl mx-auto px-5 lg:px-8">
-          <FadeIn>
-            <div className="text-center mb-12 flex flex-col items-center gap-4">
-              <span className="text-[13px] font-semibold text-slate-600 border border-slate-400/40 bg-slate-50 px-3 py-1.5 rounded-lg">Pricing</span>
-              <h2 className="font-medium text-slate-900 tracking-tight"
-                style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: "clamp(30px, 4vw, 50px)" }}>
-                Simple, transparent pricing
-              </h2>
-              <p className="text-slate-500 text-base max-w-sm">Start free. Upgrade when you are ready. Cancel anytime.</p>
-
-              {/* Plan type tabs */}
-              <div className="flex gap-1 bg-slate-100 p-1 rounded-xl">
-                {(["single","multi"] as const).map(tab => (
-                  <button key={tab} onClick={() => setPlanTab(tab)}
-                    className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all ${planTab === tab ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-800"}`}>
-                    {tab === "single" ? "Single Farm" : "Multiple Farms"}
-                  </button>
-                ))}
-              </div>
-              <p className="text-xs text-slate-400 -mt-2">
-                {planTab === "single" ? "Manage one farm — plans based on number of ponds." : "Manage multiple farms under one account. Unlimited ponds per farm."}
-              </p>
-
-              {/* Billing toggle */}
-              <div className="flex items-center gap-1 bg-slate-100 rounded-full p-1">
-                {(["monthly","yearly"] as const).map(b => (
-                  <button key={b} onClick={() => setBilling(b)}
-                    className={`px-5 py-2 rounded-full text-sm font-semibold transition-all ${billing === b ? "bg-white shadow-sm text-slate-900" : "text-slate-500"}`}>
-                    {b === "yearly"
-                      ? <span className="flex items-center gap-2">Yearly <span className="bg-green-500 text-white text-[11px] font-bold px-2 py-0.5 rounded-full">Save 20%</span></span>
-                      : "Monthly"}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </FadeIn>
-
-          {/* Single farm plans */}
-          {planTab === "single" && (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-              {singleFarmPlans.map((plan, i) => (
-                <FadeIn key={i} delay={i * 70}>
-                  <div className={`rounded-2xl border-2 overflow-hidden flex flex-col h-full bg-white ${plan.color}`}>
-                    {plan.badge && (
-                      <div className={`text-center text-[12px] font-bold py-2 tracking-wide ${plan.badge === "Popular" ? "bg-green-600 text-white" : "bg-orange-500 text-white"}`}>
-                        {plan.badge}
-                      </div>
-                    )}
-                    <div className="p-6 flex flex-col gap-5 flex-1">
-                      <div>
-                        <p className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-0.5">{plan.name}</p>
-                        <p className="text-sm font-semibold text-green-600 mb-3">{plan.limit}</p>
-                        <div className="flex items-baseline gap-1">
-                          <span className="font-extrabold text-slate-900 text-[36px] leading-none"
-                            style={{ fontFamily: "'Barlow Condensed', sans-serif" }}>
-                            ₦{dp(plan.monthlyPrice).toLocaleString()}
-                          </span>
-                          <span className="text-slate-400 text-sm">{periodLabel}</span>
-                        </div>
-                        {billing === "yearly" && (
-                          <p className="text-xs text-green-600 mt-1">Save ₦{(plan.yearlySaving || (plan.monthlyPrice * 12 * 0.2)).toLocaleString()} per year</p>
-                        )}
-                        <p className="text-xs text-slate-400 mt-2">{plan.desc}</p>
-                      </div>
-                      <ul className="flex flex-col gap-2 border-t border-slate-100 pt-4 flex-1">
-                        {plan.name === "Starter"
-                          ? EVERY_PLAN_INCLUDES.map(f => (
-                              <li key={f} className="flex items-center gap-2 text-xs text-slate-600">
-                                <CheckCircle size={12} className="text-green-500 shrink-0" />{f}
-                              </li>
-                            ))
-                          : plan.name === "Growth"
-                          ? [
-                              <li key="a" className="flex items-center gap-2 text-xs text-slate-600"><CheckCircle size={12} className="text-green-500 shrink-0" />Everything in Starter</li>,
-                              <li key="b" className="flex items-center gap-2 text-xs text-slate-600"><CheckCircle size={12} className="text-green-500 shrink-0" />Up to 15 active ponds</li>,
-                            ]
-                          : [
-                              <li key="a" className="flex items-center gap-2 text-xs text-slate-600"><CheckCircle size={12} className="text-green-500 shrink-0" />Everything in Growth</li>,
-                              <li key="b" className="flex items-center gap-2 text-xs text-slate-600"><CheckCircle size={12} className="text-green-500 shrink-0" />Unlimited active ponds</li>,
-                            ]
-                        }
-                      </ul>
-                      <button onClick={onSignup}
-                        className={`w-full py-3 rounded-xl text-[14px] font-bold transition-all ${plan.badge === "Popular" ? "bg-green-600 text-white hover:bg-green-700 shadow-sm" : plan.badge === "Best Value" ? "bg-orange-500 text-white hover:bg-orange-600 shadow-sm" : "border border-green-600 text-green-600 hover:bg-green-50"}`}>
-                        Start Free Trial
-                      </button>
-                    </div>
-                  </div>
-                </FadeIn>
-              ))}
-            </div>
-          )}
-
-          {/* Multi farm plans */}
-          {planTab === "multi" && (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-              {multiFarmPlans.map((plan, i) => (
-                <FadeIn key={i} delay={i * 70}>
-                  <div className={`rounded-2xl border-2 overflow-hidden flex flex-col h-full bg-white ${plan.color}`}>
-                    {plan.badge && (
-                      <div className={`text-center text-[12px] font-bold py-2 tracking-wide ${plan.badge === "Popular" ? "bg-green-600 text-white" : "bg-orange-500 text-white"}`}>
-                        {plan.badge}
-                      </div>
-                    )}
-                    <div className="p-6 flex flex-col gap-5 flex-1">
-                      <div>
-                        <p className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-0.5">{plan.name}</p>
-                        <p className="text-sm font-semibold text-green-600 mb-3">{plan.farms} · Unlimited ponds/farm</p>
-                        <div className="flex items-baseline gap-1">
-                          <span className="font-extrabold text-slate-900 text-[36px] leading-none"
-                            style={{ fontFamily: "'Barlow Condensed', sans-serif" }}>
-                            ₦{dp(plan.monthlyPrice).toLocaleString()}
-                          </span>
-                          <span className="text-slate-400 text-sm">{periodLabel}</span>
-                        </div>
-                        {billing === "yearly" && (
-                          <p className="text-xs text-green-600 mt-1">Save ₦{(plan.monthlyPrice * 12 * 0.2).toLocaleString()} per year</p>
-                        )}
-                        <p className="text-xs text-slate-400 mt-2">{plan.desc}</p>
-                      </div>
-                      <ul className="flex flex-col gap-2 border-t border-slate-100 pt-4 flex-1">
-                        {plan.farmLimit === 3
-                          ? [...EVERY_PLAN_INCLUDES, "Unlimited active ponds per farm"].map(f => (
-                              <li key={f} className="flex items-center gap-2 text-xs text-slate-600"><CheckCircle size={12} className="text-green-500 shrink-0" />{f}</li>
-                            ))
-                          : plan.farmLimit === 5
-                          ? [
-                              <li key="a" className="flex items-center gap-2 text-xs text-slate-600"><CheckCircle size={12} className="text-green-500 shrink-0" />Everything in the 3-Farm Plan</li>,
-                              <li key="b" className="flex items-center gap-2 text-xs text-slate-600"><CheckCircle size={12} className="text-green-500 shrink-0" />Up to 5 farms</li>,
-                            ]
-                          : [
-                              <li key="a" className="flex items-center gap-2 text-xs text-slate-600"><CheckCircle size={12} className="text-green-500 shrink-0" />Everything in the 5-Farm Plan</li>,
-                              <li key="b" className="flex items-center gap-2 text-xs text-slate-600"><CheckCircle size={12} className="text-green-500 shrink-0" />Unlimited farms</li>,
-                            ]
-                        }
-                      </ul>
-                      <button onClick={onSignup}
-                        className={`w-full py-3 rounded-xl text-[14px] font-bold transition-all ${plan.badge === "Popular" ? "bg-green-600 text-white hover:bg-green-700 shadow-sm" : plan.badge === "Best Value" ? "bg-orange-500 text-white hover:bg-orange-600 shadow-sm" : "border border-green-600 text-green-600 hover:bg-green-50"}`}>
-                        Start Free Trial
-                      </button>
-                    </div>
-                  </div>
-                </FadeIn>
-              ))}
-            </div>
-          )}
-        </div>
-      </section>
-
-      {/* ── CTA ── */}
-      <section className="py-20 px-5 lg:px-8 bg-white">
-        <div className="max-w-7xl mx-auto">
-          <FadeIn>
-            <div className="relative rounded-3xl overflow-hidden" style={{ background: "#093628" }}>
-              <div className="absolute inset-0">
-                <img src={imgAboutFarmer} alt="" className="w-full h-full object-cover opacity-20" />
-                <div className="absolute inset-0" style={{ background: "linear-gradient(to right, rgba(9,54,40,0.85), rgba(9,54,40,0.4))" }} />
-              </div>
-              <div className="relative z-10 px-8 lg:px-16 py-20 max-w-2xl">
-                <span className="text-green-400 text-xs font-bold uppercase tracking-widest block mb-4">Ready to Start?</span>
-                <h2 className="text-white font-semibold leading-tight mb-5"
-                  style={{ fontFamily: "'Barlow Condensed', sans-serif", fontSize: "clamp(30px, 4vw, 54px)" }}>
-                  Stop Losing Money Because of Poor Farm Records.
-                </h2>
-                <p className="text-green-100 text-lg leading-relaxed mb-3 max-w-md">
-                  Every day you manage your farm on paper or WhatsApp is a day you risk losing money to errors, stolen feed, untracked expenses, or staff that cannot be held accountable.
-                </p>
-                <p className="text-green-200 text-base leading-relaxed mb-8 max-w-md">
-                  Pondtora fixes that. Start free today — no credit card, no technical knowledge required.
-                </p>
-                <div className="flex flex-col sm:flex-row gap-3">
-                  <button onClick={onSignup} className="px-8 py-4 rounded-xl bg-white text-green-900 text-[16px] font-bold hover:bg-green-50 transition-all shadow-lg">
-                    Start My Free 30-Day Trial
-                  </button>
-                  <button onClick={onLogin} className="px-8 py-4 rounded-xl border border-white/30 text-white text-[15px] font-semibold hover:bg-white/10 transition-all">
-                    Sign In
-                  </button>
-                </div>
-                <p className="text-green-300/60 text-xs mt-5">No credit card needed · Works on any phone · Cancel anytime</p>
-              </div>
-            </div>
-          </FadeIn>
-        </div>
-      </section>
-
-      {/* ── FOOTER ── */}
-      <footer style={{ background: "#0a1e15" }} className="text-white pt-14 pb-8">
-        <div className="max-w-7xl mx-auto px-5 lg:px-8">
-          <div className="flex flex-col lg:flex-row items-start justify-between gap-10 pb-10 border-b border-white/10">
-            <div className="flex flex-col gap-4 max-w-xs">
-              <div className="flex items-center gap-2.5">
-                <span className="font-semibold text-[24px] leading-none" style={{ fontFamily: "'Barlow Condensed', sans-serif" }}>Pondtora</span>
-              </div>
-              <p className="text-white/50 text-sm leading-relaxed">The complete fish farm management platform. Manage ponds, feed, finances, staff and more.</p>
-            </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-8 text-sm">
-              <div className="flex flex-col gap-3">
-                <p className="font-bold text-white/40 uppercase tracking-widest text-[11px] mb-1">Product</p>
-                {NAV_LINKS.map(l => (
-                  <button key={l.label} onClick={() => scrollTo(l.href)} className="text-white/60 hover:text-white transition-colors text-left">{l.label}</button>
-                ))}
-              </div>
-              <div className="flex flex-col gap-3">
-                <p className="font-bold text-white/40 uppercase tracking-widest text-[11px] mb-1">Account</p>
-                <button onClick={onLogin} className="text-white/60 hover:text-white text-left">Login</button>
-                <button onClick={onSignup} className="text-white/60 hover:text-white text-left">Create Account</button>
-                <button onClick={onSignup} className="text-white/60 hover:text-white text-left">Free Trial</button>
-              </div>
-              <div className="flex flex-col gap-3">
-                <p className="font-bold text-white/40 uppercase tracking-widest text-[11px] mb-1">Support</p>
-                <span className="text-white/60 text-sm">contact@pondtora.com</span>
+            {/* Newsletter Column */}
+            <div>
+              <p className="text-xs uppercase tracking-widest font-black text-emerald-400 mb-3">Aquaculture Tips</p>
+              <p className="text-xs text-slate-300 mb-3">Subscribe for monthly commercial fish farming tips and feed efficiency strategies.</p>
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="email"
+                  placeholder="Enter your email"
+                  className="bg-emerald-950/60 border border-emerald-900 rounded-lg px-3 py-2 text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-emerald-500 flex-1"
+                />
+                <button
+                  type="button"
+                  className="p-2 rounded-lg bg-[#00bb58] hover:bg-[#00a84e] text-white"
+                >
+                  <ArrowRight size={14} />
+                </button>
               </div>
             </div>
           </div>
-          <div className="pt-6 flex flex-col sm:flex-row items-center justify-between gap-3 text-sm text-white/30">
-            <p>© {new Date().getFullYear()} Pondtora. All rights reserved.</p>
-            <p>Your information is never shared with third parties.</p>
+
+          <div className="pt-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-400">
+            <p>© 2026 Pondtora. All rights reserved. Built for African Aquaculture.</p>
+            <div className="flex items-center gap-6">
+              <span className="hover:text-slate-200 cursor-pointer">Privacy Policy</span>
+              <span className="hover:text-slate-200 cursor-pointer">Terms of Service</span>
+              <span className="hover:text-slate-200 cursor-pointer">Security</span>
+            </div>
           </div>
         </div>
       </footer>
-
-      <style>{`
-        @keyframes lpFadeUp { from { opacity:0; transform:translateY(28px); } to { opacity:1; transform:none; } }
-        @keyframes lpFloat  { 0%,100% { transform:translateY(0); } 50% { transform:translateY(-10px); } }
-        @keyframes lpBob    { 0%,100% { transform:translateX(-50%) translateY(0); } 50% { transform:translateX(-50%) translateY(6px); } }
-      `}</style>
     </div>
   );
 }

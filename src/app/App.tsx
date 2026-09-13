@@ -2,6 +2,7 @@ import React, { useState, useMemo, useRef, useEffect, useCallback } from "react"
 import { api, auth, remapId, isUuid } from "../lib/api";
 import { supabase } from "../lib/supabase";
 import { projectId } from "../../utils/supabase/info";
+import pondtoraLogo from "../imports/loo-2.svg";
 import {
   LayoutDashboard, Fish, Package, BookOpen, Tag,
   Plus, TrendingUp, TrendingDown, CheckCircle,
@@ -71,13 +72,12 @@ function Sidebar({active,onNav,collapsed,onToggle,farms,activeFarmId,onSwitchFar
   return(
     <div className="flex flex-col border-r border-slate-800 bg-slate-900 text-slate-200 w-full h-full font-['Barlow',sans-serif]">
       <div className={`h-16 flex items-center gap-3 border-b border-slate-800/80 bg-slate-950/50 shrink-0 ${collapsed?"justify-center px-2":"px-4"}`}>
-        {!collapsed ? (
+        <img src={pondtoraLogo} alt="Pondtora" className="h-9 w-auto object-contain shrink-0" />
+        {!collapsed && (
           <div className="min-w-0 flex-1">
             <p className="text-xl font-bold text-white leading-none font-['Barlow_Condensed',sans-serif] tracking-wide">Pondtora</p>
-            <p className="text-[10px] text-emerald-400 uppercase tracking-widest font-bold mt-1">FFM System</p>
+            <p className="text-[10px] text-emerald-400 uppercase tracking-widest font-bold mt-1">Fish Farm Management System</p>
           </div>
-        ) : (
-          <div className="text-emerald-400 font-bold font-['Barlow_Condensed',sans-serif] text-lg">P</div>
         )}
         {onNotifications&&(
           <button onClick={onNotifications} title="Notifications" className="relative p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors shrink-0">
@@ -2594,7 +2594,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     const p=ponds.find(x=>x.id===id);
     if(!p)return;
     const fid=p.farmId||activeFarmId||farms[0]?.id||"";
-    const closed={...p,status:"Empty" as const,currentCount:0,initialStock:0,avgWeight:undefined,stockingDate:"—",stockMonth:"",totalCost:0,species:"—",farmId:fid};
+    const closed={...p,status:"Empty" as const,currentCount:0,initialStock:0,avgWeight:undefined,stockingDate:"—",stockMonth:"",totalCost:0,species:"—",transferNote:undefined,maxKgByPallet:{},farmId:fid};
     setPonds(prev=>prev.map(x=>x.id===id?closed:x));
     const se:StockEvent={id:crypto.randomUUID(),pondId:id,pondName:p.name,date:TODAY,species:p.species,count:p.currentCount,cost:p.totalCost,type:"Closed" as const,clearedDate:TODAY,farmId:fid};
     setStockEvents(prev=>[...prev,se]);
@@ -2615,7 +2615,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     const p=ponds.find(x=>x.id===id);
     if(!p)return;
     const fid=p.farmId||activeFarmId||farms[0]?.id||"";
-    const updated={...p,...data,currentCount:data.initialStock,totalCost:0,status:"Active" as const,transferNote:undefined,farmId:fid};
+    const updated={...p,...data,currentCount:data.initialStock,totalCost:0,status:"Active" as const,transferNote:undefined,maxKgByPallet:{},farmId:fid};
     setPonds(prev=>prev.map(x=>x.id===id?updated:x));
     const se:StockEvent={id:crypto.randomUUID(),pondId:id,pondName:p.name,date:data.stockingDate,species:data.species,count:data.initialStock,cost:0,type:"Restock" as const,supplier:data.supplier,farmId:fid};
     setStockEvents(prev=>[...prev,se]);
@@ -2699,7 +2699,25 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       toast.error("Revenue deleted locally — sync error");
     }
   };
-  const setPondMaxKg=(pondId:string,size:string,maxKg:number)=>setPonds(prev=>prev.map(p=>p.id===pondId?{...p,maxKgByPallet:{...(p.maxKgByPallet||{}),[size]:maxKg}}:p));
+  const setPondMaxKg=async(pondId:string,size:string,maxKg:number)=>{
+    const target=ponds.find(p=>p.id===pondId);
+    if(!target)return;
+    const updatedMax={...(target.maxKgByPallet||{})};
+    if(maxKg<=0){
+      delete updatedMax[size];
+    }else{
+      updatedMax[size]=maxKg;
+    }
+    const updatedPond:Pond={...target,maxKgByPallet:updatedMax};
+    setPonds(prev=>prev.map(p=>p.id===pondId?updatedPond:p));
+    try{
+      await api.ponds.update(updatedPond);
+      toast.success(maxKg<=0?`Limit for ${size} removed`:`Max limit for ${size} saved`);
+    }catch(err:any){
+      console.error("Failed to persist max kg limit:",err);
+      toast.error("Saved locally — sync error");
+    }
+  };
   const addFeed=async(r:FeedingRecord)=>{
     const fid=r.farmId||activeFarmId||farms[0]?.id||"";
     const farmRec:FeedingRecord={...r,id:isUuid(r.id)?r.id:crypto.randomUUID(),farmId:fid};
@@ -2812,8 +2830,8 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     const toPond=ponds.find(p=>p.id===toId);
     if(!fromPond||!toPond)return;
     const dateLabel=`${toMon(date)} ${new Date(date).getDate()}, ${new Date(date).getFullYear()}`;
-    const clearedFrom={...fromPond,status:"Empty" as const,currentCount:0,initialStock:0,avgWeight:undefined,stockingDate:"—",stockMonth:"",totalCost:0,species:"—",transferNote:undefined,maxKgByPallet:undefined};
-    const filledTo={...toPond,status:"Active" as const,species:fromPond.species,initialStock:fromPond.initialStock,currentCount:fromPond.currentCount,stockingDate:fromPond.stockingDate,stockMonth:fromPond.stockMonth,totalCost:fromPond.totalCost,maxKgByPallet:fromPond.maxKgByPallet,transferNote:`Stock received from ${fromPond.name} on ${dateLabel}`};
+    const clearedFrom:Pond={...fromPond,status:"Empty" as const,currentCount:0,initialStock:0,avgWeight:undefined,stockingDate:"—",stockMonth:"",totalCost:0,species:"—",transferNote:undefined,maxKgByPallet:{}};
+    const filledTo:Pond={...toPond,status:"Active" as const,species:fromPond.species,initialStock:fromPond.initialStock,currentCount:fromPond.currentCount,stockingDate:fromPond.stockingDate,stockMonth:fromPond.stockMonth,totalCost:fromPond.totalCost,maxKgByPallet:fromPond.maxKgByPallet||{},transferNote:`Stock received from ${fromPond.name} on ${dateLabel}`};
     /* move all pond data */
     setPonds(prev=>prev.map(p=>{
       if(p.id===fromId)return clearedFrom;
@@ -2853,15 +2871,48 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     const safeCount=Math.min(count,fromPond.currentCount);
     const costShare=fromPond.currentCount>0?fromPond.totalCost*(safeCount/fromPond.currentCount):0;
     const isFullTransfer=safeCount>=fromPond.currentCount;
-    /* update pond counts */
+
+    /* split maxKgByPallet: destination gets fraction, source keeps (1-fraction) */
+    let mergedToMaxKg={...(toPond.maxKgByPallet||{})};
+    let reducedFromMaxKg:Record<string,number>={};
+    if(fromPond.maxKgByPallet&&Object.keys(fromPond.maxKgByPallet).length>0){
+      const toExisting=toPond.maxKgByPallet||{};
+      [...new Set([...Object.keys(fromPond.maxKgByPallet),...Object.keys(toExisting)])].forEach(sz=>{
+        mergedToMaxKg[sz]=Math.round((toExisting[sz]||0)+(fromPond.maxKgByPallet![sz]||0)*fraction);
+      });
+      Object.keys(fromPond.maxKgByPallet).forEach(sz=>{
+        reducedFromMaxKg[sz]=isFullTransfer?0:Math.round((fromPond.maxKgByPallet![sz]||0)*(1-fraction));
+      });
+    }
+
+    const updatedFrom:Pond=isFullTransfer
+      ?{...fromPond,status:"Empty" as const,currentCount:0,initialStock:0,avgWeight:undefined,stockingDate:"—",stockMonth:"",totalCost:0,species:"—",transferNote:undefined,maxKgByPallet:{}}
+      :{...fromPond,currentCount:Math.max(0,fromPond.currentCount-safeCount),totalCost:Math.max(0,fromPond.totalCost-costShare),maxKgByPallet:reducedFromMaxKg};
+
+    const updatedTo:Pond={
+      ...toPond,
+      status:"Active" as const,
+      species:toPond.status==="Empty"?fromPond.species:toPond.species,
+      initialStock:(toPond.initialStock||0)+safeCount,
+      currentCount:(toPond.currentCount||0)+safeCount,
+      stockingDate:toPond.status==="Empty"||toPond.stockingDate==="—"?fromPond.stockingDate:toPond.stockingDate,
+      stockMonth:toPond.status==="Empty"||!toPond.stockMonth?fromPond.stockMonth:toPond.stockMonth,
+      totalCost:(toPond.totalCost||0)+costShare,
+      maxKgByPallet:mergedToMaxKg,
+      transferNote:`${safeCount.toLocaleString()} fish received from ${fromPond.name} (Nursery) on ${dateLabel}`
+    };
+
+    /* update pond state */
     setPonds(prev=>prev.map(p=>{
-      if(p.id===fromId){
-        if(isFullTransfer)return{...p,status:"Empty" as const,currentCount:0,initialStock:0,avgWeight:undefined,stockingDate:"—",stockMonth:"",totalCost:0,species:"—",transferNote:undefined};
-        return{...p,currentCount:Math.max(0,p.currentCount-safeCount),totalCost:Math.max(0,p.totalCost-costShare)};
-      }
-      if(p.id===toId)return{...p,status:"Active" as const,species:p.status==="Empty"?fromPond.species:p.species,initialStock:(p.initialStock||0)+safeCount,currentCount:(p.currentCount||0)+safeCount,stockingDate:p.status==="Empty"||p.stockingDate==="—"?fromPond.stockingDate:p.stockingDate,stockMonth:p.status==="Empty"||!p.stockMonth?fromPond.stockMonth:p.stockMonth,totalCost:(p.totalCost||0)+costShare,transferNote:`${safeCount.toLocaleString()} fish received from ${fromPond.name} (Nursery) on ${dateLabel}`};
+      if(p.id===fromId)return updatedFrom;
+      if(p.id===toId)return updatedTo;
       return p;
     }));
+
+    /* persist pond updates for BOTH ponds */
+    api.ponds.update(updatedFrom).catch(console.warn);
+    api.ponds.update(updatedTo).catch(console.warn);
+
     /* split feeding records proportionally */
     const pondFeeding=feeding.filter(r=>r.pond===fromPond.name);
     if(pondFeeding.length>0){
@@ -2887,26 +2938,6 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     const pondTreatments=treatments.filter(t=>t.pondId===fromId);
     const transferTreatments=pondTreatments.map(t=>({...t,id:uid(),pondId:toId,farmId:toPond.farmId||activeFarmId||farms[0]?.id||""}));
     if(transferTreatments.length>0)setTreatments(prev=>[...prev,...transferTreatments]);
-    /* split maxKgByPallet: destination gets fraction, source keeps (1-fraction) */
-    if(fromPond.maxKgByPallet&&Object.keys(fromPond.maxKgByPallet).length>0){
-      const toExisting=toPond.maxKgByPallet||{};
-      const mergedTo:Record<string,number>={};
-      const reducedFrom:Record<string,number>={};
-      [...new Set([...Object.keys(fromPond.maxKgByPallet),...Object.keys(toExisting)])].forEach(sz=>{
-        mergedTo[sz]=Math.round((toExisting[sz]||0)+(fromPond.maxKgByPallet![sz]||0)*fraction);
-      });
-      Object.keys(fromPond.maxKgByPallet).forEach(sz=>{
-        reducedFrom[sz]=isFullTransfer?0:Math.round((fromPond.maxKgByPallet![sz]||0)*(1-fraction));
-      });
-      setPonds(prev=>prev.map(p=>{
-        if(p.id===toId)return{...p,maxKgByPallet:mergedTo};
-        if(p.id===fromId&&!isFullTransfer)return{...p,maxKgByPallet:reducedFrom};
-        return p;
-      }));
-    }
-    /* persist pond updates */
-    const updatedFrom=isFullTransfer?{...fromPond,status:"Empty" as const,currentCount:0,initialStock:0,avgWeight:undefined,stockingDate:"—",stockMonth:"",totalCost:0,species:"—",transferNote:undefined}:{...fromPond,currentCount:Math.max(0,fromPond.currentCount-safeCount),totalCost:Math.max(0,fromPond.totalCost-costShare)};
-    api.ponds.update(updatedFrom).catch(console.warn);
     /* stock event */
     const seTransfer={id:uid(),pondId:toId,pondName:toPond.name,date:dateLabel,species:fromPond.species,count:safeCount,cost:costShare,type:"Transfer" as const,fromPond:fromPond.name,farmId:toPond.farmId||activeFarmId||farms[0]?.id||""};
     setStockEvents(prev=>[...prev,seTransfer]);
@@ -3631,6 +3662,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
               <Menu size={20}/>
             </button>
             <div className="flex items-center gap-2">
+              <img src={pondtoraLogo} alt="Pondtora" className="h-7 w-auto object-contain shrink-0" />
               <span className="text-base font-bold text-white font-['Barlow_Condensed',sans-serif]">Pondtora</span>
               <span className="text-[10px] text-emerald-400 font-semibold uppercase tracking-wider">FFM System</span>
             </div>

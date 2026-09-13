@@ -342,7 +342,15 @@ function PondDetail({pond,mortality,onAddMortality,onAddCost,feedingRecords,onBa
           <div className="space-y-1 bg-slate-50 rounded-xl p-3">
             <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2">Current Limits</p>
             {Object.entries(pond.maxKgByPallet).map(([size,kg])=>(
-              <div key={size} className="flex items-center justify-between text-xs"><span className="text-slate-600">{size}</span><span className="font-bold text-slate-800">{kg}kg max</span></div>
+              <div key={size} className="flex items-center justify-between text-xs py-0.5">
+                <span className="text-slate-600 font-medium">{size}</span>
+                <div className="flex items-center gap-2">
+                  <span className="font-bold text-slate-800">{kg}kg max</span>
+                  <button type="button" onClick={()=>onSetMaxKg(pond.id,size,0)} title="Remove limit" className="p-1 text-slate-400 hover:text-red-500 rounded transition-colors">
+                    <Trash2 size={12}/>
+                  </button>
+                </div>
+              </div>
             ))}
           </div>
         )}

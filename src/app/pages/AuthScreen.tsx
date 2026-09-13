@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { CheckCircle, ChevronLeft, Loader2, AlertCircle, Eye, EyeOff, Mail } from "lucide-react";
+import pondtoraLogo from "../../imports/loo-2.svg";
 import type { UserProfile } from "../types";
 import { COUNTRIES, DIAL_CODES, FLAG_EMOJI, COUNTRY_CURRENCIES } from "../data";
 import { SearchableCountrySelect } from "../shared";
@@ -25,6 +26,7 @@ function AuthLeftPanel() {
       <div className="absolute inset-0 opacity-10 pointer-events-none" style={{ backgroundImage: "radial-gradient(circle at 20% 80%, white 1px, transparent 1px),radial-gradient(circle at 80% 20%, white 1px, transparent 1px)", backgroundSize: "40px 40px" }} />
       <div className="absolute bottom-0 right-0 w-64 h-64 bg-emerald-500/5 rounded-full -translate-x-16 translate-y-16 pointer-events-none" />
       <div className="flex items-center gap-3 relative z-10">
+        <img src={pondtoraLogo} alt="Pondtora" className="h-10 w-auto object-contain shrink-0" />
         <div>
           <p className="text-2xl font-extrabold font-['Barlow_Condensed',sans-serif] leading-none tracking-wide text-white">Pondtora</p>
           <p className="text-xs text-emerald-400 uppercase tracking-widest mt-1 font-semibold">Fish Farm Management System</p>
@@ -344,9 +346,12 @@ function AuthScreen({
     <div className="min-h-screen grid lg:grid-cols-2 bg-white">
       <AuthLeftPanel />
       <div className={`flex flex-col justify-center px-6 py-10 sm:px-10 overflow-y-auto ${isCreate ? "" : "min-h-screen"}`}>
-        <div className="flex flex-col mb-8 lg:hidden">
-          <p className="text-2xl font-extrabold font-['Barlow_Condensed',sans-serif] text-slate-900 tracking-wide">Pondtora</p>
-          <p className="text-xs text-emerald-600 uppercase tracking-widest mt-0.5 font-semibold">Fish Farm Management System</p>
+        <div className="flex items-center gap-3 mb-8 lg:hidden">
+          <img src={pondtoraLogo} alt="Pondtora" className="h-9 w-auto object-contain shrink-0" />
+          <div>
+            <p className="text-2xl font-extrabold font-['Barlow_Condensed',sans-serif] text-slate-900 tracking-wide leading-none">Pondtora</p>
+            <p className="text-[10px] text-emerald-600 uppercase tracking-widest mt-1 font-semibold">Fish Farm Management System</p>
+          </div>
         </div>
         <div className="max-w-sm w-full mx-auto">
           <h2 className="text-2xl font-extrabold text-slate-900 font-['Barlow_Condensed',sans-serif] mb-1">
