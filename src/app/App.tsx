@@ -76,7 +76,6 @@ function Sidebar({active,onNav,collapsed,onToggle,farms,activeFarmId,onSwitchFar
         {!collapsed && (
           <div className="min-w-0 flex-1">
             <p className="text-xl font-bold text-white leading-none font-['Barlow_Condensed',sans-serif] tracking-wide">Pondtora</p>
-            <p className="text-[10px] text-emerald-400 uppercase tracking-widest font-bold mt-1">Fish Farm Management System</p>
           </div>
         )}
         {onNotifications&&(
@@ -3664,7 +3663,6 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
             <div className="flex items-center gap-2">
               <img src={pondtoraLogo} alt="Pondtora" className="h-7 w-auto object-contain shrink-0" />
               <span className="text-base font-bold text-white font-['Barlow_Condensed',sans-serif]">Pondtora</span>
-              <span className="text-[10px] text-emerald-400 font-semibold uppercase tracking-wider">FFM System</span>
             </div>
           </div>
           <div className="relative" ref={mFarmRef}>

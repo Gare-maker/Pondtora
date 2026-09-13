@@ -561,7 +561,8 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
   const [planBilling, setPlanBilling] = useState<"monthly" | "yearly">("monthly");
   const [planType, setPlanType] = useState<"single" | "multi">("single");
 
-  const { singlePlans, multiPlans } = useDynamicPlans();
+  const { singleFarmPlans = [], multiFarmPlans = [] } = useDynamicPlans();
+  const currentPlans = (planType === "single" ? singleFarmPlans : multiFarmPlans) || [];
 
   useEffect(() => {
     const handleScroll = () => {
@@ -614,16 +615,11 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
       >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between">
           {/* Brand Logo & Title */}
-          <div className="flex items-center gap-3 cursor-pointer" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>
+          <div className="flex items-center gap-2.5 cursor-pointer" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>
             <img src={pondtoraLogo} alt="Pondtora" className="h-9 w-auto object-contain shrink-0" />
-            <div>
-              <span className="text-xl font-black text-white font-['Barlow_Condensed',sans-serif] tracking-wider leading-none">
-                Pondtora
-              </span>
-              <p className="text-[9px] text-emerald-400 uppercase tracking-widest font-semibold leading-none mt-0.5">
-                Fish Farm Management System
-              </p>
-            </div>
+            <span className="text-2xl font-black text-white font-['Barlow_Condensed',sans-serif] tracking-wider leading-none">
+              Pondtora
+            </span>
           </div>
 
           {/* Desktop Navigation Links */}
@@ -1211,12 +1207,12 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
 
           {/* Pricing Cards Grid */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl mx-auto">
-            {(planType === "single" ? singlePlans : multiPlans).map((plan, idx) => {
-              const isPopular = idx === 1;
-              const displayPrice = planBilling === "yearly" ? yearlyPrice(plan.price) : plan.price;
+            {currentPlans.map((plan, idx) => {
+              const isPopular = plan.badge === "Popular" || idx === 1;
+              const displayPrice = planBilling === "yearly" ? (plan.yearlyPrice || yearlyPrice(plan.monthlyPrice)) : plan.monthlyPrice;
               return (
                 <div
-                  key={plan.name}
+                  key={plan.id || plan.name}
                   className={`rounded-2xl p-6 sm:p-8 flex flex-col justify-between transition-all ${
                     isPopular
                       ? "bg-[#062319] text-white shadow-2xl border-2 border-emerald-500 scale-[1.02]"
@@ -1224,22 +1220,31 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
                   }`}
                 >
                   <div>
-                    {isPopular && (
+                    {plan.badge && (
                       <span className="px-3 py-1 rounded-full bg-emerald-500 text-white text-[10px] font-extrabold uppercase tracking-widest inline-block mb-3">
-                        Most Popular for Commercial Farms
+                        {plan.badge}
                       </span>
                     )}
                     <h3 className="text-2xl font-bold font-['Barlow_Condensed',sans-serif]">{plan.name}</h3>
-                    <p className={`text-xs mt-1 ${isPopular ? "text-slate-300" : "text-slate-500"}`}>{plan.description}</p>
+                    <p className={`text-xs mt-1 ${isPopular ? "text-slate-300" : "text-slate-500"}`}>{plan.desc || plan.limit}</p>
                     <div className="mt-4 pb-4 border-b border-slate-100/20">
                       <span className="text-3xl sm:text-4xl font-black font-['Barlow_Condensed',sans-serif]">₦{displayPrice.toLocaleString()}</span>
                       <span className={`text-xs ml-1 ${isPopular ? "text-emerald-300" : "text-slate-400"}`}>
                         / {planBilling === "yearly" ? "year" : "month"}
                       </span>
+                      {planBilling === "yearly" && (
+                        <p className="text-[11px] text-emerald-400 font-semibold mt-1">
+                          Save ₦{(plan.yearlySaving || Math.round(plan.monthlyPrice * 12 * 0.2)).toLocaleString()} per year
+                        </p>
+                      )}
                     </div>
 
                     <ul className="space-y-3 mt-6 text-xs">
-                      {plan.features.map(f => (
+                      <li className="flex items-start gap-2">
+                        <Check size={14} className={`shrink-0 mt-0.5 ${isPopular ? "text-emerald-400" : "text-emerald-600"}`} />
+                        <span className={`font-semibold ${isPopular ? "text-white" : "text-slate-900"}`}>{plan.limit}</span>
+                      </li>
+                      {EVERY_PLAN_INCLUDES.map(f => (
                         <li key={f} className="flex items-start gap-2">
                           <Check size={14} className={`shrink-0 mt-0.5 ${isPopular ? "text-emerald-400" : "text-emerald-600"}`} />
                           <span className={isPopular ? "text-slate-200" : "text-slate-700"}>{f}</span>
