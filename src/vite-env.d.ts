@@ -26,3 +26,20 @@ declare module "react-dom/client" {
     unmount(): void;
   };
 }
+
+declare module "path" {
+  export function resolve(...paths: string[]): string;
+  export function dirname(path: string): string;
+  export function join(...paths: string[]): string;
+  const path: {
+    resolve(...paths: string[]): string;
+    dirname(path: string): string;
+    join(...paths: string[]): string;
+  };
+  export default path;
+}
+
+declare module "url" {
+  export function fileURLToPath(url: string | URL): string;
+}
+

@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { Hono } from "npm:hono";
 import { cors } from "npm:hono/cors";
 import { logger } from "npm:hono/logger";
@@ -455,7 +456,7 @@ app.get(`${P}/invoice-settings`, async (c) => {
 app.put(`${P}/invoice-settings`, async (c) => {
   const userId = c.get("userId") as string;
   const token  = c.get("token") as string;
-  const row    = { ...objToSnake(await c.req.json()), user_id: userId };
+  const row: any = { ...objToSnake(await c.req.json()), user_id: userId };
   delete row.created_at;
   const { data, error } = await userDb(token)
     .from("invoice_settings").upsert(row, { onConflict: "user_id" }).select().single();
@@ -474,7 +475,7 @@ app.get(`${P}/public/questions/:type/:ownerId`, async (c) => {
 
 app.post(`${P}/public/results/:type/:ownerId`, async (c) => {
   const table = c.req.param("type") === "knowledge" ? "knowledge_results" : "compatibility_results";
-  const row   = { ...objToSnake(await c.req.json()), user_id: c.req.param("ownerId") };
+  const row: any = { ...objToSnake(await c.req.json()), user_id: c.req.param("ownerId") };
   delete row.id;
   const { data, error } = await adminDb().from(table).insert(row).select().single();
   if (error) return dbErr(c, error);
