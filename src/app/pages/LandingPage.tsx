@@ -24,7 +24,7 @@ interface Props {
 
 const NAV_LINKS = [
   { label: "Solutions", href: "solutions" },
-  { label: "Fields of Operation", href: "fields" },
+  { label: "Pond Types", href: "fields" },
   { label: "App Showcase", href: "showcase" },
   { label: "Forecasting", href: "forecasting" },
   { label: "Testimonials", href: "testimonials" },
@@ -163,16 +163,16 @@ function AppWindowShell({ activeNav, activeFarmName = "Crown Fisheries — Epe F
               </button>
               {farmDropdownOpen && (
                 <div className="absolute left-0 top-full mt-1.5 w-64 bg-white border border-slate-200 rounded-xl shadow-xl z-30 p-1.5 text-xs text-slate-700">
-                  <div className="px-2.5 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Your Commercial Farms</div>
+                  <div className="px-2.5 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Your Farms</div>
                   <div className="px-2.5 py-1.5 bg-emerald-50 text-emerald-800 rounded-lg font-semibold flex items-center justify-between">
-                    <span>Crown Fisheries — Epe, Lagos</span>
+                    <span>Crown Fisheries — Epe, Lagos (Commercial)</span>
                     <Check size={12} className="text-emerald-600" />
                   </div>
                   <div className="px-2.5 py-1.5 hover:bg-slate-50 rounded-lg text-slate-600 cursor-pointer">
-                    <span>Niger Delta Mega Ponds — Port Harcourt</span>
+                    <span>Green Valley Ponds — Ibadan (Family Farm)</span>
                   </div>
                   <div className="px-2.5 py-1.5 hover:bg-slate-50 rounded-lg text-slate-600 cursor-pointer">
-                    <span>Oyo River Hatchery — Ibadan</span>
+                    <span>Niger Delta Ponds — Port Harcourt (Medium)</span>
                   </div>
                 </div>
               )}
@@ -203,24 +203,24 @@ function AppWindowShell({ activeNav, activeFarmName = "Crown Fisheries — Epe F
 function PondManagementFullPreview() {
   return (
     <AppWindowShell activeNav="ponds">
-      <div className="space-y-4 text-slate-800">
+      <div className="space-y-4 text-slate-800 font-['Barlow',sans-serif]">
         {/* Top Metric Strip */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <div className="bg-white p-3.5 rounded-xl border border-slate-200/80 shadow-xs">
-            <p className="text-[11px] font-semibold text-slate-400 uppercase">Active Ponds</p>
+            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Active Ponds</p>
             <p className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] mt-0.5">8 <span className="text-xs text-slate-400 font-normal">/ 10 Total</span></p>
           </div>
           <div className="bg-white p-3.5 rounded-xl border border-slate-200/80 shadow-xs">
-            <p className="text-[11px] font-semibold text-slate-400 uppercase">Total Stock</p>
+            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Total Stock</p>
             <p className="text-xl font-bold text-emerald-600 font-['Barlow_Condensed',sans-serif] mt-0.5">48,250 <span className="text-xs font-normal text-slate-400">fish</span></p>
           </div>
           <div className="bg-white p-3.5 rounded-xl border border-slate-200/80 shadow-xs">
-            <p className="text-[11px] font-semibold text-slate-400 uppercase">Est. Biomass</p>
-            <p className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] mt-0.5">31.4 <span className="text-xs font-normal text-slate-400">Tons</span></p>
+            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Mortality Rate</p>
+            <p className="text-xl font-bold text-emerald-600 font-['Barlow_Condensed',sans-serif] mt-0.5">0.8% <span className="text-xs font-normal text-slate-400">(384 dead)</span></p>
           </div>
           <div className="bg-white p-3.5 rounded-xl border border-slate-200/80 shadow-xs">
-            <p className="text-[11px] font-semibold text-slate-400 uppercase">Average Weight</p>
-            <p className="text-xl font-bold text-blue-600 font-['Barlow_Condensed',sans-serif] mt-0.5">650g <span className="text-xs font-normal text-slate-400">(Table Size)</span></p>
+            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Feed Pallet Limits</p>
+            <p className="text-xl font-bold text-blue-600 font-['Barlow_Condensed',sans-serif] mt-0.5">3 Ponds <span className="text-xs font-normal text-slate-400">Active</span></p>
           </div>
         </div>
 
@@ -228,9 +228,9 @@ function PondManagementFullPreview() {
         <div className="flex flex-wrap items-center justify-between gap-2.5 pt-1">
           <div className="flex items-center gap-1.5 bg-white border border-slate-200 p-1 rounded-xl text-xs font-semibold">
             <span className="px-2.5 py-1 bg-emerald-600 text-white rounded-lg shadow-xs">All (8)</span>
-            <span className="px-2.5 py-1 text-slate-500 hover:text-slate-800">Nursery (2)</span>
-            <span className="px-2.5 py-1 text-slate-500 hover:text-slate-800">Production (6)</span>
-            <span className="px-2.5 py-1 text-slate-500 hover:text-slate-800">Empty (2)</span>
+            <span className="px-2.5 py-1 text-slate-500 hover:text-slate-800">Concrete (3)</span>
+            <span className="px-2.5 py-1 text-slate-500 hover:text-slate-800">Earthen (3)</span>
+            <span className="px-2.5 py-1 text-slate-500 hover:text-slate-800">Tarpaulin (2)</span>
           </div>
           <div className="flex items-center gap-2">
             <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white rounded-xl text-xs font-bold shadow-xs">
@@ -239,12 +239,15 @@ function PondManagementFullPreview() {
             <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 text-slate-700 rounded-xl text-xs font-semibold">
               Transfer Stock
             </span>
+            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 text-slate-700 rounded-xl text-xs font-semibold">
+              Nursery Transfer
+            </span>
           </div>
         </div>
 
         {/* Pond Cards Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-          {/* Card 1 */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
+          {/* Card 1: Concrete Nursery */}
           <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs hover:border-emerald-300 transition-colors">
             <div className="flex items-start justify-between">
               <div>
@@ -253,21 +256,22 @@ function PondManagementFullPreview() {
                   <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">Active</span>
                 </div>
                 <p className="text-xs text-slate-500 mt-0.5">African Catfish (Clarias) · Stocked 12 Aug 2026</p>
+                <span className="inline-block mt-1 text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md">Age: 1 month 1 day</span>
               </div>
               <span className="text-xs font-extrabold text-emerald-600 font-mono">14,200 fish</span>
             </div>
-            <div className="mt-3 grid grid-cols-3 gap-2 bg-slate-50 rounded-lg p-2.5 text-center text-xs">
-              <div><p className="text-[10px] text-slate-400">Initial Stock</p><p className="font-bold text-slate-800">15,000</p></div>
-              <div><p className="text-[10px] text-slate-400">Avg. Weight</p><p className="font-bold text-slate-800">85g</p></div>
-              <div><p className="text-[10px] text-slate-400">Mortality</p><p className="font-bold text-emerald-600">1.2%</p></div>
+            <div className="mt-3 grid grid-cols-3 gap-2 bg-slate-50 rounded-lg p-2 text-center text-xs">
+              <div><p className="text-[10px] text-slate-400">Initial Stock</p><p className="font-bold text-slate-800 font-['Barlow_Condensed',sans-serif]">15,000</p></div>
+              <div><p className="text-[10px] text-slate-400">Avg. Weight</p><p className="font-bold text-slate-800 font-['Barlow_Condensed',sans-serif]">85g</p></div>
+              <div><p className="text-[10px] text-slate-400">Mortality</p><p className="font-bold text-emerald-600 font-['Barlow_Condensed',sans-serif]">1.2% (80)</p></div>
             </div>
-            <div className="mt-3 flex items-center justify-between text-xs pt-1 border-t border-slate-100">
-              <span className="text-slate-500 text-[11px]">Pallet Limit: <strong className="text-slate-800">2.0mm max 350kg</strong> (280kg fed)</span>
+            <div className="mt-3 flex items-center justify-between text-xs pt-2 border-t border-slate-100">
+              <span className="text-slate-500 text-[11px]">Pallet Limit: <strong className="text-amber-600">2.0mm max 350kg (280kg fed)</strong></span>
               <span className="text-xs font-bold text-emerald-600">View History →</span>
             </div>
           </div>
 
-          {/* Card 2 */}
+          {/* Card 2: Earthen Grow-out */}
           <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs hover:border-emerald-300 transition-colors">
             <div className="flex items-start justify-between">
               <div>
@@ -276,17 +280,42 @@ function PondManagementFullPreview() {
                   <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">Active</span>
                 </div>
                 <p className="text-xs text-slate-500 mt-0.5">Table Catfish · Stocked 15 May 2026</p>
+                <span className="inline-block mt-1 text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md">Age: 3 months 29 days</span>
               </div>
               <span className="text-xs font-extrabold text-emerald-600 font-mono">6,800 fish</span>
             </div>
-            <div className="mt-3 grid grid-cols-3 gap-2 bg-slate-50 rounded-lg p-2.5 text-center text-xs">
-              <div><p className="text-[10px] text-slate-400">Est. Biomass</p><p className="font-bold text-slate-800">6,256 kg</p></div>
-              <div><p className="text-[10px] text-slate-400">Avg. Weight</p><p className="font-bold text-slate-800">920g</p></div>
-              <div><p className="text-[10px] text-slate-400">Batch Value</p><p className="font-bold text-emerald-600">₦14.0M</p></div>
+            <div className="mt-3 grid grid-cols-3 gap-2 bg-slate-50 rounded-lg p-2 text-center text-xs">
+              <div><p className="text-[10px] text-slate-400">Est. Biomass</p><p className="font-bold text-slate-800 font-['Barlow_Condensed',sans-serif]">6,256 kg</p></div>
+              <div><p className="text-[10px] text-slate-400">Avg. Weight</p><p className="font-bold text-slate-800 font-['Barlow_Condensed',sans-serif]">920g</p></div>
+              <div><p className="text-[10px] text-slate-400">Batch Value</p><p className="font-bold text-emerald-600 font-['Barlow_Condensed',sans-serif]">₦14.0M</p></div>
             </div>
-            <div className="mt-3 flex items-center justify-between text-xs pt-1 border-t border-slate-100">
+            <div className="mt-3 flex items-center justify-between text-xs pt-2 border-t border-slate-100">
               <span className="text-slate-500 text-[11px]">Pallet Limit: <strong className="text-slate-800">4.0mm max 1,800kg</strong></span>
               <span className="text-xs font-bold text-emerald-600">Log Feeding →</span>
+            </div>
+          </div>
+
+          {/* Card 3: Backyard / Normal Tarpaulin Vat */}
+          <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs hover:border-emerald-300 transition-colors">
+            <div className="flex items-start justify-between">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Pond 03 — Tarpaulin Vat 1</span>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">Active</span>
+                </div>
+                <p className="text-xs text-slate-500 mt-0.5">Heterobranchus · Stocked 01 Jul 2026</p>
+                <span className="inline-block mt-1 text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md">Age: 2 months 12 days</span>
+              </div>
+              <span className="text-xs font-extrabold text-emerald-600 font-mono">2,460 fish</span>
+            </div>
+            <div className="mt-3 grid grid-cols-3 gap-2 bg-slate-50 rounded-lg p-2 text-center text-xs">
+              <div><p className="text-[10px] text-slate-400">Initial Stock</p><p className="font-bold text-slate-800 font-['Barlow_Condensed',sans-serif]">2,500</p></div>
+              <div><p className="text-[10px] text-slate-400">Avg. Weight</p><p className="font-bold text-slate-800 font-['Barlow_Condensed',sans-serif]">420g</p></div>
+              <div><p className="text-[10px] text-slate-400">Mortality</p><p className="font-bold text-emerald-600 font-['Barlow_Condensed',sans-serif]">1.6% (40)</p></div>
+            </div>
+            <div className="mt-3 flex items-center justify-between text-xs pt-2 border-t border-slate-100">
+              <span className="text-slate-500 text-[11px]">Pallet Limit: <strong className="text-slate-800">3.0mm max 600kg (410kg fed)</strong></span>
+              <span className="text-xs font-bold text-emerald-600">View History →</span>
             </div>
           </div>
         </div>
@@ -299,7 +328,14 @@ function PondManagementFullPreview() {
 function FeedingDocumentationFullPreview() {
   return (
     <AppWindowShell activeNav="documentation">
-      <div className="space-y-4 text-slate-800">
+      <div className="space-y-4 text-slate-800 font-['Barlow',sans-serif]">
+        {/* Navigation Tabs matching FeedDocumentationPage */}
+        <div className="flex items-center gap-1 bg-white border border-slate-200 p-1 rounded-xl text-xs font-semibold w-fit">
+          <span className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg shadow-xs">Daily Feeding Records</span>
+          <span className="px-3 py-1.5 text-slate-600 hover:text-slate-900 cursor-pointer">Bags Opened Log (42)</span>
+          <span className="px-3 py-1.5 text-slate-600 hover:text-slate-900 cursor-pointer">Feed Reconciliation</span>
+        </div>
+
         {/* Today's Feed Overview banner */}
         <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
@@ -317,6 +353,9 @@ function FeedingDocumentationFullPreview() {
             <span className="px-3 py-1.5 bg-emerald-600 text-white rounded-xl text-xs font-bold shadow-xs">
               + Log Daily Feeding
             </span>
+            <span className="px-3 py-1.5 bg-slate-100 border border-slate-200 text-slate-700 rounded-xl text-xs font-semibold">
+              Log Bags Opened
+            </span>
           </div>
         </div>
 
@@ -324,7 +363,7 @@ function FeedingDocumentationFullPreview() {
         <div className="bg-amber-50 border border-amber-200/80 rounded-xl p-3 flex items-center justify-between text-xs text-amber-800">
           <div className="flex items-center gap-2">
             <AlertTriangle size={15} className="text-amber-600 shrink-0" />
-            <span><strong>Pallet Limit Alert:</strong> Pond 01 (Nursery A) reached <strong>280kg / 350kg (80%)</strong> of 2.0mm feed. Consider sizing up to 3.0mm soon.</span>
+            <span><strong>Pallet Limit Alert:</strong> Pond 01 (Concrete Nursery A) reached <strong>280kg / 350kg (80%)</strong> of 2.0mm feed. Consider sizing up to 3.0mm soon.</span>
           </div>
           <span className="font-bold text-amber-900 shrink-0 ml-2 cursor-pointer underline">Review</span>
         </div>
@@ -333,7 +372,7 @@ function FeedingDocumentationFullPreview() {
         <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-xs">
           <div className="px-4 py-3 border-b border-slate-100 bg-slate-50/70 flex items-center justify-between">
             <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">Today's Feeding Records (13 Sep 2026)</span>
-            <span className="text-xs text-slate-400">Showing 4 of 4 Ponds</span>
+            <span className="text-xs text-emerald-700 font-semibold bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">🟢 4 of 4 Ponds Reconciled</span>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-xs text-left">
@@ -346,39 +385,54 @@ function FeedingDocumentationFullPreview() {
                   <th className="px-4 py-2.5">Evening</th>
                   <th className="px-4 py-2.5">Total Feed</th>
                   <th className="px-4 py-2.5">Pallet Limit Status</th>
+                  <th className="px-4 py-2.5">Status</th>
                   <th className="px-4 py-2.5">Logged By</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 font-medium">
                 <tr className="hover:bg-slate-50">
-                  <td className="px-4 py-3 font-bold text-slate-900">Pond 01 — Nursery A</td>
+                  <td className="px-4 py-3 font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Pond 01 — Concrete Nursery A</td>
                   <td className="px-4 py-3">Aller Aqua</td>
                   <td className="px-4 py-3"><span className="px-2 py-0.5 rounded bg-slate-100 font-mono font-bold">2.0mm</span></td>
                   <td className="px-4 py-3">14.0 kg</td>
                   <td className="px-4 py-3">16.0 kg</td>
-                  <td className="px-4 py-3 font-bold text-emerald-700">30.0 kg</td>
+                  <td className="px-4 py-3 font-bold text-emerald-700 font-['Barlow_Condensed',sans-serif]">30.0 kg</td>
                   <td className="px-4 py-3"><span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-bold">80% of 350kg</span></td>
+                  <td className="px-4 py-3"><span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded">🟢 Matched</span></td>
                   <td className="px-4 py-3 text-slate-500">Sola Bello (Staff)</td>
                 </tr>
                 <tr className="hover:bg-slate-50">
-                  <td className="px-4 py-3 font-bold text-slate-900">Pond 02 — Grow-out 1</td>
+                  <td className="px-4 py-3 font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Pond 02 — Main Earthen Grow-out</td>
                   <td className="px-4 py-3">Coppens</td>
                   <td className="px-4 py-3"><span className="px-2 py-0.5 rounded bg-slate-100 font-mono font-bold">4.0mm</span></td>
                   <td className="px-4 py-3">32.0 kg</td>
                   <td className="px-4 py-3">38.0 kg</td>
-                  <td className="px-4 py-3 font-bold text-emerald-700">70.0 kg</td>
+                  <td className="px-4 py-3 font-bold text-emerald-700 font-['Barlow_Condensed',sans-serif]">70.0 kg</td>
                   <td className="px-4 py-3"><span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold">62% of 1,800kg</span></td>
+                  <td className="px-4 py-3"><span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded">🟢 Matched</span></td>
                   <td className="px-4 py-3 text-slate-500">Ibrahim Musa</td>
                 </tr>
                 <tr className="hover:bg-slate-50">
-                  <td className="px-4 py-3 font-bold text-slate-900">Pond 03 — Tilapia Tank</td>
+                  <td className="px-4 py-3 font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Pond 03 — Tarpaulin Vat 1</td>
                   <td className="px-4 py-3">Skretting</td>
                   <td className="px-4 py-3"><span className="px-2 py-0.5 rounded bg-slate-100 font-mono font-bold">3.0mm</span></td>
-                  <td className="px-4 py-3">22.0 kg</td>
-                  <td className="px-4 py-3">22.5 kg</td>
-                  <td className="px-4 py-3 font-bold text-emerald-700">44.5 kg</td>
-                  <td className="px-4 py-3"><span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold">45% of 1,200kg</span></td>
+                  <td className="px-4 py-3">12.0 kg</td>
+                  <td className="px-4 py-3">14.0 kg</td>
+                  <td className="px-4 py-3 font-bold text-emerald-700 font-['Barlow_Condensed',sans-serif]">26.0 kg</td>
+                  <td className="px-4 py-3"><span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold">68% of 600kg</span></td>
+                  <td className="px-4 py-3"><span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded">🟢 Matched</span></td>
                   <td className="px-4 py-3 text-slate-500">Emeka Eze</td>
+                </tr>
+                <tr className="hover:bg-slate-50">
+                  <td className="px-4 py-3 font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Pond 04 — Concrete Grow-out B</td>
+                  <td className="px-4 py-3">Durante</td>
+                  <td className="px-4 py-3"><span className="px-2 py-0.5 rounded bg-slate-100 font-mono font-bold">4.0mm</span></td>
+                  <td className="px-4 py-3">10.0 kg</td>
+                  <td className="px-4 py-3">8.5 kg</td>
+                  <td className="px-4 py-3 font-bold text-emerald-700 font-['Barlow_Condensed',sans-serif]">18.5 kg</td>
+                  <td className="px-4 py-3"><span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold">42% of 900kg</span></td>
+                  <td className="px-4 py-3"><span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded">🟢 Matched</span></td>
+                  <td className="px-4 py-3 text-slate-500">Sola Bello</td>
                 </tr>
               </tbody>
             </table>
@@ -393,26 +447,26 @@ function FeedingDocumentationFullPreview() {
 function FinancialDashboardFullPreview() {
   return (
     <AppWindowShell activeNav="financial">
-      <div className="space-y-4 text-slate-800">
+      <div className="space-y-4 text-slate-800 font-['Barlow',sans-serif]">
         {/* Metric Cards */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <div className="bg-white p-4 rounded-xl border border-slate-200/80 shadow-xs">
-            <p className="text-[11px] font-bold text-slate-400 uppercase">Gross Fish Sales</p>
+            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Gross Fish Sales</p>
             <p className="text-xl font-black text-emerald-600 font-['Barlow_Condensed',sans-serif] mt-1">₦16,850,000</p>
             <p className="text-[10px] text-emerald-700 font-semibold mt-0.5 flex items-center gap-1"><ArrowUpRight size={10} /> +28% vs last cycle</p>
           </div>
           <div className="bg-white p-4 rounded-xl border border-slate-200/80 shadow-xs">
-            <p className="text-[11px] font-bold text-slate-400 uppercase">Total Feed Expenses</p>
+            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Feed Expenses</p>
             <p className="text-xl font-black text-slate-900 font-['Barlow_Condensed',sans-serif] mt-1">₦6,280,000</p>
             <p className="text-[10px] text-slate-400 mt-0.5">66.7% of total cost</p>
           </div>
           <div className="bg-white p-4 rounded-xl border border-slate-200/80 shadow-xs">
-            <p className="text-[11px] font-bold text-slate-400 uppercase">Operating Costs</p>
+            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Operating Costs</p>
             <p className="text-xl font-black text-slate-900 font-['Barlow_Condensed',sans-serif] mt-1">₦3,140,000</p>
-            <p className="text-[10px] text-slate-400 mt-0.5">Pumping, fingerlings, labor</p>
+            <p className="text-[10px] text-slate-400 mt-0.5">Pumping, fuel, labor</p>
           </div>
           <div className="bg-emerald-600 text-white p-4 rounded-xl shadow-md">
-            <p className="text-[11px] font-bold text-emerald-100 uppercase">Net Farm Profit</p>
+            <p className="text-[11px] font-bold text-emerald-100 uppercase tracking-wider">Net Farm Profit</p>
             <p className="text-2xl font-black font-['Barlow_Condensed',sans-serif] mt-1">₦7,430,000</p>
             <p className="text-[10px] text-emerald-100 font-medium mt-0.5">44.1% Operating Margin</p>
           </div>
@@ -423,7 +477,7 @@ function FinancialDashboardFullPreview() {
           <div className="flex items-center justify-between mb-3">
             <div>
               <p className="text-xs font-bold text-slate-800 uppercase tracking-wider">Monthly Revenue vs Operating Costs (₦)</p>
-              <p className="text-[11px] text-slate-400">Tracking continuous cycle margins across all 8 ponds</p>
+              <p className="text-[11px] text-slate-400">Tracking continuous cycle margins across all active ponds</p>
             </div>
             <div className="flex items-center gap-3 text-xs">
               <span className="flex items-center gap-1 text-slate-600"><span className="w-2.5 h-2.5 rounded-sm bg-emerald-600" /> Fish Revenue</span>
@@ -449,9 +503,23 @@ function FinancialDashboardFullPreview() {
               </div>
             ))}
           </div>
-          <div className="flex items-center justify-between pt-2.5 text-[11px] text-slate-500">
-            <span>Cycle Feed Conversion Ratio (FCR): <strong className="text-slate-800">1.18 kg feed / kg fish</strong></span>
-            <span className="text-emerald-700 font-bold">Highest monthly ROI recorded this season</span>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-3 text-[11px] text-slate-600">
+            <div className="bg-slate-50 p-2 rounded-lg border border-slate-100">
+              <p className="text-[10px] text-slate-400 uppercase font-bold">Feed Purchases</p>
+              <p className="font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">₦6,280,000 (66.7%)</p>
+            </div>
+            <div className="bg-slate-50 p-2 rounded-lg border border-slate-100">
+              <p className="text-[10px] text-slate-400 uppercase font-bold">Fuel & Pumping</p>
+              <p className="font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">₦1,520,000 (16.1%)</p>
+            </div>
+            <div className="bg-slate-50 p-2 rounded-lg border border-slate-100">
+              <p className="text-[10px] text-slate-400 uppercase font-bold">Staff & Labor</p>
+              <p className="font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">₦1,080,000 (11.5%)</p>
+            </div>
+            <div className="bg-slate-50 p-2 rounded-lg border border-slate-100">
+              <p className="text-[10px] text-slate-400 uppercase font-bold">Medication & Care</p>
+              <p className="font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">₦540,000 (5.7%)</p>
+            </div>
           </div>
         </div>
       </div>
@@ -459,28 +527,28 @@ function FinancialDashboardFullPreview() {
   );
 }
 
-/* 4. Commercial Invoicing Preview */
+/* 4. Customer Invoicing Preview */
 function InvoicesFullPreview() {
   return (
     <AppWindowShell activeNav="invoices">
-      <div className="space-y-4 text-slate-800">
+      <div className="space-y-4 text-slate-800 font-['Barlow',sans-serif]">
         {/* Metric strip */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs">
-            <p className="text-[11px] font-semibold text-slate-400 uppercase">Total Invoiced</p>
+            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Total Invoiced</p>
             <p className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] mt-0.5">₦22,400,000</p>
           </div>
           <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs">
-            <p className="text-[11px] font-semibold text-slate-400 uppercase">Amount Collected</p>
+            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Amount Collected</p>
             <p className="text-xl font-bold text-emerald-600 font-['Barlow_Condensed',sans-serif] mt-0.5">₦19,250,000</p>
           </div>
           <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs">
-            <p className="text-[11px] font-semibold text-slate-400 uppercase">Pending Balance</p>
+            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Pending Balance</p>
             <p className="text-xl font-bold text-amber-600 font-['Barlow_Condensed',sans-serif] mt-0.5">₦3,150,000</p>
           </div>
           <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs">
-            <p className="text-[11px] font-semibold text-slate-400 uppercase">Wholesale Buyers</p>
-            <p className="text-xl font-bold text-slate-800 font-['Barlow_Condensed',sans-serif] mt-0.5">28 Active</p>
+            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Active Customers</p>
+            <p className="text-xl font-bold text-slate-800 font-['Barlow_Condensed',sans-serif] mt-0.5">28 Buyers</p>
           </div>
         </div>
 
@@ -488,9 +556,10 @@ function InvoicesFullPreview() {
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 text-xs font-semibold">
             <span className="px-3 py-1.5 bg-emerald-600 text-white rounded-xl shadow-xs">+ Create Customer Invoice</span>
+            <span className="px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-slate-600">Price Groups (₦/kg)</span>
             <span className="px-3 py-1.5 bg-white border border-slate-200 rounded-xl text-slate-600">Print Receipt</span>
           </div>
-          <span className="text-xs text-slate-400 font-medium">Automatic PDF Generation</span>
+          <span className="text-xs text-slate-400 font-medium">Automatic PDF & WhatsApp Receipts</span>
         </div>
 
         {/* Invoices List Table */}
@@ -500,7 +569,7 @@ function InvoicesFullPreview() {
               <thead className="bg-slate-50 text-slate-500 font-semibold border-b border-slate-100">
                 <tr>
                   <th className="px-4 py-2.5">Invoice #</th>
-                  <th className="px-4 py-2.5">Customer / Distributor</th>
+                  <th className="px-4 py-2.5">Customer / Buyer</th>
                   <th className="px-4 py-2.5">Fish Batch</th>
                   <th className="px-4 py-2.5">Weight (Kg)</th>
                   <th className="px-4 py-2.5">Unit Rate</th>
@@ -516,7 +585,7 @@ function InvoicesFullPreview() {
                   <td className="px-4 py-3 text-slate-500">Pond 02 Table Catfish</td>
                   <td className="px-4 py-3 font-bold">2,800 kg</td>
                   <td className="px-4 py-3">₦2,250/kg</td>
-                  <td className="px-4 py-3 font-extrabold text-emerald-700">₦6,300,000</td>
+                  <td className="px-4 py-3 font-extrabold text-emerald-700 font-['Barlow_Condensed',sans-serif]">₦6,300,000</td>
                   <td className="px-4 py-3"><span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold">Paid</span></td>
                   <td className="px-4 py-3"><button className="text-slate-400 hover:text-slate-700"><Printer size={13} /></button></td>
                 </tr>
@@ -526,7 +595,7 @@ function InvoicesFullPreview() {
                   <td className="px-4 py-3 text-slate-500">Pond 03 Fresh Tilapia</td>
                   <td className="px-4 py-3 font-bold">950 kg</td>
                   <td className="px-4 py-3">₦2,700/kg</td>
-                  <td className="px-4 py-3 font-extrabold text-emerald-700">₦2,565,000</td>
+                  <td className="px-4 py-3 font-extrabold text-emerald-700 font-['Barlow_Condensed',sans-serif]">₦2,565,000</td>
                   <td className="px-4 py-3"><span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold">Paid</span></td>
                   <td className="px-4 py-3"><button className="text-slate-400 hover:text-slate-700"><Printer size={13} /></button></td>
                 </tr>
@@ -536,8 +605,18 @@ function InvoicesFullPreview() {
                   <td className="px-4 py-3 text-slate-500">Pond 02 Table Catfish</td>
                   <td className="px-4 py-3 font-bold">3,500 kg</td>
                   <td className="px-4 py-3">₦2,200/kg</td>
-                  <td className="px-4 py-3 font-extrabold text-amber-700">₦7,700,000</td>
+                  <td className="px-4 py-3 font-extrabold text-amber-700 font-['Barlow_Condensed',sans-serif]">₦7,700,000</td>
                   <td className="px-4 py-3"><span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-bold">Partially Paid</span></td>
+                  <td className="px-4 py-3"><button className="text-slate-400 hover:text-slate-700"><Printer size={13} /></button></td>
+                </tr>
+                <tr className="hover:bg-slate-50">
+                  <td className="px-4 py-3 font-mono font-bold text-slate-800">INV-2026-101</td>
+                  <td className="px-4 py-3 font-bold text-slate-900">Bodija Fish Wholesalers (Ibadan)</td>
+                  <td className="px-4 py-3 text-slate-500">Pond 04 Catfish</td>
+                  <td className="px-4 py-3 font-bold">1,400 kg</td>
+                  <td className="px-4 py-3">₦2,200/kg</td>
+                  <td className="px-4 py-3 font-extrabold text-emerald-700 font-['Barlow_Condensed',sans-serif]">₦3,080,000</td>
+                  <td className="px-4 py-3"><span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold">Paid</span></td>
                   <td className="px-4 py-3"><button className="text-slate-400 hover:text-slate-700"><Printer size={13} /></button></td>
                 </tr>
               </tbody>
@@ -582,24 +661,24 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
     {
       id: "ponds" as const,
       title: "Pond & Fish Stock Lifecycle Management",
-      subtitle: "Track stocking dates, stocking density, daily mortality, biomass growth, and pond-to-pond stock transfers with automated audit history.",
+      subtitle: "Track stocking dates, fish count, species, daily mortality, pallet limits, and pond transfers — built for concrete, earthen, and tarpaulin setups.",
       component: <PondManagementFullPreview />,
     },
     {
       id: "feeding" as const,
-      title: "Precision Feeding Documentation & Pallet Limits",
-      subtitle: "Log morning and evening feeds, monitor pallet sizes (2mm to 9mm), and enforce maximum kg limits per pond to eliminate overfeeding waste.",
+      title: "Daily Feeding Documentation & Pallet Limits",
+      subtitle: "Log morning and evening feeds, monitor pallet sizes (2mm to 9mm), track opened bags against inventory, and enforce maximum kg limits per pond.",
       component: <FeedingDocumentationFullPreview />,
     },
     {
       id: "financial" as const,
-      title: "Aquaculture Financials & Profit Analytics",
-      subtitle: "Track feed purchases, energy, labor, and fingerling costs against commercial harvest revenue with live ROI and gross margin calculations.",
+      title: "Farm Financials & Profit Analytics",
+      subtitle: "Track feed purchases, pumping fuel, labor, and medication costs against fish sales revenue with live ROI and gross profit calculations.",
       component: <FinancialDashboardFullPreview />,
     },
     {
       id: "invoices" as const,
-      title: "Commercial Buyer Invoicing & Direct Sales",
+      title: "Customer Invoicing & Sales Receipts",
       subtitle: "Issue branded fish sales invoices, configure customer price groups (kg or pieces), track partial payments, and generate printable receipts.",
       component: <InvoicesFullPreview />,
     },
@@ -709,20 +788,20 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
             <FadeIn delay={100}>
               <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-emerald-500/20 border border-emerald-400/30 text-emerald-300 text-xs uppercase tracking-widest font-bold">
                 <Sparkles size={13} />
-                <span>Commercial Aquaculture System</span>
+                <span>Fish Farm Management System</span>
               </div>
             </FadeIn>
 
             <FadeIn delay={200}>
               <h1 className="text-4xl sm:text-6xl lg:text-7xl font-bold font-['Barlow_Condensed',sans-serif] leading-[0.95] tracking-tight text-white">
                 Smart Fish Farming <br />
-                For <span className="italic font-serif font-normal text-emerald-400">Higher Yields</span>
+                For <span className="font-['Barlow_Condensed',sans-serif] text-emerald-400 font-bold">Higher Yields</span>
               </h1>
             </FadeIn>
 
             <FadeIn delay={300}>
-              <p className="text-base sm:text-xl text-slate-200/90 font-normal leading-relaxed max-w-2xl">
-                The modern farm management system engineered specifically for commercial catfish and tilapia aquaculture in Nigeria and across Africa. Eliminate feed waste, prevent mortality spikes, and scale your harvest profits.
+              <p className="text-base sm:text-xl text-slate-200/90 font-normal leading-relaxed max-w-2xl font-['Barlow',sans-serif]">
+                The modern farm management system engineered specifically for fish farmers across Nigeria and Africa — built for normal family farms and commercial operations alike. Eliminate feed waste, prevent mortality spikes, and keep your farm profitable.
               </p>
             </FadeIn>
 
@@ -747,11 +826,11 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
             <FadeIn delay={500}>
               <div className="pt-4 flex items-center gap-3 text-xs text-slate-300">
                 <div className="flex -space-x-2">
-                  <div className="w-8 h-8 rounded-full border-2 border-slate-900 bg-emerald-700 flex items-center justify-center font-bold text-[10px]">BA</div>
-                  <div className="w-8 h-8 rounded-full border-2 border-slate-900 bg-blue-700 flex items-center justify-center font-bold text-[10px]">KO</div>
-                  <div className="w-8 h-8 rounded-full border-2 border-slate-900 bg-amber-700 flex items-center justify-center font-bold text-[10px]">EN</div>
+                  <img className="w-8 h-8 rounded-full border-2 border-slate-900 object-cover" src="https://images.unsplash.com/photo-1531384441138-2736e62e0919?auto=format&fit=crop&w=100&q=80" alt="Farmer" />
+                  <img className="w-8 h-8 rounded-full border-2 border-slate-900 object-cover" src="https://images.unsplash.com/photo-1573497019940-1c28c88b4f3e?auto=format&fit=crop&w=100&q=80" alt="Farmer" />
+                  <img className="w-8 h-8 rounded-full border-2 border-slate-900 object-cover" src="https://images.unsplash.com/photo-1506277886164-e25aa3f4ef7f?auto=format&fit=crop&w=100&q=80" alt="Farmer" />
                 </div>
-                <span>Trusted by <strong>10,000+</strong> commercial fish farmers across Nigeria & West Africa</span>
+                <span>Trusted by <strong>20+</strong> fish farms across Nigeria</span>
               </div>
             </FadeIn>
           </div>
@@ -761,34 +840,34 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
         <div className="relative z-10 bg-[#062319] border-t border-emerald-950/80 py-8 px-4 sm:px-6 lg:px-8">
           <div className="max-w-7xl mx-auto grid grid-cols-2 md:grid-cols-4 gap-6 text-center">
             <div>
-              <p className="text-3xl sm:text-4xl font-black text-white font-['Barlow_Condensed',sans-serif]">30+ Years</p>
-              <p className="text-xs uppercase tracking-wider text-emerald-400/90 font-semibold mt-1">Aquaculture Experience</p>
+              <p className="text-3xl sm:text-4xl font-black text-white font-['Barlow_Condensed',sans-serif]">20+ Farms</p>
+              <p className="text-xs uppercase tracking-wider text-emerald-400/90 font-semibold mt-1">Active Fish Farms</p>
             </div>
             <div>
-              <p className="text-3xl sm:text-4xl font-black text-white font-['Barlow_Condensed',sans-serif]">450+ Ponds</p>
-              <p className="text-xs uppercase tracking-wider text-emerald-400/90 font-semibold mt-1">Active Ponds Managed</p>
+              <p className="text-3xl sm:text-4xl font-black text-white font-['Barlow_Condensed',sans-serif]">150+ Ponds</p>
+              <p className="text-xs uppercase tracking-wider text-emerald-400/90 font-semibold mt-1">Ponds Monitored</p>
             </div>
             <div>
-              <p className="text-3xl sm:text-4xl font-black text-white font-['Barlow_Condensed',sans-serif]">160K+ Fish</p>
-              <p className="text-xs uppercase tracking-wider text-emerald-400/90 font-semibold mt-1">Fish Stocked Monthly</p>
+              <p className="text-3xl sm:text-4xl font-black text-white font-['Barlow_Condensed',sans-serif]">85K+ Fish</p>
+              <p className="text-xs uppercase tracking-wider text-emerald-400/90 font-semibold mt-1">Fish Tracked Daily</p>
             </div>
             <div>
-              <p className="text-3xl sm:text-4xl font-black text-white font-['Barlow_Condensed',sans-serif]">10K+ Farmers</p>
-              <p className="text-xs uppercase tracking-wider text-emerald-400/90 font-semibold mt-1">Commercial Farm Owners</p>
+              <p className="text-3xl sm:text-4xl font-black text-white font-['Barlow_Condensed',sans-serif]">99.2%</p>
+              <p className="text-xs uppercase tracking-wider text-emerald-400/90 font-semibold mt-1">Record Accuracy</p>
             </div>
           </div>
         </div>
       </section>
 
-      {/* ─── 3. COLLABORATIVE PLATFORM STATEMENT BANNER ───────────────────────── */}
+      {/* ─── 3. FISH FARM MANAGEMENT SYSTEM STATEMENT BANNER ───────────────────── */}
       <section className="py-16 sm:py-24 bg-[#f8fafc] border-b border-slate-200">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 text-center">
           <FadeIn>
             <p className="text-xs uppercase tracking-widest font-black text-emerald-700 mb-3">
-              [ CONNECTING AQUACULTURE ]
+              [ FISH FARM MANAGEMENT SYSTEM ]
             </p>
             <h2 className="text-2xl sm:text-4xl md:text-5xl font-bold font-['Barlow_Condensed',sans-serif] leading-tight text-slate-900">
-              We Are A Collaborative Aquaculture Platform That Brings Fish Farmers, Feed Suppliers, And Wholesale Buyers Together To Create A Sustainable And High-Yield Fish Farming Ecosystem.
+              Built For Normal, Medium, And Commercial Fish Farms — Pondtora Gives You Complete Control Over Daily Feeding, Feed Stock, Mortality, Expenses, And Customer Invoices.
             </h2>
           </FadeIn>
         </div>
@@ -803,10 +882,10 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
                 [ OUR PLATFORM SOLUTIONS ]
               </span>
               <h2 className="text-3xl sm:text-5xl font-bold font-['Barlow_Condensed',sans-serif] text-slate-900 tracking-tight leading-tight">
-                Transforming Aquaculture, One Solution At A Time
+                Transforming Fish Farm Management, One Feature At A Time
               </h2>
               <p className="text-slate-600 text-sm sm:text-base mt-3 leading-relaxed">
-                From stocking fingerlings and setting pallet limits to balancing feed logs and billing cold room distributors, Pondtora delivers a comprehensive operating system built for serious fish farming.
+                Everything you need to run your fish farm smoothly. Track ponds, enforce pallet max kg limits, balance daily feed logs, and bill buyers — built for normal and commercial farms.
               </p>
             </div>
           </FadeIn>
@@ -864,38 +943,38 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
               Modern Farm Infrastructure
             </span>
             <h2 className="text-3xl sm:text-5xl font-black font-['Barlow_Condensed',sans-serif] mt-3">
-              Commercial Aquaculture & Fish Cultivation
+              Built For Normal & Commercial Fish Cultivation
             </h2>
-            <p className="text-slate-200 text-sm sm:text-base max-w-xl mx-auto leading-relaxed">
-              Engineered to support concrete nursery tanks, earthen production ponds, tarpaulin vats, and high-density recirculating systems.
+            <p className="text-slate-200 text-sm sm:text-base max-w-xl mx-auto leading-relaxed font-['Barlow',sans-serif]">
+              Engineered to support concrete nursery tanks, earthen production ponds, mobile tarpaulin vats, and flow-through systems.
             </p>
             <div className="pt-2">
               <button
                 onClick={() => scrollTo("fields")}
                 className="px-6 py-2.5 rounded-full bg-white text-slate-900 hover:bg-slate-100 text-xs font-black uppercase tracking-wider transition-all"
               >
-                See All Fields Of Operation →
+                See All Pond Types →
               </button>
             </div>
           </FadeIn>
         </div>
       </section>
 
-      {/* ─── 6. SEE ALL OUR FIELDS OF OPERATION ──────────────────────────────── */}
+      {/* ─── 6. SEE ALL OUR POND TYPES ───────────────────────────────────────── */}
       <section id="fields" className="py-20 sm:py-28 bg-[#f8fafc]">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <FadeIn>
             <div className="flex flex-col md:flex-row md:items-end justify-between mb-12 gap-4">
               <div>
                 <span className="text-xs uppercase tracking-widest font-black text-emerald-700 block mb-1">
-                  [ OUR PRODUCTION UNITS ]
+                  [ POND TYPES & SYSTEMS ]
                 </span>
                 <h2 className="text-3xl sm:text-5xl font-bold font-['Barlow_Condensed',sans-serif] text-slate-900 tracking-tight">
-                  See All Our Fields Of Operation
+                  Built For All Your Ponds & Systems
                 </h2>
               </div>
-              <p className="text-slate-500 text-sm max-w-md">
-                Specialized tracking workflows designed for each stage of commercial fish development in tropical climates.
+              <p className="text-slate-500 text-sm max-w-md font-['Barlow',sans-serif]">
+                Specialized tracking workflows designed for each stage of catfish and tilapia development across normal and commercial setups.
               </p>
             </div>
           </FadeIn>
@@ -905,7 +984,7 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
             <FadeIn delay={50}>
               <div className="bg-white rounded-2xl overflow-hidden border border-slate-200 shadow-sm hover:shadow-md transition-shadow group flex flex-col h-full">
                 <div className="h-44 overflow-hidden relative">
-                  <img src={nurseryPondImg} alt="Nursery & Fingerling Tanks" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                  <img src={nurseryPondImg} alt="Concrete Nursery Tanks" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
                   <div className="absolute top-3 right-3 w-8 h-8 rounded-full bg-emerald-500 text-white flex items-center justify-center font-bold text-xs shadow-md">
                     01
                   </div>
@@ -913,7 +992,7 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
                 <div className="p-5 flex-1 flex flex-col justify-between">
                   <div>
                     <h3 className="text-lg font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">
-                      Nursery & Fingerling Ponds
+                      Concrete Nursery Tanks
                     </h3>
                     <p className="text-xs text-slate-600 mt-2 leading-relaxed">
                       Grading, starter feeds (0.5mm - 2mm), daily mortality monitoring, and partial transfers into grow-out ponds.
@@ -930,7 +1009,7 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
             <FadeIn delay={100}>
               <div className="bg-white rounded-2xl overflow-hidden border border-slate-200 shadow-sm hover:shadow-md transition-shadow group flex flex-col h-full">
                 <div className="h-44 overflow-hidden relative">
-                  <img src={panoFarmImg} alt="Production & Grow-Out Ponds" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                  <img src={panoFarmImg} alt="Earthen Grow-Out Ponds" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
                   <div className="absolute top-3 right-3 w-8 h-8 rounded-full bg-emerald-500 text-white flex items-center justify-center font-bold text-xs shadow-md">
                     02
                   </div>
@@ -938,7 +1017,7 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
                 <div className="p-5 flex-1 flex flex-col justify-between">
                   <div>
                     <h3 className="text-lg font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">
-                      Production & Grow-Out
+                      Earthen Grow-Out Ponds
                     </h3>
                     <p className="text-xs text-slate-600 mt-2 leading-relaxed">
                       Biomass calculations, maximum feed kg limits per pallet size, and table-size harvesting management.
@@ -951,11 +1030,11 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
               </div>
             </FadeIn>
 
-            {/* Field 3 */}
+            {/* Field 3: Tarpaulin & Mobile Ponds */}
             <FadeIn delay={150}>
               <div className="bg-white rounded-2xl overflow-hidden border border-slate-200 shadow-sm hover:shadow-md transition-shadow group flex flex-col h-full">
                 <div className="h-44 overflow-hidden relative">
-                  <img src="https://images.unsplash.com/photo-1544551763-46a013bb70d5?auto=format&fit=crop&w=600&q=80" alt="Hatchery & Spawning" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                  <img src={heroFarmImg} alt="Tarpaulin & Mobile Ponds" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
                   <div className="absolute top-3 right-3 w-8 h-8 rounded-full bg-emerald-500 text-white flex items-center justify-center font-bold text-xs shadow-md">
                     03
                   </div>
@@ -963,14 +1042,14 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
                 <div className="p-5 flex-1 flex flex-col justify-between">
                   <div>
                     <h3 className="text-lg font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">
-                      Hatchery & Spawning Units
+                      Tarpaulin & Mobile Ponds
                     </h3>
                     <p className="text-xs text-slate-600 mt-2 leading-relaxed">
-                      Broodstock pairing records, hormone induction logs, egg incubation batch counts, and fry nursing stages.
+                      Designed for backyard and urban fish farming. Track water aeration, feeding schedules, and multi-vat inventory.
                     </p>
                   </div>
                   <span className="text-xs font-bold text-emerald-700 mt-4 inline-flex items-center gap-1">
-                    Broodstock Management →
+                    Vat Inventory Tracking →
                   </span>
                 </div>
               </div>
@@ -980,7 +1059,7 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
             <FadeIn delay={200}>
               <div className="bg-white rounded-2xl overflow-hidden border border-slate-200 shadow-sm hover:shadow-md transition-shadow group flex flex-col h-full">
                 <div className="h-44 overflow-hidden relative">
-                  <img src={heroFarmImg} alt="Flow-Through Systems" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                  <img src={nurseryPondImg} alt="Flow-Through Systems" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
                   <div className="absolute top-3 right-3 w-8 h-8 rounded-full bg-emerald-500 text-white flex items-center justify-center font-bold text-xs shadow-md">
                     04
                   </div>
@@ -988,10 +1067,10 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
                 <div className="p-5 flex-1 flex flex-col justify-between">
                   <div>
                     <h3 className="text-lg font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">
-                      Flow-Through & Tarpaulin
+                      Flow-Through & Recirculating
                     </h3>
                     <p className="text-xs text-slate-600 mt-2 leading-relaxed">
-                      Water exchange schedules, treatment and medication logging, and multi-vat inventory tracking.
+                      Water exchange schedules, treatment and medication logging, and continuous water circulation tracking.
                     </p>
                   </div>
                   <span className="text-xs font-bold text-emerald-700 mt-4 inline-flex items-center gap-1">
@@ -1090,10 +1169,10 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
                 [ FARMER TESTIMONIALS ]
               </span>
               <h2 className="text-3xl sm:text-5xl font-bold font-['Barlow_Condensed',sans-serif] text-slate-900 tracking-tight">
-                Trusted By Farmers Across Nigeria
+                Trusted By 20+ Fish Farms Across Nigeria
               </h2>
-              <p className="text-slate-500 text-sm sm:text-base mt-2">
-                Hear from commercial fish farmers who replaced disorganized notebooks with Pondtora.
+              <p className="text-slate-500 text-sm sm:text-base mt-2 font-['Barlow',sans-serif]">
+                Hear from normal and commercial fish farmers who replaced disorganized notebooks with Pondtora.
               </p>
             </div>
           </FadeIn>
@@ -1110,23 +1189,23 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
               {
                 quote: "The stock transfer feature is flawless. When we grade fingerlings from our concrete nursery into production earthen ponds, the feed history and biomass follow automatically.",
                 name: "Dr. Amina Bello",
-                role: "Chief Aquaculturist, Sahel Hatcheries",
+                role: "Chief Aquaculturist, Sahel Fisheries",
                 location: "Abuja, Nigeria",
                 avatar: "https://images.unsplash.com/photo-1573497019940-1c28c88b4f3e?auto=format&fit=crop&w=200&q=80",
               },
               {
                 quote: "Direct invoicing for our hotel and cold room buyers in Port Harcourt saves us hours each harvest. Our customers get instant professional receipts on their WhatsApp.",
                 name: "Chief Emeka Nwankwo",
-                role: "Proprietor, Niger Delta Mega Ponds",
+                role: "Proprietor, Niger Delta Ponds",
                 location: "Port Harcourt, Rivers",
-                avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=200&q=80",
+                avatar: "https://images.unsplash.com/photo-1506277886164-e25aa3f4ef7f?auto=format&fit=crop&w=200&q=80",
               },
               {
                 quote: "Pondtora showed us that feed was eating 72% of our harvest revenue. By tracking our FCR with daily morning and evening feeding logs, we cut our feed costs by ₦1.8M in one cycle.",
                 name: "Engr. Kayode Ogundipe",
                 role: "Lead Farmer, Crown Tilapia Estate",
                 location: "Ibadan, Oyo State",
-                avatar: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=200&q=80",
+                avatar: "https://images.unsplash.com/photo-1522529599102-193c0d76b5b6?auto=format&fit=crop&w=200&q=80",
               },
             ].map((t, idx) => (
               <FadeIn key={idx} delay={idx * 80}>
@@ -1165,10 +1244,10 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
                 [ SUBSCRIPTION PLANS ]
               </span>
               <h2 className="text-3xl sm:text-5xl font-bold font-['Barlow_Condensed',sans-serif] text-slate-900 tracking-tight">
-                Simple, Transparent Pricing
+                Simple Pricing For Normal & Commercial Farms
               </h2>
-              <p className="text-slate-500 text-sm mt-2">
-                Start with a 30-day free trial. No credit card required to begin.
+              <p className="text-slate-500 text-sm mt-2 font-['Barlow',sans-serif]">
+                Start with a 30-day free trial. Flexible plans for family setups and commercial multi-pond operations.
               </p>
 
               {/* Single / Multi Farm Toggle */}
@@ -1289,6 +1368,10 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
           <div className="divide-y divide-slate-200">
             {[
               {
+                q: "Is Pondtora for commercial farms only, or can normal/family farms use it?",
+                a: "Pondtora is built for both normal family fish farms (even with just 1 to 5 ponds or tarpaulin tanks) and large commercial multi-pond operations. You can start with our Starter plan and manage your ponds, daily feeding, and expenses with complete ease.",
+              },
+              {
                 q: "How does the maximum kg limit per pallet work?",
                 a: "When you restock or edit a pond, you can specify the maximum cumulative feed limit (in kg) for specific pallet sizes like 2mm, 3mm, or 4mm. As your staff logs daily morning and evening feedings, Pondtora tracks the total. When a pond reaches 80% or 100% of the limit, instant notifications alert you so you don't waste expensive starter feed on fish ready for larger pallets.",
               },
@@ -1320,7 +1403,7 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
                     <ChevronDown size={18} className={`shrink-0 transition-transform ${isOpen ? "rotate-180 text-emerald-600" : "text-slate-400"}`} />
                   </button>
                   {isOpen && (
-                    <p className="mt-2 text-xs sm:text-sm text-slate-600 leading-relaxed pr-6">
+                    <p className="mt-2 text-xs sm:text-sm text-slate-600 leading-relaxed pr-6 font-['Barlow',sans-serif]">
                       {faq.a}
                     </p>
                   )}
@@ -1349,8 +1432,8 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
               <h2 className="text-3xl sm:text-5xl font-black font-['Barlow_Condensed',sans-serif] leading-tight">
                 Start Growing Smarter Today. We're Here To Help.
               </h2>
-              <p className="text-slate-300 text-xs sm:text-sm leading-relaxed">
-                Join thousands of forward-thinking African commercial fish farmers scaling their production yields with Pondtora.
+              <p className="text-slate-300 text-xs sm:text-sm leading-relaxed font-['Barlow',sans-serif]">
+                Join 20+ forward-thinking normal and commercial fish farms across Nigeria scaling their production yields with Pondtora.
               </p>
             </div>
 
@@ -1369,7 +1452,7 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
       {/* ─── 12. RICH DARK GREEN FOOTER ──────────────────────────────────────── */}
       <footer className="bg-[#062319] text-white pt-16 pb-12 border-t border-emerald-950">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-10 pb-12 border-b border-emerald-900/60">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-10 pb-12 border-b border-emerald-900/60">
             {/* Left brand column */}
             <div className="md:col-span-2 space-y-4">
               <div className="flex items-center gap-3">
@@ -1383,9 +1466,13 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
                   </p>
                 </div>
               </div>
-              <p className="text-slate-300 text-xs sm:text-sm max-w-sm leading-relaxed">
-                The leading software platform built specifically for commercial catfish and tilapia farmers across Nigeria and Sub-Saharan Africa.
+              <p className="text-slate-300 text-xs sm:text-sm max-w-sm leading-relaxed font-['Barlow',sans-serif]">
+                The dedicated farm management system built for normal and commercial catfish and tilapia farmers across Nigeria and Sub-Saharan Africa.
               </p>
+              <div className="pt-1 text-xs text-slate-400">
+                <p>📍 Lagos & Nationwide, Nigeria</p>
+                <p className="mt-0.5">📧 support@pondtora.com</p>
+              </div>
             </div>
 
             {/* Quick Links Column 1 */}
@@ -1394,41 +1481,22 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
               <ul className="space-y-2 text-xs text-slate-300">
                 <li><button onClick={() => scrollTo("solutions")} className="hover:text-white">Pond Management</button></li>
                 <li><button onClick={() => scrollTo("solutions")} className="hover:text-white">Feeding Records</button></li>
-                <li><button onClick={() => scrollTo("solutions")} className="hover:text-white">Pallet Limits</button></li>
+                <li><button onClick={() => scrollTo("solutions")} className="hover:text-white">Feed Stock</button></li>
                 <li><button onClick={() => scrollTo("solutions")} className="hover:text-white">Financial Dashboard</button></li>
-                <li><button onClick={() => scrollTo("solutions")} className="hover:text-white">Commercial Invoicing</button></li>
+                <li><button onClick={() => scrollTo("solutions")} className="hover:text-white">Customer Invoicing</button></li>
               </ul>
             </div>
 
             {/* Quick Links Column 2 */}
             <div>
-              <p className="text-xs uppercase tracking-widest font-black text-emerald-400 mb-3">Company</p>
+              <p className="text-xs uppercase tracking-widest font-black text-emerald-400 mb-3">System</p>
               <ul className="space-y-2 text-xs text-slate-300">
-                <li><button onClick={() => scrollTo("fields")} className="hover:text-white">Fields of Operation</button></li>
+                <li><button onClick={() => scrollTo("fields")} className="hover:text-white">Pond Types</button></li>
                 <li><button onClick={() => scrollTo("testimonials")} className="hover:text-white">Farmer Stories</button></li>
                 <li><button onClick={() => scrollTo("pricing")} className="hover:text-white">Pricing & Plans</button></li>
                 <li><button onClick={() => scrollTo("faq")} className="hover:text-white">FAQ</button></li>
                 <li><button onClick={onAdmin} className="text-emerald-400 hover:underline">Admin Portal</button></li>
               </ul>
-            </div>
-
-            {/* Newsletter Column */}
-            <div>
-              <p className="text-xs uppercase tracking-widest font-black text-emerald-400 mb-3">Aquaculture Tips</p>
-              <p className="text-xs text-slate-300 mb-3">Subscribe for monthly commercial fish farming tips and feed efficiency strategies.</p>
-              <div className="flex items-center gap-1.5">
-                <input
-                  type="email"
-                  placeholder="Enter your email"
-                  className="bg-emerald-950/60 border border-emerald-900 rounded-lg px-3 py-2 text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-emerald-500 flex-1"
-                />
-                <button
-                  type="button"
-                  className="p-2 rounded-lg bg-[#00bb58] hover:bg-[#00a84e] text-white"
-                >
-                  <ArrowRight size={14} />
-                </button>
-              </div>
             </div>
           </div>
 
