@@ -331,44 +331,44 @@ function renderPondManagementShowcase() {
           <p className="text-[11px] text-slate-500 mt-0.5">After creating a pond, open it to add Fish Stock, manage feeding records, transfer fish, and view all activities related to that pond.</p>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-xs text-left">
+          <table className="w-full text-xs text-left min-w-[820px] whitespace-nowrap">
             <thead className="bg-slate-50 text-slate-500 font-bold border-b border-slate-200">
               <tr>
-                <th className="py-2.5 px-3 w-8">#</th>
-                <th className="py-2.5 px-3">Pond Name</th>
-                <th className="py-2.5 px-3">Type</th>
-                <th className="py-2.5 px-3">Species</th>
-                <th className="py-2.5 px-3">Fish Count</th>
-                <th className="py-2.5 px-3">Category</th>
-                <th className="py-2.5 px-3">Status</th>
-                <th className="py-2.5 px-3 text-right">Actions</th>
+                <th className="py-3 px-4 w-10 text-center">#</th>
+                <th className="py-3 px-4 min-w-[140px]">Pond Name</th>
+                <th className="py-3 px-4 min-w-[110px]">Type</th>
+                <th className="py-3 px-4 min-w-[130px]">Species</th>
+                <th className="py-3 px-4 min-w-[120px]">Fish Count</th>
+                <th className="py-3 px-4 min-w-[100px]">Category</th>
+                <th className="py-3 px-4 min-w-[110px]">Status</th>
+                <th className="py-3 px-4 text-right min-w-[90px]">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {ponds.map((p, idx) => (
                 <tr key={p.id} className="hover:bg-slate-50/80 transition-colors">
-                  <td className="py-2.5 px-3 text-slate-400 font-mono">{idx + 1}</td>
-                  <td className="py-2.5 px-3">
+                  <td className="py-3 px-4 text-slate-400 font-mono text-center">{idx + 1}</td>
+                  <td className="py-3 px-4">
                     <p className="font-bold text-slate-900">{p.name}</p>
                     <p className="text-[10px] text-slate-400">{p.size} ft²</p>
                   </td>
-                  <td className="py-2.5 px-3 text-slate-600">{p.type}</td>
-                  <td className="py-2.5 px-3 text-slate-700 font-medium">{p.species}</td>
-                  <td className="py-2.5 px-3">
+                  <td className="py-3 px-4 text-slate-600">{p.type}</td>
+                  <td className="py-3 px-4 text-slate-700 font-medium">{p.species}</td>
+                  <td className="py-3 px-4">
                     <p className="font-bold text-slate-900">{p.count.toLocaleString()}</p>
                     <p className="text-[10px] text-slate-400">Mort: {p.mort}</p>
                   </td>
-                  <td className="py-2.5 px-3">
+                  <td className="py-3 px-4">
                     <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${p.cat === "Nursery" ? "bg-purple-100 text-purple-800" : "bg-teal-100 text-teal-800"}`}>
                       {p.cat}
                     </span>
                   </td>
-                  <td className="py-2.5 px-3">
-                    <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full">
+                  <td className="py-3 px-4">
+                    <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-800 bg-emerald-100 px-2.5 py-0.5 rounded-full">
                       <span className="w-1.5 h-1.5 rounded-full bg-emerald-600" /> {p.status}
                     </span>
                   </td>
-                  <td className="py-2.5 px-3 text-right">
+                  <td className="py-3 px-4 text-right">
                     <button className="text-emerald-700 font-bold hover:text-emerald-800 text-xs inline-flex items-center gap-1">
                       <Eye size={12} /> View
                     </button>
@@ -526,36 +526,36 @@ function renderFeedingDocumentationShowcase() {
           </span>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-xs text-left">
+          <table className="w-full text-xs text-left min-w-[1020px] whitespace-nowrap">
             <thead className="bg-slate-50 text-slate-500 font-bold border-b border-slate-200">
               <tr>
-                <th className="py-2.5 px-3 w-8">#</th>
-                <th className="py-2.5 px-3">Pond</th>
-                <th className="py-2.5 px-3">Fish Stock</th>
-                <th className="py-2.5 px-3">Brand & Size</th>
-                <th className="py-2.5 px-3">Morning (kg)</th>
-                <th className="py-2.5 px-3">Evening (kg)</th>
-                <th className="py-2.5 px-3">Total (kg)</th>
-                <th className="py-2.5 px-3">Pallet Status</th>
-                <th className="py-2.5 px-3 text-right">Recorded By</th>
+                <th className="py-3 px-4 w-10 text-center">#</th>
+                <th className="py-3 px-4 min-w-[120px]">Pond</th>
+                <th className="py-3 px-4 min-w-[160px]">Fish Stock</th>
+                <th className="py-3 px-4 min-w-[150px]">Brand & Size</th>
+                <th className="py-3 px-4 min-w-[120px]">Morning (kg)</th>
+                <th className="py-3 px-4 min-w-[120px]">Evening (kg)</th>
+                <th className="py-3 px-4 min-w-[110px]">Total (kg)</th>
+                <th className="py-3 px-4 min-w-[140px]">Pallet Status</th>
+                <th className="py-3 px-4 text-right min-w-[130px]">Recorded By</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {feedingRows.map((r, idx) => (
                 <tr key={r.id} className="hover:bg-slate-50/80 transition-colors">
-                  <td className="py-2.5 px-3 text-slate-400 font-mono">{idx + 1}</td>
-                  <td className="py-2.5 px-3 font-bold text-slate-900">{r.pond}</td>
-                  <td className="py-2.5 px-3 text-slate-700">
+                  <td className="py-3 px-4 text-slate-400 font-mono text-center">{idx + 1}</td>
+                  <td className="py-3 px-4 font-bold text-slate-900">{r.pond}</td>
+                  <td className="py-3 px-4 text-slate-700">
                     <p className="font-semibold">{r.stock}</p>
                     <p className="text-[10px] text-slate-400">{r.count.toLocaleString()} fish</p>
                   </td>
-                  <td className="py-2.5 px-3 font-medium text-slate-800">
+                  <td className="py-3 px-4 font-medium text-slate-800">
                     {r.brand} <span className="bg-slate-100 px-1.5 py-0.5 rounded text-[10px] text-slate-600 font-mono">{r.size}</span>
                   </td>
-                  <td className="py-2.5 px-3 text-slate-800 font-semibold">{r.morning} kg</td>
-                  <td className="py-2.5 px-3 text-slate-800 font-semibold">{r.evening} kg</td>
-                  <td className="py-2.5 px-3 font-bold text-emerald-700 font-['Barlow_Condensed',sans-serif] text-sm">{r.total} kg</td>
-                  <td className="py-2.5 px-3">
+                  <td className="py-3 px-4 text-slate-800 font-semibold">{r.morning} kg</td>
+                  <td className="py-3 px-4 text-slate-800 font-semibold">{r.evening} kg</td>
+                  <td className="py-3 px-4 font-bold text-emerald-700 font-['Barlow_Condensed',sans-serif] text-sm">{r.total} kg</td>
+                  <td className="py-3 px-4">
                     {r.status === "Pallet Alert" ? (
                       <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded-full">
                         <AlertTriangle size={11} className="text-amber-700" /> Max Kg Reached
@@ -566,7 +566,7 @@ function renderFeedingDocumentationShowcase() {
                       </span>
                     )}
                   </td>
-                  <td className="py-2.5 px-3 text-right text-slate-600">{r.by}</td>
+                  <td className="py-3 px-4 text-right text-slate-600 font-medium">{r.by}</td>
                 </tr>
               ))}
             </tbody>
@@ -684,31 +684,31 @@ function renderFeedStockInventoryShowcase() {
       {/* Table Card */}
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-2xs">
         <div className="overflow-x-auto">
-          <table className="w-full text-xs text-left">
+          <table className="w-full text-xs text-left min-w-[850px] whitespace-nowrap">
             <thead className="bg-slate-50 text-slate-500 font-bold border-b border-slate-200">
               <tr>
-                <th className="py-2.5 px-3 w-8">#</th>
-                <th className="py-2.5 px-3">Brand</th>
-                <th className="py-2.5 px-3">Pellet Size</th>
-                <th className="py-2.5 px-3">Bags in Stock</th>
-                <th className="py-2.5 px-3">Weight / Bag</th>
-                <th className="py-2.5 px-3">Total Weight</th>
-                <th className="py-2.5 px-3">Cost / Bag</th>
-                <th className="py-2.5 px-3 text-right">Status</th>
+                <th className="py-3 px-4 w-10 text-center">#</th>
+                <th className="py-3 px-4 min-w-[140px]">Brand</th>
+                <th className="py-3 px-4 min-w-[110px]">Pellet Size</th>
+                <th className="py-3 px-4 min-w-[120px]">Bags in Stock</th>
+                <th className="py-3 px-4 min-w-[110px]">Weight / Bag</th>
+                <th className="py-3 px-4 min-w-[120px]">Total Weight</th>
+                <th className="py-3 px-4 min-w-[120px]">Cost / Bag</th>
+                <th className="py-3 px-4 text-right min-w-[100px]">Status</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {stockItems.map((item, idx) => (
                 <tr key={item.id} className="hover:bg-slate-50/80 transition-colors">
-                  <td className="py-2.5 px-3 text-slate-400 font-mono">{idx + 1}</td>
-                  <td className="py-2.5 px-3 font-bold text-slate-900">{item.brand}</td>
-                  <td className="py-2.5 px-3 font-mono text-slate-700">{item.size}</td>
-                  <td className="py-2.5 px-3 font-bold text-slate-900">{item.bags} bags</td>
-                  <td className="py-2.5 px-3 text-slate-600">{item.wpb} kg</td>
-                  <td className="py-2.5 px-3 font-bold text-emerald-700 font-['Barlow_Condensed',sans-serif] text-sm">{item.totalKg} kg</td>
-                  <td className="py-2.5 px-3 text-slate-800 font-semibold">₦{item.cost.toLocaleString()}</td>
-                  <td className="py-2.5 px-3 text-right">
-                    <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full">
+                  <td className="py-3 px-4 text-slate-400 font-mono text-center">{idx + 1}</td>
+                  <td className="py-3 px-4 font-bold text-slate-900">{item.brand}</td>
+                  <td className="py-3 px-4 font-mono text-slate-700">{item.size}</td>
+                  <td className="py-3 px-4 font-bold text-slate-900">{item.bags} bags</td>
+                  <td className="py-3 px-4 text-slate-600">{item.wpb} kg</td>
+                  <td className="py-3 px-4 font-bold text-emerald-700 font-['Barlow_Condensed',sans-serif] text-sm">{item.totalKg} kg</td>
+                  <td className="py-3 px-4 text-slate-800 font-semibold">₦{item.cost.toLocaleString()}</td>
+                  <td className="py-3 px-4 text-right">
+                    <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100 px-2.5 py-0.5 rounded-full">
                       In Stock
                     </span>
                   </td>
@@ -1028,36 +1028,36 @@ function renderStaffAssessmentsShowcase() {
           <span className="text-xs text-slate-500">Showing 3 candidate results</span>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-xs text-left">
+          <table className="w-full text-xs text-left min-w-[900px] whitespace-nowrap">
             <thead className="bg-slate-50 text-slate-500 font-bold border-b border-slate-200">
               <tr>
-                <th className="py-2.5 px-3 w-8">#</th>
-                <th className="py-2.5 px-3">Candidate Name</th>
-                <th className="py-2.5 px-3">Email</th>
-                <th className="py-2.5 px-3">Phone</th>
-                <th className="py-2.5 px-3">Overall Score</th>
-                <th className="py-2.5 px-3">Recommendation</th>
-                <th className="py-2.5 px-3">Date Taken</th>
-                <th className="py-2.5 px-3 text-right">Actions</th>
+                <th className="py-3 px-4 w-10 text-center">#</th>
+                <th className="py-3 px-4 min-w-[160px]">Candidate Name</th>
+                <th className="py-3 px-4 min-w-[170px]">Email</th>
+                <th className="py-3 px-4 min-w-[130px]">Phone</th>
+                <th className="py-3 px-4 min-w-[110px]">Overall Score</th>
+                <th className="py-3 px-4 min-w-[140px]">Recommendation</th>
+                <th className="py-3 px-4 min-w-[110px]">Date Taken</th>
+                <th className="py-3 px-4 text-right min-w-[110px]">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {candidates.map((c, idx) => (
                 <tr key={c.id} className="hover:bg-slate-50/80 transition-colors">
-                  <td className="py-2.5 px-3 text-slate-400 font-mono">{idx + 1}</td>
-                  <td className="py-2.5 px-3 font-bold text-slate-900">{c.name}</td>
-                  <td className="py-2.5 px-3 text-slate-500">{c.email}</td>
-                  <td className="py-2.5 px-3 text-slate-600">{c.phone}</td>
-                  <td className="py-2.5 px-3">
+                  <td className="py-3 px-4 text-slate-400 font-mono text-center">{idx + 1}</td>
+                  <td className="py-3 px-4 font-bold text-slate-900">{c.name}</td>
+                  <td className="py-3 px-4 text-slate-500">{c.email}</td>
+                  <td className="py-3 px-4 text-slate-600">{c.phone}</td>
+                  <td className="py-3 px-4">
                     <span className="font-bold text-base font-['Barlow_Condensed',sans-serif] text-slate-900">{c.score}%</span>
                   </td>
-                  <td className="py-2.5 px-3">
+                  <td className="py-3 px-4">
                     <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${c.color}`}>
                       {c.rec}
                     </span>
                   </td>
-                  <td className="py-2.5 px-3 text-slate-500">{c.date}</td>
-                  <td className="py-2.5 px-3 text-right">
+                  <td className="py-3 px-4 text-slate-500">{c.date}</td>
+                  <td className="py-3 px-4 text-right">
                     <button className="text-emerald-700 font-bold hover:text-emerald-800 text-xs">View Report →</button>
                   </td>
                 </tr>
@@ -1270,36 +1270,36 @@ function renderInvoicesShowcase() {
       {/* Invoices Table Card */}
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-2xs">
         <div className="overflow-x-auto">
-          <table className="w-full text-xs text-left">
+          <table className="w-full text-xs text-left min-w-[950px] whitespace-nowrap">
             <thead className="bg-slate-50 text-slate-500 font-bold border-b border-slate-200">
               <tr>
-                <th className="py-2.5 px-3 w-8">#</th>
-                <th className="py-2.5 px-3">Invoice #</th>
-                <th className="py-2.5 px-3">Customer</th>
-                <th className="py-2.5 px-3">Pond</th>
-                <th className="py-2.5 px-3">Total Wt.</th>
-                <th className="py-2.5 px-3">Grand Total</th>
-                <th className="py-2.5 px-3">Status</th>
-                <th className="py-2.5 px-3">Date</th>
-                <th className="py-2.5 px-3 text-right">Actions</th>
+                <th className="py-3 px-4 w-10 text-center">#</th>
+                <th className="py-3 px-4 min-w-[130px]">Invoice #</th>
+                <th className="py-3 px-4 min-w-[160px]">Customer</th>
+                <th className="py-3 px-4 min-w-[110px]">Pond</th>
+                <th className="py-3 px-4 min-w-[110px]">Total Wt.</th>
+                <th className="py-3 px-4 min-w-[120px]">Grand Total</th>
+                <th className="py-3 px-4 min-w-[110px]">Status</th>
+                <th className="py-3 px-4 min-w-[110px]">Date</th>
+                <th className="py-3 px-4 text-right min-w-[100px]">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {invoices.map((inv, idx) => (
                 <tr key={inv.id} className="hover:bg-slate-50/80 transition-colors">
-                  <td className="py-2.5 px-3 text-slate-400 font-mono">{idx + 1}</td>
-                  <td className="py-2.5 px-3 font-mono font-bold text-emerald-700">{inv.inv}</td>
-                  <td className="py-2.5 px-3 font-bold text-slate-900">{inv.customer}</td>
-                  <td className="py-2.5 px-3 text-slate-600">{inv.pond}</td>
-                  <td className="py-2.5 px-3 text-slate-800 font-semibold">{inv.weight}</td>
-                  <td className="py-2.5 px-3 font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] text-sm">{inv.total}</td>
-                  <td className="py-2.5 px-3">
-                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${inv.status === "Paid" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>
+                  <td className="py-3 px-4 text-slate-400 font-mono text-center">{idx + 1}</td>
+                  <td className="py-3 px-4 font-mono font-bold text-emerald-700">{inv.inv}</td>
+                  <td className="py-3 px-4 font-bold text-slate-900">{inv.customer}</td>
+                  <td className="py-3 px-4 text-slate-600">{inv.pond}</td>
+                  <td className="py-3 px-4 text-slate-800 font-semibold">{inv.weight}</td>
+                  <td className="py-3 px-4 font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] text-sm">{inv.total}</td>
+                  <td className="py-3 px-4">
+                    <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full ${inv.status === "Paid" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>
                       {inv.status}
                     </span>
                   </td>
-                  <td className="py-2.5 px-3 text-slate-500">{inv.date}</td>
-                  <td className="py-2.5 px-3 text-right space-x-2">
+                  <td className="py-3 px-4 text-slate-500">{inv.date}</td>
+                  <td className="py-3 px-4 text-right space-x-2">
                     <button className="text-emerald-700 font-bold hover:text-emerald-800">Print</button>
                     <button className="text-slate-600 hover:text-slate-900">View</button>
                   </td>
@@ -1681,9 +1681,9 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
 
           <FadeIn delay={100}>
             <h1 className="text-4xl sm:text-6xl md:text-7xl font-bold font-['Barlow_Condensed',sans-serif] tracking-tight uppercase max-w-5xl mx-auto leading-[1.08] text-white">
-              Stop Managing On WhatsApp & Exercise Books. <br />
-              <span className="text-[#00bb58]">Stop Fish Mortality. Stop Feed Waste.</span> <br />
-              Grow Your Farm Profit.
+              Stop Managing Your Farm on WhatsApp & Exercise Books. <br />
+              <span className="text-[#00bb58]">Cut Feed Waste & Fish Mortality.</span> <br />
+              Grow More Profit.
             </h1>
           </FadeIn>
 
