@@ -8,7 +8,8 @@ import {
   FileText, ClipboardList, Crown, Settings, MoreVertical, ArrowDownRight,
   Layers, Calculator, Pencil, Trash2, History, AlertCircle, Smartphone,
   Monitor, Columns, Send, Lock, Power, Award, HelpCircle, Phone,
-  Mail, CheckSquare, DollarSign, SlidersHorizontal, Bell, ChevronsLeft
+  Mail, CheckSquare, DollarSign, SlidersHorizontal, Bell, ChevronsLeft,
+  ChevronLeft
 } from "lucide-react";
 import pondtoraLogo from "../../imports/loo-2.svg";
 import heroFarmImg from "../../assets/images/african_fish_farm_hero.jpg";
@@ -802,40 +803,73 @@ function renderStaffManagementShowcase() {
         </div>
       </div>
 
-      {/* Staff List Cards matching App.tsx lines 825-867 */}
-      <div className="space-y-2.5">
-        {staffList.map((s) => (
-          <div key={s.id} className="bg-white p-4 rounded-xl border border-slate-200 flex items-start gap-3 shadow-2xs hover:border-emerald-300 transition-colors">
-            <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm shrink-0 ${s.color}`}>
-              {s.name.split(" ").map(w => w[0]).join("")}
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <p className="font-bold text-slate-900 text-sm">{s.name}</p>
-                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${s.status === "Active" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>
-                    {s.status}
-                  </span>
-                  <span className="text-[10px] font-semibold bg-slate-100 text-slate-700 px-2 py-0.5 rounded-md">{s.role}</span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  {s.status === "Pending" && (
-                    <span className="text-xs font-semibold text-blue-600 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-lg">Copy Link</span>
-                  )}
-                  <span className="text-xs font-semibold text-slate-500 border border-slate-200 px-2 py-0.5 rounded-lg">Edit</span>
-                </div>
-              </div>
-              <p className="text-xs text-slate-500 mt-1">{s.email} · {s.phone}</p>
-              <div className="flex flex-wrap gap-1 mt-2">
-                {s.perms.map(p => (
-                  <span key={p} className="text-[10px] font-medium bg-slate-50 border border-slate-200 text-slate-600 px-2 py-0.5 rounded">
-                    {p}
-                  </span>
-                ))}
-              </div>
-            </div>
-          </div>
-        ))}
+      {/* Staff Table with Sticky Name Column matching App.tsx */}
+      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-2xs">
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs text-left min-w-[720px] whitespace-nowrap">
+            <thead className="bg-slate-50 text-slate-500 font-bold border-b border-slate-200">
+              <tr>
+                <th className="py-3 px-3 w-10 text-center sticky left-0 z-20 bg-slate-50 border-r border-slate-200">#</th>
+                <th className="py-3 px-4 min-w-[200px] sticky left-10 z-20 bg-slate-50 border-r border-slate-200">Staff Member</th>
+                <th className="py-3 px-3">Status</th>
+                <th className="py-3 px-3">Role</th>
+                <th className="py-3 px-4">Email</th>
+                <th className="py-3 px-3">Phone</th>
+                <th className="py-3 px-4">Permissions</th>
+                <th className="py-3 px-3 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {staffList.map((s, idx) => (
+                <tr key={s.id} className="hover:bg-slate-50/80 transition-colors">
+                  <td className="py-3 px-3 text-center text-slate-400 font-mono text-[11px] sticky left-0 z-10 bg-white border-r border-slate-100">
+                    {idx + 1}
+                  </td>
+                  <td className="py-3 px-4 sticky left-10 z-10 bg-white border-r border-slate-100">
+                    <div className="flex items-center gap-2.5">
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs shrink-0 ${s.color}`}>
+                        {s.name.split(" ").map(w => w[0]).join("")}
+                      </div>
+                      <div>
+                        <p className="font-bold text-slate-900 leading-tight">{s.name}</p>
+                        <p className="text-[10px] text-slate-400">{s.role}</p>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="py-3 px-3">
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${s.status === "Active" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>
+                      {s.status}
+                    </span>
+                  </td>
+                  <td className="py-3 px-3 font-semibold text-slate-700">{s.role}</td>
+                  <td className="py-3 px-4 text-slate-500 font-mono text-[11px]">{s.email}</td>
+                  <td className="py-3 px-3 text-slate-500">{s.phone}</td>
+                  <td className="py-3 px-4">
+                    <div className="flex gap-1 flex-wrap max-w-xs">
+                      {s.perms.map(p => (
+                        <span key={p} className="text-[10px] font-medium bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded">
+                          {p}
+                        </span>
+                      ))}
+                    </div>
+                  </td>
+                  <td className="py-3 px-3 text-right">
+                    <div className="flex items-center justify-end gap-1.5">
+                      {s.status === "Pending" && (
+                        <span className="text-[11px] font-semibold text-blue-600 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded">
+                          Invite
+                        </span>
+                      )}
+                      <span className="text-[11px] font-semibold text-slate-500 border border-slate-200 px-2 py-0.5 rounded">
+                        Edit
+                      </span>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );
@@ -852,21 +886,50 @@ function renderStaffManagementShowcase() {
         </button>
       </div>
 
-      <div className="space-y-2">
-        {staffList.slice(0, 3).map((s) => (
-          <div key={s.id} className="bg-white p-3 rounded-xl border border-slate-200 flex items-center gap-2.5 shadow-2xs">
-            <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs shrink-0 ${s.color}`}>
-              {s.name.split(" ").map(w => w[0]).join("")}
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="font-bold text-slate-900 text-xs truncate">{s.name}</p>
-              <p className="text-[10px] text-slate-500">{s.role}</p>
-            </div>
-            <span className="text-[9px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">
-              Active
-            </span>
-          </div>
-        ))}
+      {/* Mobile Staff Table */}
+      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-2xs">
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs text-left min-w-[500px] whitespace-nowrap">
+            <thead className="bg-slate-50 text-slate-500 font-bold border-b border-slate-200">
+              <tr>
+                <th className="py-2.5 px-3 sticky left-0 z-20 bg-slate-50 border-r border-slate-200">Staff Member</th>
+                <th className="py-2.5 px-3">Status</th>
+                <th className="py-2.5 px-3">Role</th>
+                <th className="py-2.5 px-3">Email</th>
+                <th className="py-2.5 px-3 text-right">Action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {staffList.map((s) => (
+                <tr key={s.id} className="hover:bg-slate-50/80">
+                  <td className="py-2.5 px-3 sticky left-0 z-10 bg-white border-r border-slate-100">
+                    <div className="flex items-center gap-2">
+                      <div className={`w-7 h-7 rounded-full flex items-center justify-center font-bold text-[11px] shrink-0 ${s.color}`}>
+                        {s.name.split(" ").map(w => w[0]).join("")}
+                      </div>
+                      <div>
+                        <p className="font-bold text-slate-900 leading-tight">{s.name}</p>
+                        <p className="text-[10px] text-slate-400">{s.role}</p>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="py-2.5 px-3">
+                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${s.status === "Active" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>
+                      {s.status}
+                    </span>
+                  </td>
+                  <td className="py-2.5 px-3 text-slate-700 text-[11px] font-medium">{s.role}</td>
+                  <td className="py-2.5 px-3 text-slate-500 font-mono text-[10px]">{s.email}</td>
+                  <td className="py-2.5 px-3 text-right">
+                    <span className="text-[10px] font-semibold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded">
+                      Manage
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );
@@ -1500,7 +1563,12 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
   const [activeSolutionTab, setActiveSolutionTab] = useState<
     "ponds" | "feeding" | "inventory" | "staff" | "reports" | "assessments" | "financial" | "invoices"
   >("ponds");
-  const [deviceMode, setDeviceMode] = useState<"dual" | "desktop" | "mobile">("dual");
+  const [deviceMode, setDeviceMode] = useState<"dual" | "desktop" | "mobile">(() => {
+    if (typeof window !== "undefined" && window.innerWidth < 768) {
+      return "mobile";
+    }
+    return "dual";
+  });
 
   const [openFaq, setOpenFaq] = useState<number | null>(null);
   const [planBilling, setPlanBilling] = useState<"monthly" | "yearly">("monthly");
@@ -1521,6 +1589,16 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
     setMobileMenuOpen(false);
     const el = document.getElementById(id);
     if (el) el.scrollIntoView({ behavior: "smooth" });
+  };
+
+  const handleSelectSolution = (id: typeof activeSolutionTab) => {
+    setActiveSolutionTab(id);
+    if (typeof window !== "undefined" && window.innerWidth < 1024) {
+      const el = document.getElementById("solution-screen-preview");
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+    }
   };
 
   /* 8 Complete Features with Boiled-Down, Straightforward English Explanations */
@@ -1860,14 +1938,10 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
         {/* Hero Bottom Stats Strip */}
         <div className="relative z-10 border-t border-slate-800/80 bg-slate-950/80 backdrop-blur-md py-6">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-6 text-center">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 text-center">
               <div>
-                <p className="text-2xl sm:text-3xl font-black font-['Barlow_Condensed',sans-serif] text-emerald-400">70%+</p>
+                <p className="text-2xl sm:text-3xl font-black font-['Barlow_Condensed',sans-serif] text-emerald-400">99.9%</p>
                 <p className="text-xs text-slate-400 uppercase tracking-wider mt-0.5">Feed Cost Control</p>
-              </div>
-              <div>
-                <p className="text-2xl sm:text-3xl font-black font-['Barlow_Condensed',sans-serif] text-emerald-400">100%</p>
-                <p className="text-xs text-slate-400 uppercase tracking-wider mt-0.5">Offline Pond-Side Ready</p>
               </div>
               <div>
                 <p className="text-2xl sm:text-3xl font-black font-['Barlow_Condensed',sans-serif] text-emerald-400">₦0 Waste</p>
@@ -1978,14 +2052,14 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
           </FadeIn>
 
           {/* Solution Tabs Grid (8 Complete Features) */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mb-8">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-2.5 mb-6 sm:mb-8">
             {solutions.map((sol, idx) => {
               const isSelected = activeSolutionTab === sol.id;
               return (
                 <button
                   key={sol.id}
-                  onClick={() => setActiveSolutionTab(sol.id)}
-                  className={`p-3.5 rounded-xl text-left border transition-all ${
+                  onClick={() => handleSelectSolution(sol.id)}
+                  className={`p-3 sm:p-3.5 rounded-xl text-left border transition-all ${
                     isSelected
                       ? "bg-[#062319] text-white border-[#062319] shadow-lg scale-[1.01]"
                       : "bg-white hover:bg-slate-50 text-slate-800 border-slate-200"
@@ -2003,10 +2077,10 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
           </div>
 
           {/* Active Solution Headline & Plain English Explanation: "How This Helps Your Fish Farm" */}
-          <div className="mb-8">
+          <div className="mb-6 sm:mb-8">
             <FadeIn key={`expl-${activeSolutionTab}`}>
-              <div className="bg-white rounded-2xl p-6 sm:p-7 border-2 border-slate-200 shadow-xl">
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-100 pb-5 mb-5">
+              <div className="bg-white rounded-2xl p-5 sm:p-7 border-2 border-slate-200 shadow-xl">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-100 pb-4 sm:pb-5 mb-4 sm:mb-5">
                   <div>
                     <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-100 text-emerald-900 text-xs font-black uppercase tracking-wider mb-2">
                       <Sparkles size={13} className="text-emerald-700" />
@@ -2015,7 +2089,7 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
                     <h3 className="text-2xl sm:text-3xl font-black font-['Barlow_Condensed',sans-serif] text-slate-900">
                       {currentSolution.title}
                     </h3>
-                    <p className="text-slate-700 text-sm sm:text-base mt-1.5 max-w-3xl font-medium leading-relaxed">
+                    <p className="text-slate-700 text-xs sm:text-base mt-1.5 max-w-3xl font-medium leading-relaxed">
                       {currentSolution.subtitle}
                     </p>
                   </div>
@@ -2057,15 +2131,15 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
                 </div>
 
                 {/* 3 High-Contrast Benefit Cards */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
                   {currentSolution.farmBenefit.points.map((pt, i) => (
-                    <div key={i} className="flex items-start gap-3.5 bg-emerald-50/70 p-4 rounded-xl border border-emerald-200 shadow-2xs hover:border-emerald-400 transition-colors">
-                      <div className="w-7 h-7 rounded-lg bg-emerald-600 text-white flex items-center justify-center shrink-0 mt-0.5 shadow-xs font-bold text-xs">
+                    <div key={i} className="flex items-start gap-3 bg-emerald-50/70 p-3 sm:p-4 rounded-xl border border-emerald-200 shadow-2xs hover:border-emerald-400 transition-colors">
+                      <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-lg bg-emerald-600 text-white flex items-center justify-center shrink-0 mt-0.5 shadow-xs font-bold text-xs">
                         ✓
                       </div>
                       <div>
-                        <p className="text-sm font-bold text-slate-900 leading-snug">{pt.title}</p>
-                        <p className="text-xs sm:text-sm text-slate-700 mt-1 leading-relaxed">{pt.desc}</p>
+                        <p className="text-xs sm:text-sm font-bold text-slate-900 leading-snug">{pt.title}</p>
+                        <p className="text-xs text-slate-700 mt-0.5 sm:mt-1 leading-relaxed">{pt.desc}</p>
                       </div>
                     </div>
                   ))}
@@ -2075,11 +2149,51 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
           </div>
 
           {/* Screen Display Area (Desktop, Mobile, or Dual Side-by-Side) */}
-          <div className="mt-4">
+          <div id="solution-screen-preview" className="mt-4 scroll-mt-24">
+            {/* Interactive Feature Stepper Bar for Quick Browsing on Mobile & Desktop */}
+            <div className="flex items-center justify-between bg-slate-900/95 backdrop-blur-sm text-white px-3 sm:px-4 py-2.5 rounded-xl mb-4 shadow-md border border-slate-800">
+              <button
+                onClick={() => {
+                  const curIdx = solutions.findIndex(s => s.id === activeSolutionTab);
+                  const prevIdx = (curIdx - 1 + solutions.length) % solutions.length;
+                  handleSelectSolution(solutions[prevIdx].id);
+                }}
+                className="flex items-center gap-1 text-xs font-bold text-emerald-400 hover:text-emerald-300 transition-colors px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 active:scale-95 shrink-0"
+                title="View previous feature screen"
+              >
+                <ChevronLeft size={14} />
+                <span className="hidden sm:inline">Previous Screen</span>
+                <span className="sm:hidden">Prev</span>
+              </button>
+
+              <div className="text-center px-2 min-w-0">
+                <span className="text-[10px] uppercase tracking-wider text-emerald-400 font-extrabold block truncate">
+                  Screen {solutions.findIndex(s => s.id === activeSolutionTab) + 1} of {solutions.length}
+                </span>
+                <span className="text-xs sm:text-sm font-bold font-['Barlow_Condensed',sans-serif] text-white truncate block">
+                  {currentSolution.title}
+                </span>
+              </div>
+
+              <button
+                onClick={() => {
+                  const curIdx = solutions.findIndex(s => s.id === activeSolutionTab);
+                  const nextIdx = (curIdx + 1) % solutions.length;
+                  handleSelectSolution(solutions[nextIdx].id);
+                }}
+                className="flex items-center gap-1 text-xs font-bold text-emerald-400 hover:text-emerald-300 transition-colors px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 active:scale-95 shrink-0"
+                title="View next feature screen"
+              >
+                <span className="hidden sm:inline">Next Screen</span>
+                <span className="sm:hidden">Next</span>
+                <ChevronRight size={14} />
+              </button>
+            </div>
+
             <FadeIn key={`${activeSolutionTab}-${deviceMode}`}>
               {deviceMode === "dual" && (
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-                  {/* Desktop Frame (8 cols) */}
+                <div className="flex flex-col-reverse lg:grid lg:grid-cols-12 gap-6 items-start">
+                  {/* Desktop Frame (8 cols on lg) */}
                   <div className="lg:col-span-8 w-full">
                     <div className="mb-2 flex items-center justify-between text-xs font-bold text-slate-500 uppercase tracking-wider px-1">
                       <span className="flex items-center gap-1.5"><Monitor size={14} className="text-emerald-600" /> Desktop Web View</span>
@@ -2089,14 +2203,14 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
                       activeNav={currentSolution.navId}
                       onSelectNav={(id) => {
                         const match = solutions.find(s => s.navId === id);
-                        if (match) setActiveSolutionTab(match.id);
+                        if (match) handleSelectSolution(match.id);
                       }}
                     >
                       {desktopContent}
                     </AppWindowShell>
                   </div>
 
-                  {/* Mobile Phone Mockup (4 cols) */}
+                  {/* Mobile Phone Mockup (4 cols on lg, shown first on mobile) */}
                   <div className="lg:col-span-4 w-full">
                     <div className="mb-2 flex items-center justify-between text-xs font-bold text-slate-500 uppercase tracking-wider px-1">
                       <span className="flex items-center gap-1.5"><Smartphone size={14} className="text-emerald-600" /> Mobile App View</span>
@@ -2106,7 +2220,7 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
                       activeNav={currentSolution.navId}
                       onSelectNav={(id) => {
                         const match = solutions.find(s => s.navId === id);
-                        if (match) setActiveSolutionTab(match.id);
+                        if (match) handleSelectSolution(match.id);
                       }}
                     >
                       {mobileContent}
@@ -2124,7 +2238,7 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
                     activeNav={currentSolution.navId}
                     onSelectNav={(id) => {
                       const match = solutions.find(s => s.navId === id);
-                      if (match) setActiveSolutionTab(match.id);
+                      if (match) handleSelectSolution(match.id);
                     }}
                   >
                     {desktopContent}
@@ -2141,7 +2255,7 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
                     activeNav={currentSolution.navId}
                     onSelectNav={(id) => {
                       const match = solutions.find(s => s.navId === id);
-                      if (match) setActiveSolutionTab(match.id);
+                      if (match) handleSelectSolution(match.id);
                     }}
                   >
                     {mobileContent}

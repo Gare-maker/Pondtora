@@ -461,8 +461,39 @@ function FinancialDashboard({expenses,revenues,onAddExpense,onAddRevenue,onEditE
             
           </div>
           {pieRows.length===0?<p className="text-xs text-slate-400 py-4 text-center">No data</p>:(
-            <><ResponsiveContainer width="100%" height={150}><PieChart><Pie data={pieRows} dataKey="value" cx="50%" cy="50%" outerRadius={68} innerRadius={38} isAnimationActive={false}>{pieRows.map(e=><Cell key={e.name} fill={e.color}/>)}</Pie><Tooltip formatter={(v:any)=>fmt(Number(v)||0)}/></PieChart></ResponsiveContainer>
-            <div className="space-y-1.5 mt-2">{pieRows.map(e=><div key={e.name} className="flex items-center justify-between text-xs"><div className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full" style={{background:e.color}}/><span className="text-slate-500">{e.name}</span></div><span className="text-slate-800 font-semibold">{fmt(e.value)}</span></div>)}</div></>
+            <>
+              <ResponsiveContainer width="100%" height={150}>
+                <PieChart>
+                  <Pie data={pieRows} dataKey="value" cx="50%" cy="50%" outerRadius={68} innerRadius={38} isAnimationActive={false}>
+                    {pieRows.map(e=><Cell key={e.name} fill={e.color}/>)}
+                  </Pie>
+                  <Tooltip formatter={(v:any)=>{
+                    const val = Number(v) || 0;
+                    const p = totalExp > 0 ? ((val / totalExp) * 100).toFixed(1) : "0";
+                    return `${fmt(val)} (${p}%)`;
+                  }}/>
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="space-y-1.5 mt-2">
+                {pieRows.map(e => {
+                  const pct = totalExp > 0 ? ((e.value / totalExp) * 100).toFixed(1) : "0";
+                  return (
+                    <div key={e.name} className="flex items-center justify-between text-xs">
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <span className="w-2 h-2 rounded-full shrink-0" style={{background:e.color}}/>
+                        <span className="text-slate-600 truncate">{e.name}</span>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
+                          {pct}%
+                        </span>
+                        <span className="text-slate-800 font-semibold">{fmt(e.value)}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
           )}
         </Card>
       </div>
@@ -821,53 +852,141 @@ function StaffPage({staff,onAdd,onEdit,onDelete,farms,activeFarmId}:{staff:Staff
           <div className="flex justify-center"><PBtn onClick={()=>setShowInvite(true)}><Mail size={14}/> Send First Invite</PBtn></div>
         </Card>
       ):(
-        <div className="space-y-2">
-          {staff.slice((staffPage-1)*PER_PAGE,staffPage*PER_PAGE).map(s=>(
-            <Card key={s.id} className="p-3 sm:p-4">
-              <div className="flex items-start gap-3">
-                <div className={`w-9 h-9 sm:w-10 sm:h-10 rounded-full flex items-center justify-center text-sm font-bold shrink-0 ${colorFor(s.id)}`}>{initials(s.name)}</div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex flex-wrap items-center gap-1.5 mb-0.5">
-                    <p className="text-sm font-semibold text-slate-900">{s.name}</p>
-                    <Bdg label={s.status} color={s.status==="Active"?"green":"amber"}/>
-                    <Bdg label={s.role} color={s.role==="Director"?"purple":s.role==="Admin"?"teal":"blue"}/>
-                    {s.permissions&&s.permissions.slice(0,2).map(p=><Bdg key={p} label={p} color="gray"/>)}
-                    {s.permissions&&s.permissions.length>2&&<span className="text-[11px] text-slate-400">+{s.permissions.length-2} more</span>}
-                  </div>
-                  <div className="flex flex-col sm:flex-row sm:flex-wrap sm:gap-x-4 gap-y-0.5">
-                    <span className="flex items-center gap-1 text-xs text-slate-400 min-w-0"><Mail size={10} className="shrink-0"/><span className="truncate">{s.email}</span></span>
-                    {s.phone&&<span className="flex items-center gap-1 text-xs text-slate-400 shrink-0"><Phone size={10}/>{s.phone}</span>}
-                  </div>
-                  {/* Mobile action row */}
-                  <div className="flex flex-wrap gap-1.5 mt-2 sm:hidden">
-                    {s.status==="Pending"&&(
-                      <>
-                        <button onClick={()=>copyInviteLink(s.email)} className="flex items-center gap-1 text-xs font-semibold text-blue-600 border border-blue-200 bg-blue-50 px-2 py-1 rounded-lg"><Link size={11}/> Copy Link</button>
-                        <button onClick={()=>resendInvite(s)} className="flex items-center gap-1 text-xs font-semibold text-purple-600 border border-purple-200 bg-purple-50 px-2 py-1 rounded-lg"><Mail size={11}/> Resend</button>
-                        <button onClick={()=>onEdit({...s,status:"Active"})} className="flex items-center gap-1 text-xs font-semibold text-green-600 border border-green-200 bg-green-50 px-2.5 py-1 rounded-lg">Activate</button>
-                      </>
-                    )}
-                    <button onClick={()=>setEditMember({...s})} className="flex items-center gap-1 text-xs text-slate-500 border border-slate-200 px-2.5 py-1 rounded-lg hover:text-green-600 hover:border-green-200"><Pencil size={11}/> Edit</button>
-                    <button onClick={()=>{if(confirm(`Remove ${s.name}?`))onDelete(s.id);}} className="flex items-center gap-1 text-xs text-slate-500 border border-slate-200 px-2.5 py-1 rounded-lg hover:text-red-500 hover:border-red-200"><Trash2 size={11}/> Remove</button>
-                  </div>
-                </div>
-                {/* Desktop actions */}
-                <div className="hidden sm:flex items-center gap-1.5 shrink-0">
-                  {s.status==="Pending"&&(
-                    <>
-                      <button onClick={()=>copyInviteLink(s.email)} className="text-xs font-semibold text-blue-600 hover:text-blue-800 bg-blue-50 border border-blue-200 px-2.5 py-1 rounded-lg transition-colors flex items-center gap-1" title="Copy invitation link to share via WhatsApp or SMS"><Link size={11}/> Copy Link</button>
-                      <button onClick={()=>resendInvite(s)} className="text-xs font-semibold text-purple-600 hover:text-purple-800 bg-purple-50 border border-purple-200 px-2.5 py-1 rounded-lg transition-colors flex items-center gap-1" title="Resend invitation email"><Mail size={11}/> Resend</button>
-                      <button onClick={()=>onEdit({...s,status:"Active"})} className="text-xs font-semibold text-green-600 hover:text-green-800 px-2 py-1 rounded-lg hover:bg-green-50 transition-colors">Activate</button>
-                    </>
-                  )}
-                  <button onClick={()=>setEditMember({...s})} className="p-1.5 rounded-lg text-slate-300 hover:text-green-600 hover:bg-green-50 transition-colors" title="Edit"><Pencil size={14}/></button>
-                  <button onClick={()=>{if(confirm(`Remove ${s.name}?`))onDelete(s.id);}} className="p-1.5 rounded-lg text-slate-300 hover:text-red-500 hover:bg-red-50 transition-colors" title="Remove"><Trash2 size={14}/></button>
-                </div>
-              </div>
-            </Card>
-          ))}
-          <Pagination total={staff.length} page={staffPage} perPage={PER_PAGE} onPage={setStaffPage}/>
-        </div>
+        <Card>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm min-w-[780px]">
+              <thead>
+                <tr className="border-b border-slate-100 bg-slate-50">
+                  <th className="px-4 py-3 text-[11px] text-slate-400 w-10 text-center sticky left-0 z-20 bg-slate-50">#</th>
+                  <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider sticky left-10 z-20 bg-slate-50 border-r border-slate-200 whitespace-nowrap min-w-[180px]">
+                    Staff Name
+                  </th>
+                  <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider">Status</th>
+                  <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider">Role</th>
+                  <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider">Email</th>
+                  <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider">Phone</th>
+                  <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider">Farms</th>
+                  <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider">Permissions</th>
+                  <th className="text-right px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {staff.slice((staffPage-1)*PER_PAGE,staffPage*PER_PAGE).map((s,idx)=>{
+                  const globalIdx=(staffPage-1)*PER_PAGE+idx+1;
+                  const assignedFarms=(farms||[]).filter(f=>s.farms?.includes(f.id));
+                  return(
+                    <tr key={s.id} className="hover:bg-slate-50/70 transition-colors">
+                      <td className="px-4 py-3 text-slate-400 text-xs text-center sticky left-0 z-10 bg-white">
+                        {globalIdx}
+                      </td>
+                      <td className="px-4 py-3 sticky left-10 z-10 bg-white border-r border-slate-200 whitespace-nowrap">
+                        <div className="flex items-center gap-2.5">
+                          <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${colorFor(s.id)}`}>
+                            {initials(s.name)}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="font-semibold text-slate-900 leading-tight">{s.name}</p>
+                            <p className="text-[11px] text-slate-400 truncate">{s.role}</p>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <Bdg label={s.status} color={s.status==="Active"?"green":"amber"}/>
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <Bdg label={s.role} color={s.role==="Director"?"purple":s.role==="Admin"?"teal":"blue"}/>
+                      </td>
+                      <td className="px-4 py-3 text-slate-600 font-mono text-xs whitespace-nowrap">
+                        <span className="flex items-center gap-1.5"><Mail size={12} className="text-slate-400"/>{s.email}</span>
+                      </td>
+                      <td className="px-4 py-3 text-slate-600 text-xs whitespace-nowrap">
+                        {s.phone?(
+                          <span className="flex items-center gap-1.5"><Phone size={12} className="text-slate-400"/>{s.phone}</span>
+                        ):(
+                          <span className="text-slate-300">—</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex gap-1 flex-wrap max-w-xs">
+                          {assignedFarms.length>0?(
+                            assignedFarms.map(f=>(
+                              <span key={f.id} className="text-[10px] bg-slate-100 text-slate-700 font-medium px-1.5 py-0.5 rounded">
+                                {f.name}
+                              </span>
+                            ))
+                          ):(
+                            <span className="text-[10px] text-slate-400 italic">All farms</span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex gap-1 flex-wrap max-w-xs">
+                          {s.permissions&&s.permissions.length>0?(
+                            <>
+                              {s.permissions.slice(0,2).map(p=>(
+                                <Bdg key={p} label={p} color="gray"/>
+                              ))}
+                              {s.permissions.length>2&&(
+                                <span className="text-[10px] text-slate-400">+{s.permissions.length-2} more</span>
+                              )}
+                            </>
+                          ):(
+                            <span className="text-[10px] text-slate-400">—</span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-right whitespace-nowrap">
+                        <div className="flex items-center justify-end gap-1.5">
+                          {s.status==="Pending"&&(
+                            <>
+                              <button
+                                onClick={()=>copyInviteLink(s.email)}
+                                className="text-xs font-semibold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-2 py-1 rounded-lg transition-colors flex items-center gap-1"
+                                title="Copy invitation link to share via WhatsApp or SMS"
+                              >
+                                <Link size={11}/> Copy Link
+                              </button>
+                              <button
+                                onClick={()=>resendInvite(s)}
+                                className="text-xs font-semibold text-purple-600 hover:text-purple-800 bg-purple-50 hover:bg-purple-100 border border-purple-200 px-2 py-1 rounded-lg transition-colors flex items-center gap-1"
+                                title="Resend invitation email"
+                              >
+                                <Mail size={11}/> Resend
+                              </button>
+                              <button
+                                onClick={()=>onEdit({...s,status:"Active"})}
+                                className="text-xs font-semibold text-green-600 hover:text-green-800 bg-green-50 hover:bg-green-100 border border-green-200 px-2 py-1 rounded-lg transition-colors"
+                              >
+                                Activate
+                              </button>
+                            </>
+                          )}
+                          <button
+                            onClick={()=>setEditMember({...s})}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-green-600 hover:bg-green-50 transition-colors"
+                            title="Edit"
+                          >
+                            <Pencil size={13}/>
+                          </button>
+                          <button
+                            onClick={()=>{if(confirm(`Remove ${s.name}?`))onDelete(s.id);}}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+                            title="Remove"
+                          >
+                            <Trash2 size={13}/>
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <div className="p-3 border-t border-slate-100">
+            <Pagination total={staff.length} page={staffPage} perPage={PER_PAGE} onPage={setStaffPage}/>
+          </div>
+        </Card>
       )}
 
 

@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from "react";
-import { CheckCircle, ChevronLeft, Loader2, AlertCircle, Eye, EyeOff, Mail } from "lucide-react";
+import { CheckCircle, ChevronLeft, Loader2, AlertCircle, Eye, EyeOff, Mail, Check, Sparkles } from "lucide-react";
 import pondtoraLogo from "../../imports/loo-2.svg";
 import type { UserProfile } from "../types";
 import { COUNTRIES, DIAL_CODES, FLAG_EMOJI, COUNTRY_CURRENCIES } from "../data";
 import { SearchableCountrySelect } from "../shared";
 import { supabase } from "../../lib/supabase";
 import { auth } from "../../lib/api";
+import { useDynamicPlans, yearlyPrice } from "../pricingData";
 
 const AIC = "w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg bg-white text-slate-900 placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-green-300 transition";
 const LBL = "block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1";
@@ -93,6 +94,14 @@ function AuthScreen({
   const [showLPass, setShowLPass] = useState(false);
 
   // ── Create account state ───────────────────────────────────────────────────
+  const [createStep, setCreateStep] = useState<"details" | "plan">("details");
+  const [selectedTrialPlan, setSelectedTrialPlan] = useState<string>("Starter");
+  const [trialBilling, setTrialBilling] = useState<"monthly" | "yearly">("monthly");
+  const [trialFarmType, setTrialFarmType] = useState<"single" | "multi">("single");
+
+  const { singleFarmPlans = [], multiFarmPlans = [] } = useDynamicPlans();
+  const trialPlans = (trialFarmType === "single" ? singleFarmPlans : multiFarmPlans) || [];
+
   const [cName, setCName] = useState("");
   const [cEmail, setCEmail] = useState("");
   const [cPass, setCPass] = useState("");
@@ -173,15 +182,29 @@ function AuthScreen({
     }
   };
 
-  // ── Supabase Sign Up ───────────────────────────────────────────────────────
-  const handleCreate = async (e: React.FormEvent) => {
+  // ── Step 1: Validate Details and advance to Plan Selection ───────────────
+  const handleProceedToPlan = (e: React.FormEvent) => {
     e.preventDefault();
     setCErr("");
     if (!cName.trim() || !cEmail.trim() || !cPass.trim() || !cFarm.trim()) {
-      setCErr("Please fill in all required fields."); return;
+      setCErr("Please fill in all required fields.");
+      return;
     }
-    if (!cAgreed) { setCErr("Please agree to the Terms and Conditions."); return; }
-    if (cPass.length < 6) { setCErr("Password must be at least 6 characters."); return; }
+    if (!cAgreed) {
+      setCErr("Please agree to the Terms and Conditions.");
+      return;
+    }
+    if (cPass.length < 6) {
+      setCErr("Password must be at least 6 characters.");
+      return;
+    }
+    setCreateStep("plan");
+  };
+
+  // ── Step 2: Select Free Trial Plan and trigger Sign Up ────────────────────
+  const handleSelectPlanAndSignUp = async (planName: string) => {
+    setCErr("");
+    setSelectedTrialPlan(planName);
     setCLoading(true);
     try {
       const phoneStr = `${DIAL_CODES[cDialC] ?? ""} ${cPhone.trim()}`.trim();
@@ -196,6 +219,8 @@ function AuthScreen({
         phone: phoneStr,
         currencySymbol: cur.symbol,
         currencyCode: cur.code,
+        activePlan: planName,
+        planBilling: trialBilling,
       });
 
       // If Supabase returns a session immediately (email confirm disabled), log them in
@@ -212,7 +237,7 @@ function AuthScreen({
           phone: phoneStr,
           currencySymbol: cur.symbol,
           currencyCode: cur.code,
-          activePlan: undefined,
+          activePlan: planName,
           trialStartDate: new Date().toISOString(),
         };
         onSignup(profile);
@@ -353,17 +378,17 @@ function AuthScreen({
             <p className="text-[10px] text-emerald-600 uppercase tracking-widest mt-1 font-semibold">Fish Farm Management System</p>
           </div>
         </div>
-        <div className="max-w-sm w-full mx-auto">
+        <div className={`${view === "create" && createStep === "plan" && !signupSent ? "max-w-2xl" : "max-w-sm"} w-full mx-auto transition-all`}>
           <h2 className="text-2xl font-extrabold text-slate-900 font-['Barlow_Condensed',sans-serif] mb-1">
             {view === "login" ? "Welcome back"
-              : view === "create" ? "Create your account"
+              : view === "create" ? (createStep === "plan" && !signupSent ? "Select Your 30-Day Free Trial Plan" : "Create your account")
               : view === "recovery" ? "Set new password"
               : view === "invite" ? "Accept your invitation"
               : "Reset password"}
           </h2>
           <p className="text-sm text-slate-400 mb-7">
             {view === "login" ? "Sign in to your Pondtora account"
-              : view === "create" ? "Start your 30-day free trial today"
+              : view === "create" ? (createStep === "plan" && !signupSent ? "Choose any plan to try for 30 days — no credit card needed" : "Start your 30-day free trial today")
               : view === "recovery" ? "Enter your new password below"
               : view === "invite" ? "Set a password to complete your account setup"
               : "Enter your email to receive a reset link"}
@@ -398,9 +423,9 @@ function AuthScreen({
             </form>
           )}
 
-          {/* ── Create account ── */}
-          {view === "create" && !signupSent && (
-            <form onSubmit={handleCreate} className="space-y-3">
+          {/* ── Create account Step 1: Account Details ── */}
+          {view === "create" && !signupSent && createStep === "details" && (
+            <form onSubmit={handleProceedToPlan} className="space-y-3">
               <div className="grid grid-cols-2 gap-3">
                 <div><label className={LBL}>Full Name *</label><input className={AIC} placeholder="Jane Doe" value={cName} onChange={e => setCName(e.target.value)} /></div>
                 <div><label className={LBL}>Email *</label><input type="email" className={AIC} placeholder="you@example.com" value={cEmail} onChange={e => setCEmail(e.target.value)} /></div>
@@ -434,11 +459,153 @@ function AuthScreen({
                 <span className="text-xs text-slate-500 leading-relaxed">I agree to the <button type="button" onClick={() => setView("terms")} className="text-green-600 hover:text-green-800 font-semibold underline">Terms and Conditions</button></span>
               </label>
               {cErr && <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2 flex items-center gap-2"><AlertCircle size={13} />{cErr}</p>}
-              <button type="submit" disabled={cLoading} className="w-full py-2.5 bg-green-600 hover:bg-green-700 disabled:opacity-60 text-white text-sm font-bold rounded-lg transition-colors mt-1 flex items-center justify-center gap-2">
-                {cLoading ? <><Loader2 size={15} className="animate-spin" /> Creating account…</> : "Create Account"}
+              <button type="submit" className="w-full py-2.5 bg-green-600 hover:bg-green-700 text-white text-sm font-bold rounded-lg transition-colors mt-1 flex items-center justify-center gap-2">
+                Continue to Select Plan →
               </button>
               <button type="button" onClick={() => setView("login")} className="w-full text-center text-xs text-slate-400 hover:text-slate-600 pt-1">Already have an account? Sign in</button>
             </form>
+          )}
+
+          {/* ── Create account Step 2: Select 30-Day Free Trial Plan ── */}
+          {view === "create" && !signupSent && createStep === "plan" && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setCreateStep("details")}
+                  className="flex items-center gap-1 text-xs font-semibold text-green-700 hover:text-green-900 transition-colors"
+                >
+                  <ChevronLeft size={15} /> Back to Details
+                </button>
+                <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">
+                  Step 2 of 2 · 30-Day Free Trial
+                </span>
+              </div>
+
+              {/* Billing and Farm Type Selectors */}
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs font-bold">
+                  <button
+                    type="button"
+                    onClick={() => setTrialFarmType("single")}
+                    className={`px-3 py-1.5 rounded-lg transition-all ${
+                      trialFarmType === "single" ? "bg-white text-slate-900 shadow-xs" : "text-slate-500 hover:text-slate-800"
+                    }`}
+                  >
+                    Single Farm
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTrialFarmType("multi")}
+                    className={`px-3 py-1.5 rounded-lg transition-all ${
+                      trialFarmType === "multi" ? "bg-white text-slate-900 shadow-xs" : "text-slate-500 hover:text-slate-800"
+                    }`}
+                  >
+                    Multiple Farms
+                  </button>
+                </div>
+
+                <div className="flex items-center gap-1.5 text-xs text-slate-500 font-semibold">
+                  <button
+                    type="button"
+                    onClick={() => setTrialBilling("monthly")}
+                    className={`px-2.5 py-1 rounded-md transition-colors ${trialBilling === "monthly" ? "bg-emerald-100 text-emerald-800 font-bold" : "text-slate-500 hover:text-slate-700"}`}
+                  >
+                    Monthly
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTrialBilling("yearly")}
+                    className={`px-2.5 py-1 rounded-md transition-colors flex items-center gap-1 ${trialBilling === "yearly" ? "bg-emerald-100 text-emerald-800 font-bold" : "text-slate-500 hover:text-slate-700"}`}
+                  >
+                    Yearly <span className="text-[10px] text-emerald-700 font-black">20% off</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Plans Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 pt-1">
+                {trialPlans.map((plan) => {
+                  const isSelected = selectedTrialPlan === plan.name;
+                  const displayPrice = trialBilling === "yearly" ? yearlyPrice(plan.price) : plan.price;
+                  const cycleLabel = trialBilling === "yearly" ? "/yr after trial" : "/mo after trial";
+                  return (
+                    <div
+                      key={plan.id}
+                      className={`relative flex flex-col justify-between p-4 rounded-xl border-2 transition-all cursor-pointer ${
+                        isSelected
+                          ? "border-emerald-600 bg-emerald-50/40 shadow-md ring-1 ring-emerald-500"
+                          : "border-slate-200 bg-white hover:border-slate-300 shadow-2xs"
+                      }`}
+                      onClick={() => setSelectedTrialPlan(plan.name)}
+                    >
+                      {plan.badge && (
+                        <span className="absolute -top-2.5 left-4 bg-emerald-600 text-white text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full shadow-xs">
+                          {plan.badge}
+                        </span>
+                      )}
+                      <div>
+                        <div className="flex items-center justify-between mt-1">
+                          <h4 className="font-extrabold text-base font-['Barlow_Condensed',sans-serif] text-slate-900">
+                            {plan.name}
+                          </h4>
+                          <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">
+                            30 Days Free
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-500 mt-0.5 font-medium">{plan.ponds} · {plan.farms || "1 Farm"}</p>
+
+                        <div className="mt-2.5 pt-2.5 border-t border-slate-100">
+                          <span className="text-xl font-black font-['Barlow_Condensed',sans-serif] text-slate-900">
+                            ₦{displayPrice.toLocaleString()}
+                          </span>
+                          <span className="text-[10px] text-slate-400 ml-1">{cycleLabel}</span>
+                        </div>
+
+                        <ul className="space-y-1.5 mt-3 text-[11px] text-slate-600">
+                          {(plan.features || []).slice(0, 4).map((f, i) => (
+                            <li key={i} className="flex items-start gap-1.5">
+                              <Check size={12} className="text-emerald-600 shrink-0 mt-0.5" />
+                              <span className="leading-tight">{f}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+
+                      <button
+                        type="button"
+                        disabled={cLoading}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleSelectPlanAndSignUp(plan.name);
+                        }}
+                        className={`w-full mt-4 py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
+                          isSelected
+                            ? "bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs"
+                            : "bg-slate-100 hover:bg-slate-200 text-slate-800"
+                        }`}
+                      >
+                        {cLoading && selectedTrialPlan === plan.name ? (
+                          <><Loader2 size={13} className="animate-spin" /> Starting Trial…</>
+                        ) : (
+                          <>Start 30-Day Free Trial</>
+                        )}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {cErr && (
+                <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2 flex items-center gap-2">
+                  <AlertCircle size={13} />{cErr}
+                </p>
+              )}
+
+              <p className="text-center text-[11px] text-slate-400 pt-1">
+                You will not be charged today. No credit card required. Cancel or change plan anytime.
+              </p>
+            </div>
           )}
 
           {/* ── Email confirmation pending ── */}
@@ -448,10 +615,15 @@ function AuthScreen({
                 <Mail size={26} className="text-green-500" />
               </div>
               <div>
-                <p className="font-bold text-slate-800">Check your inbox</p>
-                <p className="text-xs text-slate-400 mt-1 leading-relaxed">We sent a confirmation email to <span className="font-semibold text-slate-600">{cEmail}</span>. Click the link to activate your account.</p>
+                <span className="inline-block text-[11px] font-bold text-emerald-800 bg-emerald-100 px-3 py-1 rounded-full uppercase tracking-wider mb-2">
+                  {selectedTrialPlan} Plan · 30 Days Free
+                </span>
+                <p className="font-bold text-slate-800 text-lg">Check your inbox</p>
+                <p className="text-xs text-slate-500 mt-1 leading-relaxed max-w-sm mx-auto">
+                  We sent a confirmation email to <span className="font-semibold text-slate-700">{cEmail}</span>. Click the link to activate your account and start your 30-day free trial on the <strong className="text-slate-800">{selectedTrialPlan}</strong> plan.
+                </p>
               </div>
-              <button type="button" onClick={() => { setSignupSent(false); setView("login"); }} className="w-full py-2.5 bg-green-600 hover:bg-green-700 text-white text-sm font-bold rounded-lg transition-colors">Back to Sign In</button>
+              <button type="button" onClick={() => { setSignupSent(false); setCreateStep("details"); setView("login"); }} className="w-full py-2.5 bg-green-600 hover:bg-green-700 text-white text-sm font-bold rounded-lg transition-colors">Back to Sign In</button>
             </div>
           )}
 

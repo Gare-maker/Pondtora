@@ -308,6 +308,8 @@ export const auth = {
     phone?: string;
     currencySymbol?: string;
     currencyCode?: string;
+    activePlan?: string;
+    planBilling?: string;
   }) => {
     const { data, error } = await supabase.auth.signUp({
       email: opts.email,
@@ -323,11 +325,19 @@ export const auth = {
           currency_symbol: opts.currencySymbol ?? "₦",
           currency_code: opts.currencyCode ?? "NGN",
           role: "owner",
+          active_plan: opts.activePlan || "Starter",
           trial_start_date: new Date().toISOString(),
+          plan_billing: opts.planBilling || "monthly",
+          subscription_status: "trialing",
         },
       },
     });
     if (error) throw error;
+    if (opts.activePlan) {
+      try {
+        localStorage.setItem("pondtora_active_plan", opts.activePlan);
+      } catch {}
+    }
     return data;
   },
 
