@@ -1103,6 +1103,20 @@ function renderStaffAssessmentsShowcase() {
 
 /* 7. Financial Dashboard Preview */
 function renderFinancialDashboardShowcase() {
+  const expenseRecords = [
+    { id: 1, date: "12 Sep 2026", cat: "Feed", amount: "₦520,000", pond: "Pond 02", stock: "Catfish (Batch A)", desc: "15 bags Coppens 4mm bought & fed", color: "bg-teal-100 text-teal-800" },
+    { id: 2, date: "10 Sep 2026", cat: "Fish Stock", amount: "₦350,000", pond: "Pond 01", stock: "Catfish (Nursery)", desc: "8,500 fingerlings restocked", color: "bg-blue-100 text-blue-800" },
+    { id: 3, date: "08 Sep 2026", cat: "Labor", amount: "₦150,000", pond: "All Ponds", stock: "—", desc: "Farm workers monthly wages & stipend", color: "bg-purple-100 text-purple-800" },
+    { id: 4, date: "05 Sep 2026", cat: "Utilities", amount: "₦85,000", pond: "Borehole", stock: "—", desc: "Generator diesel fuel (50 litres)", color: "bg-pink-100 text-pink-800" },
+  ];
+
+  const revenueRecords = [
+    { id: 1, date: "12 Sep 2026", src: "Fish Sales", amount: "₦4,350,000", pond: "Pond 02", stock: "Catfish (Batch A)", notes: "Sold 1,450 kg @ ₦3,000/kg to Alh. Danladi Depot" },
+    { id: 2, date: "11 Sep 2026", src: "Fish Sales", amount: "₦1,860,000", pond: "Pond 04", stock: "Tilapia (Batch C)", notes: "Sold 620 kg @ ₦3,000/kg to Madam Grace Smoked" },
+    { id: 3, date: "09 Sep 2026", src: "Fish Sales", amount: "₦980,000", pond: "Pond 01", stock: "Catfish (Nursery)", notes: "Sold 350 kg table size to Mama Nkechi Catering" },
+    { id: 4, date: "06 Sep 2026", src: "Fingerlings", amount: "₦680,000", pond: "Pond 03", stock: "Catfish (Batch B)", notes: "3,400 fingerlings sold to local fish farm" },
+  ];
+
   const desktopContent = (
     <div className="space-y-4 text-slate-800 font-['Barlow',sans-serif]">
       {/* Header matching FinancialDashboard in App.tsx */}
@@ -1124,26 +1138,26 @@ function renderFinancialDashboardShowcase() {
         </div>
       </div>
 
-      {/* 4 Stat Cards */}
+      {/* 4 Stat Cards with clean formatted short numbers */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-2xs">
+        <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-2xs">
           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total Revenue</p>
-          <p className="text-2xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] mt-0.5">₦18,450,000</p>
+          <p className="text-2xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] mt-0.5">₦18.45M</p>
           <p className="text-[10px] text-emerald-700 font-bold">+34% margin</p>
         </div>
-        <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-2xs">
+        <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-2xs">
           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total Expenses</p>
-          <p className="text-2xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] mt-0.5">₦12,180,000</p>
+          <p className="text-2xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] mt-0.5">₦12.18M</p>
           <p className="text-[10px] text-slate-400">24 entries</p>
         </div>
-        <div className="bg-emerald-50/70 border border-emerald-300 rounded-xl p-3.5 shadow-2xs">
+        <div className="bg-emerald-50/70 border border-emerald-300 rounded-xl p-3 shadow-2xs">
           <p className="text-[11px] font-bold text-emerald-800 uppercase tracking-wider">Net Profit</p>
-          <p className="text-2xl font-bold text-emerald-800 font-['Barlow_Condensed',sans-serif] mt-0.5">₦6,270,000</p>
+          <p className="text-2xl font-bold text-emerald-800 font-['Barlow_Condensed',sans-serif] mt-0.5">₦6.27M</p>
           <p className="text-[10px] text-emerald-700 font-bold">34% profit margin</p>
         </div>
-        <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-2xs">
+        <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-2xs">
           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Feed Costs</p>
-          <p className="text-2xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] mt-0.5">₦8,400,000</p>
+          <p className="text-2xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] mt-0.5">₦8.40M</p>
           <p className="text-[10px] text-slate-400">69% of expenses</p>
         </div>
       </div>
@@ -1156,15 +1170,15 @@ function renderFinancialDashboardShowcase() {
         </div>
         <div className="grid grid-cols-6 gap-2 pt-2 text-center text-xs">
           {[
-            { m: "Apr", r: "₦2.8M", e: "₦1.9M", hR: "h-20", hE: "h-14" },
-            { m: "May", r: "₦3.4M", e: "₦2.1M", hR: "h-24", hE: "h-16" },
-            { m: "Jun", r: "₦2.9M", e: "₦2.0M", hR: "h-20", hE: "h-15" },
-            { m: "Jul", r: "₦3.8M", e: "₦2.3M", hR: "h-28", hE: "h-18" },
-            { m: "Aug", r: "₦4.1M", e: "₦2.5M", hR: "h-32", hE: "h-20" },
-            { m: "Sep", r: "₦4.8M", e: "₦2.8M", hR: "h-36", hE: "h-22" },
+            { m: "Apr", r: "₦2.8M", e: "₦1.9M", hR: "h-16", hE: "h-11" },
+            { m: "May", r: "₦3.4M", e: "₦2.1M", hR: "h-20", hE: "h-13" },
+            { m: "Jun", r: "₦2.9M", e: "₦2.0M", hR: "h-17", hE: "h-12" },
+            { m: "Jul", r: "₦3.8M", e: "₦2.3M", hR: "h-22", hE: "h-14" },
+            { m: "Aug", r: "₦4.1M", e: "₦2.5M", hR: "h-24", hE: "h-15" },
+            { m: "Sep", r: "₦4.8M", e: "₦2.8M", hR: "h-28", hE: "h-17" },
           ].map((bar, i) => (
             <div key={i} className="flex flex-col items-center gap-1.5">
-              <div className="flex items-end gap-1 h-36">
+              <div className="flex items-end gap-1 h-28">
                 <div className={`w-4 sm:w-6 bg-[#00bb58] rounded-t ${bar.hR}`} title={`Revenue: ${bar.r}`} />
                 <div className={`w-4 sm:w-6 bg-slate-300 rounded-t ${bar.hE}`} title={`Expense: ${bar.e}`} />
               </div>
@@ -1177,6 +1191,96 @@ function renderFinancialDashboardShowcase() {
           <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-slate-300" /> Expenses</span>
         </div>
       </div>
+
+      {/* Revenue Records Section matching App.tsx */}
+      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-2xs">
+        <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-wider text-slate-700">Revenue Records</p>
+            <p className="text-[11px] text-slate-500 mt-0.5">Fish sales, fingerling sales, and farm income.</p>
+          </div>
+          <span className="text-xs font-bold text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200">
+            Total Revenue: ₦18.45M
+          </span>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs text-left min-w-[820px] whitespace-nowrap">
+            <thead className="bg-slate-50 text-slate-500 font-bold border-b border-slate-200">
+              <tr>
+                <th className="py-3 px-4 w-10 text-center">#</th>
+                <th className="py-3 px-4 min-w-[110px]">Date</th>
+                <th className="py-3 px-4 min-w-[120px]">Source</th>
+                <th className="py-3 px-4 min-w-[120px]">Amount</th>
+                <th className="py-3 px-4 min-w-[100px]">Pond</th>
+                <th className="py-3 px-4 min-w-[140px]">Fish Stock</th>
+                <th className="py-3 px-4 min-w-[200px]">Notes</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {revenueRecords.map((r, idx) => (
+                <tr key={r.id} className="hover:bg-slate-50/80 transition-colors">
+                  <td className="py-3 px-4 text-slate-400 font-mono text-center">{idx + 1}</td>
+                  <td className="py-3 px-4 text-slate-600 font-medium">{r.date}</td>
+                  <td className="py-3 px-4">
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-teal-100 text-teal-800">
+                      {r.src}
+                    </span>
+                  </td>
+                  <td className="py-3 px-4 font-bold text-emerald-700 font-['Barlow_Condensed',sans-serif] text-sm">{r.amount}</td>
+                  <td className="py-3 px-4 text-slate-700 font-medium">{r.pond}</td>
+                  <td className="py-3 px-4 text-slate-600">{r.stock}</td>
+                  <td className="py-3 px-4 text-slate-500 text-xs">{r.notes}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Expense Records Section matching App.tsx */}
+      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-2xs">
+        <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-wider text-slate-700">Expense Records</p>
+            <p className="text-[11px] text-slate-500 mt-0.5">Feed purchases, stock restock, staff wages, and farm overhead.</p>
+          </div>
+          <span className="text-xs font-bold text-rose-800 bg-rose-50 px-2.5 py-1 rounded-lg border border-rose-200">
+            Total Expenses: ₦12.18M
+          </span>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs text-left min-w-[820px] whitespace-nowrap">
+            <thead className="bg-slate-50 text-slate-500 font-bold border-b border-slate-200">
+              <tr>
+                <th className="py-3 px-4 w-10 text-center">#</th>
+                <th className="py-3 px-4 min-w-[110px]">Date</th>
+                <th className="py-3 px-4 min-w-[120px]">Category</th>
+                <th className="py-3 px-4 min-w-[120px]">Amount</th>
+                <th className="py-3 px-4 min-w-[100px]">Pond</th>
+                <th className="py-3 px-4 min-w-[140px]">Fish Stock</th>
+                <th className="py-3 px-4 min-w-[200px]">Description</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {expenseRecords.map((e, idx) => (
+                <tr key={e.id} className="hover:bg-slate-50/80 transition-colors">
+                  <td className="py-3 px-4 text-slate-400 font-mono text-center">{idx + 1}</td>
+                  <td className="py-3 px-4 text-slate-600 font-medium">{e.date}</td>
+                  <td className="py-3 px-4">
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${e.color}`}>
+                      {e.cat}
+                    </span>
+                  </td>
+                  <td className="py-3 px-4 font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] text-sm">{e.amount}</td>
+                  <td className="py-3 px-4 text-slate-700 font-medium">{e.pond}</td>
+                  <td className="py-3 px-4 text-slate-600">{e.stock}</td>
+                  <td className="py-3 px-4 text-slate-500 text-xs">{e.desc}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   );
 
@@ -1185,30 +1289,59 @@ function renderFinancialDashboardShowcase() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-base font-bold font-['Barlow_Condensed',sans-serif] text-slate-900">Financial Dashboard</h2>
-          <p className="text-[10px] text-slate-500">Net Profit: ₦6,270,000</p>
+          <p className="text-[10px] text-slate-500">Net Profit: ₦6.27M (34% Margin)</p>
         </div>
         <button className="px-2.5 py-1 rounded-lg bg-[#00bb58] text-white font-bold text-[11px]">
-          + Exp/Rev
+          + Record
         </button>
       </div>
 
       <div className="grid grid-cols-2 gap-2">
-        <div className="bg-white p-2.5 rounded-xl border border-slate-200">
+        <div className="bg-white p-2.5 rounded-xl border border-slate-200 shadow-2xs">
           <p className="text-[9px] text-slate-400 uppercase font-bold">Revenue</p>
-          <p className="text-sm font-bold text-slate-900">₦18.45M</p>
+          <p className="text-base font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">₦18.45M</p>
+          <p className="text-[9px] text-emerald-700 font-semibold">+34% margin</p>
         </div>
-        <div className="bg-emerald-50 p-2.5 rounded-xl border border-emerald-200">
+        <div className="bg-emerald-50 p-2.5 rounded-xl border border-emerald-200 shadow-2xs">
           <p className="text-[9px] text-emerald-700 uppercase font-bold">Net Profit</p>
-          <p className="text-sm font-bold text-emerald-700">₦6.27M</p>
+          <p className="text-base font-bold text-emerald-800 font-['Barlow_Condensed',sans-serif]">₦6.27M</p>
+          <p className="text-[9px] text-emerald-700 font-semibold">Take-home</p>
         </div>
       </div>
 
+      {/* Revenue Section on Mobile */}
       <div className="bg-white p-3 rounded-xl border border-slate-200 space-y-2 shadow-2xs">
-        <p className="text-[10px] font-bold uppercase text-slate-500">Expenses Breakdown</p>
+        <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
+          <span className="text-[10px] font-bold uppercase text-slate-700">Recent Revenue</span>
+          <span className="text-[10px] font-bold text-emerald-700">₦18.45M</span>
+        </div>
         <div className="space-y-1.5 text-[11px]">
-          <div className="flex justify-between"><span>Feed (69%)</span><strong>₦8,400,000</strong></div>
-          <div className="flex justify-between"><span>Labor (13%)</span><strong>₦1,550,000</strong></div>
-          <div className="flex justify-between"><span>Fish Stock (10%)</span><strong>₦1,250,000</strong></div>
+          <div className="flex items-center justify-between">
+            <span className="truncate pr-2 font-medium text-slate-800">Alh. Danladi (1,450kg)</span>
+            <strong className="text-emerald-700 shrink-0 font-['Barlow_Condensed',sans-serif] text-xs">₦4.35M</strong>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="truncate pr-2 font-medium text-slate-800">Madam Grace (620kg)</span>
+            <strong className="text-emerald-700 shrink-0 font-['Barlow_Condensed',sans-serif] text-xs">₦1.86M</strong>
+          </div>
+        </div>
+      </div>
+
+      {/* Expense Section on Mobile */}
+      <div className="bg-white p-3 rounded-xl border border-slate-200 space-y-2 shadow-2xs">
+        <div className="flex items-center justify-between border-b border-slate-100 pb-1.5">
+          <span className="text-[10px] font-bold uppercase text-slate-700">Recent Expenses</span>
+          <span className="text-[10px] font-bold text-rose-700">₦12.18M</span>
+        </div>
+        <div className="space-y-1.5 text-[11px]">
+          <div className="flex items-center justify-between">
+            <span className="truncate pr-2 font-medium text-slate-800">Coppens 4mm Feed (15 bags)</span>
+            <strong className="text-slate-900 shrink-0 font-['Barlow_Condensed',sans-serif] text-xs">₦520,000</strong>
+          </div>
+          <div className="flex items-center justify-between">
+            <span className="truncate pr-2 font-medium text-slate-800">Fish Stock (8,500 fingerlings)</span>
+            <strong className="text-slate-900 shrink-0 font-['Barlow_Condensed',sans-serif] text-xs">₦350,000</strong>
+          </div>
         </div>
       </div>
     </div>
@@ -1682,14 +1815,14 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
           <FadeIn delay={100}>
             <h1 className="text-4xl sm:text-6xl md:text-7xl font-bold font-['Barlow_Condensed',sans-serif] tracking-tight uppercase max-w-5xl mx-auto leading-[1.08] text-white">
               Stop Managing Your Farm on WhatsApp & Exercise Books. <br />
-              <span className="text-[#00bb58]">Cut Feed Waste & Fish Mortality.</span> <br />
+              <span className="text-[#00bb58]">Cut Feed Waste.</span> <br />
               Grow More Profit.
             </h1>
           </FadeIn>
 
           <FadeIn delay={200}>
             <p className="mt-6 text-base sm:text-xl text-slate-300 max-w-3xl mx-auto leading-relaxed font-light">
-              Pondtora is the complete fish farm operating software for commercial and family farms. Track stocking dates, feed pallet limits, warehouse inventory, staff permissions, daily checklists, and customer receipts.
+              Replace lost WhatsApp chats and paper exercise books with Pondtora. Prevent feed theft and overfeeding, keep workers accountable with daily checklists, and maximize your farm's take-home profit.
             </p>
           </FadeIn>
 
