@@ -190,6 +190,7 @@ export function isSameDate(d1?: string | null, d2?: string | null): boolean {
 }
 
 export const PAYMENT_METHODS=["Cash","Bank Transfer","POS","Cheque","Other"];
+export const INV_STATUSES: Invoice["status"][] = ["Draft", "Sent", "Pending", "Partially Paid", "Paid", "Overdue", "Cancelled", "Error"];
 export const STAFF_PERMISSIONS = [
   "Financial Dashboard",
   "Pond Management",
