@@ -776,82 +776,188 @@ function Pricing({ponds}:{ponds:Pond[]}){
 }
 
 /* ─── 6. Staff ──────────────────────────────────────────────── */
-function StaffPage({staff,onAdd,onEdit,onDelete,farms,activeFarmId}:{staff:StaffMember[];onAdd:(s:StaffMember)=>void;onEdit:(s:StaffMember)=>void;onDelete:(id:string)=>void;farms?:Farm[];activeFarmId?:string;}){
-  const [showInvite,setShowInvite]=useState(false);
-  const [editMember,setEditMember]=useState<StaffMember|null>(null);
-  const [staffPage,setStaffPage]=useState(1);
-  const [form,setForm]=useState({name:"",email:"",phone:"",role:"Feeding Staff",permissions:[] as string[],farms:[] as string[]});
-  const [inviteErr,setInviteErr]=useState<Record<string,string>>({});
-  const initials=(name:string)=>name.split(" ").map(w=>w[0]||"").join("").toUpperCase().slice(0,2)||"?";
-  const colors=["bg-green-100 text-green-700","bg-blue-100 text-blue-700","bg-purple-100 text-purple-700","bg-amber-100 text-amber-700","bg-rose-100 text-rose-700"];
-  const colorFor=(id:string)=>colors[id.charCodeAt(0)%colors.length];
+function StaffPage({
+  staff,
+  onAdd,
+  onEdit,
+  onDelete,
+  farms,
+  activeFarmId,
+  ownerEmail,
+}: {
+  staff: StaffMember[];
+  onAdd: (s: StaffMember) => void;
+  onEdit: (s: StaffMember) => void;
+  onDelete: (id: string) => void;
+  farms?: Farm[];
+  activeFarmId?: string;
+  ownerEmail?: string;
+}) {
+  const [showInvite, setShowInvite] = useState(false);
+  const [checkingEmail, setCheckingEmail] = useState(false);
+  const [editMember, setEditMember] = useState<StaffMember | null>(null);
+  const [staffPage, setStaffPage] = useState(1);
+  const [form, setForm] = useState({
+    name: "",
+    email: "",
+    phone: "",
+    role: "Feeding Staff",
+    permissions: [] as string[],
+    farms: (farms && farms.length === 1) ? [farms[0].id] : [] as string[],
+  });
+  const [inviteErr, setInviteErr] = useState<Record<string, string>>({});
+  const initials = (name: string) => name.split(" ").map(w => w[0] || "").join("").toUpperCase().slice(0, 2) || "?";
+  const colors = ["bg-green-100 text-green-700", "bg-blue-100 text-blue-700", "bg-purple-100 text-purple-700", "bg-amber-100 text-amber-700", "bg-rose-100 text-rose-700"];
+  const colorFor = (id: string) => colors[id.charCodeAt(0) % colors.length];
 
-  const handleInvite=()=>{
-    const errs:Record<string,string>={};
-    if(!form.name.trim())errs.name="Staff name is required";
-    if(!form.email.trim())errs.email="Email address is required";
-    if(Object.keys(errs).length){setInviteErr(errs);return;}
+  const openInviteModal = () => {
+    const defaultFarms = (farms && farms.length === 1) ? [farms[0].id] : [];
+    setForm({
+      name: "",
+      email: "",
+      phone: "",
+      role: "Feeding Staff",
+      permissions: [],
+      farms: defaultFarms,
+    });
     setInviteErr({});
-    onAdd({id:uid(),name:form.name,email:form.email,phone:form.phone,role:form.role,status:"Pending",joinedDate:TODAY,permissions:form.permissions,farms:form.farms});
-    setForm({name:"",email:"",phone:"",role:"Feeding Staff",permissions:[],farms:[]});
+    setShowInvite(true);
+  };
+
+  const handleInvite = async () => {
+    const errs: Record<string, string> = {};
+    const name = form.name.trim();
+    const email = form.email.trim().toLowerCase();
+
+    if (!name) errs.name = "Staff name is required";
+    if (!email) {
+      errs.email = "Email address is required";
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      errs.email = "Please enter a valid email address";
+    }
+
+    // Farm Assignment is mandatory:
+    // If only 1 farm exists, it must be auto-selected.
+    // If multiple farms exist, user must select at least one.
+    let assignedFarms = [...form.farms];
+    if (farms && farms.length === 1) {
+      assignedFarms = [farms[0].id];
+    }
+    if (!farms || farms.length === 0) {
+      errs.farms = "No farms available. Please create a farm before inviting staff.";
+    } else if (assignedFarms.length === 0) {
+      errs.farms = "Assigning a farm is required. Please select at least one farm.";
+    }
+
+    // Check if the email belongs to the current farm owner
+    if (ownerEmail && email === ownerEmail.trim().toLowerCase()) {
+      errs.email = "This email belongs to your owner account. You cannot invite yourself.";
+    }
+
+    // Check if the email is already in current farm staff list
+    if (staff.some(s => s.email.trim().toLowerCase() === email)) {
+      errs.email = "A staff member with this email address has already been invited or added.";
+    }
+
+    if (Object.keys(errs).length > 0) {
+      setInviteErr(errs);
+      return;
+    }
+
+    // Asynchronously verify if the email already has an account in the system
+    setCheckingEmail(true);
+    setInviteErr({});
+    try {
+      const check = await api.staff.checkEmailExists(email);
+      if (check.exists) {
+        setInviteErr({ email: check.reason || "An account with this email address already exists. You cannot invite an existing account." });
+        setCheckingEmail(false);
+        return;
+      }
+    } catch (err: any) {
+      console.warn("Error checking email existence:", err);
+    } finally {
+      setCheckingEmail(false);
+    }
+
+    setInviteErr({});
+    onAdd({
+      id: uid(),
+      name,
+      email,
+      phone: form.phone,
+      role: form.role,
+      status: "Pending",
+      joinedDate: TODAY,
+      permissions: form.permissions,
+      farms: assignedFarms,
+    });
+    setForm({
+      name: "",
+      email: "",
+      phone: "",
+      role: "Feeding Staff",
+      permissions: [],
+      farms: (farms && farms.length === 1) ? [farms[0].id] : [],
+    });
     setShowInvite(false);
   };
-  const copyInviteLink=(email:string)=>{
-    const link=`${window.location.origin}?type=invite&email=${encodeURIComponent(email)}`;
+  const copyInviteLink = (email: string) => {
+    const link = `${window.location.origin}?type=invite&email=${encodeURIComponent(email)}`;
     navigator.clipboard.writeText(link);
     toast.success("Invitation link copied! You can share it via WhatsApp or SMS.");
   };
-  const resendInvite=async(s:StaffMember)=>{
+  const resendInvite = async (s: StaffMember) => {
     toast.info(`Sending invitation email to ${s.email}…`);
-    try{
-      const res=await api.staff.invite({
-        email:s.email,name:s.name,phone:s.phone,role:s.role,
-        farms:s.farms,permissions:s.permissions,appUrl:window.location.origin
+    try {
+      const res = await api.staff.invite({
+        email: s.email, name: s.name, phone: s.phone, role: s.role,
+        farms: s.farms, permissions: s.permissions, appUrl: window.location.origin
       });
-      if(res.emailSent){
+      if (res.emailSent) {
         toast.success(`Invite email sent to ${s.email}!`);
-      }else if(res.emailError){
+      } else if (res.emailError) {
         toast.error(`Email delivery notice: ${res.emailError}. You can copy the invite link directly.`);
-      }else{
+      } else {
         toast.success("Invite ready. You can also share the direct link.");
       }
-    }catch(err:any){
-      toast.error("Could not send invite email. Please copy link instead.");
+    } catch (err: any) {
+      toast.error(err?.message || "Could not send invite email. Please copy link instead.");
     }
   };
-  const togglePerm=(perm:string,perms:string[],setter:(p:string[])=>void)=>{setter(perms.includes(perm)?perms.filter(x=>x!==perm):[...perms,perm]);};
-  const toggleFarm=(fid:string,fids:string[],setter:(f:string[])=>void)=>{setter(fids.includes(fid)?fids.filter(x=>x!==fid):[...fids,fid]);};
-  const handleSaveEdit=()=>{if(!editMember)return;onEdit(editMember);setEditMember(null);};
+  const togglePerm = (perm: string, perms: string[], setter: (p: string[]) => void) => { setter(perms.includes(perm) ? perms.filter(x => x !== perm) : [...perms, perm]); };
+  const toggleFarm = (fid: string, fids: string[], setter: (f: string[]) => void) => { setter(fids.includes(fid) ? fids.filter(x => x !== fid) : [...fids, fid]); };
+  const handleSaveEdit = () => { if (!editMember) return; onEdit(editMember); setEditMember(null); };
 
-  const active=staff.filter(s=>s.status==="Active").length;
-  const pending=staff.filter(s=>s.status==="Pending").length;
+  const active = staff.filter(s => s.status === "Active").length;
+  const pending = staff.filter(s => s.status === "Pending").length;
 
-  return(
+  return (
     <div className="p-4 sm:p-6 space-y-5 w-full">
       <div className="sticky top-0 z-10 bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Staff</h1>
           <p className="text-xs text-slate-400 mt-0.5">Manage team members with access to Feeding Records and Feed Stock</p>
         </div>
-        <PBtn onClick={()=>setShowInvite(true)} sm><Mail size={13}/> Invite Staff</PBtn>
+        <PBtn onClick={openInviteModal} sm><Mail size={13} /> Invite Staff</PBtn>
       </div>
 
       {/* Summary */}
       <div className="grid grid-cols-3 gap-3">
-        <StatCard label="Total Staff" value={String(staff.length)} icon={Users}/>
-        <StatCard label="Active" value={String(active)} icon={CheckCircle} hi/>
-        <StatCard label="Pending Invite" value={String(pending)} icon={Mail}/>
+        <StatCard label="Total Staff" value={String(staff.length)} icon={Users} />
+        <StatCard label="Active" value={String(active)} icon={CheckCircle} hi />
+        <StatCard label="Pending Invite" value={String(pending)} icon={Mail} />
       </div>
 
       {/* Staff list */}
-      {staff.length===0?(
+      {staff.length === 0 ? (
         <Card className="p-12 text-center">
-          <Users size={36} className="text-slate-200 mx-auto mb-3"/>
+          <Users size={36} className="text-slate-200 mx-auto mb-3" />
           <p className="text-sm font-semibold text-slate-400 mb-1">No staff members yet</p>
           <p className="text-xs text-slate-300 mb-4">Invite team members to give them access to feeding records and feed stock.</p>
-          <div className="flex justify-center"><PBtn onClick={()=>setShowInvite(true)}><Mail size={14}/> Send First Invite</PBtn></div>
+          <div className="flex justify-center"><PBtn onClick={openInviteModal}><Mail size={14} /> Send First Invite</PBtn></div>
         </Card>
-      ):(
+      ) : (
         <Card>
           <div className="overflow-x-auto">
             <table className="w-full text-sm min-w-[780px]">
@@ -1006,18 +1112,57 @@ function StaffPage({staff,onAdd,onEdit,onDelete,farms,activeFarmId}:{staff:Staff
             ))}
           </div>
         </F>
-        {farms&&farms.length>0&&<F label="Farm Assignment">
-          <div className="border border-slate-200 rounded-xl p-3 space-y-1.5">
-            {farms.map(f=>(
-              <label key={f.id} className="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" checked={form.farms.includes(f.id)} onChange={()=>toggleFarm(f.id,form.farms,fs=>setForm(prev=>({...prev,farms:fs})))} className="custom-check w-4 h-4 appearance-none border border-slate-300 rounded bg-white checked:bg-green-600 checked:border-green-600 transition-colors cursor-pointer"/>
-                <span className="text-xs text-slate-700">{f.name}</span>
-              </label>
-            ))}
-          </div>
-        </F>}
+        <F label="Farm Assignment *">
+          {(!farms || farms.length === 0) ? (
+            <p className="text-xs text-amber-700 bg-amber-50 p-2.5 rounded-xl border border-amber-200">
+              No farms found. Please create a farm first before inviting staff.
+            </p>
+          ) : (
+            <div className={`border rounded-xl p-3 space-y-2 ${inviteErr.farms ? "border-red-400 bg-red-50/20" : "border-slate-200"}`}>
+              {farms.map(f => {
+                const isOnlyOne = farms.length === 1;
+                const isChecked = isOnlyOne || form.farms.includes(f.id);
+                return (
+                  <label key={f.id} className={`flex items-center gap-2 ${isOnlyOne ? "cursor-default" : "cursor-pointer"}`}>
+                    <input
+                      type="checkbox"
+                      checked={isChecked}
+                      disabled={isOnlyOne}
+                      onChange={() => {
+                        if (isOnlyOne) return;
+                        toggleFarm(f.id, form.farms, fs => {
+                          setForm(prev => ({ ...prev, farms: fs }));
+                          if (fs.length > 0) setInviteErr(p => ({ ...p, farms: "" }));
+                        });
+                      }}
+                      className="custom-check w-4 h-4 appearance-none border border-slate-300 rounded bg-white checked:bg-green-600 checked:border-green-600 transition-colors cursor-pointer disabled:opacity-80"
+                    />
+                    <span className="text-xs text-slate-700 font-medium">
+                      {f.name}
+                      {isOnlyOne && (
+                        <span className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full font-bold ml-2">
+                          Auto-selected (Only 1 farm)
+                        </span>
+                      )}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+          )}
+          {inviteErr.farms && <p className="text-xs text-red-500 mt-1">{inviteErr.farms}</p>}
+        </F>
         <div className="bg-green-50 border border-green-200 rounded-xl px-4 py-3 text-xs text-green-700">An invite will be sent to <strong>{form.email||"their email"}</strong>.</div>
-        <div className="flex gap-2 pt-1"><PBtn onClick={handleInvite}><Mail size={14}/> Send Invite</PBtn><button onClick={()=>{setShowInvite(false);setInviteErr({});}} className="px-4 py-2 text-sm text-slate-400">Cancel</button></div>
+        <div className="flex gap-2 pt-1">
+          <PBtn onClick={handleInvite} disabled={checkingEmail}>
+            {checkingEmail ? (
+              <><Loader2 size={14} className="animate-spin" /> Verifying Email…</>
+            ) : (
+              <><Mail size={14} /> Send Invite</>
+            )}
+          </PBtn>
+          <button onClick={()=>{setShowInvite(false);setInviteErr({});}} disabled={checkingEmail} className="px-4 py-2 text-sm text-slate-400">Cancel</button>
+        </div>
       </Modal>}
 
       {/* Edit modal */}
@@ -3455,7 +3600,12 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       }
     }).catch(err=>{
       console.warn("Staff invite failed:", err);
-      toast.error("Staff invite saved locally. Sync when online.");
+      if (err?.message && err.message.toLowerCase().includes("already exists")) {
+        setStaff(prev => prev.filter(x => x.id !== cleanStaff.id));
+        toast.error(err.message);
+      } else {
+        toast.error("Staff invite saved locally. Sync when online.");
+      }
     });
   };
   const editStaff=(s:StaffMember)=>{setStaff(prev=>prev.map(x=>x.id===s.id?s:x));api.staff.update(s).catch(console.warn);};
@@ -3815,7 +3965,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
             {active==="inventory"     &&(hasPerm("Feed Stock")?<FeedInventoryPage inventory={farmInventory} onAdd={addInv} onDelete={delInv} feedingRecords={farmFeeding} bagLogs={farmBagLogs} remainLogs={farmRemainLogs} ponds={farmPonds} onEditBagLog={editBagLog} onEditInv={editInv} currency={cs} canEditLocked={isOwner||currentStaff?.role==="Farm Manager"}/>:<AccessDenied/>)}
             {active==="documentation" &&(hasPerm("Feeding Records")?<FeedDocumentationPage feedingRecords={farmFeeding} onAddRecord={addFeed} onEditFeedRecord={editFeedRecord} onDeleteRecord={deleteFeedRecord} ponds={farmPonds} inventory={farmInventory} bagLogs={farmBagLogs} onAddBagLog={addBagLog} onEditBagLog={editBagLog} onEditInv={editInv} remainLogs={farmRemainLogs} onAddRemainLog={addRemainLog} onEditRemainLog={editRemainLog} onReconMismatches={onReconMismatches} reconFocus={reconFocus} canEditLocked={isOwner||currentStaff?.role==="Farm Manager"} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}}/>:<AccessDenied/>)}
             {active==="invoices"      &&(hasPerm("Invoice")?<InvoicesPage ponds={farmPonds} invoices={farmInvoices} customers={farmCustomers} priceGroups={farmPriceGroups} settings={invSettings} onAddInvoice={addInvoice} onEditInvoice={editInvoice} onDeleteInvoice={deleteInvoice} onAddCustomer={addCustomer} onAddPriceGroup={addPriceGroup} onEditPriceGroup={editPriceGroup} onDeletePriceGroup={delPriceGroup} onUpdateSettings={(s)=>{setInvSettings(s);api.invSettings.update(s).catch(console.warn);}} currentUser={userProfile?.name} currency={cs}/>:<AccessDenied/>)}
-            {active==="staff"         &&(isOwner?<StaffPage staff={staff} onAdd={addStaff} onEdit={editStaff} onDelete={delStaff} farms={farms} activeFarmId={activeFarmId}/>:<AccessDenied/>)}
+            {active==="staff"         &&(isOwner?<StaffPage staff={staff} onAdd={addStaff} onEdit={editStaff} onDelete={delStaff} farms={farms} activeFarmId={activeFarmId} ownerEmail={userProfile?.email}/>:<AccessDenied/>)}
             {active==="reports"       &&(hasPerm("Reports")?<ReportsPage reports={farmReports} staff={staff} onAdd={addReport} onEdit={editReportFn}/>:<AccessDenied/>)}
             {active==="assessments"   &&(hasPerm("Staff Assessment")?<EmployeeAssessmentsPage kQuestions={kQuestions} cQuestions={cQuestions} kResults={kResults} cResults={cResults} onSaveKQuestions={saveKQuestions} onSaveCQuestions={saveCQuestions} onAddKResult={addKResult} onAddCResult={addCResult} ownerId={userProfile?.id??""}/>:<AccessDenied/>)}
             {active==="pricing"       &&(isOwner?<SubscriptionPage farmCount={farms.length} activePlan={activePlan} setActivePlan={setActivePlan} trialStartDate={trialStartDate} setTrialStartDate={setTrialStartDate} currency={cs} convertPrice={cvt} userProfile={userProfile} activeFarmName={farms.find(f=>f.id===activeFarmId)?.name||userProfile?.farmName}/>:<AccessDenied/>)}

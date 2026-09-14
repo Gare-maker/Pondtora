@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from "react";
-import { CheckCircle, ChevronLeft, Loader2, AlertCircle, Eye, EyeOff, Mail, Check, Sparkles } from "lucide-react";
+import { CheckCircle, ChevronLeft, Loader2, AlertCircle, Eye, EyeOff, Mail, Check, Sparkles, Fish } from "lucide-react";
 import pondtoraLogo from "../../imports/loo-2.svg";
 import type { UserProfile } from "../types";
 import { COUNTRIES, DIAL_CODES, FLAG_EMOJI, COUNTRY_CURRENCIES } from "../data";
 import { SearchableCountrySelect } from "../shared";
 import { supabase } from "../../lib/supabase";
 import { auth } from "../../lib/api";
-import { useDynamicPlans, yearlyPrice } from "../pricingData";
+import { useDynamicPlans, yearlyPrice, EVERY_PLAN_INCLUDES } from "../pricingData";
 
 const AIC = "w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg bg-white text-slate-900 placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-green-300 transition";
 const LBL = "block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1";
@@ -367,32 +367,40 @@ function AuthScreen({
     </div>
   );
 
+  const isPlanStep = view === "create" && createStep === "plan" && !signupSent;
+
   return (
-    <div className="min-h-screen grid lg:grid-cols-2 bg-white">
-      <AuthLeftPanel />
-      <div className={`flex flex-col justify-center px-6 py-10 sm:px-10 overflow-y-auto ${isCreate ? "" : "min-h-screen"}`}>
-        <div className="flex items-center gap-3 mb-8 lg:hidden">
-          <img src={pondtoraLogo} alt="Pondtora" className="h-9 w-auto object-contain shrink-0" />
-          <div>
-            <p className="text-2xl font-extrabold font-['Barlow_Condensed',sans-serif] text-slate-900 tracking-wide leading-none">Pondtora</p>
-            <p className="text-[10px] text-emerald-600 uppercase tracking-widest mt-1 font-semibold">Fish Farm Management System</p>
+    <div className={`min-h-screen ${isPlanStep ? "flex flex-col items-center justify-start bg-[#f8fafc] py-8 px-4 sm:px-8" : "grid lg:grid-cols-2 bg-white"}`}>
+      {!isPlanStep && <AuthLeftPanel />}
+      <div className={`flex flex-col justify-center overflow-y-auto ${isPlanStep ? "w-full max-w-5xl mx-auto" : `px-6 py-10 sm:px-10 ${isCreate ? "" : "min-h-screen"}`}`}>
+        {!isPlanStep && (
+          <div className="flex items-center gap-3 mb-8 lg:hidden">
+            <img src={pondtoraLogo} alt="Pondtora" className="h-9 w-auto object-contain shrink-0" />
+            <div>
+              <p className="text-2xl font-extrabold font-['Barlow_Condensed',sans-serif] text-slate-900 tracking-wide leading-none">Pondtora</p>
+              <p className="text-[10px] text-emerald-600 uppercase tracking-widest mt-1 font-semibold">Fish Farm Management System</p>
+            </div>
           </div>
-        </div>
-        <div className={`${view === "create" && createStep === "plan" && !signupSent ? "max-w-2xl" : "max-w-sm"} w-full mx-auto transition-all`}>
-          <h2 className="text-2xl font-extrabold text-slate-900 font-['Barlow_Condensed',sans-serif] mb-1">
-            {view === "login" ? "Welcome back"
-              : view === "create" ? (createStep === "plan" && !signupSent ? "Select Your 30-Day Free Trial Plan" : "Create your account")
-              : view === "recovery" ? "Set new password"
-              : view === "invite" ? "Accept your invitation"
-              : "Reset password"}
-          </h2>
-          <p className="text-sm text-slate-400 mb-7">
-            {view === "login" ? "Sign in to your Pondtora account"
-              : view === "create" ? (createStep === "plan" && !signupSent ? "Choose any plan to try for 30 days — no credit card needed" : "Start your 30-day free trial today")
-              : view === "recovery" ? "Enter your new password below"
-              : view === "invite" ? "Set a password to complete your account setup"
-              : "Enter your email to receive a reset link"}
-          </p>
+        )}
+        <div className={`${isPlanStep ? "w-full" : "max-w-sm"} w-full mx-auto transition-all`}>
+          {!isPlanStep && (
+            <>
+              <h2 className="text-2xl font-extrabold text-slate-900 font-['Barlow_Condensed',sans-serif] mb-1">
+                {view === "login" ? "Welcome back"
+                  : view === "create" ? "Create your account"
+                  : view === "recovery" ? "Set new password"
+                  : view === "invite" ? "Accept your invitation"
+                  : "Reset password"}
+              </h2>
+              <p className="text-sm text-slate-400 mb-7">
+                {view === "login" ? "Sign in to your Pondtora account"
+                  : view === "create" ? "Start your 30-day free trial today"
+                  : view === "recovery" ? "Enter your new password below"
+                  : view === "invite" ? "Set a password to complete your account setup"
+                  : "Enter your email to receive a reset link"}
+              </p>
+            </>
+          )}
 
           {/* ── Login ── */}
           {view === "login" && (
@@ -468,147 +476,275 @@ function AuthScreen({
 
           {/* ── Create account Step 2: Select 30-Day Free Trial Plan ── */}
           {view === "create" && !signupSent && createStep === "plan" && (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+            <div className="w-full space-y-5">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-200">
                 <button
                   type="button"
                   onClick={() => setCreateStep("details")}
-                  className="flex items-center gap-1 text-xs font-semibold text-green-700 hover:text-green-900 transition-colors"
+                  className="flex items-center gap-1.5 text-xs font-bold text-emerald-700 hover:text-emerald-900 transition-colors bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-200"
                 >
-                  <ChevronLeft size={15} /> Back to Details
+                  <ChevronLeft size={16} /> Back to Details
                 </button>
-                <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">
+                <div className="flex items-center gap-2">
+                  <img src={pondtoraLogo} alt="Pondtora" className="h-7 w-auto object-contain shrink-0" />
+                  <span className="text-base font-extrabold font-['Barlow_Condensed',sans-serif] text-slate-900">Pondtora</span>
+                </div>
+                <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-700 bg-emerald-100 px-3 py-1 rounded-full">
                   Step 2 of 2 · 30-Day Free Trial
                 </span>
               </div>
 
-              {/* Billing and Farm Type Selectors */}
-              <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
-                <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs font-bold">
-                  <button
-                    type="button"
-                    onClick={() => setTrialFarmType("single")}
-                    className={`px-3 py-1.5 rounded-lg transition-all ${
-                      trialFarmType === "single" ? "bg-white text-slate-900 shadow-xs" : "text-slate-500 hover:text-slate-800"
-                    }`}
-                  >
-                    Single Farm
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setTrialFarmType("multi")}
-                    className={`px-3 py-1.5 rounded-lg transition-all ${
-                      trialFarmType === "multi" ? "bg-white text-slate-900 shadow-xs" : "text-slate-500 hover:text-slate-800"
-                    }`}
-                  >
-                    Multiple Farms
-                  </button>
-                </div>
+              <div className="text-center">
+                <h2 className="text-3xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">
+                  Simple, Transparent Subscriptions
+                </h2>
+                <p className="text-slate-400 text-sm mt-1">
+                  Choose any plan to start your 30-day free trial. Instant activation. No credit card required.
+                </p>
+              </div>
 
-                <div className="flex items-center gap-1.5 text-xs text-slate-500 font-semibold">
+              {/* Tab switcher */}
+              <div className="flex gap-1 bg-slate-100 p-1 rounded-xl w-fit mx-auto border border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setTrialFarmType("single")}
+                  className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all ${
+                    trialFarmType === "single" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-800"
+                  }`}
+                >
+                  Single Farm
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTrialFarmType("multi")}
+                  className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all ${
+                    trialFarmType === "multi" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-800"
+                  }`}
+                >
+                  Multiple Farms
+                </button>
+              </div>
+              <p className="text-xs text-slate-400 -mt-2 mb-3 text-center">
+                {trialFarmType === "single" ? "Manage one farm with plans based on the number of ponds." : "Manage multiple farms under a single account."}
+              </p>
+
+              {/* Billing toggle */}
+              <div className="flex justify-center mb-1">
+                <div className="inline-flex items-center gap-3 bg-slate-100 rounded-full p-1 border border-slate-200">
                   <button
                     type="button"
                     onClick={() => setTrialBilling("monthly")}
-                    className={`px-2.5 py-1 rounded-md transition-colors ${trialBilling === "monthly" ? "bg-emerald-100 text-emerald-800 font-bold" : "text-slate-500 hover:text-slate-700"}`}
+                    className={`px-4 py-1.5 rounded-full text-sm font-semibold transition-all ${
+                      trialBilling === "monthly" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"
+                    }`}
                   >
                     Monthly
                   </button>
                   <button
                     type="button"
                     onClick={() => setTrialBilling("yearly")}
-                    className={`px-2.5 py-1 rounded-md transition-colors flex items-center gap-1 ${trialBilling === "yearly" ? "bg-emerald-100 text-emerald-800 font-bold" : "text-slate-500 hover:text-slate-700"}`}
+                    className={`flex items-center gap-2 px-4 py-1.5 rounded-full text-sm font-semibold transition-all ${
+                      trialBilling === "yearly" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"
+                    }`}
                   >
-                    Yearly <span className="text-[10px] text-emerald-700 font-black">20% off</span>
+                    Yearly <span className="bg-green-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none">Save 20%</span>
                   </button>
                 </div>
               </div>
+              {trialBilling === "yearly" && (
+                <p className="text-xs text-green-600 font-semibold text-center -mt-2 mb-3">
+                  Billed annually — save 20% on your subscription.
+                </p>
+              )}
 
               {/* Plans Grid */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 pt-1">
-                {trialPlans.map((plan) => {
-                  const isSelected = selectedTrialPlan === plan.name;
-                  const displayPrice = trialBilling === "yearly" ? plan.yearlyPrice : plan.monthlyPrice;
-                  const cycleLabel = trialBilling === "yearly" ? "/yr after trial" : "/mo after trial";
-                  const planHighlights = [
-                    plan.limit,
-                    plan.farms || "1 Farm",
-                    "Complete Financial & Feed Records",
-                    "Full 30-Day Free Access",
-                  ];
-                  return (
-                    <div
-                      key={plan.id}
-                      className={`relative flex flex-col justify-between p-4 rounded-xl border-2 transition-all cursor-pointer ${
-                        isSelected
-                          ? "border-emerald-600 bg-emerald-50/40 shadow-md ring-1 ring-emerald-500"
-                          : "border-slate-200 bg-white hover:border-slate-300 shadow-2xs"
-                      }`}
-                      onClick={() => setSelectedTrialPlan(plan.name)}
-                    >
-                      {plan.badge && (
-                        <span className="absolute -top-2.5 left-4 bg-emerald-600 text-white text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full shadow-xs">
-                          {plan.badge}
-                        </span>
-                      )}
-                      <div>
-                        <div className="flex items-center justify-between mt-1">
-                          <h4 className="font-extrabold text-base font-['Barlow_Condensed',sans-serif] text-slate-900">
-                            {plan.name}
-                          </h4>
-                          <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">
-                            30 Days Free
-                          </span>
-                        </div>
-                        <p className="text-[11px] text-slate-500 mt-0.5 font-medium">{plan.pondLimit} · {plan.farms || "1 Farm"}</p>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-5 items-stretch pt-2">
+                {trialFarmType === "single" ? (
+                  singleFarmPlans.map(plan => {
+                    const isYearly = trialBilling === "yearly";
+                    const displayPrice = isYearly ? plan.yearlyPrice : plan.monthlyPrice;
+                    const isSelected = selectedTrialPlan === plan.name;
+                    const savings = plan.yearlySaving || Math.round((plan.monthlyPrice || 0) * 12 * 0.2);
 
-                        <div className="mt-2.5 pt-2.5 border-t border-slate-100">
-                          <span className="text-xl font-black font-['Barlow_Condensed',sans-serif] text-slate-900">
-                            ₦{displayPrice.toLocaleString()}
-                          </span>
-                          <span className="text-[10px] text-slate-400 ml-1">{cycleLabel}</span>
-                        </div>
-
-                        <ul className="space-y-1.5 mt-3 text-[11px] text-slate-600">
-                          {planHighlights.map((f, i) => (
-                            <li key={i} className="flex items-start gap-1.5">
-                              <Check size={12} className="text-emerald-600 shrink-0 mt-0.5" />
-                              <span className="leading-tight">{f}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-
-                      <button
-                        type="button"
-                        disabled={cLoading}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleSelectPlanAndSignUp(plan.name);
-                        }}
-                        className={`w-full mt-4 py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
-                          isSelected
-                            ? "bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs"
-                            : "bg-slate-100 hover:bg-slate-200 text-slate-800"
+                    return (
+                      <div
+                        key={plan.name}
+                        onClick={() => setSelectedTrialPlan(plan.name)}
+                        className={`rounded-2xl border-2 ${plan.color || "border-slate-200"} bg-white p-6 flex flex-col relative shadow-sm hover:shadow-md transition-all cursor-pointer ${
+                          isSelected ? "ring-2 ring-emerald-500 border-emerald-500" : ""
                         }`}
                       >
-                        {cLoading && selectedTrialPlan === plan.name ? (
-                          <><Loader2 size={13} className="animate-spin" /> Starting Trial…</>
-                        ) : (
-                          <>Start 30-Day Free Trial</>
+                        {plan.badge && (
+                          <span
+                            className={`absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full text-[11px] font-bold ${
+                              plan.badge === "Popular" ? "bg-green-600 text-white" : "bg-[#F97316] text-white"
+                            }`}
+                          >
+                            {plan.badge}
+                          </span>
                         )}
-                      </button>
-                    </div>
-                  );
-                })}
+                        <div className="mb-5">
+                          <p className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-0.5">{plan.name}</p>
+                          <p className={`text-sm font-semibold mb-3 ${plan.limit === "Unlimited active ponds" ? "text-slate-700" : "text-green-600"}`}>
+                            {plan.limit || "Unlimited active ponds"}
+                          </p>
+                          <div className="flex items-baseline gap-1">
+                            <span className="text-4xl font-extrabold text-slate-900 font-['Barlow_Condensed',sans-serif]">
+                              ₦{displayPrice.toLocaleString()}
+                            </span>
+                            <span className="text-slate-400 text-sm">{isYearly ? "/year" : "/month"}</span>
+                          </div>
+                          {isYearly && (
+                            <p className="text-[11px] text-green-600 mt-1">Save ₦{savings.toLocaleString()} per year</p>
+                          )}
+                          <p className="text-xs text-slate-400 mt-2 leading-relaxed">{plan.desc || ""}</p>
+                        </div>
+
+                        <div className="mb-4 space-y-1.5 flex-1">
+                          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">Includes:</p>
+                          {plan.name === "Starter" ? (
+                            EVERY_PLAN_INCLUDES.map(f => (
+                              <div key={f} className="flex items-center gap-2 text-xs text-slate-600">
+                                <CheckCircle size={12} className="text-green-500 shrink-0" />{f}
+                              </div>
+                            ))
+                          ) : plan.name === "Growth" ? (
+                            <>
+                              <div className="flex items-center gap-2 text-xs text-slate-600"><CheckCircle size={12} className="text-green-500 shrink-0" />Everything in Starter</div>
+                              <div className="flex items-center gap-2 text-xs text-slate-600"><CheckCircle size={12} className="text-green-500 shrink-0" />Up to 15 active ponds</div>
+                            </>
+                          ) : (
+                            <>
+                              <div className="flex items-center gap-2 text-xs text-slate-600"><CheckCircle size={12} className="text-green-500 shrink-0" />Everything in Growth</div>
+                              <div className="flex items-center gap-2 text-xs text-slate-600"><CheckCircle size={12} className="text-green-500 shrink-0" />Unlimited active ponds</div>
+                            </>
+                          )}
+                        </div>
+
+                        <button
+                          type="button"
+                          disabled={cLoading}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleSelectPlanAndSignUp(plan.name);
+                          }}
+                          className={`w-full py-2.5 rounded-xl text-xs font-bold transition-all mt-auto flex items-center justify-center gap-2 shadow-sm ${
+                            plan.badge === "Popular"
+                              ? "bg-green-600 hover:bg-green-700 text-white"
+                              : plan.badge === "Best Value"
+                              ? "bg-[#F97316] hover:bg-[#ea6c0a] text-white"
+                              : "bg-slate-900 hover:bg-slate-800 text-white"
+                          }`}
+                        >
+                          {cLoading && selectedTrialPlan === plan.name ? (
+                            <><Loader2 size={14} className="animate-spin" /> Starting Trial…</>
+                          ) : (
+                            <>Start 30-Day Free Trial</>
+                          )}
+                        </button>
+                      </div>
+                    );
+                  })
+                ) : (
+                  multiFarmPlans.map(plan => {
+                    const isYearly = trialBilling === "yearly";
+                    const displayPrice = isYearly ? plan.yearlyPrice : plan.monthlyPrice;
+                    const isSelected = selectedTrialPlan === plan.name;
+                    const savings = plan.yearlySaving || Math.round((plan.monthlyPrice || 0) * 12 * 0.2);
+
+                    return (
+                      <div
+                        key={plan.name}
+                        onClick={() => setSelectedTrialPlan(plan.name)}
+                        className={`rounded-2xl border-2 ${plan.color || "border-slate-200"} bg-white p-6 flex flex-col relative shadow-sm hover:shadow-md transition-all cursor-pointer ${
+                          isSelected ? "ring-2 ring-emerald-500 border-emerald-500" : ""
+                        }`}
+                      >
+                        {plan.badge && (
+                          <span
+                            className={`absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full text-[11px] font-bold ${
+                              plan.badge === "Popular" ? "bg-green-600 text-white" : "bg-[#F97316] text-white"
+                            }`}
+                          >
+                            {plan.badge}
+                          </span>
+                        )}
+                        <div className="mb-4">
+                          <p className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-0.5">{plan.name}</p>
+                          <div className="flex items-center gap-1.5 mb-1">
+                            <Fish size={11} className="text-green-500" />
+                            <p className={`text-sm font-semibold ${plan.farmLimit === Infinity ? "text-slate-900" : "text-green-600"}`}>
+                              {plan.farms || "Multiple farms"}
+                            </p>
+                          </div>
+                          <p className="text-[11px] text-teal-600 font-medium mb-2">Unlimited active ponds per farm</p>
+                          <div className="flex items-baseline gap-1">
+                            <span className="text-4xl font-extrabold text-slate-900 font-['Barlow_Condensed',sans-serif]">
+                              ₦{displayPrice.toLocaleString()}
+                            </span>
+                            <span className="text-slate-400 text-sm">{isYearly ? "/year" : "/month"}</span>
+                          </div>
+                          {isYearly && (
+                            <p className="text-[10px] text-green-600 mt-0.5">Save ₦{savings.toLocaleString()} per year</p>
+                          )}
+                          <p className="text-xs text-slate-400 mt-2 leading-relaxed">{plan.desc || ""}</p>
+                        </div>
+
+                        <div className="mb-4 space-y-1.5 flex-1">
+                          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">Includes:</p>
+                          {plan.farmLimit === 3 ? (
+                            <>{[...EVERY_PLAN_INCLUDES, "Unlimited active ponds per farm"].map(f => (
+                              <div key={f} className="flex items-center gap-2 text-xs text-slate-600">
+                                <CheckCircle size={12} className="text-green-500 shrink-0" />{f}
+                              </div>
+                            ))}</>
+                          ) : plan.farmLimit === 5 ? (
+                            <>
+                              <div className="flex items-center gap-2 text-xs text-slate-600"><CheckCircle size={12} className="text-green-500 shrink-0" />Everything in the 3-Farm Plan</div>
+                              <div className="flex items-center gap-2 text-xs text-slate-600"><CheckCircle size={12} className="text-green-500 shrink-0" />Up to 5 farms</div>
+                            </>
+                          ) : (
+                            <>
+                              <div className="flex items-center gap-2 text-xs text-slate-600"><CheckCircle size={12} className="text-green-500 shrink-0" />Everything in the 5-Farm Plan</div>
+                              <div className="flex items-center gap-2 text-xs text-slate-600"><CheckCircle size={12} className="text-green-500 shrink-0" />Unlimited farms</div>
+                            </>
+                          )}
+                        </div>
+
+                        <button
+                          type="button"
+                          disabled={cLoading}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleSelectPlanAndSignUp(plan.name);
+                          }}
+                          className={`w-full py-2.5 rounded-xl text-xs font-bold transition-all mt-auto flex items-center justify-center gap-2 shadow-sm ${
+                            plan.badge === "Popular"
+                              ? "bg-green-600 hover:bg-green-700 text-white"
+                              : plan.badge === "Best Value"
+                              ? "bg-[#F97316] hover:bg-[#ea6c0a] text-white"
+                              : "bg-slate-900 hover:bg-slate-800 text-white"
+                          }`}
+                        >
+                          {cLoading && selectedTrialPlan === plan.name ? (
+                            <><Loader2 size={14} className="animate-spin" /> Starting Trial…</>
+                          ) : (
+                            <>Start 30-Day Free Trial</>
+                          )}
+                        </button>
+                      </div>
+                    );
+                  })
+                )}
               </div>
 
               {cErr && (
-                <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2 flex items-center gap-2">
+                <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2 flex items-center gap-2 mt-4">
                   <AlertCircle size={13} />{cErr}
                 </p>
               )}
 
-              <p className="text-center text-[11px] text-slate-400 pt-1">
+              <p className="text-center text-xs text-slate-400 pt-4">
                 You will not be charged today. No credit card required. Cancel or change plan anytime.
               </p>
             </div>

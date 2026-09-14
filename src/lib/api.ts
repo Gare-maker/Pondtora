@@ -714,6 +714,57 @@ export const api = {
   // ── Staff ──────────────────────────────────────────────────────────────────
   staff: {
     list: () => dbList<StaffMember>("staff_members", "staffMembers"),
+    checkEmailExists: async (email: string): Promise<{ exists: boolean; reason?: string }> => {
+      const cleanEmail = email.trim().toLowerCase();
+      if (!cleanEmail) return { exists: false };
+
+      // 1. Try RPC check if available in Supabase
+      try {
+        const { data, error } = await supabase.rpc("check_email_exists", { lookup_email: cleanEmail });
+        if (!error && typeof data === "boolean" && data === true) {
+          return { exists: true, reason: "An account with this email address already exists." };
+        }
+      } catch (e) {
+        // RPC might not be deployed yet in remote DB, fallback safely
+      }
+
+      // 2. Query user_profiles directly
+      try {
+        const { data, error } = await supabase
+          .from("user_profiles")
+          .select("id, email")
+          .ilike("email", cleanEmail)
+          .limit(1);
+        if (!error && data && data.length > 0) {
+          return { exists: true, reason: "A registered user with this email address already exists." };
+        }
+      } catch {}
+
+      // 3. Query staff_members directly
+      try {
+        const { data, error } = await supabase
+          .from("staff_members")
+          .select("id, email")
+          .ilike("email", cleanEmail)
+          .limit(1);
+        if (!error && data && data.length > 0) {
+          return { exists: true, reason: "A staff member with this email address already exists." };
+        }
+      } catch {}
+
+      // 4. Query cached local admin users if present
+      try {
+        const raw = localStorage.getItem("pondtora_admin_users");
+        if (raw) {
+          const list = JSON.parse(raw);
+          if (Array.isArray(list) && list.some(u => u?.email && u.email.trim().toLowerCase() === cleanEmail)) {
+            return { exists: true, reason: "An account with this email address already exists." };
+          }
+        }
+      } catch {}
+
+      return { exists: false };
+    },
     invite: async (opts: {
       email: string;
       name?: string;
@@ -723,11 +774,17 @@ export const api = {
       permissions?: string[];
       appUrl?: string;
     }) => {
+      const cleanEmail = opts.email.trim().toLowerCase();
+      const existing = await api.staff.checkEmailExists(cleanEmail);
+      if (existing.exists) {
+        throw new Error(existing.reason || `An account with email "${cleanEmail}" already exists.`);
+      }
+
       const userId = await getUserId();
       const staffMember: StaffMember = {
         id: crypto.randomUUID(),
         name: opts.name || opts.email.split("@")[0],
-        email: opts.email.trim().toLowerCase(),
+        email: cleanEmail,
         phone: opts.phone || "",
         role: opts.role || "General Staff",
         status: "Pending",

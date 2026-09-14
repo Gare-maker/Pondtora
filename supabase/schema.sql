@@ -591,3 +591,27 @@ DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION handle_new_user();
+
+-- Helper function to check if an email already belongs to an existing account
+CREATE OR REPLACE FUNCTION check_email_exists(lookup_email TEXT)
+RETURNS BOOLEAN LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE
+  clean_email TEXT;
+BEGIN
+  clean_email := LOWER(TRIM(lookup_email));
+  IF clean_email = '' OR clean_email IS NULL THEN
+    RETURN FALSE;
+  END IF;
+
+  RETURN EXISTS (
+    SELECT 1 FROM auth.users WHERE LOWER(email) = clean_email
+  ) OR EXISTS (
+    SELECT 1 FROM user_profiles WHERE LOWER(email) = clean_email
+  ) OR EXISTS (
+    SELECT 1 FROM staff_members WHERE LOWER(email) = clean_email
+  );
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION check_email_exists(TEXT) TO authenticated, anon;
+
