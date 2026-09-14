@@ -94,6 +94,25 @@ export default function InvestorsPage({
     notes: "",
   });
 
+  // Edit Investment & Investor Form State
+  const [editForm, setEditForm] = useState({
+    fullName: "",
+    phone: "",
+    email: "",
+    status: "Active" as "Active" | "Completed" | "Inactive",
+    notes: "",
+    amountInvested: "",
+    startDate: TODAY,
+    dueDate: "",
+    investorPercentage: "",
+    paymentType: "one-time" as "one-time" | "recurring",
+    paymentFrequency: "Monthly" as "Monthly" | "Quarterly" | "Annually" | "Custom",
+    customFrequencyDesc: "",
+    farmId: activeFarmId || farms[0]?.id || "",
+    pondId: "",
+    fishStockId: "",
+  });
+
   // Current selected investor & their investments/payments
   const selectedInvestor = useMemo(() => {
     if (!selectedInvestorId) return null;
@@ -233,6 +252,107 @@ export default function InvestorsPage({
   const availablePondsForAdd = useMemo(() => {
     return ponds.filter(p => p.farmId === addForm.farmId);
   }, [ponds, addForm.farmId]);
+
+  const editCalcAmount = Number(editForm.amountInvested) || 0;
+  const editCalcPct = Number(editForm.investorPercentage) || 0;
+  const editCalcReturn = Math.round((editCalcAmount * editCalcPct) / 100);
+
+  const availablePondsForEdit = useMemo(() => {
+    return ponds.filter(p => p.farmId === (editForm.farmId || activeFarmId));
+  }, [ponds, editForm.farmId, activeFarmId]);
+
+  const openEditInvestmentModal = () => {
+    if (!selectedInvestor) return;
+    setEditForm({
+      fullName: selectedInvestor.fullName || "",
+      phone: selectedInvestor.phone || "",
+      email: selectedInvestor.email || "",
+      status: selectedInvestor.status || "Active",
+      notes: selectedInvestor.notes || "",
+      amountInvested: String(activeInvestment?.amountInvested || ""),
+      startDate: activeInvestment?.startDate || TODAY,
+      dueDate: activeInvestment?.dueDate || "",
+      investorPercentage: String(activeInvestment?.investorPercentage || ""),
+      paymentType: activeInvestment?.paymentType || "one-time",
+      paymentFrequency: (activeInvestment?.paymentFrequency as any) || "Monthly",
+      customFrequencyDesc: activeInvestment?.customFrequencyDesc || "",
+      farmId: activeInvestment?.farmId || activeFarmId || farms[0]?.id || "",
+      pondId: activeInvestment?.pondId || "",
+      fishStockId: activeInvestment?.fishStockId || "",
+    });
+    setShowEditInvestmentModal(true);
+  };
+
+  const handleSaveEditInvestment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedInvestor) return;
+    if (!editForm.fullName.trim()) {
+      toast.error("Investor full name is required");
+      return;
+    }
+    if (editCalcAmount <= 0) {
+      toast.error("Please enter a valid investment amount");
+      return;
+    }
+    if (editCalcPct <= 0) {
+      toast.error("Agreed return percentage must be greater than 0%");
+      return;
+    }
+
+    const updatedInvestor: Investor = {
+      ...selectedInvestor,
+      fullName: editForm.fullName.trim(),
+      phone: editForm.phone.trim(),
+      email: editForm.email.trim() || undefined,
+      status: editForm.status,
+      notes: editForm.notes.trim() || undefined,
+      updatedAt: new Date().toISOString(),
+    };
+
+    const updatedInvestment: Investment = activeInvestment
+      ? {
+          ...activeInvestment,
+          farmId: editForm.farmId,
+          pondId: editForm.pondId || undefined,
+          fishStockId: editForm.fishStockId || undefined,
+          amountInvested: editCalcAmount,
+          investorPercentage: editCalcPct,
+          expectedReturn: editCalcReturn,
+          totalAmountDue: editCalcReturn,
+          startDate: editForm.startDate,
+          dueDate: editForm.dueDate,
+          paymentType: editForm.paymentType,
+          paymentFrequency: editForm.paymentType === "recurring" ? editForm.paymentFrequency : undefined,
+          customFrequencyDesc: editForm.paymentFrequency === "Custom" ? editForm.customFrequencyDesc : undefined,
+          updatedAt: new Date().toISOString(),
+        }
+      : {
+          id: uid(),
+          investorId: selectedInvestor.id,
+          farmId: editForm.farmId,
+          pondId: editForm.pondId || undefined,
+          fishStockId: editForm.fishStockId || undefined,
+          amountInvested: editCalcAmount,
+          investorPercentage: editCalcPct,
+          expectedReturn: editCalcReturn,
+          totalAmountDue: editCalcReturn,
+          startDate: editForm.startDate,
+          dueDate: editForm.dueDate,
+          paymentType: editForm.paymentType,
+          status: "Active",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+
+    try {
+      await onEditInvestor(updatedInvestor);
+      await onEditInvestment(updatedInvestment);
+      toast.success("Investment updated successfully");
+      setShowEditInvestmentModal(false);
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to update investment");
+    }
+  };
 
   // Handle Add Investor
   const handleCreateInvestor = async (e: React.FormEvent) => {
@@ -856,7 +976,7 @@ export default function InvestorsPage({
               </button>
               {canManage && (
                 <button
-                  onClick={() => setShowEditInvestmentModal(true)}
+                  onClick={openEditInvestmentModal}
                   className="flex items-center gap-1 px-3 py-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold rounded-xl transition-colors"
                 >
                   <Edit3 size={14} /> Edit Investment
@@ -1117,6 +1237,7 @@ export default function InvestorsPage({
                     <NumInput
                       value={addForm.amountInvested}
                       onChange={v => setAddForm(p => ({ ...p, amountInvested: v }))}
+                      className={IC}
                       placeholder="e.g. 1000000"
                     />
                   </F>
@@ -1124,6 +1245,7 @@ export default function InvestorsPage({
                     <NumInput
                       value={addForm.investorPercentage}
                       onChange={v => setAddForm(p => ({ ...p, investorPercentage: v }))}
+                      className={IC}
                       placeholder="e.g. 10"
                     />
                   </F>
@@ -1336,6 +1458,7 @@ export default function InvestorsPage({
                 <NumInput
                   value={payForm.amountPaid}
                   onChange={v => setPayForm(p => ({ ...p, amountPaid: v }))}
+                  className={IC}
                   placeholder="e.g. 50000"
                 />
               </F>
@@ -1378,6 +1501,210 @@ export default function InvestorsPage({
                 className="px-5 py-2 bg-green-600 hover:bg-green-700 text-white text-xs font-bold rounded-xl shadow-xs"
               >
                 Save Payment
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {/* ── 12. EDIT INVESTMENT MODAL ── */}
+      {showEditInvestmentModal && (
+        <Modal
+          title="Edit Investment & Investor Profile"
+          onClose={() => setShowEditInvestmentModal(false)}
+          wide
+        >
+          <form onSubmit={handleSaveEditInvestment} className="space-y-4">
+            {/* Section 1: Investor Profile */}
+            <div>
+              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">1. Investor Profile</p>
+              <div className="space-y-2.5">
+                <F label="Full Name" required>
+                  <input
+                    type="text"
+                    required
+                    value={editForm.fullName}
+                    onChange={e => setEditForm(p => ({ ...p, fullName: e.target.value }))}
+                    className={IC}
+                    placeholder="e.g. Chief Adeleke Adele"
+                  />
+                </F>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <F label="Phone Number" required>
+                    <input
+                      type="tel"
+                      required
+                      value={editForm.phone}
+                      onChange={e => setEditForm(p => ({ ...p, phone: e.target.value }))}
+                      className={IC}
+                      placeholder="+234 …"
+                    />
+                  </F>
+                  <F label="Email Address">
+                    <input
+                      type="email"
+                      value={editForm.email}
+                      onChange={e => setEditForm(p => ({ ...p, email: e.target.value }))}
+                      className={IC}
+                      placeholder="investor@example.com"
+                    />
+                  </F>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <F label="Investor Status">
+                    <select
+                      value={editForm.status}
+                      onChange={e => setEditForm(p => ({ ...p, status: e.target.value as any }))}
+                      className={SC}
+                    >
+                      <option value="Active">Active</option>
+                      <option value="Completed">Completed</option>
+                      <option value="Inactive">Inactive</option>
+                    </select>
+                  </F>
+                  <F label="Investor Notes">
+                    <input
+                      type="text"
+                      value={editForm.notes}
+                      onChange={e => setEditForm(p => ({ ...p, notes: e.target.value }))}
+                      className={IC}
+                      placeholder="Internal reference notes…"
+                    />
+                  </F>
+                </div>
+              </div>
+            </div>
+
+            {/* Section 2: Investment Details */}
+            <div className="pt-2 border-t border-slate-100">
+              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">2. Investment Agreement Details</p>
+              <div className="space-y-2.5">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <F label="Capital Invested" required>
+                    <NumInput
+                      value={editForm.amountInvested}
+                      onChange={v => setEditForm(p => ({ ...p, amountInvested: v }))}
+                      className={IC}
+                      placeholder="e.g. 1000000"
+                    />
+                  </F>
+                  <F label="Investor Agreed Return (%)" required>
+                    <NumInput
+                      value={editForm.investorPercentage}
+                      onChange={v => setEditForm(p => ({ ...p, investorPercentage: v }))}
+                      className={IC}
+                      placeholder="e.g. 15"
+                    />
+                  </F>
+                </div>
+
+                {editCalcAmount > 0 && editCalcPct > 0 && (
+                  <div className="p-3 bg-emerald-50/80 border border-emerald-200 rounded-xl space-y-1 text-xs">
+                    <div className="flex justify-between text-slate-600">
+                      <span>Original Capital:</span>
+                      <span className="font-bold text-slate-900">{currency}{editCalcAmount.toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between text-slate-600">
+                      <span>Agreed Return Rate:</span>
+                      <span className="font-bold text-emerald-700">{editCalcPct}%</span>
+                    </div>
+                    <div className="flex justify-between text-emerald-800 font-bold border-t border-emerald-200/60 pt-1">
+                      <span>Expected Investor Return (Total Due):</span>
+                      <span className="text-sm text-emerald-700">{currency}{editCalcReturn.toLocaleString()}</span>
+                    </div>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <F label="Investment Start Date" required>
+                    <DateInput
+                      value={editForm.startDate}
+                      onChange={v => setEditForm(p => ({ ...p, startDate: v }))}
+                    />
+                  </F>
+                  <F label="Due Date" required>
+                    <DateInput
+                      value={editForm.dueDate}
+                      onChange={v => setEditForm(p => ({ ...p, dueDate: v }))}
+                    />
+                  </F>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <F label="Payment Type">
+                    <select
+                      value={editForm.paymentType}
+                      onChange={e => setEditForm(p => ({ ...p, paymentType: e.target.value as any }))}
+                      className={SC}
+                    >
+                      <option value="one-time">One-time</option>
+                      <option value="recurring">Recurring</option>
+                    </select>
+                  </F>
+                  {editForm.paymentType === "recurring" && (
+                    <F label="Frequency">
+                      <select
+                        value={editForm.paymentFrequency}
+                        onChange={e => setEditForm(p => ({ ...p, paymentFrequency: e.target.value as any }))}
+                        className={SC}
+                      >
+                        <option value="Monthly">Monthly</option>
+                        <option value="Quarterly">Quarterly</option>
+                        <option value="Annually">Annually</option>
+                        <option value="Custom">Custom Interval</option>
+                      </select>
+                    </F>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Section 3: Farm & Pond Link */}
+            <div className="pt-2 border-t border-slate-100">
+              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">3. Farm & Pond Link</p>
+              <div className="space-y-2.5">
+                <F label="Farm">
+                  <select
+                    value={editForm.farmId}
+                    onChange={e => setEditForm(p => ({ ...p, farmId: e.target.value, pondId: "" }))}
+                    className={SC}
+                  >
+                    {farms.map(f => (
+                      <option key={f.id} value={f.id}>{f.name} ({f.city})</option>
+                    ))}
+                  </select>
+                </F>
+
+                <F label="Pond (Optional)">
+                  <select
+                    value={editForm.pondId}
+                    onChange={e => setEditForm(p => ({ ...p, pondId: e.target.value }))}
+                    className={SC}
+                  >
+                    <option value="">General Farm (No specific pond)</option>
+                    {availablePondsForEdit.map(pond => (
+                      <option key={pond.id} value={pond.id}>{pond.name} ({pond.species})</option>
+                    ))}
+                  </select>
+                </F>
+              </div>
+            </div>
+
+            <div className="pt-3 border-t border-slate-100 flex gap-2 justify-end">
+              <button
+                type="button"
+                onClick={() => setShowEditInvestmentModal(false)}
+                className="px-4 py-2 border border-slate-200 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="px-5 py-2 bg-green-600 hover:bg-green-700 text-white text-xs font-bold rounded-xl shadow-xs"
+              >
+                Save Changes
               </button>
             </div>
           </form>

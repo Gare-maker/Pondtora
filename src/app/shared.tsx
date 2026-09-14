@@ -375,7 +375,7 @@ export function NumInput({
       inputMode={allowDecimal ? "decimal" : "numeric"}
       value={str}
       onChange={handle}
-      className={className}
+      className={className || IC}
       placeholder={placeholder}
     />
   );

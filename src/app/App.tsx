@@ -51,7 +51,7 @@ const NAV:{id:View;icon:React.ElementType;label:string}[]=[
 /* Map nav id → permission name (undefined = always visible) */
 const NAV_PERM:Partial<Record<View,string>>={
   financial:"Financial Dashboard",ponds:"Pond Management",inventory:"Feed Stock",
-  documentation:"Feeding Records",invoices:"Invoice",reports:"Reports",investors:"Investors",assessments:"Staff Assessment",
+  documentation:"Feeding Records",invoices:"Invoices",reports:"Reports",investors:"Investors",assessments:"Staff Assessments",
 };
 function Sidebar({active,onNav,collapsed,onToggle,farms,activeFarmId,onSwitchFarm,onAddFarm,sideOpen,staff,unreadCount,onNotifications,onLogout,hasPerm,isOwner,userProfile,currentStaff}:{active:View;onNav:(v:View)=>void;collapsed:boolean;onToggle:()=>void;farms:Farm[];activeFarmId:string;onSwitchFarm:(id:string)=>void;onAddFarm:()=>void;sideOpen:boolean;staff?:StaffMember[];unreadCount?:number;onNotifications?:()=>void;onLogout?:()=>void;hasPerm?:(p:string)=>boolean;isOwner?:boolean;userProfile?:UserProfile|null;currentStaff?:StaffMember|null;}){
   const [farmOpen,setFarmOpen]=useState(false);
@@ -1243,6 +1243,7 @@ function ReportsPage({
   }, [ponds, activeFarmId]);
 
   const [fPondId, setFPondId] = useState<string>("");
+  const [fPondFishStock, setFPondFishStock] = useState<string>("");
   const [fPondReportType, setFPondReportType] = useState<"treatment" | "other_issue">("treatment");
   const [fPondDate, setFPondDate] = useState<string>(TODAY);
   const [fPondMedicine, setFPondMedicine] = useState("");
@@ -1253,10 +1254,13 @@ function ReportsPage({
   const [fPondIssue, setFPondIssue] = useState("");
   const [fPondDescription, setFPondDescription] = useState("");
   const [fPondNotes, setFPondNotes] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     if (!fPondId && farmPonds.length > 0) {
-      setFPondId(farmPonds[0].id);
+      const firstNonEmpty = farmPonds.find(p => p.status !== "Empty" && (Number(p.currentCount) || 0) > 0) || farmPonds[0];
+      setFPondId(firstNonEmpty.id);
+      setFPondFishStock(firstNonEmpty.species && firstNonEmpty.species !== "—" ? `${firstNonEmpty.species} (${firstNonEmpty.stockingDate || "Active"})` : "Current Stock");
     }
   }, [farmPonds, fPondId]);
 
@@ -1310,11 +1314,17 @@ function ReportsPage({
     setShowModal(true);
   };
   const handleSubmit = async () => {
+    if (isSubmitting) return;
     setSubmitError("");
+
     if (fType === "Pond-Based") {
       const selectedPond = ponds.find(p => p.id === (fPondId || farmPonds[0]?.id));
       if (!selectedPond) {
         setSubmitError("Please select a valid pond.");
+        return;
+      }
+      if (selectedPond.status === "Empty" || (Number(selectedPond.currentCount) || 0) <= 0) {
+        setSubmitError("Cannot submit a report to an empty pond. Please select an active pond with fish.");
         return;
       }
       if (fPondReportType === "treatment") {
@@ -1333,13 +1343,14 @@ function ReportsPage({
         }
       }
 
+      setIsSubmitting(true);
       const pondName = selectedPond.name;
       const reportId = uid();
       const newPondReport: PondReport = {
         id: reportId,
         farmId: activeFarmId || selectedPond.farmId || "",
         pondId: selectedPond.id,
-        fishStockId: selectedPond.species && selectedPond.species !== "—" ? selectedPond.species : "General",
+        fishStockId: fPondFishStock.trim() || (selectedPond.species && selectedPond.species !== "—" ? `${selectedPond.species} (${selectedPond.stockingDate || "Active"})` : "Current Stock"),
         reportType: fPondReportType,
         reportDate: fPondDate || TODAY,
         issue: fPondReportType === "other_issue" ? fPondIssue.trim() : fPondMedicine.trim(),
@@ -1363,8 +1374,8 @@ function ReportsPage({
         }
 
         const reportContent = fPondReportType === "treatment"
-          ? `Pond: ${pondName} | Medicine: ${fPondMedicine.trim()}${fPondDetails.trim() ? ` | Details: ${fPondDetails.trim()}` : ""}${fPondCause.trim() ? ` | Cause: ${fPondCause.trim()}` : ""}${fPondAction.trim() ? ` | Action: ${fPondAction.trim()}` : ""}${fPondRemarks.trim() ? ` | Remarks: ${fPondRemarks.trim()}` : ""}`
-          : `Pond: ${pondName} | Issue: ${fPondIssue.trim()}${fPondDescription.trim() ? ` | Description: ${fPondDescription.trim()}` : ""}${fPondNotes.trim() ? ` | Notes: ${fPondNotes.trim()}` : ""}`;
+          ? `Pond: ${pondName} | Stock: ${newPondReport.fishStockId} | Medicine: ${fPondMedicine.trim()}${fPondDetails.trim() ? ` | Details: ${fPondDetails.trim()}` : ""}${fPondCause.trim() ? ` | Cause: ${fPondCause.trim()}` : ""}${fPondAction.trim() ? ` | Action: ${fPondAction.trim()}` : ""}${fPondRemarks.trim() ? ` | Remarks: ${fPondRemarks.trim()}` : ""}`
+          : `Pond: ${pondName} | Stock: ${newPondReport.fishStockId} | Issue: ${fPondIssue.trim()}${fPondDescription.trim() ? ` | Description: ${fPondDescription.trim()}` : ""}${fPondNotes.trim() ? ` | Notes: ${fPondNotes.trim()}` : ""}`;
 
         onAdd({
           id: uid(),
@@ -1384,6 +1395,8 @@ function ReportsPage({
         setShowModal(false);
       } catch (err: any) {
         setSubmitError(err?.message || "Failed to submit pond report");
+      } finally {
+        setIsSubmitting(false);
       }
       return;
     }
@@ -1405,13 +1418,20 @@ function ReportsPage({
       content = parts.join(" | ") || content || "Daily report submitted.";
     }
     if (!content) return;
-    if (editReport) {
-      onEdit({ ...editReport, title: fTitle.trim(), content, type: fType as any, author: fAuthor.trim() || "Admin" });
-      setEditReport(null);
-    } else {
-      onAdd({ id: uid(), title: fTitle.trim(), content, type: fType as any, author: fAuthor.trim() || "Admin", date: TODAY, status: "Open", tags: [], timestamp: new Date().toISOString() });
+    setIsSubmitting(true);
+    try {
+      if (editReport) {
+        onEdit({ ...editReport, title: fTitle.trim(), content, type: fType as any, author: fAuthor.trim() || "Admin" });
+        setEditReport(null);
+      } else {
+        onAdd({ id: uid(), title: fTitle.trim(), content, type: fType as any, author: fAuthor.trim() || "Admin", date: TODAY, status: "Open", tags: [], timestamp: new Date().toISOString() });
+      }
+      setFTitle(""); setFType("Daily"); setFContent(""); setFFedFish(""); setFFedFishConfirm(""); setFFeedSession(""); setFOutletLocked(""); setFOutletConfirm(""); setFWaterFlow(""); setFWaterFlowConfirm(""); setFWaterSession(""); setFPumpsOff(""); setFPumpsOffConfirm(""); setFEquipStored(""); setFEquipConfirm(""); setFNotes(""); setSubmitError(""); setShowModal(false);
+    } catch (err: any) {
+      setSubmitError(err?.message || "Failed to submit report");
+    } finally {
+      setIsSubmitting(false);
     }
-    setFTitle(""); setFType("Daily"); setFContent(""); setFFedFish(""); setFFedFishConfirm(""); setFFeedSession(""); setFOutletLocked(""); setFOutletConfirm(""); setFWaterFlow(""); setFWaterFlowConfirm(""); setFWaterSession(""); setFPumpsOff(""); setFPumpsOffConfirm(""); setFEquipStored(""); setFEquipConfirm(""); setFNotes(""); setSubmitError(""); setShowModal(false);
   };
   const TB = "px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors";
   const TA = "bg-green-600 text-white"; const TI = "bg-white border border-slate-200 text-slate-500 hover:text-green-600 hover:border-green-300";
@@ -1563,19 +1583,39 @@ function ReportsPage({
 
         {fType === "Pond-Based" ? (
           <div className="space-y-3">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
               <F label="Select Pond" required>
                 <select
                   value={fPondId}
-                  onChange={e => setFPondId(e.target.value)}
+                  onChange={e => {
+                    const newId = e.target.value;
+                    setFPondId(newId);
+                    const selP = farmPonds.find(p => p.id === newId);
+                    if (selP) {
+                      setFPondFishStock(selP.species && selP.species !== "—" ? `${selP.species} (${selP.stockingDate || "Active"})` : "Current Stock");
+                    }
+                  }}
                   className={SC}
                 >
-                  {farmPonds.map(p => (
-                    <option key={p.id} value={p.id}>
-                      {p.name} ({p.type}) {p.species && p.species !== "—" ? `— ${p.species}` : ""}
-                    </option>
-                  ))}
+                  {farmPonds.map(p => {
+                    const isEmpty = p.status === "Empty" || (Number(p.currentCount) || 0) <= 0;
+                    return (
+                      <option key={p.id} value={p.id} disabled={isEmpty}>
+                        {p.name} ({p.type}) {p.species && p.species !== "—" ? `— ${p.species}` : ""} {isEmpty ? "(Empty — 0 fish)" : `(${p.currentCount?.toLocaleString() || 0} fish)`}
+                      </option>
+                    );
+                  })}
                 </select>
+              </F>
+              <F label="Connected Fish Stock" required>
+                <input
+                  type="text"
+                  value={fPondFishStock}
+                  onChange={e => setFPondFishStock(e.target.value)}
+                  className={IC}
+                  placeholder="e.g. Catfish (Batch A)"
+                  required
+                />
               </F>
               <F label="Report Date" required>
                 <DateInput value={fPondDate} onChange={setFPondDate} />
@@ -1744,7 +1784,16 @@ function ReportsPage({
           }
         </F>
         {submitError && <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{submitError}</p>}
-        <div className="flex gap-2 pt-1"><PBtn onClick={handleSubmit}><CheckCircle size={14} /> {editReport ? "Save Changes" : "Submit"}</PBtn><button onClick={() => { setShowModal(false); setEditReport(null); }} className="px-4 py-2 text-sm text-slate-400">Cancel</button></div>
+        <div className="flex gap-2 pt-1">
+          <PBtn onClick={handleSubmit} disabled={isSubmitting}>
+            {isSubmitting ? (
+              <><Loader2 size={14} className="animate-spin" /> Submitting…</>
+            ) : (
+              <><CheckCircle size={14} /> {editReport ? "Save Changes" : "Submit"}</>
+            )}
+          </PBtn>
+          <button onClick={() => { setShowModal(false); setEditReport(null); }} disabled={isSubmitting} className="px-4 py-2 text-sm text-slate-400">Cancel</button>
+        </div>
       </Modal>}
     </div>
   );
@@ -1981,6 +2030,7 @@ function SubscriptionPage({
     "Fish Stock History",
     "Sales Invoicing",
     "Staff Management",
+    "Investor Details & Returns Tracking",
     "Reports & Analytics",
     "CSV Export",
     "PDF Export",
@@ -2751,7 +2801,7 @@ function ChoosePlanScreen({onSelectPlan}:{onSelectPlan:(plan:string)=>void;}){
   const [planTab,setPlanTab]=useState<"single"|"multi">("single");
   const [yearlyS,setYearlyS]=useState(false);
   const [yearlyM,setYearlyM]=useState(false);
-  const EVERY_PLAN_INCLUDES=["Financial Dashboard","Pond Management","Feed Stock","Feeding Records","Fish Stock History","Sales Invoicing","Staff Management","Reports & Analytics","CSV Export","PDF Export"];
+  const EVERY_PLAN_INCLUDES=["Financial Dashboard","Pond Management","Feed Stock","Feeding Records","Fish Stock History","Sales Invoicing","Staff Management","Investor Details & Returns Tracking","Reports & Analytics","CSV Export","PDF Export"];
   const dp=(mp:number,yr:boolean)=>yr?Math.round(mp*12*0.80):mp;
   const sv=(mp:number)=>Math.round(mp*12*0.20);
   const BillingToggle=({yearly,setYearly}:{yearly:boolean;setYearly:(v:boolean)=>void})=>(
@@ -3449,6 +3499,17 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     const remappedTreatments=pondTreatments.map(t=>({...t,id:uid(),pondId:toId,farmId:toPond.farmId||activeFarmId||farms[0]?.id||""}));
     setTreatments(prev=>[...prev.filter(t=>t.pondId!==fromId),...remappedTreatments]);
     remappedTreatments.forEach(t=>api.treatments.create(t).catch(console.warn));
+    /* remap pond reports — create copies on destination, persist */
+    const fromPondReports=pondReports.filter(r=>r.pondId===fromId);
+    const remappedReports=fromPondReports.map(r=>({
+      ...r,
+      id:uid(),
+      pondId:toId,
+      farmId:toPond.farmId||activeFarmId||farms[0]?.id||"",
+      fishStockId:r.fishStockId||(fromPond.species!=="—"?`${fromPond.species} (${fromPond.stockingDate})`:"Transferred Stock")
+    }));
+    setPondReports(prev=>[...prev.filter(r=>r.pondId!==fromId),...remappedReports]);
+    remappedReports.forEach(r=>api.pondReports.create(r).catch(console.warn));
     /* remap mortality */
     setMortality(prev=>prev.map(m=>m.pondId===fromId?{...m,pondId:toId}:m));
     const seTransfer={id:uid(),pondId:toId,pondName:toPond.name,date:dateLabel,species:fromPond.species,count:fromPond.currentCount,cost:fromPond.totalCost,type:"Transfer" as const,fromPond:fromPond.name,farmId:toPond.farmId||activeFarmId||farms[0]?.id||""};
@@ -3537,7 +3598,23 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     /* copy all treatments */
     const pondTreatments=treatments.filter(t=>t.pondId===fromId);
     const transferTreatments=pondTreatments.map(t=>({...t,id:uid(),pondId:toId,farmId:toPond.farmId||activeFarmId||farms[0]?.id||""}));
-    if(transferTreatments.length>0)setTreatments(prev=>[...prev,...transferTreatments]);
+    if(transferTreatments.length>0){
+      setTreatments(prev=>[...prev,...transferTreatments]);
+      transferTreatments.forEach(t=>api.treatments.create(t).catch(console.warn));
+    }
+    /* copy all pond reports for fish stock medical reference */
+    const fromPondReports=pondReports.filter(r=>r.pondId===fromId);
+    const transferReports=fromPondReports.map(r=>({
+      ...r,
+      id:uid(),
+      pondId:toId,
+      farmId:toPond.farmId||activeFarmId||farms[0]?.id||"",
+      fishStockId:r.fishStockId||(fromPond.species!=="—"?`${fromPond.species} (${fromPond.stockingDate})`:"Nursery Stock")
+    }));
+    if(transferReports.length>0){
+      setPondReports(prev=>[...prev,...transferReports]);
+      transferReports.forEach(r=>api.pondReports.create(r).catch(console.warn));
+    }
     /* stock event */
     const seTransfer={id:uid(),pondId:toId,pondName:toPond.name,date:dateLabel,species:fromPond.species,count:safeCount,cost:costShare,type:"Transfer" as const,fromPond:fromPond.name,farmId:toPond.farmId||activeFarmId||farms[0]?.id||""};
     setStockEvents(prev=>[...prev,seTransfer]);
@@ -4219,7 +4296,17 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   /* Permission derivation — owner has all permissions */
   const currentStaff=staff.find(s=>s.email===userProfile?.email);
   const isOwner=!currentStaff||currentStaff.role==="Admin";
-  const hasPerm=(p:string)=>isOwner||((currentStaff?.permissions||[]).includes(p));
+  const hasPerm=(p:string)=>{
+    if(isOwner)return true;
+    const perms=currentStaff?.permissions||[];
+    if(perms.includes(p))return true;
+    if(p==="Invoices"&&perms.includes("Invoice"))return true;
+    if(p==="Invoice"&&perms.includes("Invoices"))return true;
+    if(p==="Staff Assessments"&&perms.includes("Staff Assessment"))return true;
+    if(p==="Staff Assessment"&&perms.includes("Staff Assessments"))return true;
+    if(p==="Pond Details"&&perms.includes("Pond Management"))return true;
+    return false;
+  };
   const accessibleFarms=isOwner?farms:farms.filter(f=>currentStaff?.farms?.includes(f.id));
 
   /* Auto-route staff members to their first permitted page if current page is restricted */
@@ -4509,11 +4596,11 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
             {active==="ponds"         &&(hasPerm("Pond Management")?<PondManagementPage ponds={farmPonds} onAddPond={addPond} onClosePond={closePond} onRestockPond={restockPond} onTransfer={transferStock} onNurseryTransfer={nurseryTransfer} mortality={farmMortality} onAddMortality={addMort} onAddCost={addExp} feedingRecords={farmFeeding} stockEvents={stockEvents} treatments={farmTreatments} onAddTreatment={addTreatment} activeFarmId={activeFarmId} onDeletePond={deletePond} onEditFish={editFish} onSetMaxKg={setPondMaxKg} onEditPond={handleEditPond} onScrollTop={()=>mainRef.current?.scrollTo({top:0,behavior:"instant"})} currency={cs} inventory={farmInventory} farms={farms} pondReports={farmPondReports} onAddPondReport={handleAddPondReport}/>:<AccessDenied/>)}
             {active==="inventory"     &&(hasPerm("Feed Stock")?<FeedInventoryPage inventory={farmInventory} onAdd={addInv} onDelete={delInv} feedingRecords={farmFeeding} bagLogs={farmBagLogs} remainLogs={farmRemainLogs} ponds={farmPonds} onEditBagLog={editBagLog} onEditInv={editInv} currency={cs} canEditLocked={isOwner||currentStaff?.role==="Farm Manager"}/>:<AccessDenied/>)}
             {active==="documentation" &&(hasPerm("Feeding Records")?<FeedDocumentationPage feedingRecords={farmFeeding} onAddRecord={addFeed} onEditFeedRecord={editFeedRecord} onDeleteRecord={deleteFeedRecord} ponds={farmPonds} inventory={farmInventory} bagLogs={farmBagLogs} onAddBagLog={addBagLog} onEditBagLog={editBagLog} onEditInv={editInv} remainLogs={farmRemainLogs} onAddRemainLog={addRemainLog} onEditRemainLog={editRemainLog} onReconMismatches={onReconMismatches} reconFocus={reconFocus} canEditLocked={isOwner||currentStaff?.role==="Farm Manager"} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}}/>:<AccessDenied/>)}
-            {active==="invoices"      &&(hasPerm("Invoice")?<InvoicesPage ponds={farmPonds} invoices={farmInvoices} customers={farmCustomers} priceGroups={farmPriceGroups} settings={invSettings} onAddInvoice={addInvoice} onEditInvoice={editInvoice} onDeleteInvoice={deleteInvoice} onAddCustomer={addCustomer} onAddPriceGroup={addPriceGroup} onEditPriceGroup={editPriceGroup} onDeletePriceGroup={delPriceGroup} onUpdateSettings={(s)=>{setInvSettings(s);api.invSettings.update(s).catch(console.warn);}} currentUser={userProfile?.name} currency={cs}/>:<AccessDenied/>)}
+            {active==="invoices"      &&(hasPerm("Invoices")?<InvoicesPage ponds={farmPonds} invoices={farmInvoices} customers={farmCustomers} priceGroups={farmPriceGroups} settings={invSettings} onAddInvoice={addInvoice} onEditInvoice={editInvoice} onDeleteInvoice={deleteInvoice} onAddCustomer={addCustomer} onAddPriceGroup={addPriceGroup} onEditPriceGroup={editPriceGroup} onDeletePriceGroup={delPriceGroup} onUpdateSettings={(s)=>{setInvSettings(s);api.invSettings.update(s).catch(console.warn);}} currentUser={userProfile?.name} currency={cs}/>:<AccessDenied/>)}
             {active==="staff"         &&(isOwner?<StaffPage staff={staff} onAdd={addStaff} onEdit={editStaff} onDelete={delStaff} farms={farms} activeFarmId={activeFarmId} ownerEmail={userProfile?.email}/>:<AccessDenied/>)}
             {active==="investors"     &&(hasPerm("Investors")?<InvestorsPage investors={farmInvestors} investments={farmInvestments} payments={farmPayments} farms={farms} ponds={farmPonds} stockEvents={stockEvents} activeFarmId={activeFarmId} currency={cs} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}} isOwner={isOwner} canManage={isOwner||hasPerm("Investors")} onAddInvestor={handleAddInvestor} onEditInvestor={handleEditInvestor} onEditInvestment={handleEditInvestment} onDeleteInvestor={handleDeleteInvestor} onRecordPayment={handleRecordPayment} onMarkPaymentPaid={handleMarkPaymentPaid}/>:<AccessDenied/>)}
             {active==="reports"       &&(hasPerm("Reports")?<ReportsPage reports={farmReports} staff={staff} onAdd={addReport} onEdit={editReportFn} pondReports={farmPondReports} treatments={farmTreatments} farms={farms} ponds={farmPonds} stockEvents={stockEvents} onAddPondReport={handleAddPondReport} activeFarmId={activeFarmId}/>:<AccessDenied/>)}
-            {active==="assessments"   &&(hasPerm("Staff Assessment")?<EmployeeAssessmentsPage kQuestions={kQuestions} cQuestions={cQuestions} kResults={kResults} cResults={cResults} onSaveKQuestions={saveKQuestions} onSaveCQuestions={saveCQuestions} onAddKResult={addKResult} onAddCResult={addCResult} ownerId={userProfile?.id??""}/>:<AccessDenied/>)}
+            {active==="assessments"   &&(hasPerm("Staff Assessments")?<EmployeeAssessmentsPage kQuestions={kQuestions} cQuestions={cQuestions} kResults={kResults} cResults={cResults} onSaveKQuestions={saveKQuestions} onSaveCQuestions={saveCQuestions} onAddKResult={addKResult} onAddCResult={addCResult} ownerId={userProfile?.id??""}/>:<AccessDenied/>)}
             {active==="pricing"       &&(isOwner?<SubscriptionPage farmCount={farms.length} activePlan={activePlan} setActivePlan={setActivePlan} trialStartDate={trialStartDate} setTrialStartDate={setTrialStartDate} currency={cs} convertPrice={cvt} userProfile={userProfile} activeFarmName={farms.find(f=>f.id===activeFarmId)?.name||userProfile?.farmName}/>:<AccessDenied/>)}
             {active==="settings"      &&<SettingsPage farms={isOwner?farms:accessibleFarms} onAddFarm={handleAddFarmDirect} onEditFarm={handleEditFarm} onDeleteFarm={handleDeleteFarm} userProfile={userProfile} onUpdateProfile={handleUpdateProfile} isOwner={isOwner} ponds={ponds} activePlan={activePlan}/>}
             {active==="notifications" &&<NotificationsPage notifications={notifications} onMarkRead={markRead} onMarkAllRead={markAllRead} farms={farms} activeFarmId={activeFarmId} farmCount={farms.length} onDismiss={dismissNotif} onNotifNav={(n)=>{if(n.type==="reconciliation"&&n.reconDate&&n.reconKey){nav("documentation");setReconFocus({date:n.reconDate,key:n.reconKey});}}}/>}

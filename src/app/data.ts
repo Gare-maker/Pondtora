@@ -190,8 +190,16 @@ export function isSameDate(d1?: string | null, d2?: string | null): boolean {
 }
 
 export const PAYMENT_METHODS=["Cash","Bank Transfer","POS","Cheque","Other"];
-export const INV_STATUSES:Invoice["status"][]=["Draft","Sent","Pending","Partially Paid","Paid","Overdue","Cancelled","Error"];
-export const STAFF_PERMISSIONS=["Financial Dashboard","Pond Management","Pond Details","Feed Stock","Feeding Records","Invoice","Reports","Staff Assessment","Investors"];
+export const STAFF_PERMISSIONS = [
+  "Financial Dashboard",
+  "Pond Management",
+  "Feed Stock",
+  "Feeding Records",
+  "Reports",
+  "Invoices",
+  "Investors",
+  "Staff Assessments",
+];
 export const STAFF_ROLES_ALL=["Admin","Director","Farm Manager","Feeding Staff","General Staff"];
 export const INIT_PRICE_GROUPS:PriceGroup[]=[
   {id:"PG-A",group:"A",displayName:"Small Size",   description:"Catfish under 200g",pricePerKg:2000,status:"Active"},

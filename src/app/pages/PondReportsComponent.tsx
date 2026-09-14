@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from "react";
 import {
   FileText, Plus, Search, Calendar, Filter, Droplets,
-  AlertCircle, CheckCircle2, ChevronRight, Eye, User, X
+  AlertCircle, CheckCircle2, ChevronRight, Eye, User, X, Loader2
 } from "lucide-react";
 import type { Farm, Pond, StockEvent, TreatmentRecord, PondReport } from "../types";
 import { Card, Bdg, PBtn, Modal, F, IC, SC, DateInput } from "../shared";
@@ -83,6 +83,7 @@ export default function PondReportsComponent({
   const [treatDetails, setTreatDetails] = useState<string>("");
   const [treatActionTaken, setTreatActionTaken] = useState<string>("");
   const [treatRemarks, setTreatRemarks] = useState<string>("");
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
   // Ponds for current farm
   const currentFarmPonds = useMemo(() => {
@@ -140,8 +141,20 @@ export default function PondReportsComponent({
 
   // Auto-sync form pond & fish stock when add modal opens
   const openAddModal = () => {
-    const targetPondId = fixedPondId || selectedPondId || (currentFarmPonds[0]?.id || "");
-    const targetFarmId = fixedPondId ? (ponds.find(p => p.id === fixedPondId)?.farmId || selectedFarmId) : selectedFarmId;
+    const nonEmpties = currentFarmPonds.filter(p => p.status !== "Empty" && (Number(p.currentCount) || 0) > 0);
+    if (nonEmpties.length === 0) {
+      toast.error("Cannot submit report: No active ponds with fish stock found on this farm.");
+      return;
+    }
+
+    const rawTargetPondId = fixedPondId || selectedPondId || nonEmpties[0].id;
+    const rawTargetPond = ponds.find(p => p.id === rawTargetPondId);
+    const targetPond = (rawTargetPond && rawTargetPond.status !== "Empty" && (Number(rawTargetPond.currentCount) || 0) > 0)
+      ? rawTargetPond
+      : nonEmpties[0];
+
+    const targetPondId = targetPond.id;
+    const targetFarmId = targetPond.farmId || selectedFarmId;
     
     setFormFarmId(targetFarmId);
     setFormPondId(targetPondId);
@@ -155,14 +168,11 @@ export default function PondReportsComponent({
     setTreatActionTaken("");
     setTreatRemarks("");
 
-    const targetPond = ponds.find(p => p.id === targetPondId);
-    if (targetPond) {
-      const defaultStock = targetPond.species && targetPond.species !== "—"
-        ? `${targetPond.species} (${targetPond.stockingDate || "Current Stock"})`
-        : "Current Stock";
-      const stockId = selectedFishStockId || `current-${targetPond.id}-${targetPond.stockingDate || "active"}`;
-      setFormFishStockId(stockId);
-    }
+    const defaultStock = targetPond.species && targetPond.species !== "—"
+      ? `${targetPond.species} (${targetPond.stockingDate || "Current Stock"})`
+      : "Current Stock";
+    const stockId = selectedFishStockId || `current-${targetPond.id}-${targetPond.stockingDate || "active"}`;
+    setFormFishStockId(stockId);
 
     setShowAddModal(true);
   };
@@ -238,12 +248,19 @@ export default function PondReportsComponent({
   // Handle Save Report
   const handleSaveReport = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmitting) return;
+
     if (!formFarmId) {
       toast.error("Farm is required");
       return;
     }
     if (!formPondId) {
       toast.error("Pond is required");
+      return;
+    }
+    const chosenPond = ponds.find(p => p.id === formPondId);
+    if (!chosenPond || chosenPond.status === "Empty" || (Number(chosenPond.currentCount) || 0) <= 0) {
+      toast.error("Cannot submit a report to an empty pond. Please select an active pond with fish.");
       return;
     }
     if (!formFishStockId) {
@@ -254,6 +271,8 @@ export default function PondReportsComponent({
       toast.error("Report date is required");
       return;
     }
+
+    setIsSubmitting(true);
 
     const reportId = uid();
     let createdTreatmentId: string | undefined = undefined;
@@ -323,6 +342,8 @@ export default function PondReportsComponent({
     } catch (err: any) {
       console.error(err);
       toast.error(err?.message || "Failed to save pond report");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -619,9 +640,14 @@ export default function PondReportsComponent({
                   className={SC}
                   required
                 >
-                  {ponds.filter(p => p.farmId === formFarmId).map(p => (
-                    <option key={p.id} value={p.id}>{p.name} ({p.species})</option>
-                  ))}
+                  {ponds.filter(p => p.farmId === formFarmId).map(p => {
+                    const isEmpty = p.status === "Empty" || (Number(p.currentCount) || 0) <= 0;
+                    return (
+                      <option key={p.id} value={p.id} disabled={isEmpty}>
+                        {p.name} ({p.species}) {isEmpty ? "(Empty — 0 fish)" : `(${p.currentCount?.toLocaleString() || 0} fish)`}
+                      </option>
+                    );
+                  })}
                 </select>
               </F>
             </div>
@@ -769,9 +795,16 @@ export default function PondReportsComponent({
               </button>
               <button
                 type="submit"
-                className="px-5 py-2 bg-[#00BB58] hover:bg-[#009e4a] text-white text-xs font-bold rounded-xl shadow-xs"
+                disabled={isSubmitting}
+                className="px-5 py-2 bg-[#00BB58] hover:bg-[#009e4a] disabled:opacity-60 text-white text-xs font-bold rounded-xl shadow-xs flex items-center gap-1.5"
               >
-                Save Report
+                {isSubmitting ? (
+                  <>
+                    <Loader2 size={13} className="animate-spin" /> Submitting…
+                  </>
+                ) : (
+                  "Save Report"
+                )}
               </button>
             </div>
           </form>

@@ -28,6 +28,7 @@ export const EVERY_PLAN_INCLUDES = [
   "Fish Stock History",
   "Sales Invoicing",
   "Staff Management",
+  "Investor Details & Returns Tracking",
   "Reports & Analytics",
   "CSV Export",
   "PDF Export",

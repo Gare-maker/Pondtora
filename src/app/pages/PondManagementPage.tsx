@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
 import {
   Fish, Plus, CheckCircle, X, ArrowRightLeft, Layers,
   Droplets, Trash2, ChevronDown, ChevronUp,
@@ -38,12 +38,50 @@ function PondDetail({pond,mortality,onAddMortality,onAddCost,feedingRecords,onBa
   const [nurseryTF,setNurseryTF]=useState({toPond:"",count:"",pct:"100",date:TODAY});
   const [nurseryErr,setNurseryErr]=useState<Record<string,string>>({});
   const [showTreat,setShowTreat]=useState(false);
-  const [pondTab,setPondTab]=useState<"feed"|"treatment"|"reports">("feed");
+  const [pondTab,setPondTab]=useState<"feed"|"treatment"|"issues">("feed");
   const [feedPage,setFeedPage]=useState(1);
   const [treatPage,setTreatPage]=useState(1);
+  const [issuePage,setIssuePage]=useState(1);
   const [editFeedRec,setEditFeedRec]=useState<FeedingRecord|null>(null);
   const [editTreatRec,setEditTreatRec]=useState<TreatmentRecord|null>(null);
-  const [treatF,setTreatF]=useState({date:TODAY,cause:"",medicine:"",remarks:""});
+
+  const defaultFishStockLabel = pond.species !== "—" ? `${pond.species} (${fmtStockingDate(pond.stockingDate)})` : "Current Stock";
+
+  const pondStockOptions = useMemo(() => {
+    const opts: string[] = [];
+    if (pond.species && pond.species !== "—") {
+      opts.push(`${pond.species} (${fmtStockingDate(pond.stockingDate)})`);
+    }
+    (stockEvents || []).filter(e => e.pondId === pond.id).forEach(e => {
+      const s = `${e.species || pond.species} (${e.date || "Past"})`;
+      if (!opts.includes(s)) opts.push(s);
+    });
+    if (opts.length === 0) opts.push("Current Stock");
+    return opts;
+  }, [pond, stockEvents]);
+
+  const [treatF,setTreatF]=useState({
+    date: TODAY,
+    fishStock: defaultFishStockLabel,
+    cause: "",
+    medicine: "",
+    details: "",
+    actionTaken: "",
+    remarks: ""
+  });
+
+  const [showAddIssue,setShowAddIssue]=useState(false);
+  const [issueF,setIssueF]=useState({
+    date: TODAY,
+    fishStock: defaultFishStockLabel,
+    issue: "",
+    description: "",
+    actionTaken: "",
+    notes: ""
+  });
+  const [issueErr,setIssueErr]=useState<Record<string,string>>({});
+  const [viewingIssue,setViewingIssue]=useState<PondReport|null>(null);
+
   const [transferF,setTransferF]=useState({toPond:"",date:TODAY,pct:"100",count:""});
   const [transferErr,setTransferErr]=useState<Record<string,string>>({});
   const emptyPonds=ponds.filter(p=>p.id!==pond.id&&p.status==="Empty");
@@ -56,8 +94,162 @@ function PondDetail({pond,mortality,onAddMortality,onAddCost,feedingRecords,onBa
   const [showMortHistory,setShowMortHistory]=useState(false);
   const [editMortEntry,setEditMortEntry]=useState<MortalityEntry|null>(null);
   const [fhMonth,setFhMonth]=useState("All");
-  const pondTreatments=treatments.filter(t=>t.pondId===pond.id);
-  const handleTreat=()=>{if(!treatF.medicine)return;onAddTreatment({id:uid(),pondId:pond.id,farmId:pond.farmId,date:treatF.date,cause:treatF.cause,medicine:treatF.medicine,remarks:treatF.remarks});setShowTreat(false);setTreatF({date:TODAY,cause:"",medicine:"",remarks:""});};
+
+  const unifiedTreatments = useMemo(() => {
+    const rawTreatments = treatments.filter(t => t.pondId === pond.id);
+    const repTreatments = (pondReports || []).filter(r => r.pondId === pond.id && r.reportType === "treatment");
+
+    const list: Array<{
+      id: string;
+      date: string;
+      fishStock: string;
+      medicine: string;
+      cause: string;
+      dosage: string;
+      actionTaken: string;
+      remarks: string;
+      recordedBy: string;
+      rawTreatment?: TreatmentRecord;
+      rawReport?: PondReport;
+    }> = [];
+
+    const matchedReportIds = new Set<string>();
+
+    rawTreatments.forEach(t => {
+      const match = repTreatments.find(r => r.treatmentId === t.id || r.id === t.id);
+      if (match) matchedReportIds.add(match.id);
+      list.push({
+        id: t.id,
+        date: t.date,
+        fishStock: match?.fishStockId || defaultFishStockLabel,
+        medicine: t.medicine,
+        cause: t.cause || match?.cause || "—",
+        dosage: match?.treatmentDetails || "—",
+        actionTaken: match?.actionTaken || "—",
+        remarks: t.remarks || match?.remarks || "—",
+        recordedBy: match?.recordedBy || match?.createdBy || "—",
+        rawTreatment: t,
+        rawReport: match,
+      });
+    });
+
+    repTreatments.forEach(r => {
+      if (!matchedReportIds.has(r.id)) {
+        list.push({
+          id: r.id,
+          date: r.reportDate,
+          fishStock: r.fishStockId || defaultFishStockLabel,
+          medicine: r.medicine || r.issue || "—",
+          cause: r.cause || "—",
+          dosage: r.treatmentDetails || "—",
+          actionTaken: r.actionTaken || "—",
+          remarks: r.remarks || r.notes || "—",
+          recordedBy: r.recordedBy || r.createdBy || "—",
+          rawReport: r,
+        });
+      }
+    });
+
+    return list.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+  }, [treatments, pondReports, pond, defaultFishStockLabel]);
+
+  const otherIssues = useMemo(() => {
+    return (pondReports || [])
+      .filter(r => r.pondId === pond.id && r.reportType !== "treatment")
+      .sort((a, b) => (b.reportDate || "").localeCompare(a.reportDate || ""));
+  }, [pondReports, pond.id]);
+
+  const handleTreat = async () => {
+    if (!treatF.medicine.trim()) return;
+    const newTreatId = uid();
+    const fishStockLabel = treatF.fishStock || defaultFishStockLabel;
+    const remarksCombined = [treatF.actionTaken.trim(), treatF.remarks.trim()].filter(Boolean).join(" | ");
+
+    onAddTreatment({
+      id: newTreatId,
+      pondId: pond.id,
+      farmId: pond.farmId,
+      date: treatF.date,
+      cause: treatF.cause.trim(),
+      medicine: treatF.medicine.trim(),
+      remarks: remarksCombined || treatF.remarks.trim()
+    });
+
+    if (onAddPondReport) {
+      try {
+        await onAddPondReport({
+          id: uid(),
+          farmId: pond.farmId,
+          pondId: pond.id,
+          fishStockId: fishStockLabel,
+          reportType: "treatment",
+          reportDate: treatF.date,
+          issue: treatF.medicine.trim(),
+          medicine: treatF.medicine.trim(),
+          cause: treatF.cause.trim(),
+          treatmentDetails: treatF.details.trim(),
+          actionTaken: treatF.actionTaken.trim(),
+          remarks: treatF.remarks.trim(),
+          treatmentId: newTreatId,
+        });
+      } catch (err) {
+        console.warn("Pond report treatment save error:", err);
+      }
+    }
+
+    setShowTreat(false);
+    setTreatF({
+      date: TODAY,
+      fishStock: defaultFishStockLabel,
+      cause: "",
+      medicine: "",
+      details: "",
+      actionTaken: "",
+      remarks: ""
+    });
+  };
+
+  const handleSaveIssue = async () => {
+    const errs: Record<string, string> = {};
+    if (!issueF.issue.trim()) errs.issue = "Issue title is required";
+    if (!issueF.date) errs.date = "Date is required";
+    if (Object.keys(errs).length > 0) {
+      setIssueErr(errs);
+      return;
+    }
+    setIssueErr({});
+
+    if (onAddPondReport) {
+      const fishStockLabel = issueF.fishStock || defaultFishStockLabel;
+      try {
+        await onAddPondReport({
+          id: uid(),
+          farmId: pond.farmId,
+          pondId: pond.id,
+          fishStockId: fishStockLabel,
+          reportType: "other_issue",
+          reportDate: issueF.date,
+          issue: issueF.issue.trim(),
+          description: issueF.description.trim() || undefined,
+          actionTaken: issueF.actionTaken.trim() || undefined,
+          notes: issueF.notes.trim() || undefined,
+          remarks: [issueF.actionTaken.trim(), issueF.notes.trim()].filter(Boolean).join(" | ") || undefined,
+        });
+      } catch (err) {
+        console.warn("Save issue error:", err);
+      }
+    }
+
+    setShowAddIssue(false);
+    setIssueF({
+      date: TODAY,
+      fishStock: defaultFishStockLabel,
+      issue: "",
+      description: "",
+      actionTaken: "",
+      notes: ""
+    });
+  };
   const logs=mortality.filter(m=>m.pondId===pond.id);
   const dead=logs.reduce((s,m)=>s+m.count,0);
   const mRate=pond.initialStock>0?((dead/pond.initialStock)*100).toFixed(2):"0.00";
@@ -266,9 +458,9 @@ function PondDetail({pond,mortality,onAddMortality,onAddCost,feedingRecords,onBa
       <Card>
         <div className="px-5 py-3 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
           <div className="flex gap-1 bg-slate-200/90 border border-slate-300/80 p-1 rounded-xl shadow-2xs">
-            {(["feed","treatment","reports"] as const).map(t=>(
+            {(["feed","treatment","issues"] as const).map(t=>(
               <button key={t} onClick={()=>setPondTab(t)} className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${pondTab===t?"bg-white text-slate-900 shadow-sm border border-slate-200/80 font-bold":"text-slate-600 hover:text-slate-900"}`}>
-                {t==="feed"?"Feed History":t==="treatment"?"Treatment History":"Reports"}
+                {t==="feed"?"Feed History":t==="treatment"?"Treatment History":"Other Issues"}
               </button>
             ))}
           </div>
@@ -310,43 +502,102 @@ function PondDetail({pond,mortality,onAddMortality,onAddCost,feedingRecords,onBa
           <div className="px-4 pb-2"><Pagination total={sortedHist.length} page={feedPage} perPage={PER_PAGE} onPage={setFeedPage}/></div>
         </>)}
         {pondTab==="treatment"&&(
-          <><div className="overflow-x-auto"><table className="w-full text-sm min-w-[500px]">
-            <thead><tr className="border-b border-slate-100 bg-slate-50">
-              <th className="px-4 py-3 text-[11px] text-slate-400 w-10">#</th>
-              <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider">Date</th>
-              <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider">Medicine Applied</th>
-              <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider">Cause</th>
-              <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider">Remarks</th>
-              <th className="px-4 py-3 w-8"/>
-            </tr></thead>
-            <tbody className="divide-y divide-slate-50">
-              {pondTreatments.length===0?<tr><td colSpan={6} className="text-center text-xs text-slate-400 py-8">No treatment records. Click <strong>Log Treatment</strong> to record one.</td></tr>:pondTreatments.slice((treatPage-1)*PER_PAGE,treatPage*PER_PAGE).map((t,i)=>(
-                <tr key={t.id} className="hover:bg-slate-50 transition-colors">
-                  <td className="px-4 py-3 text-slate-300 text-xs font-mono">{i+1}</td>
-                  <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{t.date}</td>
-                  <td className="px-4 py-3 font-semibold text-slate-800">{t.medicine}</td>
-                  <td className="px-4 py-3 text-slate-500">{t.cause||"—"}</td>
-                  <td className="px-4 py-3 text-slate-400 text-xs">{t.remarks||"—"}</td>
-                  <td className="px-4 py-3"><button onClick={()=>setEditTreatRec({...t})} className="p-1.5 rounded-lg text-slate-300 hover:text-green-600 hover:bg-green-50 transition-colors"><Pencil size={13}/></button></td>
-                </tr>
-              ))}
-            </tbody>
-          </table></div>
-          <div className="px-4 pb-2"><Pagination total={pondTreatments.length} page={treatPage} perPage={PER_PAGE} onPage={setTreatPage}/></div></>
+          <>
+            <div className="flex items-center justify-between px-5 py-2.5 bg-slate-50/70 border-b border-slate-100">
+              <div className="text-xs text-slate-500 font-medium">
+                Total Treatments Logged: <strong className="text-slate-800">{unifiedTreatments.length}</strong>
+              </div>
+              {pond.status==="Active"&&(
+                <PBtn sm onClick={()=>setShowTreat(true)}>
+                  <Plus size={12}/> Log Treatment
+                </PBtn>
+              )}
+            </div>
+            <div className="overflow-x-auto"><table className="w-full text-sm min-w-[900px]">
+              <thead><tr className="border-b border-slate-100 bg-slate-50">
+                <th className="px-4 py-3 text-[11px] text-slate-400 w-10">#</th>
+                <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider whitespace-nowrap">Date</th>
+                <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider whitespace-nowrap">Fish Stock</th>
+                <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider whitespace-nowrap">Medicine Applied</th>
+                <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider">Cause / Diagnosis</th>
+                <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider">Treatment Details / Dosage</th>
+                <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider">Action Taken</th>
+                <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider">Remarks</th>
+                <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider whitespace-nowrap">Logged By</th>
+                <th className="px-4 py-3 w-8"/>
+              </tr></thead>
+              <tbody className="divide-y divide-slate-50">
+                {unifiedTreatments.length===0?<tr><td colSpan={10} className="text-center text-xs text-slate-400 py-8">No treatment records for this pond. Click <strong>Log Treatment</strong> to record one.</td></tr>:unifiedTreatments.slice((treatPage-1)*PER_PAGE,treatPage*PER_PAGE).map((t,i)=>(
+                  <tr key={t.id} className="hover:bg-slate-50 transition-colors">
+                    <td className="px-4 py-3 text-slate-300 text-xs font-mono">{(treatPage-1)*PER_PAGE + i + 1}</td>
+                    <td className="px-4 py-3 text-slate-600 whitespace-nowrap font-mono text-xs">{t.date}</td>
+                    <td className="px-4 py-3 text-slate-700 whitespace-nowrap"><Bdg label={t.fishStock} color="teal"/></td>
+                    <td className="px-4 py-3 font-semibold text-slate-800 whitespace-nowrap">{t.medicine}</td>
+                    <td className="px-4 py-3 text-slate-600 text-xs">{t.cause}</td>
+                    <td className="px-4 py-3 text-slate-600 text-xs max-w-[220px]">{t.dosage}</td>
+                    <td className="px-4 py-3 text-slate-600 text-xs max-w-[200px]">{t.actionTaken}</td>
+                    <td className="px-4 py-3 text-slate-400 text-xs max-w-[180px]">{t.remarks}</td>
+                    <td className="px-4 py-3 text-slate-500 text-xs whitespace-nowrap">{t.recordedBy}</td>
+                    <td className="px-4 py-3">
+                      {t.rawTreatment&&(
+                        <button onClick={()=>setEditTreatRec({...t.rawTreatment!})} className="p-1.5 rounded-lg text-slate-300 hover:text-green-600 hover:bg-green-50 transition-colors" title="Edit Treatment">
+                          <Pencil size={13}/>
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table></div>
+            <div className="px-4 pb-2"><Pagination total={unifiedTreatments.length} page={treatPage} perPage={PER_PAGE} onPage={setTreatPage}/></div>
+          </>
         )}
-        {pondTab==="reports"&&(
-          <div className="p-4 sm:p-5">
-            <PondReportsComponent
-              fixedPondId={pond.id}
-              pondReports={pondReports}
-              treatments={treatments}
-              farms={farms}
-              ponds={ponds}
-              stockEvents={stockEvents}
-              onAddPondReport={onAddPondReport}
-              activeFarmId={pond.farmId}
-            />
-          </div>
+        {pondTab==="issues"&&(
+          <>
+            <div className="flex items-center justify-between px-5 py-2.5 bg-slate-50/70 border-b border-slate-100">
+              <div className="text-xs text-slate-500 font-medium">
+                Total Other Issues: <strong className="text-slate-800">{otherIssues.length}</strong>
+              </div>
+              {pond.status==="Active"&&(
+                <PBtn sm onClick={()=>setShowAddIssue(true)}>
+                  <Plus size={12}/> Log Issue
+                </PBtn>
+              )}
+            </div>
+            <div className="overflow-x-auto"><table className="w-full text-sm min-w-[850px]">
+              <thead><tr className="border-b border-slate-100 bg-slate-50">
+                <th className="px-4 py-3 text-[11px] text-slate-400 w-10">#</th>
+                <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider whitespace-nowrap">Date</th>
+                <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider whitespace-nowrap">Fish Stock</th>
+                <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider whitespace-nowrap">Issue / Incident</th>
+                <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider">Description</th>
+                <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider">Action Taken</th>
+                <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider">Notes</th>
+                <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider whitespace-nowrap">Logged By</th>
+                <th className="px-4 py-3 w-8"/>
+              </tr></thead>
+              <tbody className="divide-y divide-slate-50">
+                {otherIssues.length===0?<tr><td colSpan={9} className="text-center text-xs text-slate-400 py-8">No non-treatment issues recorded for this pond. Click <strong>Log Issue</strong> to record an incident.</td></tr>:otherIssues.slice((issuePage-1)*PER_PAGE,issuePage*PER_PAGE).map((iss,i)=>(
+                  <tr key={iss.id} className="hover:bg-slate-50 transition-colors">
+                    <td className="px-4 py-3 text-slate-300 text-xs font-mono">{(issuePage-1)*PER_PAGE + i + 1}</td>
+                    <td className="px-4 py-3 text-slate-600 whitespace-nowrap font-mono text-xs">{iss.reportDate}</td>
+                    <td className="px-4 py-3 text-slate-700 whitespace-nowrap"><Bdg label={iss.fishStockId || "—"} color="amber"/></td>
+                    <td className="px-4 py-3 font-semibold text-slate-800 whitespace-nowrap">{iss.issue || "—"}</td>
+                    <td className="px-4 py-3 text-slate-600 text-xs max-w-[220px]">{iss.description || "—"}</td>
+                    <td className="px-4 py-3 text-slate-600 text-xs max-w-[200px]">{iss.actionTaken || "—"}</td>
+                    <td className="px-4 py-3 text-slate-400 text-xs max-w-[180px]">{iss.notes || iss.remarks || "—"}</td>
+                    <td className="px-4 py-3 text-slate-500 text-xs whitespace-nowrap">{iss.recordedBy || iss.createdBy || "—"}</td>
+                    <td className="px-4 py-3">
+                      <button onClick={()=>setViewingIssue(iss)} className="p-1.5 rounded-lg text-slate-300 hover:text-green-600 hover:bg-green-50 transition-colors" title="View Details">
+                        <Eye size={13}/>
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table></div>
+            <div className="px-4 pb-2"><Pagination total={otherIssues.length} page={issuePage} perPage={PER_PAGE} onPage={setIssuePage}/></div>
+          </>
         )}
       </Card>
       {showMaxKg&&<Modal title="Set Max kg per Pallet" onClose={()=>setShowMaxKg(false)}>
@@ -501,13 +752,66 @@ function PondDetail({pond,mortality,onAddMortality,onAddCost,feedingRecords,onBa
         <F label="Remarks (Optional)"><textarea value={editTreatRec.remarks} onChange={e=>setEditTreatRec(p=>p?{...p,remarks:e.target.value}:p)} className={`${IC} resize-none`} rows={2}/></F>
         <div className="flex gap-2 pt-1"><PBtn onClick={()=>setEditTreatRec(null)}><CheckCircle size={14}/> Save Changes</PBtn><button onClick={()=>setEditTreatRec(null)} className="px-4 py-2 text-sm text-slate-400">Cancel</button></div>
       </Modal>}
-      {showTreat&&<Modal title="Log Treatment" onClose={()=>setShowTreat(false)}>
-        <F label="Date"><input type="date" value={treatF.date} onChange={e=>setTreatF(p=>({...p,date:e.target.value}))} className={IC}/></F>
-        <F label="Medicine Applied"><input value={treatF.medicine} onChange={e=>setTreatF(p=>({...p,medicine:e.target.value}))} className={IC} placeholder="e.g. Potassium permanganate, Salinomycin…"/></F>
-        <F label="Cause (Optional)"><input value={treatF.cause} onChange={e=>setTreatF(p=>({...p,cause:e.target.value}))} className={IC} placeholder="e.g. Bacterial infection, parasites…"/></F>
-        <F label="Treatment Details / Dosage & Method"><textarea value={(treatF as any).details||""} onChange={e=>setTreatF(p=>({...p,details:e.target.value}))} className={`${IC} resize-none`} rows={2} placeholder="e.g. 50g per 1,000L bath for 30 minutes daily for 3 days…"/></F>
-        <F label="Remarks (Optional)"><textarea value={treatF.remarks} onChange={e=>setTreatF(p=>({...p,remarks:e.target.value}))} className={`${IC} resize-none`} rows={2} placeholder="Additional notes…"/></F>
-        <div className="flex gap-2 pt-1"><PBtn onClick={handleTreat}><Plus size={14}/> Log Treatment</PBtn><button onClick={()=>setShowTreat(false)} className="px-4 py-2 text-sm text-slate-400">Cancel</button></div>
+      {showTreat&&<Modal title={`Log Treatment — ${pond.name}`} onClose={()=>setShowTreat(false)}>
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <F label="Date"><input type="date" value={treatF.date} onChange={e=>setTreatF(p=>({...p,date:e.target.value}))} className={IC}/></F>
+            <F label="Connected Fish Stock">
+              <select value={treatF.fishStock} onChange={e=>setTreatF(p=>({...p,fishStock:e.target.value}))} className={SC}>
+                {pondStockOptions.map(opt=><option key={opt} value={opt}>{opt}</option>)}
+              </select>
+            </F>
+          </div>
+          <F label="Medicine Applied"><input value={treatF.medicine} onChange={e=>setTreatF(p=>({...p,medicine:e.target.value}))} className={IC} placeholder="e.g. Potassium permanganate, Salinomycin…"/></F>
+          <F label="Cause / Diagnosis (Optional)"><input value={treatF.cause} onChange={e=>setTreatF(p=>({...p,cause:e.target.value}))} className={IC} placeholder="e.g. Bacterial infection, parasites…"/></F>
+          <F label="Treatment Details / Dosage & Method"><textarea value={treatF.details} onChange={e=>setTreatF(p=>({...p,details:e.target.value}))} className={`${IC} resize-none`} rows={2} placeholder="e.g. 50g per 1,000L bath for 30 minutes daily for 3 days…"/></F>
+          <F label="Action Taken"><textarea value={treatF.actionTaken} onChange={e=>setTreatF(p=>({...p,actionTaken:e.target.value}))} className={`${IC} resize-none`} rows={2} placeholder="e.g. Isolated affected fish, conducted 40% flush, administered bath…"/></F>
+          <F label="Remarks (Optional)"><textarea value={treatF.remarks} onChange={e=>setTreatF(p=>({...p,remarks:e.target.value}))} className={`${IC} resize-none`} rows={2} placeholder="Additional notes…"/></F>
+          <div className="flex gap-2 pt-1"><PBtn onClick={handleTreat}><Plus size={14}/> Log Treatment</PBtn><button onClick={()=>setShowTreat(false)} className="px-4 py-2 text-sm text-slate-400">Cancel</button></div>
+        </div>
+      </Modal>}
+      {showAddIssue&&<Modal title={`Log Other Issue — ${pond.name}`} onClose={()=>{setShowAddIssue(false);setIssueErr({});}}>
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <F label="Date"><input type="date" value={issueF.date} onChange={e=>{setIssueF(p=>({...p,date:e.target.value}));if(e.target.value)setIssueErr(p=>({...p,date:""}));}} className={`${IC}${issueErr.date?" border-red-400":""}`}/></F>
+              {issueErr.date&&<p className="text-xs text-red-500 mt-1">{issueErr.date}</p>}
+            </div>
+            <F label="Connected Fish Stock">
+              <select value={issueF.fishStock} onChange={e=>setIssueF(p=>({...p,fishStock:e.target.value}))} className={SC}>
+                {pondStockOptions.map(opt=><option key={opt} value={opt}>{opt}</option>)}
+              </select>
+            </F>
+          </div>
+          <div>
+            <F label="Issue / Incident Title"><input value={issueF.issue} onChange={e=>{setIssueF(p=>({...p,issue:e.target.value}));if(e.target.value)setIssueErr(p=>({...p,issue:""}));}} className={`${IC}${issueErr.issue?" border-red-400":""}`} placeholder="e.g. Water discoloration, low dissolved oxygen, torn net…"/></F>
+            {issueErr.issue&&<p className="text-xs text-red-500 mt-1">{issueErr.issue}</p>}
+          </div>
+          <F label="Description"><textarea value={issueF.description} onChange={e=>setIssueF(p=>({...p,description:e.target.value}))} className={`${IC} resize-none`} rows={2} placeholder="Describe the problem, severity, and when it was noticed…"/></F>
+          <F label="Action Taken"><textarea value={issueF.actionTaken} onChange={e=>setIssueF(p=>({...p,actionTaken:e.target.value}))} className={`${IC} resize-none`} rows={2} placeholder="e.g. Turned on emergency aerator, did 30% water exchange…"/></F>
+          <F label="Notes / Remarks (Optional)"><textarea value={issueF.notes} onChange={e=>setIssueF(p=>({...p,notes:e.target.value}))} className={`${IC} resize-none`} rows={2} placeholder="Follow-up notes or preventive measures…"/></F>
+          <div className="flex gap-2 pt-1"><PBtn onClick={handleSaveIssue}><Plus size={14}/> Save Issue</PBtn><button onClick={()=>{setShowAddIssue(false);setIssueErr({});}} className="px-4 py-2 text-sm text-slate-400">Cancel</button></div>
+        </div>
+      </Modal>}
+      {viewingIssue&&<Modal title="Issue Details" onClose={()=>setViewingIssue(null)}>
+        <div className="space-y-3 text-xs">
+          <div className="flex items-center justify-between p-3 bg-slate-50 rounded-xl">
+            <div>
+              <p className="text-[10px] text-slate-400 uppercase font-bold">Report Date</p>
+              <p className="font-bold text-slate-900 font-mono text-sm">{viewingIssue.reportDate}</p>
+            </div>
+            <Bdg label="Other Issue" color="amber"/>
+          </div>
+          <div className="space-y-2">
+            <div className="flex justify-between py-1 border-b border-slate-100"><span className="text-slate-500">Fish Stock:</span><span className="font-semibold text-slate-800">{viewingIssue.fishStockId || "—"}</span></div>
+            <div className="py-1 border-b border-slate-100"><span className="text-slate-500">Issue / Incident:</span><p className="font-semibold text-slate-900 mt-0.5">{viewingIssue.issue || "—"}</p></div>
+            <div className="py-1 border-b border-slate-100"><span className="text-slate-500">Description:</span><p className="text-slate-700 mt-0.5 whitespace-pre-wrap">{viewingIssue.description || "—"}</p></div>
+            <div className="py-1 border-b border-slate-100"><span className="text-slate-500">Action Taken:</span><p className="text-slate-700 mt-0.5 whitespace-pre-wrap">{viewingIssue.actionTaken || "—"}</p></div>
+            <div className="py-1 border-b border-slate-100"><span className="text-slate-500">Notes:</span><p className="text-slate-700 mt-0.5 whitespace-pre-wrap">{viewingIssue.notes || viewingIssue.remarks || "—"}</p></div>
+            <div className="flex justify-between py-1"><span className="text-slate-500">Logged By:</span><span className="text-slate-800 font-medium">{viewingIssue.recordedBy || viewingIssue.createdBy || "—"}</span></div>
+          </div>
+          <div className="pt-2 flex justify-end"><button onClick={()=>setViewingIssue(null)} className="px-4 py-2 text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl">Close</button></div>
+        </div>
       </Modal>}
       {showEditFish&&<Modal title="Edit Fish Information" onClose={()=>setShowEditFish(false)}>
         <F label="Species"><select value={editFishF.species} onChange={e=>setEditFishF(p=>({...p,species:e.target.value}))} className={SC}>{POND_SPECIES.map(s=><option key={s}>{s}</option>)}</select></F>

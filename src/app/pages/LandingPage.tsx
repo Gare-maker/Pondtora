@@ -9,7 +9,7 @@ import {
   Layers, Calculator, Pencil, Trash2, History, AlertCircle, Smartphone,
   Monitor, Columns, Send, Lock, Power, Award, HelpCircle, Phone,
   Mail, CheckSquare, DollarSign, SlidersHorizontal, Bell, ChevronsLeft,
-  ChevronLeft
+  ChevronLeft, Landmark
 } from "lucide-react";
 import pondtoraLogo from "../../imports/loo-2.svg";
 import heroFarmImg from "../../assets/images/african_fish_farm_hero.jpg";
@@ -91,6 +91,7 @@ function AppWindowShell({ activeNav, activeFarmName = "Crown Fisheries", onSelec
     { id: "reports", label: "Reports", icon: FileText },
     { id: "invoices", label: "Invoices", icon: Receipt },
     { id: "staff", label: "Staff", icon: Users },
+    { id: "investors", label: "Investors", icon: Landmark },
     { id: "assessments", label: "Staff Assessments", icon: ClipboardList },
     { id: "pricing", label: "Subscription", icon: Crown },
     { id: "settings", label: "Settings", icon: Settings },
@@ -1553,6 +1554,154 @@ function renderInvoicesShowcase() {
   return { desktopContent, mobileContent };
 }
 
+/* 9. Investor Tracking & Capital Returns Preview */
+function renderInvestorsShowcase() {
+  const investorsList = [
+    { id: 1, name: "Chief Adeleke Adele", phone: "+234 803 456 7890", capital: "₦10,000,000", roi: "25%", returnsDue: "₦12,500,000", paid: "₦6,250,000", dueDate: "28 Nov 2026", status: "Active" },
+    { id: 2, name: "Dr. Ngozi Okonjo", phone: "+234 802 333 4455", capital: "₦8,000,000", roi: "20%", returnsDue: "₦9,600,000", paid: "₦9,600,000", dueDate: "15 Oct 2026", status: "Completed" },
+    { id: 3, name: "Engr. Farouk Danladi", phone: "+234 816 789 0123", capital: "₦5,000,000", roi: "22%", returnsDue: "₦6,100,000", paid: "₦2,000,000", dueDate: "10 Dec 2026", status: "Active" },
+  ];
+
+  const desktopContent = (
+    <div className="space-y-4 text-slate-800 font-['Barlow',sans-serif]">
+      <div className="flex flex-wrap items-center justify-between gap-3 bg-[#f5f7fa] pb-1">
+        <div>
+          <h1 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] tracking-wide">Investor Management & Returns</h1>
+          <p className="text-xs text-slate-500 mt-0.5">Track external capital, agreed profit shares, payout due dates, and payment history.</p>
+        </div>
+        <div className="flex gap-2">
+          <button className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#00bb58] text-white text-xs font-bold shadow-xs">
+            <Plus size={13} /> Add Investor
+          </button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-3 gap-3">
+        <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-2xs flex items-center justify-between">
+          <div>
+            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Total Capital Raised</p>
+            <p className="text-2xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] mt-0.5">₦23.00M</p>
+          </div>
+          <div className="w-9 h-9 rounded-xl bg-slate-100 flex items-center justify-center text-slate-500"><Landmark size={18} /></div>
+        </div>
+        <div className="bg-emerald-50/70 border border-emerald-300 rounded-xl p-3.5 shadow-2xs flex items-center justify-between">
+          <div>
+            <p className="text-[11px] font-bold text-emerald-800 uppercase tracking-wider">Total Returns Due</p>
+            <p className="text-2xl font-bold text-emerald-800 font-['Barlow_Condensed',sans-serif] mt-0.5">₦28.20M</p>
+          </div>
+          <div className="w-9 h-9 rounded-xl bg-emerald-100 flex items-center justify-center text-emerald-700"><TrendingUp size={18} /></div>
+        </div>
+        <div className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-2xs flex items-center justify-between">
+          <div>
+            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Paid Returns</p>
+            <p className="text-2xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] mt-0.5">₦17.85M</p>
+          </div>
+          <div className="w-9 h-9 rounded-xl bg-slate-100 flex items-center justify-center text-slate-500"><CheckCircle size={18} /></div>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-2xs">
+        <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-wider text-slate-700">Investor Portfolio & Agreement Details</p>
+            <p className="text-[11px] text-slate-500 mt-0.5">Original capital is maintained separate from return obligations.</p>
+          </div>
+          <span className="text-xs font-semibold text-slate-500">3 Active Investors</span>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs text-left min-w-[760px] whitespace-nowrap">
+            <thead className="bg-slate-50 text-slate-500 font-bold border-b border-slate-200">
+              <tr>
+                <th className="py-3 px-4 w-10 text-center">#</th>
+                <th className="py-3 px-4 min-w-[160px]">Investor Name</th>
+                <th className="py-3 px-4 min-w-[120px]">Capital Invested</th>
+                <th className="py-3 px-4 min-w-[100px]">Agreed ROI</th>
+                <th className="py-3 px-4 min-w-[130px]">Total Due</th>
+                <th className="py-3 px-4 min-w-[120px]">Paid So Far</th>
+                <th className="py-3 px-4 min-w-[110px]">Next Due Date</th>
+                <th className="py-3 px-4 min-w-[90px]">Status</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {investorsList.map((inv, idx) => (
+                <tr key={inv.id} className="hover:bg-slate-50/80 transition-colors">
+                  <td className="py-3 px-4 text-slate-400 font-mono text-center">{idx + 1}</td>
+                  <td className="py-3 px-4">
+                    <p className="font-bold text-slate-900">{inv.name}</p>
+                    <p className="text-[10px] text-slate-400">{inv.phone}</p>
+                  </td>
+                  <td className="py-3 px-4 font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] text-sm">{inv.capital}</td>
+                  <td className="py-3 px-4">
+                    <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">{inv.roi}</span>
+                  </td>
+                  <td className="py-3 px-4 font-bold text-slate-800">{inv.returnsDue}</td>
+                  <td className="py-3 px-4 text-emerald-700 font-semibold">{inv.paid}</td>
+                  <td className="py-3 px-4 text-slate-500">{inv.dueDate}</td>
+                  <td className="py-3 px-4">
+                    <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full ${inv.status === "Completed" ? "bg-slate-100 text-slate-700" : "bg-emerald-100 text-emerald-800"}`}>
+                      {inv.status}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+
+  const mobileContent = (
+    <div className="space-y-3 text-slate-800 text-xs font-['Barlow',sans-serif]">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-base font-bold font-['Barlow_Condensed',sans-serif] text-slate-900">Investors</h2>
+          <p className="text-[10px] text-slate-500">₦23M Capital · ₦28.2M Returns Due</p>
+        </div>
+        <button className="px-2.5 py-1 rounded-lg bg-[#00bb58] text-white font-bold text-[11px]">
+          + Investor
+        </button>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        <div className="bg-white p-2.5 rounded-xl border border-slate-200 shadow-2xs">
+          <p className="text-[9px] text-slate-400 uppercase font-bold">Capital</p>
+          <p className="text-base font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">₦23.00M</p>
+          <p className="text-[9px] text-emerald-700 font-semibold">3 Investors</p>
+        </div>
+        <div className="bg-emerald-50 p-2.5 rounded-xl border border-emerald-200 shadow-2xs">
+          <p className="text-[9px] text-emerald-700 uppercase font-bold">Paid Out</p>
+          <p className="text-base font-bold text-emerald-800 font-['Barlow_Condensed',sans-serif]">₦17.85M</p>
+          <p className="text-[9px] text-emerald-700 font-semibold">63% settled</p>
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        {investorsList.map(inv => (
+          <div key={inv.id} className="bg-white p-3 rounded-xl border border-slate-200 space-y-1.5 shadow-2xs">
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-slate-900">{inv.name}</span>
+              <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${inv.status === "Completed" ? "bg-slate-100 text-slate-700" : "bg-emerald-100 text-emerald-800"}`}>
+                {inv.status}
+              </span>
+            </div>
+            <div className="flex items-center justify-between text-[11px] text-slate-500">
+              <span>Capital: <strong className="text-slate-900">{inv.capital}</strong></span>
+              <span>ROI: <strong className="text-emerald-700">{inv.roi}</strong></span>
+            </div>
+            <div className="flex items-center justify-between text-[10px] text-slate-400 border-t border-slate-100 pt-1">
+              <span>Due: {inv.dueDate}</span>
+              <span>Paid: <strong className="text-emerald-700">{inv.paid}</strong></span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  return { desktopContent, mobileContent };
+}
+
 /* ═══════════════════════════════════════════════════════════════════════════
    MAIN LANDING PAGE COMPONENT
    ═══════════════════════════════════════════════════════════════════════════ */
@@ -1561,7 +1710,7 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [activeSolutionTab, setActiveSolutionTab] = useState<
-    "ponds" | "feeding" | "inventory" | "staff" | "reports" | "assessments" | "financial" | "invoices"
+    "ponds" | "feeding" | "inventory" | "staff" | "reports" | "assessments" | "financial" | "invoices" | "investors"
   >("ponds");
   const [deviceMode, setDeviceMode] = useState<"dual" | "desktop" | "mobile">(() => {
     if (typeof window !== "undefined" && window.innerWidth < 768) {
@@ -1794,6 +1943,30 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
         ]
       },
       renderer: renderInvoicesShowcase,
+    },
+    {
+      id: "investors" as const,
+      navId: "investors",
+      title: "Investor Portfolio & Return Tracking",
+      subtitle: "Track external investor capital, agreed percentage shares, payout due dates, and settlement history with zero disputes.",
+      farmBenefit: {
+        headline: "How This Helps Your Fish Farm:",
+        points: [
+          {
+            title: "Clear capital & return agreements",
+            desc: "Record the exact capital invested, agreed ROI percentage, and linked pond or fish batch so both you and the investor are clear."
+          },
+          {
+            title: "Scheduled payout & due date reminders",
+            desc: "Get 7-day advance alerts for upcoming investor payouts. Log one-time or recurring installments as payments are completed."
+          },
+          {
+            title: "Maintain investor trust & transparency",
+            desc: "Show professional investment portfolios and download clean payout statements to attract more capital to expand your farm."
+          }
+        ]
+      },
+      renderer: renderInvestorsShowcase,
     },
   ];
 
@@ -2051,8 +2224,8 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
             </div>
           </FadeIn>
 
-          {/* Solution Tabs Grid (8 Complete Features) */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-2.5 mb-6 sm:mb-8">
+          {/* Solution Tabs Grid (9 Complete Features) */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-2.5 mb-6 sm:mb-8">
             {solutions.map((sol, idx) => {
               const isSelected = activeSolutionTab === sol.id;
               return (
@@ -2066,7 +2239,7 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
                   }`}
                 >
                   <p className={`text-[10px] uppercase tracking-wider font-extrabold ${isSelected ? "text-emerald-400" : "text-slate-400"}`}>
-                    Feature 0{idx + 1}
+                    Feature {idx + 1 < 10 ? `0${idx + 1}` : idx + 1}
                   </p>
                   <p className="text-xs sm:text-sm font-bold mt-1 font-['Barlow_Condensed',sans-serif] leading-tight">
                     {sol.title}
