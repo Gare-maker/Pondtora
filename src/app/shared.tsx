@@ -5,17 +5,17 @@ import type { SortDir } from "./types";
 import { COUNTRIES } from "./data";
 
 /* ─── Shared UI ─────────────────────────────────────────────── */
-export function Card({children,className=""}:{children:ReactNode;className?:string}){
-  return <div className={`bg-white border border-slate-200 rounded-xl ${className}`}>{children}</div>;
+export function Card({children,className="",onClick}:{children:ReactNode;className?:string;onClick?:()=>void}){
+  return <div onClick={onClick} className={`bg-white border border-slate-200 rounded-xl ${className}`}>{children}</div>;
 }
 export function Bdg({label,color}:{label:string;color:"green"|"red"|"amber"|"blue"|"gray"|"teal"|"purple"}){
   const m={green:"bg-green-50 text-green-700 border-green-200",teal:"bg-green-100 text-green-800 border-green-300",red:"bg-red-50 text-red-700 border-red-200",amber:"bg-amber-50 text-amber-700 border-amber-200",blue:"bg-blue-50 text-blue-700 border-blue-200",gray:"bg-slate-50 text-slate-600 border-slate-200",purple:"bg-purple-50 text-purple-700 border-purple-200"};
   return <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-semibold border ${m[color]}`}>{label}</span>;
 }
-export function PBtn({children,onClick,sm,danger,outline,disabled}:{children:ReactNode;onClick?:()=>void;sm?:boolean;danger?:boolean;outline?:boolean;disabled?:boolean}){
+export function PBtn({children,onClick,sm,danger,outline,disabled,type="button",className=""}:{children:ReactNode;onClick?:()=>void;sm?:boolean;danger?:boolean;outline?:boolean;disabled?:boolean;type?:"button"|"submit"|"reset";className?:string}){
   const base="flex items-center gap-1.5 font-semibold rounded-lg transition-colors";
   const color=danger?"bg-red-500 hover:bg-red-600 text-white":outline?"border border-green-600 text-green-600 hover:bg-green-50 bg-white":"bg-green-600 hover:bg-green-700 text-white";
-  return <button disabled={disabled} onClick={disabled?undefined:onClick} className={`${base} ${color} ${disabled?"opacity-50 cursor-not-allowed":""} ${sm?"px-3 py-1.5 text-xs":"px-4 py-2 text-sm"}`}>{children}</button>;
+  return <button type={type} disabled={disabled} onClick={disabled?undefined:onClick} className={`${base} ${color} ${disabled?"opacity-50 cursor-not-allowed":""} ${sm?"px-3 py-1.5 text-xs":"px-4 py-2 text-sm"} ${className}`}>{children}</button>;
 }
 export function Pagination({total,page,perPage,onPage}:{total:number;page:number;perPage:number;onPage:(p:number)=>void;}){
   const pages=Math.ceil(total/perPage);
@@ -78,7 +78,7 @@ export function StatCard({
   value?: string | number;
   val?: string | number;
   sub?: string;
-  icon: ElementType | React.ReactNode;
+  icon?: ElementType | React.ReactNode;
   trend?: { dir: "up" | "down"; val: string; good?: boolean };
   hi?: boolean;
   valueColor?: "green" | "red" | "neutral";
@@ -94,7 +94,11 @@ export function StatCard({
     <Card className={`p-4 ${hi ? "border-green-200/80 bg-green-50/40" : "bg-white"}`}>
       <div className="flex flex-col gap-2">
         <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 border ${colorStyle.bg} ${colorStyle.border} ${colorStyle.text}`}>
-          {typeof Icon === "function" ? <Icon size={18} className="shrink-0" /> : Icon}
+          {React.isValidElement(Icon) ? (
+            Icon
+          ) : Icon ? (
+            React.createElement(Icon as any, { size: 18, className: "shrink-0" })
+          ) : null}
         </div>
         <div className="min-w-0 overflow-hidden">
           <p className="text-[10px] text-slate-500 uppercase tracking-widest truncate font-semibold">{label}</p>

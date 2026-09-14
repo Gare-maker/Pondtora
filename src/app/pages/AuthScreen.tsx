@@ -71,34 +71,45 @@ function AuthScreen({
 
   // Detect URL search/hash for invite / recovery flows on mount + listen for PASSWORD_RECOVERY
   useEffect(() => {
-    // 1. Check query parameters (e.g. ?type=recovery)
-    const searchParams = new URLSearchParams(window.location.search);
-    const searchType = searchParams.get("type");
-    if (searchType === "recovery") {
-      setView("recovery");
-    }
-
-    // 2. Check URL hash (e.g. #type=recovery or #type=invite)
-    const hash = window.location.hash;
-    if (hash) {
-      const hashParams = new URLSearchParams(hash.slice(1));
-      const hashType = hashParams.get("type");
-      if (hashType === "invite") {
-        setView("invite");
-      } else if (hashType === "recovery") {
+    if (typeof window !== "undefined") {
+      // 1. Check query parameters (e.g. ?type=recovery)
+      const searchParams = new URLSearchParams(window.location.search);
+      const searchType = searchParams.get("type");
+      if (searchType === "recovery") {
         setView("recovery");
+      }
+
+      // 2. Check URL hash (e.g. #type=recovery or #type=invite)
+      const hash = window.location.hash;
+      if (hash) {
+        const hashParams = new URLSearchParams(hash.slice(1));
+        const hashType = hashParams.get("type");
+        if (hashType === "invite") {
+          setView("invite");
+        } else if (hashType === "recovery") {
+          setView("recovery");
+        }
       }
     }
 
     // 3. Supabase Auth state listener for PASSWORD_RECOVERY event
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
-      if (event === "PASSWORD_RECOVERY") {
-        setView("recovery");
-      }
-    });
+    let subRes: any;
+    try {
+      subRes = supabase.auth.onAuthStateChange((event) => {
+        if (event === "PASSWORD_RECOVERY") {
+          setView("recovery");
+        }
+      });
+    } catch {}
 
     return () => {
-      subscription.unsubscribe();
+      try {
+        if (subRes?.data?.subscription?.unsubscribe) {
+          subRes.data.subscription.unsubscribe();
+        } else if (subRes?.subscription?.unsubscribe) {
+          subRes.subscription.unsubscribe();
+        }
+      } catch {}
     };
   }, []);
 
