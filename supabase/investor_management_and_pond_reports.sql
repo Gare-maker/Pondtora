@@ -4,6 +4,34 @@
 -- https://supabase.com/dashboard/project/_/sql/new
 -- ══════════════════════════════════════════════════════════════════════════════
 
+-- ── 0. Helper Security Functions (Required for RLS Policies) ───────────────────
+CREATE OR REPLACE FUNCTION is_admin()
+RETURNS BOOLEAN LANGUAGE plpgsql SECURITY DEFINER STABLE AS $$
+BEGIN
+  RETURN EXISTS (
+    SELECT 1 FROM user_profiles
+    WHERE id = auth.uid() AND (role = 'admin' OR role = 'superadmin' OR email = 'edafejesugarec@gmail.com')
+  ) OR (
+    COALESCE(auth.jwt() ->> 'email', '') = 'edafejesugarec@gmail.com'
+  );
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION user_can_access_farm(p_farm_id UUID)
+RETURNS BOOLEAN LANGUAGE plpgsql SECURITY DEFINER STABLE AS $$
+BEGIN
+  IF p_farm_id IS NULL THEN
+    RETURN FALSE;
+  END IF;
+  RETURN EXISTS (
+    SELECT 1 FROM farms f WHERE f.id = p_farm_id AND f.user_id = auth.uid()
+  ) OR EXISTS (
+    SELECT 1 FROM staff_members sm
+    WHERE sm.staff_auth_id = auth.uid() AND sm.status = 'Active'
+  );
+END;
+$$;
+
 -- ── 1. Investors Table ─────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS investors (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
