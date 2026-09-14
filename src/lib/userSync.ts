@@ -36,7 +36,12 @@ export function loadAllAdminUsers(): AdminUser[] {
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed.filter(u => u && typeof u === "object" && typeof u.id === "string");
+        return parsed
+          .filter(u => u && typeof u === "object" && typeof u.id === "string")
+          .map(u => ({
+            ...u,
+            subscriptionStatus: computeSubscriptionStatus(u),
+          }));
       }
     }
   } catch {}
@@ -88,6 +93,14 @@ export async function fetchLiveAdminUsers(): Promise<{
         x => x.id === p.id || (x.email && x.email.toLowerCase() === (p.email || "").toLowerCase())
       );
 
+      const hasPaid = Boolean(
+        local?.hasPaid ||
+        local?.paystackReference ||
+        local?.lastPaymentDate ||
+        p.paystack_reference ||
+        p.last_payment_date
+      );
+
       const u: AdminUser = {
         id: p.id,
         name: p.name || (p.email ? p.email.split("@")[0] : "Farmer"),
@@ -99,17 +112,18 @@ export async function fetchLiveAdminUsers(): Promise<{
         country: p.country || local?.country || "Nigeria",
         role: p.role || local?.role || "owner",
         activePlan: p.active_plan || local?.activePlan || "Starter",
-        trialStartDate: p.trial_start_date ? p.trial_start_date.slice(0, 10) : (local?.trialStartDate || null),
+        trialStartDate: p.trial_start_date ? p.trial_start_date.slice(0, 10) : (local?.trialStartDate || (p.created_at ? p.created_at.slice(0, 10) : new Date().toISOString().slice(0, 10))),
         billingFrequency: local?.billingFrequency || "monthly",
         subscriptionAmount: typeof local?.subscriptionAmount === "number" ? local.subscriptionAmount : null,
+        hasPaid: hasPaid,
         subscriptionStatus: "Trial",
-        subscriptionStart: local?.subscriptionStart || (p.created_at ? p.created_at.slice(0, 10) : null),
-        subscriptionExpiry: local?.subscriptionExpiry || null,
+        subscriptionStart: hasPaid ? (local?.subscriptionStart || null) : null,
+        subscriptionExpiry: hasPaid ? (local?.subscriptionExpiry || null) : null,
         accountStatus: (p.status === "Suspended" || local?.accountStatus === "Suspended") ? "Suspended" : "Active",
         freeAccess: Boolean(local?.freeAccess),
         farmCount: farmCount,
-        paystackReference: local?.paystackReference,
-        lastPaymentDate: local?.lastPaymentDate,
+        paystackReference: local?.paystackReference || p.paystack_reference,
+        lastPaymentDate: local?.lastPaymentDate || p.last_payment_date,
         createdAt: p.created_at ? p.created_at.slice(0, 10) : (local?.createdAt || new Date().toISOString().slice(0, 10)),
       };
       u.subscriptionStatus = computeSubscriptionStatus(u);
@@ -285,6 +299,7 @@ export function syncUserProfileToAdmin(
 
   if (existingIdx >= 0) {
     const current = users[existingIdx];
+    const hasPaid = Boolean(current.hasPaid || current.paystackReference || current.lastPaymentDate);
     userObj = {
       ...current,
       name: profile.name || current.name || targetEmail.split("@")[0],
@@ -294,8 +309,11 @@ export function syncUserProfileToAdmin(
       state: profile.state || current.state || "Lagos",
       country: profile.country || current.country || "Nigeria",
       activePlan: activePlan || profile.activePlan || current.activePlan || "Starter",
-      trialStartDate: profile.trialStartDate || current.trialStartDate || new Date().toISOString().slice(0, 10),
+      hasPaid: hasPaid,
+      trialStartDate: hasPaid ? null : (profile.trialStartDate || current.trialStartDate || new Date().toISOString().slice(0, 10)),
       farmCount: Math.max(farmCount || 1, current.farmCount || 1),
+      subscriptionStart: hasPaid ? current.subscriptionStart : null,
+      subscriptionExpiry: hasPaid ? current.subscriptionExpiry : null,
     };
     userObj.subscriptionStatus = computeSubscriptionStatus(userObj);
     users[existingIdx] = userObj;
@@ -313,6 +331,7 @@ export function syncUserProfileToAdmin(
       trialStartDate: profile.trialStartDate || new Date().toISOString().slice(0, 10),
       billingFrequency: "monthly",
       subscriptionAmount: null,
+      hasPaid: false,
       subscriptionStatus: "Trial",
       subscriptionStart: null,
       subscriptionExpiry: null,
@@ -403,6 +422,7 @@ export function recordSuccessfulPayment(params: {
       activePlan: params.planName,
       billingFrequency: params.billingFrequency,
       subscriptionAmount: params.amount,
+      hasPaid: true,
       subscriptionStatus: "Active",
       subscriptionStart: todayStr,
       subscriptionExpiry: expiryStr,
@@ -421,6 +441,7 @@ export function recordSuccessfulPayment(params: {
       trialStartDate: null,
       billingFrequency: params.billingFrequency,
       subscriptionAmount: params.amount,
+      hasPaid: true,
       subscriptionStatus: "Active",
       subscriptionStart: todayStr,
       subscriptionExpiry: expiryStr,

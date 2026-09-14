@@ -37,6 +37,7 @@ const BLANK: Omit<AdminUser, "id"> = {
   trialStartDate: new Date().toISOString().slice(0, 10),
   billingFrequency: "monthly",
   subscriptionAmount: null,
+  hasPaid: false,
   subscriptionStatus: "Trial",
   subscriptionStart: null,
   subscriptionExpiry: null,
@@ -344,8 +345,41 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
     const now = new Date();
     const updated: AdminUser = {
       ...u,
+      hasPaid: false,
       trialStartDate: now.toISOString().slice(0, 10),
       subscriptionStatus: "Trial",
+      subscriptionStart: null,
+      subscriptionExpiry: null,
+    };
+    onUpdate(updated);
+    setMenu(null);
+  }
+
+  function handleMarkPaid(u: AdminUser) {
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const expDate = new Date();
+    expDate.setDate(expDate.getDate() + (u.billingFrequency === "yearly" ? 365 : 30));
+    const updated: AdminUser = {
+      ...u,
+      hasPaid: true,
+      subscriptionStatus: "Active",
+      subscriptionStart: todayStr,
+      subscriptionExpiry: expDate.toISOString().slice(0, 10),
+      trialStartDate: null,
+    };
+    onUpdate(updated);
+    setMenu(null);
+  }
+
+  function handleSwitchToTrial(u: AdminUser) {
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const updated: AdminUser = {
+      ...u,
+      hasPaid: false,
+      trialStartDate: todayStr,
+      subscriptionStatus: "Trial",
+      subscriptionStart: null,
+      subscriptionExpiry: null,
     };
     onUpdate(updated);
     setMenu(null);
@@ -521,6 +555,11 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                   <td className="px-4 py-3 whitespace-nowrap">
                     <div className="flex items-center gap-1.5">
                       <Bdg label={u.subscriptionStatus} color={STATUS_COLOR[u.subscriptionStatus] || "gray"} />
+                      {u.subscriptionStatus === "Active" && (u.hasPaid || u.paystackReference) && !u.freeAccess && (
+                        <span className="text-[10px] bg-emerald-100 text-emerald-700 font-bold px-1.5 py-0.5 rounded">
+                          Paid
+                        </span>
+                      )}
                       {u.freeAccess && (
                         <span className="text-[10px] bg-green-100 text-green-700 font-bold px-1.5 py-0.5 rounded">
                           Free ✦
@@ -740,14 +779,32 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
           >
             <Edit2 size={13} className="text-slate-400" /> Edit Details & Plan
           </button>
+          {menu.user.hasPaid || menu.user.paystackReference ? (
+            <button
+              onClick={() => {
+                handleSwitchToTrial(menu.user);
+              }}
+              className="flex items-center gap-2 w-full px-3.5 py-2 text-xs text-amber-700 hover:bg-amber-50 font-medium transition-colors"
+            >
+              <Clock size={13} className="text-amber-500" /> Switch to On Trial
+            </button>
+          ) : (
+            <button
+              onClick={() => {
+                handleMarkPaid(menu.user);
+              }}
+              className="flex items-center gap-2 w-full px-3.5 py-2 text-xs text-emerald-700 hover:bg-emerald-50 font-medium transition-colors"
+            >
+              <CheckCircle size={13} className="text-emerald-500" /> Mark as Paid (Activate)
+            </button>
+          )}
           <button
             onClick={() => {
               handleExtendTrial(menu.user);
-              setMenu(null);
             }}
-            className="flex items-center gap-2 w-full px-3.5 py-2 text-xs text-amber-700 hover:bg-amber-50 font-medium transition-colors"
+            className="flex items-center gap-2 w-full px-3.5 py-2 text-xs text-slate-700 hover:bg-slate-50 font-medium transition-colors"
           >
-            <Clock size={13} className="text-amber-500" /> Reset 30-Day Trial
+            <Clock size={13} className="text-slate-400" /> Reset 30-Day Trial
           </button>
           <button
             onClick={() => {

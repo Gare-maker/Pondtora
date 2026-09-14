@@ -84,15 +84,16 @@ export default function DashboardPage({
   const stats = useMemo(() => {
     const total = users.length;
     const trial = users.filter(u => u.subscriptionStatus === "Trial").length;
+    const paid = users.filter(u => u.subscriptionStatus === "Active" && !u.freeAccess && Boolean(u.hasPaid || u.paystackReference || u.lastPaymentDate)).length;
     const active = users.filter(u => u.subscriptionStatus === "Active").length;
     const expired = users.filter(u => u.subscriptionStatus === "Expired").length;
     const suspended = users.filter(u => u.subscriptionStatus === "Suspended").length;
     const free = users.filter(u => u.freeAccess).length;
 
-    // Calculate Monthly Recurring Revenue (MRR)
+    // Calculate Monthly Recurring Revenue (MRR) strictly from verified paying accounts
     let mrr = 0;
     users.forEach(u => {
-      if (u.subscriptionStatus === "Active" && !u.freeAccess) {
+      if (u.subscriptionStatus === "Active" && !u.freeAccess && (u.hasPaid || u.paystackReference || u.lastPaymentDate)) {
         const ep = effectivePrice(u, plans);
         if (typeof ep === "number") {
           if (u.billingFrequency === "yearly") {
@@ -106,7 +107,7 @@ export default function DashboardPage({
 
     const arr = mrr * 12;
 
-    return { total, trial, active, expired, suspended, free, mrr, arr };
+    return { total, trial, paid, active, expired, suspended, free, mrr, arr };
   }, [users, plans]);
 
   const totalFarms = useMemo(() => {
@@ -202,7 +203,7 @@ export default function DashboardPage({
         <StatBox
           label="Total Registered Users"
           value={stats.total}
-          subtitle={`${stats.active} Paid · ${stats.trial} On Trial · ${totalFarms} Farms`}
+          subtitle={`${stats.paid} Paid · ${stats.trial} On Trial · ${totalFarms} Farms`}
           icon={Users}
           bg="bg-slate-100"
           ic="text-slate-700"
@@ -210,7 +211,7 @@ export default function DashboardPage({
         />
         <StatBox
           label="Paid Subscriptions"
-          value={stats.active}
+          value={stats.paid}
           subtitle={`${stats.free} Free / Complimentary`}
           icon={TrendingUp}
           bg="bg-green-50"

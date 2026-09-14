@@ -3,7 +3,7 @@ import type {
   Farm, UserProfile, Pond, StockEvent, FeedItem, FeedingRecord,
   BagOpenLog, FeedRemainingLog, Expense, Revenue, MortalityEntry,
   TreatmentRecord, StaffMember, Report, Customer, PriceGroup,
-  Invoice, InvSettings,
+  Invoice, InvSettings, Investor, Investment, InvestmentPayment, PondReport,
 } from "../app/types";
 import { INIT_K, INIT_C } from "../app/data";
 
@@ -122,9 +122,28 @@ const CAMEL_MAP: Record<string, string> = {
   original_description: "originalDesc",
 };
 
-const DATE_FIELDS = new Set(["date", "purchase_date", "stocking_date", "cleared_date", "invoice_date", "due_date"]);
+const DATE_FIELDS = new Set(["date", "purchase_date", "stocking_date", "cleared_date", "invoice_date", "due_date", "start_date", "payment_date", "report_date"]);
 
 const TABLE_ALLOWED_COLUMNS: Record<string, Set<string>> = {
+  investors: new Set([
+    "id", "user_id", "farm_id", "full_name", "phone", "email", "status", "notes", "created_at", "updated_at"
+  ]),
+  investments: new Set([
+    "id", "user_id", "investor_id", "farm_id", "pond_id", "fish_stock_id",
+    "amount_invested", "investor_percentage", "expected_return", "total_amount_due",
+    "start_date", "due_date", "payment_type", "payment_frequency", "custom_frequency_desc",
+    "status", "notes", "created_at", "updated_at"
+  ]),
+  investment_payments: new Set([
+    "id", "user_id", "investment_id", "due_date", "payment_date", "payment_period",
+    "amount_due", "amount_paid", "payment_method", "status", "notes", "recorded_by",
+    "created_at", "updated_at"
+  ]),
+  pond_reports: new Set([
+    "id", "user_id", "farm_id", "pond_id", "fish_stock_id", "report_type",
+    "report_date", "issue", "description", "action_taken", "notes", "treatment_id",
+    "created_by", "created_at", "updated_at"
+  ]),
   feeding_records: new Set([
     "id", "user_id", "farm_id", "date", "month", "year", "pond", "brand", "size",
     "morning", "evening", "total", "recorded_by", "morning_time", "evening_time",
@@ -575,6 +594,7 @@ export const api = {
         staffMembers: [], reports: [], customers: [], priceGroups: [],
         invoices: [], invoiceSettings: null, knowledgeQuestions: [],
         compatibilityQuestions: [], knowledgeResults: [], compatibilityResults: [],
+        investors: [], investments: [], investmentPayments: [], pondReports: [],
         staffInfo: null, isStaff: false,
       };
     }
@@ -595,7 +615,8 @@ export const api = {
         farmsRes, profilesRes, pondsRes, stockRes, invRes, feedRes,
         bagRes, remainRes, expRes, revRes, mortRes, treatRes,
         staffRes, repRes, custRes, pgRes, invsRes, setRes,
-        kqRes, cqRes, krRes, crRes
+        kqRes, cqRes, krRes, crRes,
+        investorsRes, investmentsRes, invPayRes, pondRepRes
       ] = await Promise.all([
         safeQuery(supabase.from("farms").select("*").order("created_at", { ascending: true })),
         safeQuery(supabase.from("user_profiles").select("*").eq("id", userId)),
@@ -619,6 +640,10 @@ export const api = {
         safeQuery(supabase.from("compatibility_questions").select("*")),
         safeQuery(supabase.from("knowledge_results").select("*")),
         safeQuery(supabase.from("compatibility_results").select("*")),
+        safeQuery(supabase.from("investors").select("*")),
+        safeQuery(supabase.from("investments").select("*")),
+        safeQuery(supabase.from("investment_payments").select("*")),
+        safeQuery(supabase.from("pond_reports").select("*")),
       ]);
 
       let farms = (farmsRes.data || []).map((r: any) => objToCamel<Farm>(r));
@@ -663,6 +688,10 @@ export const api = {
         compatibilityQuestions: (cqRes.data || []).map((r: any) => objToCamel(r)),
         knowledgeResults: (krRes.data || []).map((r: any) => objToCamel(r)),
         compatibilityResults: (crRes.data || []).map((r: any) => objToCamel(r)),
+        investors: (investorsRes.data || []).map((r: any) => objToCamel<Investor>(r)),
+        investments: (investmentsRes.data || []).map((r: any) => objToCamel<Investment>(r)),
+        investmentPayments: (invPayRes.data || []).map((r: any) => objToCamel<InvestmentPayment>(r)),
+        pondReports: (pondRepRes.data || []).map((r: any) => objToCamel<PondReport>(r)),
         staffInfo: staffMember || null,
         isStaff: !!staffMember,
       };
@@ -1201,6 +1230,38 @@ export const api = {
       }
       return data ? objToCamel<InvSettings>(data) : (s as InvSettings);
     },
+  },
+
+  // ── Investors ─────────────────────────────────────────────────────────────
+  investors: {
+    list: () => dbList<Investor>("investors", "investors"),
+    create: (item: Investor) => dbInsert<Investor>("investors", item, "investors"),
+    update: (item: Investor) => dbUpdate<Investor>("investors", item, "investors"),
+    remove: (id: string) => dbDelete("investors", id, "investors"),
+  },
+
+  // ── Investments ───────────────────────────────────────────────────────────
+  investments: {
+    list: () => dbList<Investment>("investments", "investments"),
+    create: (item: Investment) => dbInsert<Investment>("investments", item, "investments"),
+    update: (item: Investment) => dbUpdate<Investment>("investments", item, "investments"),
+    remove: (id: string) => dbDelete("investments", id, "investments"),
+  },
+
+  // ── Investment Payments ───────────────────────────────────────────────────
+  investmentPayments: {
+    list: () => dbList<InvestmentPayment>("investment_payments", "investmentPayments"),
+    create: (item: InvestmentPayment) => dbInsert<InvestmentPayment>("investment_payments", item, "investmentPayments"),
+    update: (item: InvestmentPayment) => dbUpdate<InvestmentPayment>("investment_payments", item, "investmentPayments"),
+    remove: (id: string) => dbDelete("investment_payments", id, "investmentPayments"),
+  },
+
+  // ── Pond Reports ──────────────────────────────────────────────────────────
+  pondReports: {
+    list: () => dbList<PondReport>("pond_reports", "pondReports"),
+    create: (item: PondReport) => dbInsert<PondReport>("pond_reports", item, "pondReports"),
+    update: (item: PondReport) => dbUpdate<PondReport>("pond_reports", item, "pondReports"),
+    remove: (id: string) => dbDelete("pond_reports", id, "pondReports"),
   },
 
   // ── Knowledge questions ────────────────────────────────────────────────────

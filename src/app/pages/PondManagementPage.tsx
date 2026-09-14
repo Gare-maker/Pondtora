@@ -5,12 +5,13 @@ import {
   ChevronLeft, ChevronRight, Eye, Download, FileText, Pencil,
   MoreVertical, TrendingUp, TrendingDown, Search, History
 } from "lucide-react";
-import type { Pond, Expense, MortalityEntry, FeedingRecord, StockEvent, TreatmentRecord, BagOpenLog, FeedRemainingLog, FeedItem } from "../types";
+import type { Pond, Expense, MortalityEntry, FeedingRecord, StockEvent, TreatmentRecord, BagOpenLog, FeedRemainingLog, FeedItem, Farm, PondReport } from "../types";
 import { EXPENSE_CATS, POND_TYPES, POND_SPECIES, MORT_CAUSES, TODAY, fmt, uid, toMon, toYr, downloadCSV, openPrintWindow, fmtStockingDate } from "../data";
 import { Card, Bdg, PBtn, Pagination, PER_PAGE, StatCard, Modal, F, IC, SC, SH, useSort, DateFilter, NumInput } from "../shared";
+import PondReportsComponent from "./PondReportsComponent";
 
 /* ─── Pond Detail (separate component so hooks are unconditional) */
-function PondDetail({pond,mortality,onAddMortality,onAddCost,feedingRecords,onBack,onClosePond,onRestockPond,ponds,stockEvents,onTransfer,onNurseryTransfer,treatments,onAddTreatment,onEditFish,onSetMaxKg,inventory=[],onEditThisPond,currency="₦"}:{pond:Pond;mortality:MortalityEntry[];onAddMortality:(m:MortalityEntry,pondId:string)=>void;onAddCost:(e:Expense)=>void;feedingRecords:FeedingRecord[];onBack:()=>void;onClosePond:(id:string)=>void;onRestockPond:(id:string,data:{species:string;initialStock:number;stockingDate:string;stockMonth:string;supplier?:string})=>void;ponds:Pond[];stockEvents:StockEvent[];onTransfer:(fromId:string,toId:string,date:string)=>void;onNurseryTransfer:(fromId:string,toId:string,count:number,pct:number,date:string)=>void;treatments:TreatmentRecord[];onAddTreatment:(t:TreatmentRecord)=>void;onEditFish?:(pondId:string,u:{species:string;currentCount:number;stockingDate:string})=>void;onSetMaxKg:(pondId:string,size:string,maxKg:number)=>void;inventory?:FeedItem[];onEditThisPond?:(p:Pond)=>void;currency?:string;}){
+function PondDetail({pond,mortality,onAddMortality,onAddCost,feedingRecords,onBack,onClosePond,onRestockPond,ponds,stockEvents,onTransfer,onNurseryTransfer,treatments,onAddTreatment,onEditFish,onSetMaxKg,inventory=[],onEditThisPond,currency="₦",farms=[],pondReports=[],onAddPondReport}:{pond:Pond;mortality:MortalityEntry[];onAddMortality:(m:MortalityEntry,pondId:string)=>void;onAddCost:(e:Expense)=>void;feedingRecords:FeedingRecord[];onBack:()=>void;onClosePond:(id:string)=>void;onRestockPond:(id:string,data:{species:string;initialStock:number;stockingDate:string;stockMonth:string;supplier?:string})=>void;ponds:Pond[];stockEvents:StockEvent[];onTransfer:(fromId:string,toId:string,date:string)=>void;onNurseryTransfer:(fromId:string,toId:string,count:number,pct:number,date:string)=>void;treatments:TreatmentRecord[];onAddTreatment:(t:TreatmentRecord)=>void;onEditFish?:(pondId:string,u:{species:string;currentCount:number;stockingDate:string})=>void;onSetMaxKg:(pondId:string,size:string,maxKg:number)=>void;inventory?:FeedItem[];onEditThisPond?:(p:Pond)=>void;currency?:string;farms?:Farm[];pondReports?:PondReport[];onAddPondReport?:(r:PondReport)=>Promise<void>;}){
   const cs=currency;
   const invBrands=[...new Set(inventory.map(f=>f.brand))];
   const invSizesForBrand=(brand:string)=>[...new Set(inventory.filter(f=>f.brand===brand).map(f=>f.size))];
@@ -37,7 +38,7 @@ function PondDetail({pond,mortality,onAddMortality,onAddCost,feedingRecords,onBa
   const [nurseryTF,setNurseryTF]=useState({toPond:"",count:"",pct:"100",date:TODAY});
   const [nurseryErr,setNurseryErr]=useState<Record<string,string>>({});
   const [showTreat,setShowTreat]=useState(false);
-  const [pondTab,setPondTab]=useState<"feed"|"treatment">("feed");
+  const [pondTab,setPondTab]=useState<"feed"|"treatment"|"reports">("feed");
   const [feedPage,setFeedPage]=useState(1);
   const [treatPage,setTreatPage]=useState(1);
   const [editFeedRec,setEditFeedRec]=useState<FeedingRecord|null>(null);
@@ -264,10 +265,10 @@ function PondDetail({pond,mortality,onAddMortality,onAddCost,feedingRecords,onBa
       </Card>
       <Card>
         <div className="px-5 py-3 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex gap-1 bg-slate-100 p-1 rounded-lg">
-            {(["feed","treatment"] as const).map(t=>(
-              <button key={t} onClick={()=>setPondTab(t)} className={`px-3 py-1 rounded-md text-xs font-semibold transition-all ${pondTab===t?"bg-white text-slate-900 shadow-sm":"text-slate-500 hover:text-slate-800"}`}>
-                {t==="feed"?"Feed History":"Treatment History"}
+          <div className="flex gap-1 bg-slate-200/90 border border-slate-300/80 p-1 rounded-xl shadow-2xs">
+            {(["feed","treatment","reports"] as const).map(t=>(
+              <button key={t} onClick={()=>setPondTab(t)} className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${pondTab===t?"bg-white text-slate-900 shadow-sm border border-slate-200/80 font-bold":"text-slate-600 hover:text-slate-900"}`}>
+                {t==="feed"?"Feed History":t==="treatment"?"Treatment History":"Reports"}
               </button>
             ))}
           </div>
@@ -332,6 +333,20 @@ function PondDetail({pond,mortality,onAddMortality,onAddCost,feedingRecords,onBa
             </tbody>
           </table></div>
           <div className="px-4 pb-2"><Pagination total={pondTreatments.length} page={treatPage} perPage={PER_PAGE} onPage={setTreatPage}/></div></>
+        )}
+        {pondTab==="reports"&&(
+          <div className="p-4 sm:p-5">
+            <PondReportsComponent
+              fixedPondId={pond.id}
+              pondReports={pondReports}
+              treatments={treatments}
+              farms={farms}
+              ponds={ponds}
+              stockEvents={stockEvents}
+              onAddPondReport={onAddPondReport}
+              activeFarmId={pond.farmId}
+            />
+          </div>
         )}
       </Card>
       {showMaxKg&&<Modal title="Set Max kg per Pallet" onClose={()=>setShowMaxKg(false)}>
@@ -539,7 +554,7 @@ export function getNextPondFigure(ponds: Pond[]): string {
 }
 
 /* ─── 2. Pond Management ────────────────────────────────────── */
-export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPond,onTransfer,onNurseryTransfer,mortality,onAddMortality,onAddCost,feedingRecords,stockEvents,treatments,onAddTreatment,activeFarmId,onDeletePond,onEditFish,onSetMaxKg,onEditPond,onScrollTop,currency="₦",inventory=[]}:{ponds:Pond[];onAddPond:(p:Pond)=>void;onClosePond:(id:string)=>void;onRestockPond:(id:string,data:{species:string;initialStock:number;stockingDate:string;stockMonth:string;supplier?:string})=>void;onTransfer:(fromId:string,toId:string,date:string)=>void;onNurseryTransfer:(fromId:string,toId:string,count:number,pct:number,date:string)=>void;mortality:MortalityEntry[];onAddMortality:(m:MortalityEntry,pondId:string)=>void;onAddCost:(e:Expense)=>void;feedingRecords:FeedingRecord[];stockEvents:StockEvent[];treatments:TreatmentRecord[];onAddTreatment:(t:TreatmentRecord)=>void;activeFarmId:string;onDeletePond?:(id:string)=>void;onEditFish?:(pondId:string,u:{species:string;currentCount:number;stockingDate:string})=>void;onSetMaxKg:(pondId:string,size:string,maxKg:number)=>void;onEditPond?:(id:string,u:Partial<Pond>)=>void;onScrollTop?:()=>void;currency?:string;inventory?:FeedItem[];}){
+export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPond,onTransfer,onNurseryTransfer,mortality,onAddMortality,onAddCost,feedingRecords,stockEvents,treatments,onAddTreatment,activeFarmId,onDeletePond,onEditFish,onSetMaxKg,onEditPond,onScrollTop,currency="₦",inventory=[],farms=[],pondReports=[],onAddPondReport}:{ponds:Pond[];onAddPond:(p:Pond)=>void;onClosePond:(id:string)=>void;onRestockPond:(id:string,data:{species:string;initialStock:number;stockingDate:string;stockMonth:string;supplier?:string})=>void;onTransfer:(fromId:string,toId:string,date:string)=>void;onNurseryTransfer:(fromId:string,toId:string,count:number,pct:number,date:string)=>void;mortality:MortalityEntry[];onAddMortality:(m:MortalityEntry,pondId:string)=>void;onAddCost:(e:Expense)=>void;feedingRecords:FeedingRecord[];stockEvents:StockEvent[];treatments:TreatmentRecord[];onAddTreatment:(t:TreatmentRecord)=>void;activeFarmId:string;onDeletePond?:(id:string)=>void;onEditFish?:(pondId:string,u:{species:string;currentCount:number;stockingDate:string})=>void;onSetMaxKg:(pondId:string,size:string,maxKg:number)=>void;onEditPond?:(id:string,u:Partial<Pond>)=>void;onScrollTop?:()=>void;currency?:string;inventory?:FeedItem[];farms?:Farm[];pondReports?:PondReport[];onAddPondReport?:(r:PondReport)=>Promise<void>;}){
   const cs=currency;
   const [detailId,setDetailId]=useState<string|null>(null);
   const [showAdd,setShowAdd]=useState(false);
@@ -721,7 +736,7 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
 
   if(pond) return (
     <>
-      <PondDetail pond={pond} mortality={mortality} onAddMortality={onAddMortality} onAddCost={onAddCost} feedingRecords={feedingRecords} onBack={()=>setDetailId(null)} onClosePond={onClosePond} onRestockPond={(id,data)=>{setFStatus("All");onRestockPond(id,data);}} ponds={ponds} stockEvents={stockEvents} onTransfer={onTransfer} onNurseryTransfer={onNurseryTransfer} treatments={treatments} onAddTreatment={onAddTreatment} onEditFish={onEditFish} onSetMaxKg={onSetMaxKg} inventory={inventory} onEditThisPond={openEditPond} currency={currency}/>
+      <PondDetail pond={pond} mortality={mortality} onAddMortality={onAddMortality} onAddCost={onAddCost} feedingRecords={feedingRecords} onBack={()=>setDetailId(null)} onClosePond={onClosePond} onRestockPond={(id,data)=>{setFStatus("All");onRestockPond(id,data);}} ponds={ponds} stockEvents={stockEvents} onTransfer={onTransfer} onNurseryTransfer={onNurseryTransfer} treatments={treatments} onAddTreatment={onAddTreatment} onEditFish={onEditFish} onSetMaxKg={onSetMaxKg} inventory={inventory} onEditThisPond={openEditPond} currency={currency} farms={farms} pondReports={pondReports} onAddPondReport={onAddPondReport}/>
       {editPondModal}
     </>
   );

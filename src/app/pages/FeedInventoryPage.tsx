@@ -225,7 +225,7 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
         <StatCard label="Total Bags" value={String(totalBagsInStock)} sub={`${totalBagsOpened} opened · ${totalBagsPurchased} purchased`} icon={Package} hi/>
         <StatCard label="Total Kg" value={`${totalKgInStock}kg`} sub="in stock" icon={Layers}/>
       </div>
-      <div className="flex gap-1 bg-slate-100 p-1 rounded-lg w-fit">
+      <div className="flex gap-1 bg-slate-200/90 border border-slate-300/70 p-1 rounded-xl w-fit shadow-2xs">
         {([
           ["stock", "Stock"],
           ["daily_bags", "Daily Bags Opened"],
@@ -234,8 +234,8 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
           <button
             key={t}
             onClick={() => setTab(t as any)}
-            className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all ${
-              tab === t ? "bg-white text-slate-900 shadow-sm font-bold" : "text-slate-500 hover:text-slate-800"
+            className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${
+              tab === t ? "bg-white text-slate-900 shadow-sm font-bold border border-slate-200/80" : "text-slate-600 hover:text-slate-900"
             }`}
           >
             {label}

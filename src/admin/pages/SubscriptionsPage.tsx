@@ -85,6 +85,7 @@ export default function SubscriptionsPage({ users, plans, onUpdate }: Props) {
 
   function handleSave() {
     if (!editing) return;
+    const hasPaid = Boolean(editing.hasPaid || form.subscriptionStart || form.subscriptionExpiry || form.freeAccess);
     const updated: AdminUser = {
       ...editing,
       activePlan: form.activePlan || null,
@@ -93,6 +94,7 @@ export default function SubscriptionsPage({ users, plans, onUpdate }: Props) {
       subscriptionStart: form.subscriptionStart || null,
       subscriptionExpiry: form.subscriptionExpiry || null,
       freeAccess: form.freeAccess,
+      hasPaid: hasPaid,
     };
     updated.subscriptionStatus = computeSubscriptionStatus(updated);
     onUpdate(updated);
@@ -214,7 +216,14 @@ export default function SubscriptionsPage({ users, plans, onUpdate }: Props) {
                   </td>
 
                   <td className="px-4 py-3 whitespace-nowrap">
-                    <Bdg label={u.subscriptionStatus} color={STATUS_COLOR[u.subscriptionStatus] || "gray"} />
+                    <div className="flex items-center gap-1.5">
+                      <Bdg label={u.subscriptionStatus} color={STATUS_COLOR[u.subscriptionStatus] || "gray"} />
+                      {u.subscriptionStatus === "Active" && (u.hasPaid || u.paystackReference) && !u.freeAccess && (
+                        <span className="text-[10px] bg-emerald-100 text-emerald-700 font-bold px-1.5 py-0.5 rounded">
+                          Paid
+                        </span>
+                      )}
+                    </div>
                   </td>
 
                   <td className="px-4 py-3 text-slate-500 whitespace-nowrap">

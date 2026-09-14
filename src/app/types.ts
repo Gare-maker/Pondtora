@@ -1,5 +1,5 @@
 /* ─── Types ────────────────────────────────────────────────── */
-export type View = "financial" | "ponds" | "inventory" | "documentation" | "invoices" | "staff" | "reports" | "assessments" | "pricing" | "notifications" | "settings";
+export type View = "financial" | "ponds" | "inventory" | "documentation" | "invoices" | "staff" | "investors" | "reports" | "assessments" | "pricing" | "notifications" | "settings";
 export type SortDir = "asc" | "desc";
 
 export interface MonthData { month:string; revenue:number; expenses:number; feedCost:number; stockCost:number; maintenance:number; labor:number; utilities:number; overhead:number; }
@@ -25,3 +25,75 @@ export interface Invoice      { id:string; invNumber:string; customer:Customer; 
 export interface Farm         { id:string; name:string; city:string; state:string; country:string; }
 export interface TreatmentRecord { id:string; pondId:string; farmId:string; date:string; cause:string; medicine:string; remarks:string; }
 export type WItem = {id:string;groupId:string;qty:string;discount:string;};
+
+/* ─── Investor Management Interfaces ───────────────────────────── */
+export interface Investor {
+  id: string;
+  userId?: string;
+  farmId: string;
+  fullName: string;
+  phone: string;
+  email?: string;
+  status: "Active" | "Completed" | "Inactive";
+  notes?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface Investment {
+  id: string;
+  userId?: string;
+  investorId: string;
+  farmId: string;
+  pondId?: string;
+  fishStockId?: string;
+  amountInvested: number;
+  investorPercentage: number;
+  expectedReturn: number;
+  totalAmountDue: number;
+  startDate: string;
+  dueDate: string;
+  paymentType: "one-time" | "recurring";
+  paymentFrequency?: "Monthly" | "Quarterly" | "Annually" | "Custom";
+  customFrequencyDesc?: string;
+  status: "Active" | "Paid" | "Overdue" | "Completed";
+  notes?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface InvestmentPayment {
+  id: string;
+  userId?: string;
+  investmentId: string;
+  dueDate: string;
+  paymentDate?: string;
+  paymentPeriod: string;
+  amountDue: number;
+  amountPaid: number;
+  paymentMethod?: string;
+  status: "Pending" | "Partial" | "Paid" | "Overdue";
+  notes?: string;
+  recordedBy?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+/* ─── Pond-Based Reports Interface ─────────────────────────────── */
+export interface PondReport {
+  id: string;
+  userId?: string;
+  farmId: string;
+  pondId: string;
+  fishStockId: string;
+  reportType: "treatment" | "other_issue";
+  reportDate: string;
+  issue?: string;
+  description?: string;
+  actionTaken?: string;
+  notes?: string;
+  treatmentId?: string;
+  createdBy?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}

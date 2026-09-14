@@ -10,13 +10,13 @@ import {
   Layers, Droplets, Trash2, Menu, ChevronDown,
   ChevronUp, ChevronsLeft, ChevronsRight, ChevronLeft, ChevronRight, ChevronRight as ChevronRightIcon, Eye, Search,
   Download, FileText, BadgeCheck, Pencil, Users, Mail, Phone, ArrowRightLeft, History, Filter, Crown, Receipt, MoreVertical, AlertCircle, Bell, LogOut, ClipboardList, Lock, Loader2, Copy, Link, Database, ExternalLink, Settings, EyeOff,
-  Sparkles, CreditCard
+  Sparkles, CreditCard, Landmark
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell, Legend
 } from "recharts";
-import type { View, SortDir, MonthData, FeedItem, Pond, Expense, Revenue, FeedingRecord, FeedEditEntry, MortalityEntry, BagOpenLog, FeedRemainingLog, StaffMember, Report, UserProfile, StockEvent, PriceGroup, Customer, InvSettings, InvoiceLineItem, Invoice, Farm, TreatmentRecord, WItem, EditEntry } from "./types";
+import type { View, SortDir, MonthData, FeedItem, Pond, Expense, Revenue, FeedingRecord, FeedEditEntry, MortalityEntry, BagOpenLog, FeedRemainingLog, StaffMember, Report, UserProfile, StockEvent, PriceGroup, Customer, InvSettings, InvoiceLineItem, Invoice, Farm, TreatmentRecord, WItem, EditEntry, Investor, Investment, InvestmentPayment, PondReport } from "./types";
 import { EXPENSE_CATS, REVENUE_SRCS, POND_TYPES, POND_SPECIES, MORT_CAUSES, TODAY, fmt, yFmt, uid, toMon, toYr, PAYMENT_METHODS, INV_STATUSES, STAFF_PERMISSIONS, STAFF_ROLES_ALL, INIT_INV_SETTINGS, ADMIN_NAME, downloadCSV, openPrintWindow, COUNTRY_CURRENCIES, COUNTRIES, DIAL_CODES, FLAG_EMOJI, convertNGN, fmtStockingDate, isSameDate } from "./data";
 import { Card, Bdg, PBtn, Pagination, PER_PAGE, StatCard, Tip, Modal, F, IC, SC, SearchableSelect, SelDrop, DMONTHS_S, DateFilter, SearchableCountrySelect, SH, useSort, DateInput, NumInput } from "./shared";
 import InvoicesPage from "./pages/InvoicesPage";
@@ -26,6 +26,8 @@ import FeedInventoryPage from "./pages/FeedInventoryPage";
 import AuthScreenPage from "./pages/AuthScreen";
 import LandingPage from "./pages/LandingPage";
 import EmployeeAssessmentsPage, { CandidateAssessment, INIT_C, INIT_K } from "./pages/EmployeeAssessmentsPage";
+import InvestorsPage from "./pages/InvestorsPage";
+import PondReportsComponent from "./pages/PondReportsComponent";
 import { Toaster, toast } from "sonner";
 import { useDynamicPlans } from "../lib/plansStore";
 import { syncUserProfileToAdmin, getUserAdminOverride, logActivity, recordSuccessfulPayment, loadAllAdminUsers } from "../lib/userSync";
@@ -41,6 +43,7 @@ const NAV:{id:View;icon:React.ElementType;label:string}[]=[
   {id:"reports",       icon:FileText,       label:"Reports"},
   {id:"invoices",      icon:Receipt,        label:"Invoices"},
   {id:"staff",         icon:Users,          label:"Staff"},
+  {id:"investors",     icon:Landmark,       label:"Investors"},
   {id:"assessments",   icon:ClipboardList,  label:"Staff Assessments"},
   {id:"pricing",       icon:Crown,          label:"Subscription"},
   {id:"settings",      icon:Settings,       label:"Settings"},
@@ -48,7 +51,7 @@ const NAV:{id:View;icon:React.ElementType;label:string}[]=[
 /* Map nav id → permission name (undefined = always visible) */
 const NAV_PERM:Partial<Record<View,string>>={
   financial:"Financial Dashboard",ponds:"Pond Management",inventory:"Feed Stock",
-  documentation:"Feeding Records",invoices:"Invoice",reports:"Reports",assessments:"Staff Assessment",
+  documentation:"Feeding Records",invoices:"Invoice",reports:"Reports",investors:"Investors",assessments:"Staff Assessment",
 };
 function Sidebar({active,onNav,collapsed,onToggle,farms,activeFarmId,onSwitchFarm,onAddFarm,sideOpen,staff,unreadCount,onNotifications,onLogout,hasPerm,isOwner,userProfile,currentStaff}:{active:View;onNav:(v:View)=>void;collapsed:boolean;onToggle:()=>void;farms:Farm[];activeFarmId:string;onSwitchFarm:(id:string)=>void;onAddFarm:()=>void;sideOpen:boolean;staff?:StaffMember[];unreadCount?:number;onNotifications?:()=>void;onLogout?:()=>void;hasPerm?:(p:string)=>boolean;isOwner?:boolean;userProfile?:UserProfile|null;currentStaff?:StaffMember|null;}){
   const [farmOpen,setFarmOpen]=useState(false);
@@ -478,16 +481,18 @@ function FinancialDashboard({expenses,revenues,onAddExpense,onAddRevenue,onEditE
                 {pieRows.map(e => {
                   const pct = totalExp > 0 ? ((e.value / totalExp) * 100).toFixed(1) : "0";
                   return (
-                    <div key={e.name} className="flex items-center justify-between text-xs">
-                      <div className="flex items-center gap-1.5 min-w-0">
+                    <div key={e.name} className="flex items-center text-xs py-0.5">
+                      <div className="flex items-center gap-1.5 min-w-0 flex-1 pr-3">
                         <span className="w-2 h-2 rounded-full shrink-0" style={{background:e.color}}/>
-                        <span className="text-slate-600 truncate">{e.name}</span>
+                        <span className="text-slate-600 truncate font-medium">{e.name}</span>
                       </div>
-                      <div className="flex items-center gap-2 shrink-0">
-                        <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
+                      <div className="w-14 shrink-0 text-left">
+                        <span className="inline-block text-[10px] font-bold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
                           {pct}%
                         </span>
-                        <span className="text-slate-800 font-semibold">{fmt(e.value)}</span>
+                      </div>
+                      <div className="shrink-0 text-right min-w-[75px]">
+                        <span className="text-slate-800 font-semibold whitespace-nowrap">{fmt(e.value)}</span>
                       </div>
                     </div>
                   );
@@ -1199,7 +1204,32 @@ function StaffPage({
 }
 
 /* ─── 7. Reports ─────────────────────────────────────────────── */
-function ReportsPage({reports,staff,onAdd,onEdit}:{reports:Report[];staff:StaffMember[];onAdd:(r:Report)=>void;onEdit:(r:Report)=>void;}){
+function ReportsPage({
+  reports,
+  staff,
+  onAdd,
+  onEdit,
+  pondReports = [],
+  treatments = [],
+  farms = [],
+  ponds = [],
+  stockEvents = [],
+  onAddPondReport,
+  activeFarmId = "",
+}: {
+  reports: Report[];
+  staff: StaffMember[];
+  onAdd: (r: Report) => void;
+  onEdit: (r: Report) => void;
+  pondReports?: PondReport[];
+  treatments?: TreatmentRecord[];
+  farms?: Farm[];
+  ponds?: Pond[];
+  stockEvents?: StockEvent[];
+  onAddPondReport?: (r: PondReport) => Promise<void>;
+  activeFarmId?: string;
+}) {
+  const [reportCategory, setReportCategory] = useState<"operational" | "pond">("operational");
   const [typeFilter,setTypeFilter]=useState<"All"|"Daily"|"Weekly"|"Monthly">("All");
   const [dateSearch,setDateSearch]=useState("");
   const [showModal,setShowModal]=useState(false);
@@ -1291,138 +1321,140 @@ function ReportsPage({reports,staff,onAdd,onEdit}:{reports:Report[];staff:StaffM
   };
   return(
     <div className="p-4 sm:p-6 space-y-5 w-full">
-      <div className="sticky top-0 z-10 bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 flex items-center justify-between gap-3">
-        <div><h1 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Reports</h1><p className="text-xs text-slate-400 mt-0.5">Farm operational reports and incident logs</p></div>
-        <PBtn onClick={()=>setShowModal(true)} sm><Plus size={13}/> Submit Report</PBtn>
-      </div>
-      <Card className="p-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="flex gap-1">{(["All","Daily","Weekly","Monthly"] as const).map(t=><button key={t} onClick={()=>setTypeFilter(t)} className={`${TB} ${typeFilter===t?TA:TI}`}>{t}</button>)}</div>
-          <div className="w-px h-5 bg-slate-200"/>
-          <div className="flex items-center gap-1.5">
-            <span className="text-xs text-slate-400">Date:</span>
-            <input type="date" value={dateSearch} onChange={e=>setDateSearch(e.target.value)} className="px-2 py-1.5 text-xs border border-slate-200 rounded-lg bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-green-300" style={{colorScheme:"light"}}/>
-            {dateSearch&&<button onClick={()=>setDateSearch("")} className="text-xs text-green-600 underline">Clear</button>}
-          </div>
+      <div className="sticky top-0 z-10 bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Reports</h1>
+          <p className="text-xs text-slate-400 mt-0.5">
+            {reportCategory === "operational" ? "Farm operational reports and incident logs" : "Pond-based incident, treatments, and issues reports"}
+          </p>
         </div>
-      </Card>
-      {(()=>{
-        const activeStaff=staff.filter(s=>s.status==="Active");
-        if(activeStaff.length===0)return null;
-        const targetDate=dateSearch||TODAY;
-        const submittedAuthors=new Set(reports.filter(r=>r.type==="Daily"&&r.date===targetDate).map(r=>r.author));
-        const pending=activeStaff.filter(s=>!submittedAuthors.has(s.name));
-        const allSubmitted=pending.length===0;
-        return(
-          <div className={`rounded-xl border px-4 py-3 ${allSubmitted?"bg-green-50 border-green-200":"bg-orange-50 border-orange-200"}`}>
-            {allSubmitted?(
-              <div className="flex items-center gap-2">
-                <CheckCircle size={16} className="text-green-500 shrink-0"/>
-                <p className="text-sm font-semibold text-green-700">All required reports have been submitted.</p>
-              </div>
-            ):(
-              <div>
-                <div className="flex items-center gap-2 mb-2">
-                  <AlertCircle size={16} className="text-orange-500 shrink-0"/>
-                  <p className="text-sm font-semibold text-orange-800">Reports Pending — {pending.length} outstanding</p>
-                </div>
-                <p className="text-xs text-orange-700 mb-2">The following staff have not submitted {dateSearch?"a report for this date":"today's report"}:</p>
-                <div className="flex flex-wrap gap-1.5">
-                  {pending.map(s=><span key={s.id} className="px-2.5 py-1 bg-orange-100 border border-orange-200 rounded-lg text-xs font-semibold text-orange-800">{s.name}</span>)}
-                </div>
-              </div>
-            )}
+        <div className="flex items-center gap-3">
+          <div className="inline-flex rounded-xl bg-slate-200/90 border border-slate-300/80 p-1 gap-1 shadow-2xs">
+            <button
+              onClick={() => setReportCategory("operational")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                reportCategory === "operational"
+                  ? "bg-white text-slate-900 shadow-sm border border-slate-200/80 font-bold"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              Operational Reports
+            </button>
+            <button
+              onClick={() => setReportCategory("pond")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                reportCategory === "pond"
+                  ? "bg-white text-slate-900 shadow-sm border border-slate-200/80 font-bold"
+                  : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              Pond-Based Reports
+            </button>
           </div>
-        );
-      })()}
-      {filtered.length===0?(
-        <Card className="p-12 text-center"><FileText size={36} className="text-slate-200 mx-auto mb-3"/><p className="text-slate-400 font-semibold text-sm">{reports.length===0?"No reports submitted yet":"No reports match filters"}</p></Card>
-      ):(
-        <><div className="space-y-6">{grouped.map(group=>(
-          <div key={group.date}>
-            <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 px-1">{group.label}</p>
-            <div className="space-y-3">{group.items.map(r=>(
-              <Card key={r.id} className="p-4">
-                <div className="flex items-start gap-3 mb-3">
-                  <div className="w-9 h-9 rounded-lg bg-slate-100 flex items-center justify-center shrink-0 mt-0.5"><FileText size={16} className="text-slate-400"/></div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex flex-wrap items-center gap-2 mb-1">
-                      <h3 className="text-sm font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">{r.title}</h3>
-                      <Bdg label={r.type} color={r.type==="Daily"?"blue":r.type==="Weekly"?"teal":"amber"}/>
-                    </div>
-                    <p className="text-xs text-slate-400">By <span className="font-semibold text-slate-600">{r.author}</span> · {r.date}</p>
+          {reportCategory === "operational" && (
+            <PBtn onClick={()=>setShowModal(true)} sm><Plus size={13}/> Submit Report</PBtn>
+          )}
+        </div>
+      </div>
+
+      {reportCategory === "pond" ? (
+        <PondReportsComponent
+          pondReports={pondReports}
+          treatments={treatments}
+          farms={farms}
+          ponds={ponds}
+          stockEvents={stockEvents}
+          onAddPondReport={onAddPondReport || (async () => {})}
+          activeFarmId={activeFarmId}
+        />
+      ) : (
+        <>
+          <Card className="p-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex gap-1">{(["All","Daily","Weekly","Monthly"] as const).map(t=><button key={t} onClick={()=>setTypeFilter(t)} className={`${TB} ${typeFilter===t?TA:TI}`}>{t}</button>)}</div>
+              <div className="w-px h-5 bg-slate-200"/>
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs text-slate-400">Date:</span>
+                <input type="date" value={dateSearch} onChange={e=>setDateSearch(e.target.value)} className="px-2 py-1.5 text-xs border border-slate-200 rounded-lg bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-green-300" style={{colorScheme:"light"}}/>
+                {dateSearch&&<button onClick={()=>setDateSearch("")} className="text-xs text-green-600 underline">Clear</button>}
+              </div>
+            </div>
+          </Card>
+          {(()=>{
+            const activeStaff=staff.filter(s=>s.status==="Active");
+            if(activeStaff.length===0)return null;
+            const targetDate=dateSearch||TODAY;
+            const submittedAuthors=new Set(reports.filter(r=>r.type==="Daily"&&r.date===targetDate).map(r=>r.author));
+            const pending=activeStaff.filter(s=>!submittedAuthors.has(s.name));
+            const allSubmitted=pending.length===0;
+            return(
+              <div className={`rounded-xl border px-4 py-3 ${allSubmitted?"bg-green-50 border-green-200":"bg-orange-50 border-orange-200"}`}>
+                {allSubmitted?(
+                  <div className="flex items-center gap-2">
+                    <CheckCircle size={16} className="text-green-500 shrink-0"/>
+                    <p className="text-sm font-semibold text-green-700">All required reports have been submitted.</p>
                   </div>
-                  {isWithin6h(r)&&<button onClick={()=>openEditReport(r)} className="shrink-0 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold text-slate-500 hover:border-green-400 hover:text-green-600 hover:bg-green-50 transition-colors"><Pencil size={11}/> Edit</button>}
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 border-t border-slate-100 pt-3">
-                  {parseReportFields(r.content).filter(f=>!f.label.toLowerCase().includes("confirmed")).map((f,i)=>(
-                    <div key={i} className="bg-slate-50 rounded-xl px-3 py-2.5">
-                      {f.label&&<p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">{f.label}</p>}
-                      <p className="text-xs font-semibold text-slate-800">{f.value}</p>
+                ):(
+                  <div>
+                    <div className="flex items-center gap-2 mb-2">
+                      <AlertCircle size={16} className="text-orange-500 shrink-0"/>
+                      <p className="text-sm font-semibold text-orange-800">Reports Pending — {pending.length} outstanding</p>
                     </div>
-                  ))}
+                    <p className="text-xs text-orange-700 mb-2">The following staff have not submitted {dateSearch?"a report for this date":"today's report"}:</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {pending.map(s=><span key={s.id} className="px-2.5 py-1 bg-orange-100 border border-orange-200 rounded-lg text-xs font-semibold text-orange-800">{s.name}</span>)}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+          {filtered.length===0?(
+            <Card className="p-12 text-center"><FileText size={36} className="text-slate-200 mx-auto mb-3"/><p className="text-slate-400 font-semibold text-sm">{reports.length===0?"No reports submitted yet":"No reports match filters"}</p></Card>
+          ):(
+            <><div className="space-y-6">{grouped.map(group=>(
+              <div key={group.date}>
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="w-2 h-2 rounded-full bg-green-500"/>
+                  <span className="text-xs font-bold text-slate-700 font-['Barlow_Condensed',sans-serif] uppercase tracking-wider">{group.label}</span>
+                  <span className="text-[11px] text-slate-400">({group.items.length})</span>
                 </div>
-              </Card>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">{group.items.map(r=>(
+                  <Card key={r.id} className="p-4 space-y-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <Bdg label={r.type} color={r.type==="Daily"?"green":r.type==="Weekly"?"blue":"purple"}/>
+                          <span className="text-xs text-slate-400">{r.date}</span>
+                        </div>
+                        <h3 className="text-sm font-bold text-slate-900 mt-1">{r.title}</h3>
+                        <p className="text-xs text-slate-400">By {r.author}</p>
+                      </div>
+                      {isWithin6h(r)&&(
+                        <button onClick={()=>openEditReport(r)} className="p-1.5 rounded-lg text-slate-300 hover:text-green-600 hover:bg-green-50 transition-colors shrink-0" title="Edit within 6 hours">
+                          <Pencil size={13}/>
+                        </button>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 border-t border-slate-100 pt-3">
+                      {parseReportFields(r.content).filter(f=>!f.label.toLowerCase().includes("confirmed")).map((f,i)=>(
+                        <div key={i} className="bg-slate-50 rounded-xl px-3 py-2.5">
+                          {f.label&&<p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">{f.label}</p>}
+                          <p className="text-xs font-semibold text-slate-800">{f.value}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </Card>
+                ))}</div>
+              </div>
             ))}</div>
-          </div>
-        ))}</div>
-        <Pagination total={filtered.length} page={reportPage} perPage={PER_PAGE} onPage={setReportPage}/></>
-      )}
-      {showModal&&<Modal title={editReport?"Edit Report":"Submit Report"} onClose={()=>{setShowModal(false);setEditReport(null);}} wide>
-        <F label="Report Type"><select className={SC} value={fType} onChange={e=>setFType(e.target.value as "Daily"|"Weekly"|"Monthly")}><option>Daily</option><option>Weekly</option><option>Monthly</option></select></F>
-        <F label="Report Title"><input className={IC} placeholder="e.g. Morning inspection — Pond 2" value={fTitle} onChange={e=>setFTitle(e.target.value)}/></F>
-        {fType==="Daily"?(
-          <div className="space-y-4">
-            {/* Feeding */}
-            <div className="p-3 bg-slate-50 rounded-xl space-y-2">
-              <p className="text-sm font-semibold text-slate-800">Were you the person who fed the fish today?</p>
-              <div className="flex gap-2">{(["Yes","No"] as const).map(v=><button key={v} type="button" onClick={()=>{setFFedFish(v);if(v==="No")setFFeedSession("");}} className={`px-4 py-1.5 rounded-lg text-xs font-bold border transition-colors ${fFedFish===v?"bg-green-600 text-white border-green-600":"bg-white text-slate-600 border-slate-200 hover:border-green-400"}`}>{v}</button>)}</div>
-              {fFedFish==="Yes"&&(<><p className="text-sm font-semibold text-slate-800 mt-2">Which feeding did you complete?</p><div className="flex gap-2">{(["Morning","Evening","Both"] as const).map(v=><button key={v} type="button" onClick={()=>setFFeedSession(v)} className={`px-4 py-1.5 rounded-lg text-xs font-bold border transition-colors ${fFeedSession===v?"bg-green-600 text-white border-green-600":"bg-white text-slate-600 border-slate-200 hover:border-green-400"}`}>{v}</button>)}</div></>)}
-            </div>
-            {/* Outlet */}
-            <div className="p-3 bg-slate-50 rounded-xl space-y-2">
-              <p className="text-sm font-semibold text-slate-800">Did you lock the outlets and inlets and properly check to confirm?</p>
-              <div className="flex gap-2">{(["Yes","Not Me"] as const).map(v=><button key={v} type="button" onClick={()=>{setFOutletLocked(v);if(v==="Not Me")setFOutletConfirm("");}} className={`px-4 py-1.5 rounded-lg text-xs font-bold border transition-colors ${fOutletLocked===v?"bg-green-600 text-white border-green-600":"bg-white text-slate-600 border-slate-200 hover:border-green-400"}`}>{v}</button>)}</div>
-              {fOutletLocked==="Yes"&&(<><p className="text-sm font-semibold text-slate-800 mt-2">Are you sure you locked all pond outlets and inlets?</p><div className="flex gap-2">{(["Yes","No"] as const).map(v=><button key={v} type="button" onClick={()=>setFOutletConfirm(v)} className={`px-4 py-1.5 rounded-lg text-xs font-bold border transition-colors ${fOutletConfirm===v?"bg-green-600 text-white border-green-600":"bg-white text-slate-600 border-slate-200 hover:border-green-400"}`}>{v}</button>)}</div></>)}
-            </div>
-            {/* Water Flow */}
-            <div className="p-3 bg-slate-50 rounded-xl space-y-2">
-              <p className="text-sm font-semibold text-slate-800">Did you flush the pond or carry out water flow-through today?</p>
-              <div className="flex gap-2">{(["Yes","No"] as const).map(v=><button key={v} type="button" onClick={()=>{setFWaterFlow(v);if(v==="No")setFWaterSession("");}} className={`px-4 py-1.5 rounded-lg text-xs font-bold border transition-colors ${fWaterFlow===v?"bg-green-600 text-white border-green-600":"bg-white text-slate-600 border-slate-200 hover:border-green-400"}`}>{v}</button>)}</div>
-              {fWaterFlow==="Yes"&&(<><p className="text-sm font-semibold text-slate-800 mt-2">When was it done?</p><div className="flex gap-2">{(["Morning","Evening","Both"] as const).map(v=><button key={v} type="button" onClick={()=>setFWaterSession(v)} className={`px-4 py-1.5 rounded-lg text-xs font-bold border transition-colors ${fWaterSession===v?"bg-green-600 text-white border-green-600":"bg-white text-slate-600 border-slate-200 hover:border-green-400"}`}>{v}</button>)}</div></>)}
-            </div>
-            {/* Pumps & Electrical */}
-            <div className="p-3 bg-slate-50 rounded-xl space-y-2">
-              <p className="text-sm font-semibold text-slate-800">Have you turned off all pumping machines and electrical devices properly?</p>
-              <div className="flex gap-2">{(["Yes","No"] as const).map(v=><button key={v} type="button" onClick={()=>{setFPumpsOff(v);if(v==="No")setFPumpsOffConfirm("");}} className={`px-4 py-1.5 rounded-lg text-xs font-bold border transition-colors ${fPumpsOff===v?"bg-green-600 text-white border-green-600":"bg-white text-slate-600 border-slate-200 hover:border-green-400"}`}>{v}</button>)}</div>
-              {fPumpsOff==="Yes"&&(<><p className="text-sm font-semibold text-slate-800 mt-2">Are you sure you personally turned off all pumping machines or assisted with this task?</p><div className="flex gap-2">{(["Yes","No"] as const).map(v=><button key={v} type="button" onClick={()=>setFPumpsOffConfirm(v)} className={`px-4 py-1.5 rounded-lg text-xs font-bold border transition-colors ${fPumpsOffConfirm===v?"bg-green-600 text-white border-green-600":"bg-white text-slate-600 border-slate-200 hover:border-green-400"}`}>{v}</button>)}</div><p className="text-xs text-slate-400 italic mt-1">Click &quot;Yes&quot; only if you personally carried out this task or assisted.</p></>)}
-            </div>
-            {/* Equipment Storage */}
-            <div className="p-3 bg-slate-50 rounded-xl space-y-2">
-              <p className="text-sm font-semibold text-slate-800">Are all equipment properly stored?</p>
-              <div className="flex gap-2">{(["Yes","No"] as const).map(v=><button key={v} type="button" onClick={()=>{setFEquipStored(v);if(v==="No")setFEquipConfirm("");}} className={`px-4 py-1.5 rounded-lg text-xs font-bold border transition-colors ${fEquipStored===v?"bg-green-600 text-white border-green-600":"bg-white text-slate-600 border-slate-200 hover:border-green-400"}`}>{v}</button>)}</div>
-              {fEquipStored==="Yes"&&(<><p className="text-sm font-semibold text-slate-800 mt-2">Are you sure?</p><div className="flex gap-2">{(["Yes","No"] as const).map(v=><button key={v} type="button" onClick={()=>setFEquipConfirm(v)} className={`px-4 py-1.5 rounded-lg text-xs font-bold border transition-colors ${fEquipConfirm===v?"bg-green-600 text-white border-green-600":"bg-white text-slate-600 border-slate-200 hover:border-green-400"}`}>{v}</button>)}</div></>)}
-            </div>
-            <F label="Additional Notes (Optional)"><textarea className={`${IC} min-h-[80px] resize-y`} placeholder="Any other observations or actions taken…" value={fNotes} onChange={e=>setFNotes(e.target.value)}/></F>
-          </div>
-        ):(
-          <F label="Content"><textarea className={`${IC} min-h-[120px] resize-y`} placeholder="Describe observations, issues or actions taken…" value={fContent} onChange={e=>setFContent(e.target.value)}/></F>
-        )}
-        <F label="Recorded By">
-          {staff.filter(s=>s.status==="Active").length>0
-            ?<select className={SC} value={fAuthor} onChange={e=>setFAuthor(e.target.value)}><option value="Admin">Admin</option>{staff.filter(s=>s.status==="Active").map(s=><option key={s.id} value={s.name}>{s.name} — {s.role}</option>)}</select>
-            :<input className={IC} placeholder="Name of recorder" value={fAuthor} onChange={e=>setFAuthor(e.target.value)}/>
-          }
-        </F>
-        {submitError&&<p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{submitError}</p>}
-        <div className="flex gap-2 pt-1"><PBtn onClick={handleSubmit}><CheckCircle size={14}/> {editReport?"Save Changes":"Submit"}</PBtn><button onClick={()=>{setShowModal(false);setEditReport(null);}} className="px-4 py-2 text-sm text-slate-400">Cancel</button></div>
       </Modal>}
     </div>
   );
 }
 
 /* ─── 7b. Notifications ─────────────────────────────────────── */
-interface AppNotification { id:string; type:"feeding"|"bags"|"maxkg"|"reconciliation"|"report"|"transfer"|"invoice"; pondName?:string; fishStock?:string; size?:string; maxKg?:number; currentFeed?:number; time?:string; farmId:string; farmName:string; date:string; read:boolean; brand?:string; reconDate?:string; reconKey?:string; mismatchReason?:string; reconStatus?:string; reportId?:string; reportTitle?:string; reportAuthor?:string; reportStatus?:string; message?:string; }
+interface AppNotification { id:string; type:"feeding"|"bags"|"maxkg"|"reconciliation"|"report"|"transfer"|"invoice"|"investor"; pondName?:string; fishStock?:string; size?:string; maxKg?:number; currentFeed?:number; time?:string; farmId:string; farmName:string; date:string; read:boolean; brand?:string; reconDate?:string; reconKey?:string; mismatchReason?:string; reconStatus?:string; reportId?:string; reportTitle?:string; reportAuthor?:string; reportStatus?:string; message?:string; }
 
 function NotificationsPage({notifications,onMarkRead,onMarkAllRead,farms,activeFarmId,farmCount,onNotifNav,onDismiss}:{notifications:AppNotification[];onMarkRead:(id:string)=>void;onMarkAllRead:()=>void;farms:Farm[];activeFarmId:string;farmCount:number;onNotifNav?:(n:AppNotification)=>void;onDismiss?:(id:string)=>void;}){
   const unread=notifications.filter(n=>!n.read).length;
@@ -1466,12 +1498,12 @@ function NotificationsPage({notifications,onMarkRead,onMarkAllRead,farms,activeF
               <div className="divide-y divide-slate-100">
                 {group.items.map(n=>(
                   <div key={n.id} onClick={()=>{if(!n.read)onMarkRead(n.id);onNotifNav?.(n);}} className={`flex items-start gap-3 px-5 py-4 cursor-pointer transition-colors hover:bg-slate-50 ${!n.read?"bg-green-50":""}`}>
-                    <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${n.type==="feeding"?"bg-green-100":n.type==="maxkg"?"bg-red-100":n.type==="reconciliation"?n.reconStatus==="matched"?"bg-green-100":n.reconStatus==="remaining_mismatch"?"bg-amber-100":n.reconStatus==="bag_mismatch"?"bg-orange-100":"bg-red-100":n.type==="report"?"bg-blue-100":n.type==="transfer"?"bg-teal-100":n.type==="invoice"?"bg-purple-100":"bg-amber-100"}`}>
-                      {n.type==="feeding"?<Fish size={14} className="text-green-600"/>:n.type==="maxkg"?<Layers size={14} className="text-red-600"/>:n.type==="reconciliation"?<AlertCircle size={14} className={n.reconStatus==="remaining_mismatch"?"text-amber-600":n.reconStatus==="bag_mismatch"?"text-orange-600":"text-red-600"}/>:n.type==="report"?<FileText size={14} className="text-blue-600"/>:n.type==="transfer"?<ArrowRightLeft size={14} className="text-teal-600"/>:n.type==="invoice"?<Receipt size={14} className="text-purple-600"/>:<Package size={14} className="text-amber-600"/>}
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${n.type==="feeding"?"bg-green-100":n.type==="maxkg"?"bg-red-100":n.type==="reconciliation"?n.reconStatus==="matched"?"bg-green-100":n.reconStatus==="remaining_mismatch"?"bg-amber-100":n.reconStatus==="bag_mismatch"?"bg-orange-100":"bg-red-100":n.type==="report"?"bg-blue-100":n.type==="transfer"?"bg-teal-100":n.type==="invoice"?"bg-purple-100":n.type==="investor"?"bg-emerald-100":"bg-amber-100"}`}>
+                      {n.type==="feeding"?<Fish size={14} className="text-green-600"/>:n.type==="maxkg"?<Layers size={14} className="text-red-600"/>:n.type==="reconciliation"?<AlertCircle size={14} className={n.reconStatus==="remaining_mismatch"?"text-amber-600":n.reconStatus==="bag_mismatch"?"text-orange-600":"text-red-600"}/>:n.type==="report"?<FileText size={14} className="text-blue-600"/>:n.type==="transfer"?<ArrowRightLeft size={14} className="text-teal-600"/>:n.type==="invoice"?<Receipt size={14} className="text-purple-600"/>:n.type==="investor"?<Landmark size={14} className="text-emerald-600"/>:<Package size={14} className="text-amber-600"/>}
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm text-slate-800 leading-snug">
-                        {n.type==="feeding"?`Pond ${n.pondName} has not been fed today.`:n.type==="maxkg"?(()=>`Max KG Reached — Pond: ${n.pondName} | Fish Stock: ${n.fishStock} | Pellet: ${n.size} | Max: ${n.maxKg} kg | Current: ${n.currentFeed??n.maxKg} kg${n.time?` | ${n.date} ${n.time}`:""}`)():n.type==="reconciliation"?(()=>{const statusLabel={matched:"Matched",remaining_mismatch:"Remaining Mismatch",bag_mismatch:"Bag Count Mismatch",feed_qty_mismatch:"Feed Qty Mismatch",multiple_mismatches:"Multiple Mismatches"}[n.reconStatus||""]||"Issue";return`Reconciliation ${statusLabel}: ${n.brand} ${n.size} on ${n.reconDate}.${n.mismatchReason?" "+n.mismatchReason:""}`;})():n.type==="report"?`Report submitted: "${n.reportTitle}" by ${n.reportAuthor}.`:n.type==="transfer"||n.type==="invoice"?n.message||"":(n.message||"Bags Opened has not been logged today.")}
+                        {n.type==="feeding"?`Pond ${n.pondName} has not been fed today.`:n.type==="maxkg"?(()=>`Max KG Reached — Pond: ${n.pondName} | Fish Stock: ${n.fishStock} | Pellet: ${n.size} | Max: ${n.maxKg} kg | Current: ${n.currentFeed??n.maxKg} kg${n.time?` | ${n.date} ${n.time}`:""}`)():n.type==="reconciliation"?(()=>{const statusLabel={matched:"Matched",remaining_mismatch:"Remaining Mismatch",bag_mismatch:"Bag Count Mismatch",feed_qty_mismatch:"Feed Qty Mismatch",multiple_mismatches:"Multiple Mismatches"}[n.reconStatus||""]||"Issue";return`Reconciliation ${statusLabel}: ${n.brand} ${n.size} on ${n.reconDate}.${n.mismatchReason?" "+n.mismatchReason:""}`;})():n.type==="report"?`Report submitted: "${n.reportTitle}" by ${n.reportAuthor}.`:n.type==="transfer"||n.type==="invoice"||n.type==="investor"?n.message||"":(n.message||"Bags Opened has not been logged today.")}
                       </p>
                       {n.type==="reconciliation"&&<p className="text-[11px] text-blue-500 mt-0.5 font-medium">Tap to view reconciliation →</p>}
                       {farmCount>1&&<p className="text-[11px] text-slate-400 mt-0.5">{n.farmName}</p>}
@@ -2614,6 +2646,10 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   const [priceGroups,setPriceGroups]=useState<PriceGroup[]>([]);
   const [invoices,setInvoices]=useState<Invoice[]>([]);
   const [invSettings,setInvSettings]=useState<InvSettings>(INIT_INV_SETTINGS);
+  const [investors,setInvestors]=useState<Investor[]>([]);
+  const [investments,setInvestments]=useState<Investment[]>([]);
+  const [investmentPayments,setInvestmentPayments]=useState<InvestmentPayment[]>([]);
+  const [pondReports,setPondReports]=useState<PondReport[]>([]);
 
   const [kQuestionsState,setKQuestions_]=useState<any[]>(()=>loadLocal("pondtora_k_questions",INIT_K));
   const [cQuestionsState,setCQuestions_]=useState<any[]>(()=>loadLocal("pondtora_c_questions",INIT_C));
@@ -2644,8 +2680,12 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       saveLocal(`pondtora_${userProfile.id}_price_groups`,priceGroups);
       saveLocal(`pondtora_${userProfile.id}_invoices`,invoices);
       saveLocal(`pondtora_${userProfile.id}_inv_settings`,invSettings);
+      saveLocal(`pondtora_${userProfile.id}_investors`,investors);
+      saveLocal(`pondtora_${userProfile.id}_investments`,investments);
+      saveLocal(`pondtora_${userProfile.id}_investment_payments`,investmentPayments);
+      saveLocal(`pondtora_${userProfile.id}_pond_reports`,pondReports);
     }
-  },[userProfile,farms,activeFarmId,ponds,inventory,feeding,bagLogs,remainLogs,expenses,revenues,mortality,treatments,staff,stockEvents,reports,customers,priceGroups,invoices,invSettings]);
+  },[userProfile,farms,activeFarmId,ponds,inventory,feeding,bagLogs,remainLogs,expenses,revenues,mortality,treatments,staff,stockEvents,reports,customers,priceGroups,invoices,invSettings,investors,investments,investmentPayments,pondReports]);
 
   useEffect(()=>{
     if(farms.length>0&&(!activeFarmId||!farms.some(f=>f.id===activeFarmId))){
@@ -3380,6 +3420,19 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       setInvoices(normInv);
     }
     if (d.invoiceSettings) setInvSettings(d.invoiceSettings);
+    if (d.investors) setInvestors(d.investors);
+    if (d.investments) {
+      const normInv = d.investments.map((inv: Investment) => ({ ...inv, farmId: normFid(inv.farmId) }));
+      setInvestments(normInv);
+    }
+    if (d.investmentPayments) {
+      const normPay = d.investmentPayments.map((p: InvestmentPayment) => ({ ...p, farmId: normFid(p.farmId) }));
+      setInvestmentPayments(normPay);
+    }
+    if (d.pondReports) {
+      const normPr = d.pondReports.map((pr: PondReport) => ({ ...pr, farmId: normFid(pr.farmId) }));
+      setPondReports(normPr);
+    }
     if (d.knowledgeQuestions?.length > 0) setKQuestions_(d.knowledgeQuestions);
     if (d.compatibilityQuestions?.length > 0) setCQuestions_(d.compatibilityQuestions);
     if (d.knowledgeResults) setKResults_(d.knowledgeResults);
@@ -3434,6 +3487,14 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
         if(ci.length>0)setInventory(ci);
         const cfd=loadLocal(`pondtora_${uid}_feeding`,[]);
         if(cfd.length>0)setFeeding(cfd);
+        const cinvst=loadLocal(`pondtora_${uid}_investors`,[]);
+        if(cinvst.length>0)setInvestors(cinvst);
+        const cinv=loadLocal(`pondtora_${uid}_investments`,[]);
+        if(cinv.length>0)setInvestments(cinv);
+        const cpay=loadLocal(`pondtora_${uid}_investment_payments`,[]);
+        if(cpay.length>0)setInvestmentPayments(cpay);
+        const cpr=loadLocal(`pondtora_${uid}_pond_reports`,[]);
+        if(cpr.length>0)setPondReports(cpr);
       }
     }
   },[applyBackendData,runAutoSetup,userProfile?.id]);
@@ -3748,6 +3809,116 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   const farmCustomers=customers.filter(c=>matchesFarm(c.farmId));
   const farmPriceGroups=priceGroups.filter(g=>matchesFarm(g.farmId));
   const farmInvoices=invoices.filter(i=>matchesFarm(i.farmId,i.pond));
+  const farmInvestments=investments.filter(i=>matchesFarm(i.farmId));
+  const farmPayments=investmentPayments.filter(p=>matchesFarm(p.farmId));
+  const farmPondReports=pondReports.filter(r=>matchesFarm(r.farmId));
+  const farmInvestors=investors.filter(inv=>!inv.farmId||matchesFarm(inv.farmId));
+
+  const handleAddInvestor=async(inv:Investor,investment:Investment,payments:InvestmentPayment[])=>{
+    const fid=activeFarmId||farms[0]?.id||"";
+    const cleanInvestor:Investor={...inv,id:isUuid(inv.id)?inv.id:crypto.randomUUID(),farmId:fid};
+    setInvestors(prev=>[cleanInvestor,...prev]);
+    try {
+      await api.investors.create(cleanInvestor);
+    } catch(err:any) {
+      console.warn("Investor create sync error:", err);
+    }
+
+    if(investment && (investment.amountInvested > 0 || investment.investmentName)){
+      const cleanInvestment:Investment={...investment,id:isUuid(investment.id)?investment.id:crypto.randomUUID(),investorId:cleanInvestor.id,farmId:fid};
+      setInvestments(prev=>[cleanInvestment,...prev]);
+      try {
+        await api.investments.create(cleanInvestment);
+      } catch(err:any) {
+        console.warn("Investment create sync error:", err);
+      }
+
+      if(payments && payments.length > 0){
+        const cleanPayments = payments.map(p=>({...p,id:isUuid(p.id)?p.id:crypto.randomUUID(),investmentId:cleanInvestment.id,farmId:fid}));
+        setInvestmentPayments(prev=>[...cleanPayments,...prev]);
+        for(const p of cleanPayments){
+          api.investmentPayments.create(p).catch(console.warn);
+        }
+      }
+    }
+    toast.success("Investor recorded successfully");
+  };
+
+  const handleEditInvestor=async(inv:Investor)=>{
+    setInvestors(prev=>prev.map(i=>i.id===inv.id?inv:i));
+    try {
+      await api.investors.update(inv);
+      toast.success("Investor updated");
+    } catch(err:any) {
+      console.error("Failed to update investor:", err);
+      toast.error("Saved locally — sync error");
+    }
+  };
+
+  const handleEditInvestment=async(inv:Investment)=>{
+    setInvestments(prev=>prev.map(i=>i.id===inv.id?inv:i));
+    try {
+      await api.investments.update(inv);
+      toast.success("Investment updated");
+    } catch(err:any) {
+      console.error("Failed to update investment:", err);
+      toast.error("Saved locally — sync error");
+    }
+  };
+
+  const handleDeleteInvestor=async(id:string)=>{
+    setInvestors(prev=>prev.filter(i=>i.id!==id));
+    const toDelInvIds=investments.filter(i=>i.investorId===id).map(i=>i.id);
+    setInvestments(prev=>prev.filter(i=>i.investorId!==id));
+    setInvestmentPayments(prev=>prev.filter(p=>!toDelInvIds.includes(p.investmentId)));
+    try {
+      await api.investors.remove(id);
+      toast.success("Investor deleted");
+    } catch(err:any) {
+      console.error("Failed to delete investor:", err);
+      toast.error("Deleted locally — sync error");
+    }
+  };
+
+  const handleRecordPayment=async(payment:InvestmentPayment)=>{
+    const fid=payment.farmId||activeFarmId||farms[0]?.id||"";
+    const cleanPay:InvestmentPayment={...payment,id:isUuid(payment.id)?payment.id:crypto.randomUUID(),farmId:fid};
+    setInvestmentPayments(prev=>[cleanPay,...prev]);
+    try {
+      await api.investmentPayments.create(cleanPay);
+      toast.success("Payment recorded successfully");
+    } catch(err:any) {
+      console.error("Failed to persist payment:", err);
+      toast.error("Payment recorded locally — sync error");
+    }
+  };
+
+  const handleMarkPaymentPaid=async(paymentId:string)=>{
+    const p=investmentPayments.find(x=>x.id===paymentId);
+    if(!p)return;
+    const updated:InvestmentPayment={...p,status:"Paid",paymentDate:TODAY};
+    setInvestmentPayments(prev=>prev.map(x=>x.id===paymentId?updated:x));
+    try {
+      await api.investmentPayments.update(updated);
+      toast.success("Payment marked as Paid");
+    } catch(err:any) {
+      console.error("Failed to update payment status:", err);
+      toast.error("Updated locally — sync error");
+    }
+  };
+
+  const handleAddPondReport=async(r:PondReport)=>{
+    const fid=r.farmId||activeFarmId||farms[0]?.id||"";
+    const nr:PondReport={...r,id:isUuid(r.id)?r.id:crypto.randomUUID(),farmId:fid};
+    setPondReports(prev=>[nr,...prev]);
+    try {
+      await api.pondReports.create(nr);
+      toast.success("Pond report saved");
+    } catch(err:any) {
+      console.error("Failed to persist pond report:", err);
+      toast.error("Pond report saved locally — sync error");
+    }
+  };
   /* Permission derivation — owner has all permissions */
   const currentStaff=staff.find(s=>s.email===userProfile?.email);
   const isOwner=!currentStaff||currentStaff.role==="Admin";
@@ -3801,11 +3972,88 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
         }
       }
     });
+
+    // Investor payment due reminders (7 days advance) & overdue alerts
+    farmInvestments.forEach(inv => {
+      if (inv.status === "Completed") return;
+      const investor = investors.find(i => i.id === inv.investorId);
+      const investorName = investor?.fullName || "Investor";
+      const invPayments = farmPayments.filter(p => p.investmentId === inv.id);
+      const totalPaid = invPayments.filter(p => p.status === "Paid").reduce((s, p) => s + (Number(p.amount) || 0), 0);
+      const totalExpected = Number(inv.expectedReturnAmount) || 0;
+      const remaining = Math.max(0, totalExpected - totalPaid);
+      if (remaining <= 0) return;
+
+      const pending = invPayments.filter(p => p.status === "Pending");
+      if (pending.length > 0) {
+        pending.forEach(p => {
+          if (!p.dueDate) return;
+          const diffDays = Math.ceil((new Date(p.dueDate).getTime() - new Date(TODAY).getTime()) / (1000 * 60 * 60 * 24));
+          if (diffDays < 0) {
+            const nid = `inv-overdue-${p.id}`;
+            if (!dismissedNotifIds.has(nid)) {
+              notifs.push({
+                id: nid,
+                type: "investor",
+                farmId: activeFarmId,
+                farmName: farm?.name || "",
+                date: TODAY,
+                read: readNotifIds.has(nid),
+                message: `Overdue Investor Payment: ${investorName} — ₦${p.amount.toLocaleString()} was due on ${p.dueDate}`,
+              });
+            }
+          } else if (diffDays <= 7) {
+            const nid = `inv-due-${p.id}`;
+            if (!dismissedNotifIds.has(nid)) {
+              notifs.push({
+                id: nid,
+                type: "investor",
+                farmId: activeFarmId,
+                farmName: farm?.name || "",
+                date: TODAY,
+                read: readNotifIds.has(nid),
+                message: `Upcoming Investor Payment: ${investorName} — ₦${p.amount.toLocaleString()} due in ${diffDays} day${diffDays === 1 ? "" : "s"} (${p.dueDate})`,
+              });
+            }
+          }
+        });
+      } else if (inv.payoutDueDate) {
+        const diffDays = Math.ceil((new Date(inv.payoutDueDate).getTime() - new Date(TODAY).getTime()) / (1000 * 60 * 60 * 24));
+        if (diffDays < 0) {
+          const nid = `inv-overdue-${inv.id}`;
+          if (!dismissedNotifIds.has(nid)) {
+            notifs.push({
+              id: nid,
+              type: "investor",
+              farmId: activeFarmId,
+              farmName: farm?.name || "",
+              date: TODAY,
+              read: readNotifIds.has(nid),
+              message: `Overdue Investor Payment: ${investorName} — ₦${remaining.toLocaleString()} was due on ${inv.payoutDueDate}`,
+            });
+          }
+        } else if (diffDays <= 7) {
+          const nid = `inv-due-${inv.id}`;
+          if (!dismissedNotifIds.has(nid)) {
+            notifs.push({
+              id: nid,
+              type: "investor",
+              farmId: activeFarmId,
+              farmName: farm?.name || "",
+              date: TODAY,
+              read: readNotifIds.has(nid),
+              message: `Upcoming Investor Payment: ${investorName} — ₦${remaining.toLocaleString()} due in ${diffDays} day${diffDays === 1 ? "" : "s"} (${inv.payoutDueDate})`,
+            });
+          }
+        }
+      }
+    });
+
     const farmExtraNotifs=extraNotifs
       .filter(n=>n.farmId===activeFarmId&&!dismissedNotifIds.has(n.id)&&n.reconStatus!=="matched")
       .map(n=>({...n,read:n.read||readNotifIds.has(n.id)}));
     return [...notifs,...farmExtraNotifs];
-  },[farmPonds,farmFeeding,farmBagLogs,bagLogs,farmInventory,activeFarmId,farms,readNotifIds,dismissedNotifIds,extraNotifs]);
+  },[farmPonds,farmFeeding,farmBagLogs,bagLogs,farmInventory,activeFarmId,farms,readNotifIds,dismissedNotifIds,extraNotifs,farmInvestments,farmPayments,investors]);
   const unreadCount=notifications.filter(n=>!n.read).length;
   const markRead=(id:string)=>{setReadNotifIds(prev=>new Set([...prev,id]));setExtraNotifs(prev=>prev.map(n=>n.id===id?{...n,read:true}:n));};
   const markAllRead=()=>{setReadNotifIds(prev=>new Set([...prev,...notifications.map(n=>n.id)]));setExtraNotifs(prev=>prev.map(n=>({...n,read:true})));};
@@ -3961,12 +4209,13 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
         <main ref={mainRef} className="flex-1 overflow-y-auto bg-[#f5f7fa]">
           <AppErrorBoundary key={active}>
             {active==="financial"     &&(hasPerm("Financial Dashboard")?<FinancialDashboard expenses={farmExpenses} revenues={farmRevenues} onAddExpense={addExp} onAddRevenue={addRev} onEditExpense={editExp} onEditRevenue={editRev} onDeleteExpense={deleteExp} onDeleteRevenue={deleteRev} stockEvents={stockEvents} ponds={farmPonds} inventory={farmInventory} currency={cs} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}}/>:<AccessDenied/>)}
-            {active==="ponds"         &&(hasPerm("Pond Management")?<PondManagementPage ponds={farmPonds} onAddPond={addPond} onClosePond={closePond} onRestockPond={restockPond} onTransfer={transferStock} onNurseryTransfer={nurseryTransfer} mortality={farmMortality} onAddMortality={addMort} onAddCost={addExp} feedingRecords={farmFeeding} stockEvents={stockEvents} treatments={farmTreatments} onAddTreatment={addTreatment} activeFarmId={activeFarmId} onDeletePond={deletePond} onEditFish={editFish} onSetMaxKg={setPondMaxKg} onEditPond={handleEditPond} onScrollTop={()=>mainRef.current?.scrollTo({top:0,behavior:"instant"})} currency={cs} inventory={farmInventory}/>:<AccessDenied/>)}
+            {active==="ponds"         &&(hasPerm("Pond Management")?<PondManagementPage ponds={farmPonds} onAddPond={addPond} onClosePond={closePond} onRestockPond={restockPond} onTransfer={transferStock} onNurseryTransfer={nurseryTransfer} mortality={farmMortality} onAddMortality={addMort} onAddCost={addExp} feedingRecords={farmFeeding} stockEvents={stockEvents} treatments={farmTreatments} onAddTreatment={addTreatment} activeFarmId={activeFarmId} onDeletePond={deletePond} onEditFish={editFish} onSetMaxKg={setPondMaxKg} onEditPond={handleEditPond} onScrollTop={()=>mainRef.current?.scrollTo({top:0,behavior:"instant"})} currency={cs} inventory={farmInventory} farms={farms} pondReports={farmPondReports} onAddPondReport={handleAddPondReport}/>:<AccessDenied/>)}
             {active==="inventory"     &&(hasPerm("Feed Stock")?<FeedInventoryPage inventory={farmInventory} onAdd={addInv} onDelete={delInv} feedingRecords={farmFeeding} bagLogs={farmBagLogs} remainLogs={farmRemainLogs} ponds={farmPonds} onEditBagLog={editBagLog} onEditInv={editInv} currency={cs} canEditLocked={isOwner||currentStaff?.role==="Farm Manager"}/>:<AccessDenied/>)}
             {active==="documentation" &&(hasPerm("Feeding Records")?<FeedDocumentationPage feedingRecords={farmFeeding} onAddRecord={addFeed} onEditFeedRecord={editFeedRecord} onDeleteRecord={deleteFeedRecord} ponds={farmPonds} inventory={farmInventory} bagLogs={farmBagLogs} onAddBagLog={addBagLog} onEditBagLog={editBagLog} onEditInv={editInv} remainLogs={farmRemainLogs} onAddRemainLog={addRemainLog} onEditRemainLog={editRemainLog} onReconMismatches={onReconMismatches} reconFocus={reconFocus} canEditLocked={isOwner||currentStaff?.role==="Farm Manager"} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}}/>:<AccessDenied/>)}
             {active==="invoices"      &&(hasPerm("Invoice")?<InvoicesPage ponds={farmPonds} invoices={farmInvoices} customers={farmCustomers} priceGroups={farmPriceGroups} settings={invSettings} onAddInvoice={addInvoice} onEditInvoice={editInvoice} onDeleteInvoice={deleteInvoice} onAddCustomer={addCustomer} onAddPriceGroup={addPriceGroup} onEditPriceGroup={editPriceGroup} onDeletePriceGroup={delPriceGroup} onUpdateSettings={(s)=>{setInvSettings(s);api.invSettings.update(s).catch(console.warn);}} currentUser={userProfile?.name} currency={cs}/>:<AccessDenied/>)}
             {active==="staff"         &&(isOwner?<StaffPage staff={staff} onAdd={addStaff} onEdit={editStaff} onDelete={delStaff} farms={farms} activeFarmId={activeFarmId} ownerEmail={userProfile?.email}/>:<AccessDenied/>)}
-            {active==="reports"       &&(hasPerm("Reports")?<ReportsPage reports={farmReports} staff={staff} onAdd={addReport} onEdit={editReportFn}/>:<AccessDenied/>)}
+            {active==="investors"     &&(hasPerm("Investors")?<InvestorsPage investors={farmInvestors} investments={farmInvestments} payments={farmPayments} farms={farms} ponds={farmPonds} stockEvents={stockEvents} activeFarmId={activeFarmId} currency={cs} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}} isOwner={isOwner} canManage={isOwner||hasPerm("Investors")} onAddInvestor={handleAddInvestor} onEditInvestor={handleEditInvestor} onEditInvestment={handleEditInvestment} onDeleteInvestor={handleDeleteInvestor} onRecordPayment={handleRecordPayment} onMarkPaymentPaid={handleMarkPaymentPaid}/>:<AccessDenied/>)}
+            {active==="reports"       &&(hasPerm("Reports")?<ReportsPage reports={farmReports} staff={staff} onAdd={addReport} onEdit={editReportFn} pondReports={farmPondReports} treatments={farmTreatments} farms={farms} ponds={farmPonds} stockEvents={stockEvents} onAddPondReport={handleAddPondReport} activeFarmId={activeFarmId}/>:<AccessDenied/>)}
             {active==="assessments"   &&(hasPerm("Staff Assessment")?<EmployeeAssessmentsPage kQuestions={kQuestions} cQuestions={cQuestions} kResults={kResults} cResults={cResults} onSaveKQuestions={saveKQuestions} onSaveCQuestions={saveCQuestions} onAddKResult={addKResult} onAddCResult={addCResult} ownerId={userProfile?.id??""}/>:<AccessDenied/>)}
             {active==="pricing"       &&(isOwner?<SubscriptionPage farmCount={farms.length} activePlan={activePlan} setActivePlan={setActivePlan} trialStartDate={trialStartDate} setTrialStartDate={setTrialStartDate} currency={cs} convertPrice={cvt} userProfile={userProfile} activeFarmName={farms.find(f=>f.id===activeFarmId)?.name||userProfile?.farmName}/>:<AccessDenied/>)}
             {active==="settings"      &&<SettingsPage farms={isOwner?farms:accessibleFarms} onAddFarm={handleAddFarmDirect} onEditFarm={handleEditFarm} onDeleteFarm={handleDeleteFarm} userProfile={userProfile} onUpdateProfile={handleUpdateProfile} isOwner={isOwner} ponds={ponds} activePlan={activePlan}/>}

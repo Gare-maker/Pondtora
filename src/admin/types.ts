@@ -22,6 +22,7 @@ export interface AdminUser {
   accountStatus: AccountStatus;
   freeAccess?: boolean;
   farmCount?: number;
+  hasPaid?: boolean;
   paystackReference?: string;
   lastPaymentDate?: string;
   createdAt?: string;
@@ -68,28 +69,39 @@ export const DEFAULT_PLANS: AdminPlan[] = [
 ];
 
 export function computeSubscriptionStatus(
-  u: Partial<Pick<AdminUser, "accountStatus" | "activePlan" | "trialStartDate" | "subscriptionStart" | "subscriptionExpiry">>
+  u: Partial<AdminUser>
 ): SubscriptionStatus {
   if (!u) return "Trial";
   if (u.accountStatus === "Suspended") return "Suspended";
-  if (u.subscriptionExpiry) {
-    try {
-      const exp = new Date(u.subscriptionExpiry);
-      if (!isNaN(exp.getTime())) {
-        return exp < new Date() ? "Expired" : "Active";
-      }
-    } catch {}
+  if (u.freeAccess) return "Active";
+
+  // Real payment check: has the user completed a real payment (Paystack reference, payment date, or explicit hasPaid flag)
+  const hasCompletedPayment = Boolean(u.hasPaid || u.paystackReference || u.lastPaymentDate);
+
+  if (hasCompletedPayment) {
+    if (u.subscriptionExpiry) {
+      try {
+        const exp = new Date(u.subscriptionExpiry);
+        if (!isNaN(exp.getTime())) {
+          return exp < new Date() ? "Expired" : "Active";
+        }
+      } catch {}
+    }
+    return "Active";
   }
-  if (u.subscriptionStart) return "Active";
-  if (u.trialStartDate) {
+
+  // Not paid: user is on 30-day trial
+  const trialStart = u.trialStartDate || u.createdAt;
+  if (trialStart) {
     try {
-      const end = new Date(u.trialStartDate);
+      const end = new Date(trialStart);
       if (!isNaN(end.getTime())) {
         end.setDate(end.getDate() + 30);
         return end > new Date() ? "Trial" : "Expired";
       }
     } catch {}
   }
+
   return "Trial";
 }
 
