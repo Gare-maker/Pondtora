@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { CheckCircle, ChevronLeft, Loader2, AlertCircle, Eye, EyeOff, Mail, Check, Sparkles, Fish } from "lucide-react";
+import { toast } from "sonner";
 import pondtoraLogo from "../../imports/loo-2.svg";
 import type { UserProfile } from "../types";
 import { COUNTRIES, DIAL_CODES, FLAG_EMOJI, COUNTRY_CURRENCIES } from "../data";
@@ -68,20 +69,37 @@ function AuthScreen({
 }) {
   const [view, setView] = useState<ViewType>(initialView);
 
-  // Detect URL hash for invite / recovery flows on mount
+  // Detect URL search/hash for invite / recovery flows on mount + listen for PASSWORD_RECOVERY
   useEffect(() => {
-    const hash = window.location.hash;
-    if (!hash) return;
-    const params = new URLSearchParams(hash.slice(1));
-    const type = params.get("type");
-    if (type === "invite") {
-      setView("invite");
-      // Supabase auto-establishes session from hash tokens
-    } else if (type === "recovery") {
+    // 1. Check query parameters (e.g. ?type=recovery)
+    const searchParams = new URLSearchParams(window.location.search);
+    const searchType = searchParams.get("type");
+    if (searchType === "recovery") {
       setView("recovery");
     }
-    // Clean hash without triggering navigation
-    window.history.replaceState(null, "", window.location.pathname + window.location.search);
+
+    // 2. Check URL hash (e.g. #type=recovery or #type=invite)
+    const hash = window.location.hash;
+    if (hash) {
+      const hashParams = new URLSearchParams(hash.slice(1));
+      const hashType = hashParams.get("type");
+      if (hashType === "invite") {
+        setView("invite");
+      } else if (hashType === "recovery") {
+        setView("recovery");
+      }
+    }
+
+    // 3. Supabase Auth state listener for PASSWORD_RECOVERY event
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "PASSWORD_RECOVERY") {
+        setView("recovery");
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
   }, []);
 
   const isCreate = view === "create";
@@ -92,6 +110,42 @@ function AuthScreen({
   const [lErr, setLErr] = useState("");
   const [lLoading, setLLoading] = useState(false);
   const [showLPass, setShowLPass] = useState(false);
+
+  // ── Resend Confirmation Email State ────────────────────────────────────────
+  const [unconfirmedEmail, setUnconfirmedEmail] = useState("");
+  const [resendingEmail, setResendingEmail] = useState(false);
+  const [resendSuccess, setResendSuccess] = useState(false);
+  const [resendCooldown, setResendCooldown] = useState(0);
+
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const timer = setTimeout(() => setResendCooldown(c => c - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [resendCooldown]);
+
+  const handleResendConfirmation = async (emailToResend: string) => {
+    const targetEmail = (emailToResend || "").trim().toLowerCase();
+    if (!targetEmail || resendCooldown > 0) return;
+    setResendingEmail(true);
+    setResendSuccess(false);
+    try {
+      const { error } = await supabase.auth.resend({
+        type: 'signup',
+        email: targetEmail,
+        options: {
+          emailRedirectTo: window.location.origin,
+        },
+      });
+      if (error) throw error;
+      setResendSuccess(true);
+      setResendCooldown(60);
+      toast.success("Confirmation email resent. Please check your inbox.");
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to resend confirmation email.");
+    } finally {
+      setResendingEmail(false);
+    }
+  };
 
   // ── Create account state ───────────────────────────────────────────────────
   const [createStep, setCreateStep] = useState<"details" | "plan">("details");
@@ -146,12 +200,22 @@ function AuthScreen({
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLErr("");
+    setUnconfirmedEmail("");
     if (!lEmail.trim() || !lPass.trim()) { setLErr("Please enter email and password."); return; }
     setLLoading(true);
     try {
       const data = await auth.signIn(lEmail.trim().toLowerCase(), lPass);
       const user = data.user;
       if (!user) throw new Error("Login failed — no user returned.");
+
+      // Strict enforcement: block login until email is verified
+      if (!user.email_confirmed_at) {
+        await supabase.auth.signOut();
+        setLErr("Please confirm your email address before signing in. Check your inbox for the confirmation link.");
+        setUnconfirmedEmail(lEmail.trim().toLowerCase());
+        return;
+      }
+
       const meta = user.user_metadata ?? {};
       const profile: UserProfile = {
         id: user.id,
@@ -172,8 +236,9 @@ function AuthScreen({
       const msg = err?.message ?? "Login failed.";
       if (msg.includes("Invalid login credentials") || msg.includes("invalid_credentials")) {
         setLErr("Incorrect email or password.");
-      } else if (msg.includes("Email not confirmed")) {
-        setLErr("Please confirm your email before signing in.");
+      } else if (msg.includes("Email not confirmed") || msg.includes("email_not_confirmed")) {
+        setLErr("Please confirm your email address before signing in. Check your inbox for the confirmation link.");
+        setUnconfirmedEmail(lEmail.trim().toLowerCase());
       } else {
         setLErr(msg);
       }
@@ -223,8 +288,8 @@ function AuthScreen({
         planBilling: trialBilling,
       });
 
-      // If Supabase returns a session immediately (email confirm disabled), log them in
-      if (data.session) {
+      // Strict enforcement: only auto-login if email is confirmed
+      if (data.session && data.user?.email_confirmed_at) {
         const user = data.user!;
         const profile: UserProfile = {
           id: user.id,
@@ -242,7 +307,10 @@ function AuthScreen({
         };
         onSignup(profile);
       } else {
-        // Email confirmation required — show confirmation message
+        // Sign out any session created before confirmation so unverified user cannot enter dashboard
+        if (data.session) {
+          await supabase.auth.signOut();
+        }
         setSignupSent(true);
       }
     } catch (err: any) {
@@ -373,7 +441,7 @@ function AuthScreen({
     <div className={`min-h-screen ${isPlanStep ? "flex flex-col items-center justify-start bg-[#f8fafc] py-8 px-4 sm:px-8" : "grid lg:grid-cols-2 bg-white"}`}>
       {!isPlanStep && <AuthLeftPanel />}
       <div className={`flex flex-col justify-center overflow-y-auto ${isPlanStep ? "w-full max-w-5xl mx-auto" : `px-6 py-10 sm:px-10 ${isCreate ? "" : "min-h-screen"}`}`}>
-        {!isPlanStep && (
+        {!isPlanStep && !signupSent && (
           <div className="flex items-center gap-3 mb-8 lg:hidden">
             <img src={pondtoraLogo} alt="Pondtora" className="h-9 w-auto object-contain shrink-0" />
             <div>
@@ -383,7 +451,7 @@ function AuthScreen({
           </div>
         )}
         <div className={`${isPlanStep ? "w-full" : "max-w-sm"} w-full mx-auto transition-all`}>
-          {!isPlanStep && (
+          {!isPlanStep && !signupSent && (
             <>
               <h2 className="text-2xl font-extrabold text-slate-900 font-['Barlow_Condensed',sans-serif] mb-1">
                 {view === "login" ? "Welcome back"
@@ -419,6 +487,30 @@ function AuthScreen({
                 </div>
               </div>
               {lErr && <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2 flex items-center gap-2"><AlertCircle size={13} />{lErr}</p>}
+              {unconfirmedEmail && (
+                <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-900 space-y-2">
+                  <p className="leading-relaxed">
+                    Need another confirmation link for <strong>{unconfirmedEmail}</strong>?
+                  </p>
+                  <button
+                    type="button"
+                    disabled={resendingEmail || resendCooldown > 0}
+                    onClick={() => handleResendConfirmation(unconfirmedEmail)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white font-semibold rounded-lg text-xs transition-colors"
+                  >
+                    {resendingEmail ? (
+                      <><Loader2 size={12} className="animate-spin" /> Sending link…</>
+                    ) : resendCooldown > 0 ? (
+                      `Resend link in ${resendCooldown}s`
+                    ) : (
+                      "Resend Confirmation Email"
+                    )}
+                  </button>
+                  {resendSuccess && (
+                    <p className="text-emerald-700 font-medium">Link sent! Check your inbox or spam.</p>
+                  )}
+                </div>
+              )}
               <div className="flex items-center justify-end pt-1">
                 <button type="button" onClick={() => { setFSent(false); setFEmail(""); setView("forgot"); }} className="text-xs text-slate-400 hover:text-slate-600">Forgot password?</button>
               </div>
@@ -477,21 +569,25 @@ function AuthScreen({
           {/* ── Create account Step 2: Select 30-Day Free Trial Plan ── */}
           {view === "create" && !signupSent && createStep === "plan" && (
             <div className="w-full space-y-5">
-              <div className="flex items-center justify-between pb-3 border-b border-slate-200">
-                <button
-                  type="button"
-                  onClick={() => setCreateStep("details")}
-                  className="flex items-center gap-1.5 text-xs font-bold text-emerald-700 hover:text-emerald-900 transition-colors bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-200"
-                >
-                  <ChevronLeft size={16} /> Back to Details
-                </button>
-                <div className="flex items-center gap-2">
-                  <img src={pondtoraLogo} alt="Pondtora" className="h-7 w-auto object-contain shrink-0" />
-                  <span className="text-base font-extrabold font-['Barlow_Condensed',sans-serif] text-slate-900">Pondtora</span>
+              <div className="space-y-2.5 pb-3 border-b border-slate-200">
+                <div className="flex items-center justify-between">
+                  <button
+                    type="button"
+                    onClick={() => setCreateStep("details")}
+                    className="flex items-center gap-1.5 text-xs font-bold text-emerald-700 hover:text-emerald-900 transition-colors bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-200 shadow-2xs"
+                  >
+                    <ChevronLeft size={16} /> Back to Details
+                  </button>
+                  <div className="hidden sm:flex items-center gap-2">
+                    <img src={pondtoraLogo} alt="Pondtora" className="h-6 w-auto object-contain shrink-0" />
+                    <span className="text-base font-extrabold font-['Barlow_Condensed',sans-serif] text-slate-900">Pondtora</span>
+                  </div>
                 </div>
-                <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-700 bg-emerald-100 px-3 py-1 rounded-full">
-                  Step 2 of 2 · 30-Day Free Trial
-                </span>
+                <div className="w-full text-center">
+                  <span className="inline-block w-full sm:w-auto text-center text-[11px] font-bold uppercase tracking-wider text-emerald-700 bg-emerald-100 px-4 py-1.5 rounded-full border border-emerald-200">
+                    Step 2 of 2 · 30-Day Free Trial
+                  </span>
+                </div>
               </div>
 
               <div className="text-center">
@@ -752,20 +848,47 @@ function AuthScreen({
 
           {/* ── Email confirmation pending ── */}
           {view === "create" && signupSent && (
-            <div className="space-y-5 py-2 text-center">
-              <div className="w-16 h-16 rounded-full bg-green-50 border-2 border-green-200 flex items-center justify-center mx-auto">
-                <Mail size={26} className="text-green-500" />
+            <div className="space-y-5 py-4 text-center">
+              <div className="w-16 h-16 rounded-full bg-emerald-50 border-2 border-emerald-200 flex items-center justify-center mx-auto">
+                <Mail size={26} className="text-emerald-600" />
               </div>
               <div>
                 <span className="inline-block text-[11px] font-bold text-emerald-800 bg-emerald-100 px-3 py-1 rounded-full uppercase tracking-wider mb-2">
                   {selectedTrialPlan} Plan · 30 Days Free
                 </span>
-                <p className="font-bold text-slate-800 text-lg">Check your inbox</p>
-                <p className="text-xs text-slate-500 mt-1 leading-relaxed max-w-sm mx-auto">
-                  We sent a confirmation email to <span className="font-semibold text-slate-700">{cEmail}</span>. Click the link to activate your account and start your 30-day free trial on the <strong className="text-slate-800">{selectedTrialPlan}</strong> plan.
+                <p className="font-bold text-slate-800 text-2xl font-['Barlow_Condensed',sans-serif]">Check your inbox</p>
+                <p className="text-xs text-slate-500 mt-2 leading-relaxed max-w-sm mx-auto">
+                  We sent an activation link to <span className="font-semibold text-slate-800">{cEmail}</span>. Please click the link to confirm your email and access your dashboard.
                 </p>
               </div>
-              <button type="button" onClick={() => { setSignupSent(false); setCreateStep("details"); setView("login"); }} className="w-full py-2.5 bg-green-600 hover:bg-green-700 text-white text-sm font-bold rounded-lg transition-colors">Back to Sign In</button>
+
+              <div className="pt-2 flex flex-col items-center gap-2">
+                <button
+                  type="button"
+                  disabled={resendingEmail || resendCooldown > 0}
+                  onClick={() => handleResendConfirmation(cEmail.trim().toLowerCase())}
+                  className="text-xs text-green-700 hover:text-green-800 font-semibold underline disabled:opacity-50 disabled:no-underline cursor-pointer"
+                >
+                  {resendingEmail ? (
+                    "Resending email..."
+                  ) : resendCooldown > 0 ? (
+                    `Resend email in ${resendCooldown}s`
+                  ) : (
+                    "Didn't get the email? Resend link"
+                  )}
+                </button>
+                {resendSuccess && (
+                  <span className="text-xs text-emerald-600 font-medium">Confirmation email resent!</span>
+                )}
+              </div>
+
+              <button
+                type="button"
+                onClick={() => { setSignupSent(false); setCreateStep("details"); setView("login"); }}
+                className="w-full py-2.5 bg-green-600 hover:bg-green-700 text-white text-sm font-bold rounded-lg transition-colors"
+              >
+                Back to Sign In
+              </button>
             </div>
           )}
 

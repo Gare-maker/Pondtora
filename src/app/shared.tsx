@@ -34,20 +34,73 @@ export function Pagination({total,page,perPage,onPage}:{total:number;page:number
   );
 }
 export const PER_PAGE=10;
-export function StatCard({label,value,sub,icon:Icon,trend,hi,valueColor}:{label:string;value:string;sub?:string;icon:ElementType;trend?:{dir:"up"|"down";val:string;good?:boolean};hi?:boolean;valueColor?:"green"|"red"|"neutral"}){
-  const tc=trend?(trend.good===false?(trend.dir==="up"?"text-red-500":"text-green-600"):(trend.dir==="up"?"text-green-600":"text-red-500")):"";
-  const vc=valueColor==="green"?"text-green-600":valueColor==="red"?"text-red-500":undefined;
-  return(
-    <Card className={`p-4 ${hi?"border-green-200 bg-green-50":""}`}>
+export type StatCardColor = "green" | "blue" | "purple" | "amber" | "teal" | "rose" | "indigo" | "gray";
+
+const STAT_COLOR_STYLES: Record<StatCardColor, { bg: string; border: string; text: string }> = {
+  green: { bg: "bg-emerald-50", border: "border-emerald-200/80", text: "text-emerald-600" },
+  blue: { bg: "bg-blue-50", border: "border-blue-200/80", text: "text-blue-600" },
+  purple: { bg: "bg-purple-50", border: "border-purple-200/80", text: "text-purple-600" },
+  amber: { bg: "bg-amber-50", border: "border-amber-200/80", text: "text-amber-600" },
+  teal: { bg: "bg-teal-50", border: "border-teal-200/80", text: "text-teal-600" },
+  rose: { bg: "bg-rose-50", border: "border-rose-200/80", text: "text-rose-600" },
+  indigo: { bg: "bg-indigo-50", border: "border-indigo-200/80", text: "text-indigo-600" },
+  gray: { bg: "bg-slate-50", border: "border-slate-200/80", text: "text-slate-500" },
+};
+
+const AUTO_PALETTE: StatCardColor[] = ["blue", "green", "purple", "amber", "teal", "indigo", "rose"];
+
+function getAutoColor(label: string, hi?: boolean): StatCardColor {
+  if (hi) return "green";
+  const lower = label.toLowerCase();
+  if (lower.includes("profit") || lower.includes("collected") || lower.includes("active") || lower.includes("invested") || lower.includes("revenue")) return "green";
+  if (lower.includes("loss") || lower.includes("expense") || lower.includes("overdue") || lower.includes("error") || lower.includes("dead")) return "rose";
+  if (lower.includes("outstanding") || lower.includes("pending") || lower.includes("remaining")) return "amber";
+  if (lower.includes("paid") || lower.includes("payout") || lower.includes("staff")) return "purple";
+  if (lower.includes("fish") || lower.includes("pond") || lower.includes("water")) return "teal";
+  if (lower.includes("bag") || lower.includes("feed") || lower.includes("stock") || lower.includes("total")) return "blue";
+  let hash = 0;
+  for (let i = 0; i < label.length; i++) hash = (hash * 31 + label.charCodeAt(i)) & 0xffffffff;
+  return AUTO_PALETTE[Math.abs(hash) % AUTO_PALETTE.length];
+}
+
+export function StatCard({
+  label,
+  value,
+  val,
+  sub,
+  icon: Icon,
+  trend,
+  hi,
+  valueColor,
+  color,
+}: {
+  label: string;
+  value?: string | number;
+  val?: string | number;
+  sub?: string;
+  icon: ElementType | React.ReactNode;
+  trend?: { dir: "up" | "down"; val: string; good?: boolean };
+  hi?: boolean;
+  valueColor?: "green" | "red" | "neutral";
+  color?: StatCardColor;
+}) {
+  const selectedColor = color || getAutoColor(label, hi);
+  const colorStyle = STAT_COLOR_STYLES[selectedColor] || STAT_COLOR_STYLES.blue;
+  const tc = trend ? (trend.good === false ? (trend.dir === "up" ? "text-red-500" : "text-green-600") : (trend.dir === "up" ? "text-green-600" : "text-red-500")) : "";
+  const vc = valueColor === "green" ? "text-green-600" : valueColor === "red" ? "text-red-500" : undefined;
+  const displayValue = String(value !== undefined ? value : val !== undefined ? val : "");
+
+  return (
+    <Card className={`p-4 ${hi ? "border-green-200/80 bg-green-50/40" : "bg-white"}`}>
       <div className="flex flex-col gap-2">
-        <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${hi?"bg-green-100":"bg-slate-100"}`}>
-          <Icon size={16} className={hi?"text-green-600":"text-slate-400"}/>
+        <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 border ${colorStyle.bg} ${colorStyle.border} ${colorStyle.text}`}>
+          {typeof Icon === "function" ? <Icon size={18} className="shrink-0" /> : Icon}
         </div>
         <div className="min-w-0 overflow-hidden">
-          <p className="text-[10px] text-slate-500 uppercase tracking-widest truncate">{label}</p>
-          <p className={`text-2xl font-bold mt-0.5 font-['Barlow_Condensed',sans-serif] leading-tight break-all ${vc||(hi?"text-green-700":"text-slate-900")}`}>{value}</p>
-          {sub&&<p className="text-xs text-slate-400 mt-0.5 truncate">{sub}</p>}
-          {trend&&<div className={`flex items-center gap-1 mt-0.5 text-xs font-medium ${tc}`}>{trend.dir==="up"?<TrendingUp size={11}/>:<TrendingDown size={11}/>}{trend.val}</div>}
+          <p className="text-[10px] text-slate-500 uppercase tracking-widest truncate font-semibold">{label}</p>
+          <p className={`text-2xl font-bold mt-0.5 font-['Barlow_Condensed',sans-serif] leading-tight break-all ${vc || (hi ? "text-green-700" : "text-slate-900")}`}>{displayValue}</p>
+          {sub && <p className="text-xs text-slate-400 mt-0.5 truncate">{sub}</p>}
+          {trend && <div className={`flex items-center gap-1 mt-0.5 text-xs font-medium ${tc}`}>{trend.dir === "up" ? <TrendingUp size={11} /> : <TrendingDown size={11} />}{trend.val}</div>}
         </div>
       </div>
     </Card>

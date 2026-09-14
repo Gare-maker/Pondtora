@@ -599,7 +599,7 @@ export default function InvestorsPage({
   return (
     <div className="p-4 sm:p-6 space-y-5 w-full font-['Barlow',sans-serif]">
       {/* ── Top Header / Breadcrumbs ── */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="sticky top-0 z-10 bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 flex flex-wrap items-center justify-between gap-3 border-b border-slate-200/60 mb-2">
         <div className="flex items-center gap-2">
           {selectedInvestorId ? (
             <div className="flex items-center gap-2">
@@ -628,69 +628,43 @@ export default function InvestorsPage({
 
         <div className="flex items-center gap-2">
           {canManage && (
-            <button
-              onClick={() => setShowAddModal(true)}
-              className="flex items-center gap-1.5 px-4 py-2 bg-[#00BB58] hover:bg-[#009e4a] text-white text-xs font-bold rounded-xl shadow-sm transition-colors"
-            >
-              <Plus size={15} /> Add Investor
-            </button>
+            <PBtn sm onClick={() => setShowAddModal(true)}>
+              <Plus size={14} /> Add Investor
+            </PBtn>
           )}
         </div>
       </div>
 
-      {/* ── 1. INVESTOR DASHBOARD: 4 KPI Cards ── */}
+      {/* ── 1. INVESTOR DASHBOARD: 4 KPI Cards (Vertical Column + Themed Icons) ── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
-        <div className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-xs flex items-center gap-3.5">
-          <div className="w-11 h-11 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600 shrink-0">
-            <User size={20} />
-          </div>
-          <div className="min-w-0">
-            <p className="text-xs font-medium text-slate-500 truncate">Total Investors</p>
-            <p className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] mt-0.5">
-              {stats.totalInvestors}
-            </p>
-            <p className="text-[10px] text-slate-400 truncate">Recorded investors</p>
-          </div>
-        </div>
-
-        <div className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-xs flex items-center gap-3.5">
-          <div className="w-11 h-11 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600 shrink-0">
-            <TrendingUp size={20} />
-          </div>
-          <div className="min-w-0">
-            <p className="text-xs font-medium text-slate-500 truncate">Total Money Invested</p>
-            <p className="text-xl font-bold text-emerald-700 font-['Barlow_Condensed',sans-serif] mt-0.5">
-              {currency}{stats.totalInvested.toLocaleString()}
-            </p>
-            <p className="text-[10px] text-slate-400 truncate">Active & recorded capital</p>
-          </div>
-        </div>
-
-        <div className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-xs flex items-center gap-3.5">
-          <div className="w-11 h-11 rounded-xl bg-purple-50 border border-purple-100 flex items-center justify-center text-purple-600 shrink-0">
-            <CheckCircle2 size={20} />
-          </div>
-          <div className="min-w-0">
-            <p className="text-xs font-medium text-slate-500 truncate">Total Paid Out</p>
-            <p className="text-xl font-bold text-purple-700 font-['Barlow_Condensed',sans-serif] mt-0.5">
-              {currency}{stats.totalPaid.toLocaleString()}
-            </p>
-            <p className="text-[10px] text-slate-400 truncate">Paid to investors</p>
-          </div>
-        </div>
-
-        <div className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-xs flex items-center gap-3.5">
-          <div className="w-11 h-11 rounded-xl bg-amber-50 border border-amber-100 flex items-center justify-center text-amber-600 shrink-0">
-            <Clock size={20} />
-          </div>
-          <div className="min-w-0">
-            <p className="text-xs font-medium text-slate-500 truncate">Outstanding Payments</p>
-            <p className="text-xl font-bold text-amber-700 font-['Barlow_Condensed',sans-serif] mt-0.5">
-              {currency}{stats.totalOutstanding.toLocaleString()}
-            </p>
-            <p className="text-[10px] text-slate-400 truncate">Unpaid obligations</p>
-          </div>
-        </div>
+        <StatCard
+          label="Total Investors"
+          value={String(stats.totalInvestors)}
+          sub="Recorded investors"
+          icon={User}
+          color="blue"
+        />
+        <StatCard
+          label="Total Money Invested"
+          value={`${currency}${stats.totalInvested.toLocaleString()}`}
+          sub="Active & recorded capital"
+          icon={TrendingUp}
+          color="green"
+        />
+        <StatCard
+          label="Total Paid Out"
+          value={`${currency}${stats.totalPaid.toLocaleString()}`}
+          sub="Paid to investors"
+          icon={CheckCircle2}
+          color="purple"
+        />
+        <StatCard
+          label="Outstanding Payments"
+          value={`${currency}${stats.totalOutstanding.toLocaleString()}`}
+          sub="Unpaid obligations"
+          icon={Clock}
+          color="amber"
+        />
       </div>
 
       {/* ── VIEW SWITCH: LIST VS DETAILS ── */}
@@ -798,14 +772,87 @@ export default function InvestorsPage({
             </div>
           </Card>
 
-          {/* ── Investor Table ── */}
-          <Card className="overflow-hidden bg-white shadow-xs">
+          {/* ── Mobile Card List (Clean, non-cramped display with Phone icon) ── */}
+          <div className="sm:hidden space-y-3">
+            {filteredInvestors.length === 0 ? (
+              <Card className="p-8 text-center bg-white shadow-xs">
+                <Landmark size={36} className="mx-auto text-slate-300 mb-2" />
+                <p className="font-semibold text-sm text-slate-700">No investors found</p>
+                <p className="text-xs text-slate-400 mt-1">
+                  {searchQuery || statusFilter !== "All"
+                    ? "Try adjusting your filters or search terms."
+                    : "Click '+ Add Investor' above to record your first farm investor."}
+                </p>
+              </Card>
+            ) : (
+              filteredInvestors.map(item => {
+                const statusColor =
+                  item.derivedStatus === "Paid"
+                    ? "blue"
+                    : item.derivedStatus === "Overdue"
+                    ? "red"
+                    : item.derivedStatus === "Completed"
+                    ? "gray"
+                    : "green";
+
+                return (
+                  <Card
+                    key={item.id}
+                    onClick={() => setSelectedInvestorId(item.id)}
+                    className="p-4 bg-white shadow-xs border border-slate-200/80 cursor-pointer hover:border-green-300 transition-all"
+                  >
+                    <div className="flex items-start justify-between gap-2 mb-2.5">
+                      <div>
+                        <h4 className="font-bold text-slate-900 text-sm font-['Barlow_Condensed',sans-serif] tracking-wide">
+                          {item.fullName}
+                        </h4>
+                        <div className="flex items-center gap-1.5 text-xs text-slate-600 mt-0.5 font-mono">
+                          <Phone size={11} className="text-slate-400 shrink-0" />
+                          <span className="whitespace-nowrap font-medium">{item.phone}</span>
+                        </div>
+                      </div>
+                      <Bdg label={item.derivedStatus} color={statusColor as any} />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100 text-xs">
+                      <div>
+                        <span className="text-slate-400 text-[10px] block">Invested</span>
+                        <span className="font-bold text-slate-900">{currency}{item.totalInvested.toLocaleString()}</span>
+                      </div>
+                      <div>
+                        <span className="text-slate-400 text-[10px] block">Return %</span>
+                        <span className="font-bold text-emerald-700">{item.investment?.investorPercentage || 0}%</span>
+                      </div>
+                      <div>
+                        <span className="text-slate-400 text-[10px] block">Paid</span>
+                        <span className="font-bold text-purple-700">{currency}{item.totalPaid.toLocaleString()}</span>
+                      </div>
+                      <div>
+                        <span className="text-slate-400 text-[10px] block">Outstanding</span>
+                        <span className="font-bold text-amber-700">{currency}{item.outstanding.toLocaleString()}</span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between pt-2.5 mt-2.5 border-t border-slate-50 text-[11px] text-slate-500">
+                      <span className="truncate max-w-[200px]">{item.farmName} {item.pondName !== "—" ? `· ${item.pondName}` : ""}</span>
+                      <span className="text-green-600 font-semibold flex items-center gap-0.5 shrink-0">
+                        Details <ChevronRight size={13} />
+                      </span>
+                    </div>
+                  </Card>
+                );
+              })
+            )}
+          </div>
+
+          {/* ── Investor Table (Desktop / Tablet) ── */}
+          <Card className="hidden sm:block overflow-hidden bg-white shadow-xs">
             <div className="overflow-x-auto">
               <table className="w-full text-xs min-w-[950px]">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200/80 text-slate-500 uppercase tracking-wider font-semibold text-[11px]">
                     <th className="text-left px-4 py-3">Investor</th>
-                    <th className="text-left px-4 py-3">Phone Number</th>
+                    <th className="text-left px-4 py-3 whitespace-nowrap min-w-[140px]">Phone Number</th>
                     <th className="text-right px-4 py-3">Investment</th>
                     <th className="text-center px-4 py-3">%</th>
                     <th className="text-left px-4 py-3">Farm</th>
@@ -858,7 +905,7 @@ export default function InvestorsPage({
                           </td>
 
                           {/* Phone */}
-                          <td className="px-4 py-3 font-mono text-slate-600">
+                          <td className="px-4 py-3 font-mono text-slate-600 whitespace-nowrap min-w-[140px]">
                             {item.phone}
                           </td>
 
@@ -968,19 +1015,13 @@ export default function InvestorsPage({
             </div>
 
             <div className="flex items-center gap-2">
-              <button
-                onClick={() => openRecordPayment()}
-                className="flex items-center gap-1 px-3.5 py-2 bg-green-600 hover:bg-green-700 text-white text-xs font-bold rounded-xl transition-colors shadow-xs"
-              >
+              <PBtn sm onClick={() => openRecordPayment()}>
                 <Receipt size={14} /> Record Payment
-              </button>
+              </PBtn>
               {canManage && (
-                <button
-                  onClick={openEditInvestmentModal}
-                  className="flex items-center gap-1 px-3 py-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold rounded-xl transition-colors"
-                >
+                <PBtn sm outline onClick={openEditInvestmentModal}>
                   <Edit3 size={14} /> Edit Investment
-                </button>
+                </PBtn>
               )}
             </div>
           </div>
@@ -1086,12 +1127,9 @@ export default function InvestorsPage({
                   Historical record of all payout obligations and completed payments
                 </p>
               </div>
-              <button
-                onClick={() => openRecordPayment()}
-                className="flex items-center gap-1 text-xs font-semibold text-green-700 hover:text-green-800"
-              >
+              <PBtn sm outline onClick={() => openRecordPayment()}>
                 <Plus size={14} /> Add Payment
-              </button>
+              </PBtn>
             </div>
 
             <div className="overflow-x-auto">
