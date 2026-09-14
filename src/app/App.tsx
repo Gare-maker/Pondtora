@@ -1448,6 +1448,58 @@ function ReportsPage({
                 ))}</div>
               </div>
             ))}</div>
+            <Pagination total={filtered.length} page={reportPage} perPage={PER_PAGE} onPage={setReportPage}/></>
+          )}
+        </>
+      )}
+      {showModal&&<Modal title={editReport?"Edit Report":"Submit Report"} onClose={()=>{setShowModal(false);setEditReport(null);}} wide>
+        <F label="Report Type"><select className={SC} value={fType} onChange={e=>setFType(e.target.value as "Daily"|"Weekly"|"Monthly")}><option>Daily</option><option>Weekly</option><option>Monthly</option></select></F>
+        <F label="Report Title"><input className={IC} placeholder="e.g. Morning inspection — Pond 2" value={fTitle} onChange={e=>setFTitle(e.target.value)}/></F>
+        {fType==="Daily"?(
+          <div className="space-y-4">
+            {/* Feeding */}
+            <div className="p-3 bg-slate-50 rounded-xl space-y-2">
+              <p className="text-sm font-semibold text-slate-800">Were you the person who fed the fish today?</p>
+              <div className="flex gap-2">{(["Yes","No"] as const).map(v=><button key={v} type="button" onClick={()=>{setFFedFish(v);if(v==="No")setFFeedSession("");}} className={`px-4 py-1.5 rounded-lg text-xs font-bold border transition-colors ${fFedFish===v?"bg-green-600 text-white border-green-600":"bg-white text-slate-600 border-slate-200 hover:border-green-400"}`}>{v}</button>)}</div>
+              {fFedFish==="Yes"&&(<><p className="text-sm font-semibold text-slate-800 mt-2">Which feeding did you complete?</p><div className="flex gap-2">{(["Morning","Evening","Both"] as const).map(v=><button key={v} type="button" onClick={()=>setFFeedSession(v)} className={`px-4 py-1.5 rounded-lg text-xs font-bold border transition-colors ${fFeedSession===v?"bg-green-600 text-white border-green-600":"bg-white text-slate-600 border-slate-200 hover:border-green-400"}`}>{v}</button>)}</div></>)}
+            </div>
+            {/* Outlet */}
+            <div className="p-3 bg-slate-50 rounded-xl space-y-2">
+              <p className="text-sm font-semibold text-slate-800">Did you lock the outlets and inlets and properly check to confirm?</p>
+              <div className="flex gap-2">{(["Yes","Not Me"] as const).map(v=><button key={v} type="button" onClick={()=>{setFOutletLocked(v);if(v==="Not Me")setFOutletConfirm("");}} className={`px-4 py-1.5 rounded-lg text-xs font-bold border transition-colors ${fOutletLocked===v?"bg-green-600 text-white border-green-600":"bg-white text-slate-600 border-slate-200 hover:border-green-400"}`}>{v}</button>)}</div>
+              {fOutletLocked==="Yes"&&(<><p className="text-sm font-semibold text-slate-800 mt-2">Are you sure you locked all pond outlets and inlets?</p><div className="flex gap-2">{(["Yes","No"] as const).map(v=><button key={v} type="button" onClick={()=>setFOutletConfirm(v)} className={`px-4 py-1.5 rounded-lg text-xs font-bold border transition-colors ${fOutletConfirm===v?"bg-green-600 text-white border-green-600":"bg-white text-slate-600 border-slate-200 hover:border-green-400"}`}>{v}</button>)}</div></>)}
+            </div>
+            {/* Water Flow */}
+            <div className="p-3 bg-slate-50 rounded-xl space-y-2">
+              <p className="text-sm font-semibold text-slate-800">Did you flush the pond or carry out water flow-through today?</p>
+              <div className="flex gap-2">{(["Yes","No"] as const).map(v=><button key={v} type="button" onClick={()=>{setFWaterFlow(v);if(v==="No")setFWaterSession("");}} className={`px-4 py-1.5 rounded-lg text-xs font-bold border transition-colors ${fWaterFlow===v?"bg-green-600 text-white border-green-600":"bg-white text-slate-600 border-slate-200 hover:border-green-400"}`}>{v}</button>)}</div>
+              {fWaterFlow==="Yes"&&(<><p className="text-sm font-semibold text-slate-800 mt-2">When was it done?</p><div className="flex gap-2">{(["Morning","Evening","Both"] as const).map(v=><button key={v} type="button" onClick={()=>setFWaterSession(v)} className={`px-4 py-1.5 rounded-lg text-xs font-bold border transition-colors ${fWaterSession===v?"bg-green-600 text-white border-green-600":"bg-white text-slate-600 border-slate-200 hover:border-green-400"}`}>{v}</button>)}</div></>)}
+            </div>
+            {/* Pumps & Electrical */}
+            <div className="p-3 bg-slate-50 rounded-xl space-y-2">
+              <p className="text-sm font-semibold text-slate-800">Have you turned off all pumping machines and electrical devices properly?</p>
+              <div className="flex gap-2">{(["Yes","No"] as const).map(v=><button key={v} type="button" onClick={()=>{setFPumpsOff(v);if(v==="No")setFPumpsOffConfirm("");}} className={`px-4 py-1.5 rounded-lg text-xs font-bold border transition-colors ${fPumpsOff===v?"bg-green-600 text-white border-green-600":"bg-white text-slate-600 border-slate-200 hover:border-green-400"}`}>{v}</button>)}</div>
+              {fPumpsOff==="Yes"&&(<><p className="text-sm font-semibold text-slate-800 mt-2">Are you sure you personally turned off all pumping machines or assisted with this task?</p><div className="flex gap-2">{(["Yes","No"] as const).map(v=><button key={v} type="button" onClick={()=>setFPumpsOffConfirm(v)} className={`px-4 py-1.5 rounded-lg text-xs font-bold border transition-colors ${fPumpsOffConfirm===v?"bg-green-600 text-white border-green-600":"bg-white text-slate-600 border-slate-200 hover:border-green-400"}`}>{v}</button>)}</div><p className="text-xs text-slate-400 italic mt-1">Click &quot;Yes&quot; only if you personally carried out this task or assisted.</p></>)}
+            </div>
+            {/* Equipment Storage */}
+            <div className="p-3 bg-slate-50 rounded-xl space-y-2">
+              <p className="text-sm font-semibold text-slate-800">Are all equipment properly stored?</p>
+              <div className="flex gap-2">{(["Yes","No"] as const).map(v=><button key={v} type="button" onClick={()=>{setFEquipStored(v);if(v==="No")setFEquipConfirm("");}} className={`px-4 py-1.5 rounded-lg text-xs font-bold border transition-colors ${fEquipStored===v?"bg-green-600 text-white border-green-600":"bg-white text-slate-600 border-slate-200 hover:border-green-400"}`}>{v}</button>)}</div>
+              {fEquipStored==="Yes"&&(<><p className="text-sm font-semibold text-slate-800 mt-2">Are you sure?</p><div className="flex gap-2">{(["Yes","No"] as const).map(v=><button key={v} type="button" onClick={()=>setFEquipConfirm(v)} className={`px-4 py-1.5 rounded-lg text-xs font-bold border transition-colors ${fEquipConfirm===v?"bg-green-600 text-white border-green-600":"bg-white text-slate-600 border-slate-200 hover:border-green-400"}`}>{v}</button>)}</div></>)}
+            </div>
+            <F label="Additional Notes (Optional)"><textarea className={`${IC} min-h-[80px] resize-y`} placeholder="Any other observations or actions taken…" value={fNotes} onChange={e=>setFNotes(e.target.value)}/></F>
+          </div>
+        ):(
+          <F label="Content"><textarea className={`${IC} min-h-[120px] resize-y`} placeholder="Describe observations, issues or actions taken…" value={fContent} onChange={e=>setFContent(e.target.value)}/></F>
+        )}
+        <F label="Recorded By">
+          {staff.filter(s=>s.status==="Active").length>0
+            ?<select className={SC} value={fAuthor} onChange={e=>setFAuthor(e.target.value)}><option value="Admin">Admin</option>{staff.filter(s=>s.status==="Active").map(s=><option key={s.id} value={s.name}>{s.name} — {s.role}</option>)}</select>
+            :<input className={IC} placeholder="Name of recorder" value={fAuthor} onChange={e=>setFAuthor(e.target.value)}/>
+          }
+        </F>
+        {submitError&&<p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{submitError}</p>}
+        <div className="flex gap-2 pt-1"><PBtn onClick={handleSubmit}><CheckCircle size={14}/> {editReport?"Save Changes":"Submit"}</PBtn><button onClick={()=>{setShowModal(false);setEditReport(null);}} className="px-4 py-2 text-sm text-slate-400">Cancel</button></div>
       </Modal>}
     </div>
   );
