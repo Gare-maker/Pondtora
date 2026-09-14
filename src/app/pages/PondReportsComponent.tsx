@@ -80,6 +80,7 @@ export default function PondReportsComponent({
   // Treatment fields
   const [treatMedicine, setTreatMedicine] = useState<string>("");
   const [treatCause, setTreatCause] = useState<string>("");
+  const [treatDetails, setTreatDetails] = useState<string>("");
   const [treatActionTaken, setTreatActionTaken] = useState<string>("");
   const [treatRemarks, setTreatRemarks] = useState<string>("");
 
@@ -301,9 +302,15 @@ export default function PondReportsComponent({
       reportType: formType,
       reportDate: formDate,
       issue: formType === "treatment" ? treatMedicine.trim() : formIssue.trim(),
-      description: formType === "treatment" ? treatCause.trim() : (formDescription.trim() || undefined),
+      description: formType === "treatment" ? (treatDetails.trim() || treatCause.trim()) : (formDescription.trim() || undefined),
+      medicine: formType === "treatment" ? treatMedicine.trim() : undefined,
+      cause: formType === "treatment" ? treatCause.trim() : undefined,
+      treatmentDetails: formType === "treatment" ? treatDetails.trim() : undefined,
       actionTaken: formType === "treatment" ? (treatActionTaken.trim() || undefined) : undefined,
-      notes: formType === "treatment" ? (treatRemarks.trim() || undefined) : (formNotes.trim() || undefined),
+      remarks: formType === "treatment" ? (treatRemarks.trim() || undefined) : undefined,
+      notes: formType === "treatment"
+        ? [treatDetails.trim() && `Details: ${treatDetails.trim()}`, treatRemarks.trim()].filter(Boolean).join(" | ") || undefined
+        : (formNotes.trim() || undefined),
       treatmentId: createdTreatmentId,
       createdBy: currentUser?.name || "Admin",
       createdAt: new Date().toISOString(),
@@ -689,10 +696,19 @@ export default function PondReportsComponent({
                     className={IC}
                   />
                 </F>
+                <F label="Treatment Details / Dosage & Method">
+                  <textarea
+                    rows={2}
+                    placeholder="e.g. 50g per 1,000 liters, bath for 30 minutes daily for 3 days…"
+                    value={treatDetails}
+                    onChange={e => setTreatDetails(e.target.value)}
+                    className={IC}
+                  />
+                </F>
                 <F label="Action Taken">
                   <input
                     type="text"
-                    placeholder="e.g. 50g per 1,000 liters, isolated affected fish"
+                    placeholder="e.g. Isolated affected fish, reduced feed by 50%"
                     value={treatActionTaken}
                     onChange={e => setTreatActionTaken(e.target.value)}
                     className={IC}

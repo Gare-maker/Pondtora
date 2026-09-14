@@ -479,7 +479,7 @@ export default function InvestorsPage({
   return (
     <div className="p-4 sm:p-6 space-y-5 w-full font-['Barlow',sans-serif]">
       {/* ── Top Header / Breadcrumbs ── */}
-      <div className="flex flex-wrap items-center justify-between gap-3 pb-1 border-b border-slate-200">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           {selectedInvestorId ? (
             <div className="flex items-center gap-2">
@@ -496,8 +496,7 @@ export default function InvestorsPage({
             </div>
           ) : (
             <div>
-              <h1 className="text-2xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] tracking-wide flex items-center gap-2.5">
-                <Landmark className="text-green-600" size={26} />
+              <h1 className="text-2xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] tracking-wide">
                 Investors
               </h1>
               <p className="text-xs text-slate-500 mt-0.5">

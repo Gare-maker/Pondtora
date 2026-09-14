@@ -90,9 +90,14 @@ export interface PondReport {
   reportDate: string;
   issue?: string;
   description?: string;
+  medicine?: string;
+  cause?: string;
+  treatmentDetails?: string;
   actionTaken?: string;
+  remarks?: string;
   notes?: string;
   treatmentId?: string;
+  recordedBy?: string;
   createdBy?: string;
   createdAt?: string;
   updatedAt?: string;

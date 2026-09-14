@@ -505,6 +505,7 @@ function PondDetail({pond,mortality,onAddMortality,onAddCost,feedingRecords,onBa
         <F label="Date"><input type="date" value={treatF.date} onChange={e=>setTreatF(p=>({...p,date:e.target.value}))} className={IC}/></F>
         <F label="Medicine Applied"><input value={treatF.medicine} onChange={e=>setTreatF(p=>({...p,medicine:e.target.value}))} className={IC} placeholder="e.g. Potassium permanganate, Salinomycin…"/></F>
         <F label="Cause (Optional)"><input value={treatF.cause} onChange={e=>setTreatF(p=>({...p,cause:e.target.value}))} className={IC} placeholder="e.g. Bacterial infection, parasites…"/></F>
+        <F label="Treatment Details / Dosage & Method"><textarea value={(treatF as any).details||""} onChange={e=>setTreatF(p=>({...p,details:e.target.value}))} className={`${IC} resize-none`} rows={2} placeholder="e.g. 50g per 1,000L bath for 30 minutes daily for 3 days…"/></F>
         <F label="Remarks (Optional)"><textarea value={treatF.remarks} onChange={e=>setTreatF(p=>({...p,remarks:e.target.value}))} className={`${IC} resize-none`} rows={2} placeholder="Additional notes…"/></F>
         <div className="flex gap-2 pt-1"><PBtn onClick={handleTreat}><Plus size={14}/> Log Treatment</PBtn><button onClick={()=>setShowTreat(false)} className="px-4 py-2 text-sm text-slate-400">Cancel</button></div>
       </Modal>}

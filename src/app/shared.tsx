@@ -382,15 +382,89 @@ export function NumInput({
 }
 
 /* ── DateInput — shows formatted date, opens native picker on click ── */
-export function DateInput({value,onChange,className}:{value:string;onChange:(v:string)=>void;className?:string}){
-  const formatted=value?(()=>{try{const d=new Date(value+"T00:00:00");return d.toLocaleDateString("en-GB",{day:"numeric",month:"long",year:"numeric"});}catch{return value;}})():"Select date";
-  return(
-    <div className="relative">
-      <div className={`pointer-events-none flex items-center gap-2 ${className||IC}`}>
-        <Calendar size={13} className="text-slate-400 shrink-0"/>
-        <span className={value?"text-slate-900":"text-slate-400 text-sm"}>{formatted}</span>
+export function DateInput({
+  value,
+  onChange,
+  className,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  className?: string;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const formatted = value
+    ? (() => {
+        try {
+          const d = new Date(value + "T00:00:00");
+          return isNaN(d.getTime())
+            ? value
+            : d.toLocaleDateString("en-GB", {
+                day: "numeric",
+                month: "short",
+                year: "numeric",
+              });
+        } catch {
+          return value;
+        }
+      })()
+    : "Select date";
+
+  const openPicker = () => {
+    if (inputRef.current) {
+      try {
+        if (typeof inputRef.current.showPicker === "function") {
+          inputRef.current.showPicker();
+          return;
+        }
+      } catch {}
+      inputRef.current.focus();
+    }
+  };
+
+  return (
+    <div
+      onClick={openPicker}
+      className={`relative flex items-center justify-between cursor-pointer select-none ${className || IC}`}
+    >
+      <div className="flex items-center gap-2 min-w-0 pointer-events-none">
+        <Calendar size={14} className="text-slate-400 shrink-0" />
+        <span
+          className={
+            value
+              ? "text-slate-900 text-sm font-medium truncate"
+              : "text-slate-400 text-sm"
+          }
+        >
+          {formatted}
+        </span>
       </div>
-      <input type="date" value={value} onChange={e=>onChange(e.target.value)} className="absolute inset-0 opacity-0 w-full h-full cursor-pointer"/>
+      <button
+        type="button"
+        tabIndex={-1}
+        onClick={(e) => {
+          e.stopPropagation();
+          openPicker();
+        }}
+        className="text-slate-400 hover:text-slate-600 p-0.5 rounded transition-colors"
+      >
+        <Calendar size={14} />
+      </button>
+      <input
+        ref={inputRef}
+        type="date"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onClick={(e) => {
+          e.stopPropagation();
+          try {
+            if (typeof e.currentTarget.showPicker === "function") {
+              e.currentTarget.showPicker();
+            }
+          } catch {}
+        }}
+        className="absolute inset-0 opacity-0 w-full h-full cursor-pointer"
+        style={{ colorScheme: "light" }}
+      />
     </div>
   );
 }

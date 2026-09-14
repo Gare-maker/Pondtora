@@ -1229,135 +1229,240 @@ function ReportsPage({
   onAddPondReport?: (r: PondReport) => Promise<void>;
   activeFarmId?: string;
 }) {
-  const [reportCategory, setReportCategory] = useState<"operational" | "pond">("operational");
-  const [typeFilter,setTypeFilter]=useState<"All"|"Daily"|"Weekly"|"Monthly">("All");
-  const [dateSearch,setDateSearch]=useState("");
-  const [showModal,setShowModal]=useState(false);
-  const [fTitle,setFTitle]=useState(""); const [fType,setFType]=useState<"Daily"|"Weekly"|"Monthly">("Daily"); const [fContent,setFContent]=useState(""); const [fAuthor,setFAuthor]=useState("Admin");
+  const [typeFilter, setTypeFilter] = useState<"All" | "Daily" | "Weekly" | "Monthly" | "Pond-Based">("All");
+  const [dateSearch, setDateSearch] = useState("");
+  const [showModal, setShowModal] = useState(false);
+  const [fTitle, setFTitle] = useState("");
+  const [fType, setFType] = useState<"Daily" | "Weekly" | "Monthly" | "Pond-Based">("Daily");
+  const [fContent, setFContent] = useState("");
+  const [fAuthor, setFAuthor] = useState("Admin");
+
+  /* Pond-Based report form fields */
+  const farmPonds = useMemo(() => {
+    return ponds.filter(p => !activeFarmId || p.farmId === activeFarmId);
+  }, [ponds, activeFarmId]);
+
+  const [fPondId, setFPondId] = useState<string>("");
+  const [fPondReportType, setFPondReportType] = useState<"treatment" | "other_issue">("treatment");
+  const [fPondDate, setFPondDate] = useState<string>(TODAY);
+  const [fPondMedicine, setFPondMedicine] = useState("");
+  const [fPondCause, setFPondCause] = useState("");
+  const [fPondDetails, setFPondDetails] = useState("");
+  const [fPondAction, setFPondAction] = useState("");
+  const [fPondRemarks, setFPondRemarks] = useState("");
+  const [fPondIssue, setFPondIssue] = useState("");
+  const [fPondDescription, setFPondDescription] = useState("");
+  const [fPondNotes, setFPondNotes] = useState("");
+
+  useEffect(() => {
+    if (!fPondId && farmPonds.length > 0) {
+      setFPondId(farmPonds[0].id);
+    }
+  }, [farmPonds, fPondId]);
+
   /* Daily report fields */
-  const [fFedFish,setFFedFish]=useState<"Yes"|"No"|"">("");
-  const [fFedFishConfirm,setFFedFishConfirm]=useState<"Yes"|"No"|"">("");
-  const [fFeedSession,setFFeedSession]=useState<"Morning"|"Evening"|"Both"|"">("");
-  const [fOutletLocked,setFOutletLocked]=useState<"Yes"|"Not Me"|"">("");
-  const [fOutletConfirm,setFOutletConfirm]=useState<"Yes"|"No"|"">("");
-  const [fWaterFlow,setFWaterFlow]=useState<"Yes"|"No"|"">("");
-  const [fWaterFlowConfirm,setFWaterFlowConfirm]=useState<"Yes"|"No"|"">("");
-  const [fWaterSession,setFWaterSession]=useState<"Morning"|"Evening"|"Both"|"">("");
-  const [fPumpsOff,setFPumpsOff]=useState<"Yes"|"No"|"">("");
-  const [fPumpsOffConfirm,setFPumpsOffConfirm]=useState<"Yes"|"No"|"">("");
-  const [fEquipStored,setFEquipStored]=useState<"Yes"|"No"|"">("");
-  const [fEquipConfirm,setFEquipConfirm]=useState<"Yes"|"No"|"">("");
-  const [fNotes,setFNotes]=useState("");
-  const filtered=reports.filter(r=>{
-    const mt=typeFilter==="All"||r.type===typeFilter;
-    const md=!dateSearch||r.date===dateSearch||r.date.toLowerCase().includes(dateSearch.toLowerCase());
-    return mt&&md;
+  const [fFedFish, setFFedFish] = useState<"Yes" | "No" | "">("");
+  const [fFedFishConfirm, setFFedFishConfirm] = useState<"Yes" | "No" | "">("");
+  const [fFeedSession, setFFeedSession] = useState<"Morning" | "Evening" | "Both" | "">("");
+  const [fOutletLocked, setFOutletLocked] = useState<"Yes" | "Not Me" | "">("");
+  const [fOutletConfirm, setFOutletConfirm] = useState<"Yes" | "No" | "">("");
+  const [fWaterFlow, setFWaterFlow] = useState<"Yes" | "No" | "">("");
+  const [fWaterFlowConfirm, setFWaterFlowConfirm] = useState<"Yes" | "No" | "">("");
+  const [fWaterSession, setFWaterSession] = useState<"Morning" | "Evening" | "Both" | "">("");
+  const [fPumpsOff, setFPumpsOff] = useState<"Yes" | "No" | "">("");
+  const [fPumpsOffConfirm, setFPumpsOffConfirm] = useState<"Yes" | "No" | "">("");
+  const [fEquipStored, setFEquipStored] = useState<"Yes" | "No" | "">("");
+  const [fEquipConfirm, setFEquipConfirm] = useState<"Yes" | "No" | "">("");
+  const [fNotes, setFNotes] = useState("");
+  const filtered = reports.filter(r => {
+    const mt = typeFilter === "All" || r.type === typeFilter;
+    const md = !dateSearch || r.date === dateSearch || r.date.toLowerCase().includes(dateSearch.toLowerCase());
+    return mt && md;
   });
-  const [reportPage,setReportPage]=useState(1);
-  const [submitError,setSubmitError]=useState("");
-  const [editReport,setEditReport]=useState<Report|null>(null);
-  const isWithin6h=(r:Report)=>{if(!r.timestamp)return false;return Date.now()-new Date(r.timestamp).getTime()<6*60*60*1000;};
-  const openEditReport=(r:Report)=>{
+  const [reportPage, setReportPage] = useState(1);
+  const [submitError, setSubmitError] = useState("");
+  const [editReport, setEditReport] = useState<Report | null>(null);
+  const isWithin6h = (r: Report) => { if (!r.timestamp) return false; return Date.now() - new Date(r.timestamp).getTime() < 6 * 60 * 60 * 1000; };
+  const openEditReport = (r: Report) => {
     setEditReport(r);
     setFTitle(r.title);
-    setFType(r.type);
+    setFType(r.type as any);
     setFAuthor(r.author);
     setFFedFish(""); setFFedFishConfirm(""); setFFeedSession(""); setFOutletLocked(""); setFOutletConfirm("");
     setFWaterFlow(""); setFWaterFlowConfirm(""); setFWaterSession(""); setFPumpsOff(""); setFPumpsOffConfirm("");
     setFEquipStored(""); setFEquipConfirm(""); setFNotes(""); setFContent(""); setSubmitError("");
-    if(r.type==="Daily"){
-      const pairs=r.content.split(" | ").reduce<Record<string,string>>((acc,p)=>{const idx=p.indexOf(": ");if(idx>-1)acc[p.slice(0,idx).trim()]=p.slice(idx+2).trim();return acc;},{});
-      if(pairs["Fed fish today"])setFFedFish(pairs["Fed fish today"] as "Yes"|"No");
-      if(pairs["Feeding session"])setFFeedSession(pairs["Feeding session"] as "Morning"|"Evening"|"Both");
-      if(pairs["Locked all pond outlets/inlets"])setFOutletLocked(pairs["Locked all pond outlets/inlets"] as "Yes"|"Not Me");
-      if(pairs["Outlet lock confirmed"])setFOutletConfirm(pairs["Outlet lock confirmed"] as "Yes"|"No");
-      if(pairs["Pond flush/water flow-through"])setFWaterFlow(pairs["Pond flush/water flow-through"] as "Yes"|"No");
-      if(pairs["Water flow session"])setFWaterSession(pairs["Water flow session"] as "Morning"|"Evening"|"Both");
-      if(pairs["Pumping machines & electrical devices off"])setFPumpsOff(pairs["Pumping machines & electrical devices off"] as "Yes"|"No");
-      if(pairs["Pumps off confirmed"])setFPumpsOffConfirm(pairs["Pumps off confirmed"] as "Yes"|"No");
-      if(pairs["Equipment properly stored"])setFEquipStored(pairs["Equipment properly stored"] as "Yes"|"No");
-      if(pairs["Equipment storage confirmed"])setFEquipConfirm(pairs["Equipment storage confirmed"] as "Yes"|"No");
-      if(pairs["Additional notes"])setFNotes(pairs["Additional notes"]);
+    if (r.type === "Daily") {
+      const pairs = r.content.split(" | ").reduce<Record<string, string>>((acc, p) => { const idx = p.indexOf(": "); if (idx > -1) acc[p.slice(0, idx).trim()] = p.slice(idx + 2).trim(); return acc; }, {});
+      if (pairs["Fed fish today"]) setFFedFish(pairs["Fed fish today"] as "Yes" | "No");
+      if (pairs["Feeding session"]) setFFeedSession(pairs["Feeding session"] as "Morning" | "Evening" | "Both");
+      if (pairs["Locked all pond outlets/inlets"]) setFOutletLocked(pairs["Locked all pond outlets/inlets"] as "Yes" | "Not Me");
+      if (pairs["Outlet lock confirmed"]) setFOutletConfirm(pairs["Outlet lock confirmed"] as "Yes" | "No");
+      if (pairs["Pond flush/water flow-through"]) setFWaterFlow(pairs["Pond flush/water flow-through"] as "Yes" | "No");
+      if (pairs["Water flow session"]) setFWaterSession(pairs["Water flow session"] as "Morning" | "Evening" | "Both");
+      if (pairs["Pumping machines & electrical devices off"]) setFPumpsOff(pairs["Pumping machines & electrical devices off"] as "Yes" | "No");
+      if (pairs["Pumps off confirmed"]) setFPumpsOffConfirm(pairs["Pumps off confirmed"] as "Yes" | "No");
+      if (pairs["Equipment properly stored"]) setFEquipStored(pairs["Equipment properly stored"] as "Yes" | "No");
+      if (pairs["Equipment storage confirmed"]) setFEquipConfirm(pairs["Equipment storage confirmed"] as "Yes" | "No");
+      if (pairs["Additional notes"]) setFNotes(pairs["Additional notes"]);
     } else {
       setFContent(r.content);
     }
     setShowModal(true);
   };
-  const handleSubmit=()=>{
+  const handleSubmit = async () => {
     setSubmitError("");
-    if(!fTitle.trim()){setSubmitError("Report title is required.");return;}
-    let content=fContent.trim();
-    if(fType==="Daily"){
-      if(fOutletLocked==="Yes"&&!fOutletConfirm){setSubmitError("Please confirm whether you locked all pond outlets and inlets.");return;}
-      if(fWaterFlow==="Yes"&&!fWaterSession){setSubmitError("Please select when water flow-through was done.");return;}
-      if(fPumpsOff==="Yes"&&!fPumpsOffConfirm){setSubmitError("Please confirm whether pumping machines and electrical devices were turned off.");return;}
-      if(fEquipStored==="Yes"&&!fEquipConfirm){setSubmitError("Please confirm whether equipment is properly stored.");return;}
-      const parts:string[]=[];
-      if(fFedFish){parts.push(`Fed fish today: ${fFedFish}`);if(fFedFish==="Yes"&&fFeedSession)parts.push(`Feeding session: ${fFeedSession}`);}
-      if(fOutletLocked){const effectiveOutlet=fOutletLocked==="Yes"&&fOutletConfirm==="No"?"No":fOutletLocked;parts.push(`Locked all pond outlets/inlets: ${effectiveOutlet}`);if(fOutletLocked==="Yes"&&fOutletConfirm)parts.push(`Outlet lock confirmed: ${fOutletConfirm}`);}
-      if(fWaterFlow){parts.push(`Pond flush/water flow-through: ${fWaterFlow}`);if(fWaterFlow==="Yes"&&fWaterSession)parts.push(`Water flow session: ${fWaterSession}`);}
-      if(fPumpsOff){const effectivePumps=fPumpsOff==="Yes"&&fPumpsOffConfirm==="No"?"No":fPumpsOff;parts.push(`Pumping machines & electrical devices off: ${effectivePumps}`);if(fPumpsOff==="Yes"&&fPumpsOffConfirm)parts.push(`Pumps off confirmed: ${fPumpsOffConfirm}`);}
-      if(fEquipStored){const effectiveEquip=fEquipStored==="Yes"&&fEquipConfirm==="No"?"No":fEquipStored;parts.push(`Equipment properly stored: ${effectiveEquip}`);if(fEquipStored==="Yes"&&fEquipConfirm)parts.push(`Equipment storage confirmed: ${fEquipConfirm}`);}
-      if(fNotes.trim())parts.push(`Additional notes: ${fNotes.trim()}`);
-      content=parts.join(" | ")||content||"Daily report submitted.";
+    if (fType === "Pond-Based") {
+      const selectedPond = ponds.find(p => p.id === (fPondId || farmPonds[0]?.id));
+      if (!selectedPond) {
+        setSubmitError("Please select a valid pond.");
+        return;
+      }
+      if (fPondReportType === "treatment") {
+        if (!fPondMedicine.trim()) {
+          setSubmitError("Please enter the medicine or treatment applied.");
+          return;
+        }
+        if (!fPondCause.trim()) {
+          setSubmitError("Please enter the cause or observation.");
+          return;
+        }
+      } else {
+        if (!fPondIssue.trim()) {
+          setSubmitError("Please enter the issue title or incident.");
+          return;
+        }
+      }
+
+      const pondName = selectedPond.name;
+      const reportId = uid();
+      const newPondReport: PondReport = {
+        id: reportId,
+        farmId: activeFarmId || selectedPond.farmId || "",
+        pondId: selectedPond.id,
+        fishStockId: selectedPond.species && selectedPond.species !== "—" ? selectedPond.species : "General",
+        reportType: fPondReportType,
+        reportDate: fPondDate || TODAY,
+        issue: fPondReportType === "other_issue" ? fPondIssue.trim() : fPondMedicine.trim(),
+        description: fPondReportType === "other_issue" ? fPondDescription.trim() : (fPondDetails.trim() || fPondAction.trim()),
+        medicine: fPondMedicine.trim(),
+        cause: fPondCause.trim(),
+        treatmentDetails: fPondDetails.trim(),
+        actionTaken: fPondAction.trim(),
+        remarks: fPondRemarks.trim(),
+        notes: fPondReportType === "treatment"
+          ? [fPondDetails && `Details/Dosage: ${fPondDetails.trim()}`, fPondAction && `Action: ${fPondAction.trim()}`, fPondRemarks.trim()].filter(Boolean).join(" | ")
+          : fPondNotes.trim(),
+        recordedBy: fAuthor.trim() || "Admin",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      try {
+        if (onAddPondReport) {
+          await onAddPondReport(newPondReport);
+        }
+
+        const reportContent = fPondReportType === "treatment"
+          ? `Pond: ${pondName} | Medicine: ${fPondMedicine.trim()}${fPondDetails.trim() ? ` | Details: ${fPondDetails.trim()}` : ""}${fPondCause.trim() ? ` | Cause: ${fPondCause.trim()}` : ""}${fPondAction.trim() ? ` | Action: ${fPondAction.trim()}` : ""}${fPondRemarks.trim() ? ` | Remarks: ${fPondRemarks.trim()}` : ""}`
+          : `Pond: ${pondName} | Issue: ${fPondIssue.trim()}${fPondDescription.trim() ? ` | Description: ${fPondDescription.trim()}` : ""}${fPondNotes.trim() ? ` | Notes: ${fPondNotes.trim()}` : ""}`;
+
+        onAdd({
+          id: uid(),
+          title: fPondReportType === "treatment" ? `Treatment — ${pondName}` : `Pond Issue — ${pondName}`,
+          content: reportContent,
+          type: "Daily",
+          author: fAuthor.trim() || "Admin",
+          date: fPondDate || TODAY,
+          status: "Open",
+          tags: [fPondReportType, "pond-based"],
+          timestamp: new Date().toISOString(),
+        });
+
+        toast.success(fPondReportType === "treatment" ? "Pond treatment report recorded" : "Pond issue report recorded");
+        setFPondMedicine(""); setFPondCause(""); setFPondDetails(""); setFPondAction(""); setFPondRemarks("");
+        setFPondIssue(""); setFPondDescription(""); setFPondNotes(""); setSubmitError("");
+        setShowModal(false);
+      } catch (err: any) {
+        setSubmitError(err?.message || "Failed to submit pond report");
+      }
+      return;
     }
-    if(!content)return;
-    if(editReport){
-      onEdit({...editReport,title:fTitle.trim(),content,type:fType,author:fAuthor.trim()||"Admin"});
+
+    if (!fTitle.trim()) { setSubmitError("Report title is required."); return; }
+    let content = fContent.trim();
+    if (fType === "Daily") {
+      if (fOutletLocked === "Yes" && !fOutletConfirm) { setSubmitError("Please confirm whether you locked all pond outlets and inlets."); return; }
+      if (fWaterFlow === "Yes" && !fWaterSession) { setSubmitError("Please select when water flow-through was done."); return; }
+      if (fPumpsOff === "Yes" && !fPumpsOffConfirm) { setSubmitError("Please confirm whether pumping machines and electrical devices were turned off."); return; }
+      if (fEquipStored === "Yes" && !fEquipConfirm) { setSubmitError("Please confirm whether equipment is properly stored."); return; }
+      const parts: string[] = [];
+      if (fFedFish) { parts.push(`Fed fish today: ${fFedFish}`); if (fFedFish === "Yes" && fFeedSession) parts.push(`Feeding session: ${fFeedSession}`); }
+      if (fOutletLocked) { const effectiveOutlet = fOutletLocked === "Yes" && fOutletConfirm === "No" ? "No" : fOutletLocked; parts.push(`Locked all pond outlets/inlets: ${effectiveOutlet}`); if (fOutletLocked === "Yes" && fOutletConfirm) parts.push(`Outlet lock confirmed: ${fOutletConfirm}`); }
+      if (fWaterFlow) { parts.push(`Pond flush/water flow-through: ${fWaterFlow}`); if (fWaterFlow === "Yes" && fWaterSession) parts.push(`Water flow session: ${fWaterSession}`); }
+      if (fPumpsOff) { const effectivePumps = fPumpsOff === "Yes" && fPumpsOffConfirm === "No" ? "No" : fPumpsOff; parts.push(`Pumping machines & electrical devices off: ${effectivePumps}`); if (fPumpsOff === "Yes" && fPumpsOffConfirm) parts.push(`Pumps off confirmed: ${fPumpsOffConfirm}`); }
+      if (fEquipStored) { const effectiveEquip = fEquipStored === "Yes" && fEquipConfirm === "No" ? "No" : fEquipStored; parts.push(`Equipment properly stored: ${effectiveEquip}`); if (fEquipStored === "Yes" && fEquipConfirm) parts.push(`Equipment storage confirmed: ${fEquipConfirm}`); }
+      if (fNotes.trim()) parts.push(`Additional notes: ${fNotes.trim()}`);
+      content = parts.join(" | ") || content || "Daily report submitted.";
+    }
+    if (!content) return;
+    if (editReport) {
+      onEdit({ ...editReport, title: fTitle.trim(), content, type: fType as any, author: fAuthor.trim() || "Admin" });
       setEditReport(null);
     } else {
-      onAdd({id:uid(),title:fTitle.trim(),content,type:fType,author:fAuthor.trim()||"Admin",date:TODAY,status:"Open",tags:[],timestamp:new Date().toISOString()});
+      onAdd({ id: uid(), title: fTitle.trim(), content, type: fType as any, author: fAuthor.trim() || "Admin", date: TODAY, status: "Open", tags: [], timestamp: new Date().toISOString() });
     }
-    setFTitle("");setFType("Daily");setFContent("");setFFedFish("");setFFedFishConfirm("");setFFeedSession("");setFOutletLocked("");setFOutletConfirm("");setFWaterFlow("");setFWaterFlowConfirm("");setFWaterSession("");setFPumpsOff("");setFPumpsOffConfirm("");setFEquipStored("");setFEquipConfirm("");setFNotes("");setSubmitError("");setShowModal(false);
+    setFTitle(""); setFType("Daily"); setFContent(""); setFFedFish(""); setFFedFishConfirm(""); setFFeedSession(""); setFOutletLocked(""); setFOutletConfirm(""); setFWaterFlow(""); setFWaterFlowConfirm(""); setFWaterSession(""); setFPumpsOff(""); setFPumpsOffConfirm(""); setFEquipStored(""); setFEquipConfirm(""); setFNotes(""); setSubmitError(""); setShowModal(false);
   };
-  const TB="px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors";
-  const TA="bg-green-600 text-white"; const TI="bg-white border border-slate-200 text-slate-500 hover:text-green-600 hover:border-green-300";
-  const dateLabel=(d:string)=>{const today=new Date(TODAY);const rd=new Date(d);if(isNaN(rd.getTime()))return d;const diff=Math.round((today.getTime()-rd.getTime())/(1000*60*60*24));if(diff===0)return"Today";if(diff===1)return"Yesterday";return rd.toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long",year:"numeric"});};
-  const pagedReports=filtered.slice((reportPage-1)*PER_PAGE,reportPage*PER_PAGE);
-  const grouped=pagedReports.reduce<{label:string;date:string;items:Report[]}[]>((acc,r)=>{const lbl=dateLabel(r.date);const ex=acc.find(g=>g.date===r.date);if(ex)ex.items.push(r);else acc.push({label:lbl,date:r.date,items:[r]});return acc;},[]).sort((a,b)=>b.date.localeCompare(a.date));
-  const parseReportFields=(content:string)=>{
-    const parts=content.split(" | ").filter(Boolean);
-    return parts.map(p=>{const idx=p.indexOf(": ");return idx>-1?{label:p.slice(0,idx),value:p.slice(idx+2)}:{label:"",value:p};});
+  const TB = "px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors";
+  const TA = "bg-green-600 text-white"; const TI = "bg-white border border-slate-200 text-slate-500 hover:text-green-600 hover:border-green-300";
+  const dateLabel = (d: string) => { const today = new Date(TODAY); const rd = new Date(d); if (isNaN(rd.getTime())) return d; const diff = Math.round((today.getTime() - rd.getTime()) / (1000 * 60 * 60 * 24)); if (diff === 0) return "Today"; if (diff === 1) return "Yesterday"; return rd.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" }); };
+  const pagedReports = filtered.slice((reportPage - 1) * PER_PAGE, reportPage * PER_PAGE);
+  const grouped = pagedReports.reduce<{ label: string; date: string; items: Report[] }[]>((acc, r) => { const lbl = dateLabel(r.date); const ex = acc.find(g => g.date === r.date); if (ex) ex.items.push(r); else acc.push({ label: lbl, date: r.date, items: [r] }); return acc; }, []).sort((a, b) => b.date.localeCompare(a.date));
+  const parseReportFields = (content: string) => {
+    const parts = content.split(" | ").filter(Boolean);
+    return parts.map(p => { const idx = p.indexOf(": "); return idx > -1 ? { label: p.slice(0, idx), value: p.slice(idx + 2) } : { label: "", value: p }; });
   };
-  return(
+  return (
     <div className="p-4 sm:p-6 space-y-5 w-full">
       <div className="sticky top-0 z-10 bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Reports</h1>
           <p className="text-xs text-slate-400 mt-0.5">
-            {reportCategory === "operational" ? "Farm operational reports and incident logs" : "Pond-based incident, treatments, and issues reports"}
+            Farm operational and pond-based incident, treatment, and inspection reports
           </p>
         </div>
-        <div className="flex items-center gap-3">
-          <div className="inline-flex rounded-xl bg-slate-200/90 border border-slate-300/80 p-1 gap-1 shadow-2xs">
-            <button
-              onClick={() => setReportCategory("operational")}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                reportCategory === "operational"
-                  ? "bg-white text-slate-900 shadow-sm border border-slate-200/80 font-bold"
-                  : "text-slate-600 hover:text-slate-900"
-              }`}
-            >
-              Operational Reports
-            </button>
-            <button
-              onClick={() => setReportCategory("pond")}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                reportCategory === "pond"
-                  ? "bg-white text-slate-900 shadow-sm border border-slate-200/80 font-bold"
-                  : "text-slate-600 hover:text-slate-900"
-              }`}
-            >
-              Pond-Based Reports
-            </button>
-          </div>
-          {reportCategory === "operational" && (
-            <PBtn onClick={()=>setShowModal(true)} sm><Plus size={13}/> Submit Report</PBtn>
-          )}
-        </div>
+        <PBtn onClick={() => { setFType("Daily"); setShowModal(true); }} sm><Plus size={13} /> Submit Report</PBtn>
       </div>
 
-      {reportCategory === "pond" ? (
+      <Card className="p-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex gap-1">
+            {(["All", "Daily", "Weekly", "Monthly", "Pond-Based"] as const).map(t => (
+              <button
+                key={t}
+                onClick={() => setTypeFilter(t)}
+                className={`${TB} ${typeFilter === t ? TA : TI}`}
+              >
+                {t}
+              </button>
+            ))}
+          </div>
+          <div className="w-px h-5 bg-slate-200" />
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-slate-400">Date:</span>
+            <input
+              type="date"
+              value={dateSearch}
+              onChange={e => setDateSearch(e.target.value)}
+              className="px-2 py-1.5 text-xs border border-slate-200 rounded-lg bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-green-300"
+              style={{ colorScheme: "light" }}
+            />
+            {dateSearch && <button onClick={() => setDateSearch("")} className="text-xs text-green-600 underline">Clear</button>}
+          </div>
+        </div>
+      </Card>
+
+      {typeFilter === "Pond-Based" ? (
         <PondReportsComponent
           pondReports={pondReports}
           treatments={treatments}
@@ -1369,77 +1474,66 @@ function ReportsPage({
         />
       ) : (
         <>
-          <Card className="p-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="flex gap-1">{(["All","Daily","Weekly","Monthly"] as const).map(t=><button key={t} onClick={()=>setTypeFilter(t)} className={`${TB} ${typeFilter===t?TA:TI}`}>{t}</button>)}</div>
-              <div className="w-px h-5 bg-slate-200"/>
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs text-slate-400">Date:</span>
-                <input type="date" value={dateSearch} onChange={e=>setDateSearch(e.target.value)} className="px-2 py-1.5 text-xs border border-slate-200 rounded-lg bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-green-300" style={{colorScheme:"light"}}/>
-                {dateSearch&&<button onClick={()=>setDateSearch("")} className="text-xs text-green-600 underline">Clear</button>}
-              </div>
-            </div>
-          </Card>
-          {(()=>{
-            const activeStaff=staff.filter(s=>s.status==="Active");
-            if(activeStaff.length===0)return null;
-            const targetDate=dateSearch||TODAY;
-            const submittedAuthors=new Set(reports.filter(r=>r.type==="Daily"&&r.date===targetDate).map(r=>r.author));
-            const pending=activeStaff.filter(s=>!submittedAuthors.has(s.name));
-            const allSubmitted=pending.length===0;
-            return(
-              <div className={`rounded-xl border px-4 py-3 ${allSubmitted?"bg-green-50 border-green-200":"bg-orange-50 border-orange-200"}`}>
-                {allSubmitted?(
+          {(() => {
+            const activeStaff = staff.filter(s => s.status === "Active");
+            if (activeStaff.length === 0) return null;
+            const targetDate = dateSearch || TODAY;
+            const submittedAuthors = new Set(reports.filter(r => r.type === "Daily" && r.date === targetDate).map(r => r.author));
+            const pending = activeStaff.filter(s => !submittedAuthors.has(s.name));
+            const allSubmitted = pending.length === 0;
+            return (
+              <div className={`rounded-xl border px-4 py-3 ${allSubmitted ? "bg-green-50 border-green-200" : "bg-orange-50 border-orange-200"}`}>
+                {allSubmitted ? (
                   <div className="flex items-center gap-2">
-                    <CheckCircle size={16} className="text-green-500 shrink-0"/>
+                    <CheckCircle size={16} className="text-green-500 shrink-0" />
                     <p className="text-sm font-semibold text-green-700">All required reports have been submitted.</p>
                   </div>
-                ):(
+                ) : (
                   <div>
                     <div className="flex items-center gap-2 mb-2">
-                      <AlertCircle size={16} className="text-orange-500 shrink-0"/>
+                      <AlertCircle size={16} className="text-orange-500 shrink-0" />
                       <p className="text-sm font-semibold text-orange-800">Reports Pending — {pending.length} outstanding</p>
                     </div>
-                    <p className="text-xs text-orange-700 mb-2">The following staff have not submitted {dateSearch?"a report for this date":"today's report"}:</p>
+                    <p className="text-xs text-orange-700 mb-2">The following staff have not submitted {dateSearch ? "a report for this date" : "today's report"}:</p>
                     <div className="flex flex-wrap gap-1.5">
-                      {pending.map(s=><span key={s.id} className="px-2.5 py-1 bg-orange-100 border border-orange-200 rounded-lg text-xs font-semibold text-orange-800">{s.name}</span>)}
+                      {pending.map(s => <span key={s.id} className="px-2.5 py-1 bg-orange-100 border border-orange-200 rounded-lg text-xs font-semibold text-orange-800">{s.name}</span>)}
                     </div>
                   </div>
                 )}
               </div>
             );
           })()}
-          {filtered.length===0?(
-            <Card className="p-12 text-center"><FileText size={36} className="text-slate-200 mx-auto mb-3"/><p className="text-slate-400 font-semibold text-sm">{reports.length===0?"No reports submitted yet":"No reports match filters"}</p></Card>
-          ):(
-            <><div className="space-y-6">{grouped.map(group=>(
+          {filtered.length === 0 ? (
+            <Card className="p-12 text-center"><FileText size={36} className="text-slate-200 mx-auto mb-3" /><p className="text-slate-400 font-semibold text-sm">{reports.length === 0 ? "No reports submitted yet" : "No reports match filters"}</p></Card>
+          ) : (
+            <><div className="space-y-6">{grouped.map(group => (
               <div key={group.date}>
                 <div className="flex items-center gap-2 mb-3">
-                  <div className="w-2 h-2 rounded-full bg-green-500"/>
+                  <div className="w-2 h-2 rounded-full bg-green-500" />
                   <span className="text-xs font-bold text-slate-700 font-['Barlow_Condensed',sans-serif] uppercase tracking-wider">{group.label}</span>
                   <span className="text-[11px] text-slate-400">({group.items.length})</span>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">{group.items.map(r=>(
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">{group.items.map(r => (
                   <Card key={r.id} className="p-4 space-y-3">
                     <div className="flex items-start justify-between gap-2">
                       <div>
                         <div className="flex items-center gap-2">
-                          <Bdg label={r.type} color={r.type==="Daily"?"green":r.type==="Weekly"?"blue":"purple"}/>
+                          <Bdg label={r.type} color={r.type === "Daily" ? "green" : r.type === "Weekly" ? "blue" : "purple"} />
                           <span className="text-xs text-slate-400">{r.date}</span>
                         </div>
                         <h3 className="text-sm font-bold text-slate-900 mt-1">{r.title}</h3>
                         <p className="text-xs text-slate-400">By {r.author}</p>
                       </div>
-                      {isWithin6h(r)&&(
-                        <button onClick={()=>openEditReport(r)} className="p-1.5 rounded-lg text-slate-300 hover:text-green-600 hover:bg-green-50 transition-colors shrink-0" title="Edit within 6 hours">
-                          <Pencil size={13}/>
+                      {isWithin6h(r) && (
+                        <button onClick={() => openEditReport(r)} className="p-1.5 rounded-lg text-slate-300 hover:text-green-600 hover:bg-green-50 transition-colors shrink-0" title="Edit within 6 hours">
+                          <Pencil size={13} />
                         </button>
                       )}
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 border-t border-slate-100 pt-3">
-                      {parseReportFields(r.content).filter(f=>!f.label.toLowerCase().includes("confirmed")).map((f,i)=>(
+                      {parseReportFields(r.content).filter(f => !f.label.toLowerCase().includes("confirmed")).map((f, i) => (
                         <div key={i} className="bg-slate-50 rounded-xl px-3 py-2.5">
-                          {f.label&&<p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">{f.label}</p>}
+                          {f.label && <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">{f.label}</p>}
                           <p className="text-xs font-semibold text-slate-800">{f.value}</p>
                         </div>
                       ))}
@@ -1448,58 +1542,209 @@ function ReportsPage({
                 ))}</div>
               </div>
             ))}</div>
-            <Pagination total={filtered.length} page={reportPage} perPage={PER_PAGE} onPage={setReportPage}/></>
+            <Pagination total={filtered.length} page={reportPage} perPage={PER_PAGE} onPage={setReportPage} /></>
           )}
         </>
       )}
-      {showModal&&<Modal title={editReport?"Edit Report":"Submit Report"} onClose={()=>{setShowModal(false);setEditReport(null);}} wide>
-        <F label="Report Type"><select className={SC} value={fType} onChange={e=>setFType(e.target.value as "Daily"|"Weekly"|"Monthly")}><option>Daily</option><option>Weekly</option><option>Monthly</option></select></F>
-        <F label="Report Title"><input className={IC} placeholder="e.g. Morning inspection — Pond 2" value={fTitle} onChange={e=>setFTitle(e.target.value)}/></F>
-        {fType==="Daily"?(
-          <div className="space-y-4">
-            {/* Feeding */}
-            <div className="p-3 bg-slate-50 rounded-xl space-y-2">
-              <p className="text-sm font-semibold text-slate-800">Were you the person who fed the fish today?</p>
-              <div className="flex gap-2">{(["Yes","No"] as const).map(v=><button key={v} type="button" onClick={()=>{setFFedFish(v);if(v==="No")setFFeedSession("");}} className={`px-4 py-1.5 rounded-lg text-xs font-bold border transition-colors ${fFedFish===v?"bg-green-600 text-white border-green-600":"bg-white text-slate-600 border-slate-200 hover:border-green-400"}`}>{v}</button>)}</div>
-              {fFedFish==="Yes"&&(<><p className="text-sm font-semibold text-slate-800 mt-2">Which feeding did you complete?</p><div className="flex gap-2">{(["Morning","Evening","Both"] as const).map(v=><button key={v} type="button" onClick={()=>setFFeedSession(v)} className={`px-4 py-1.5 rounded-lg text-xs font-bold border transition-colors ${fFeedSession===v?"bg-green-600 text-white border-green-600":"bg-white text-slate-600 border-slate-200 hover:border-green-400"}`}>{v}</button>)}</div></>)}
+
+      {showModal && <Modal title={editReport ? "Edit Report" : "Submit Report"} onClose={() => { setShowModal(false); setEditReport(null); }} wide>
+        <F label="Report Type">
+          <select
+            className={SC}
+            value={fType}
+            onChange={e => setFType(e.target.value as any)}
+          >
+            <option value="Daily">Daily Report</option>
+            <option value="Weekly">Weekly Report</option>
+            <option value="Monthly">Monthly Report</option>
+            <option value="Pond-Based">Pond-Based Report</option>
+          </select>
+        </F>
+
+        {fType === "Pond-Based" ? (
+          <div className="space-y-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <F label="Select Pond" required>
+                <select
+                  value={fPondId}
+                  onChange={e => setFPondId(e.target.value)}
+                  className={SC}
+                >
+                  {farmPonds.map(p => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} ({p.type}) {p.species && p.species !== "—" ? `— ${p.species}` : ""}
+                    </option>
+                  ))}
+                </select>
+              </F>
+              <F label="Report Date" required>
+                <DateInput value={fPondDate} onChange={setFPondDate} />
+              </F>
             </div>
-            {/* Outlet */}
-            <div className="p-3 bg-slate-50 rounded-xl space-y-2">
-              <p className="text-sm font-semibold text-slate-800">Did you lock the outlets and inlets and properly check to confirm?</p>
-              <div className="flex gap-2">{(["Yes","Not Me"] as const).map(v=><button key={v} type="button" onClick={()=>{setFOutletLocked(v);if(v==="Not Me")setFOutletConfirm("");}} className={`px-4 py-1.5 rounded-lg text-xs font-bold border transition-colors ${fOutletLocked===v?"bg-green-600 text-white border-green-600":"bg-white text-slate-600 border-slate-200 hover:border-green-400"}`}>{v}</button>)}</div>
-              {fOutletLocked==="Yes"&&(<><p className="text-sm font-semibold text-slate-800 mt-2">Are you sure you locked all pond outlets and inlets?</p><div className="flex gap-2">{(["Yes","No"] as const).map(v=><button key={v} type="button" onClick={()=>setFOutletConfirm(v)} className={`px-4 py-1.5 rounded-lg text-xs font-bold border transition-colors ${fOutletConfirm===v?"bg-green-600 text-white border-green-600":"bg-white text-slate-600 border-slate-200 hover:border-green-400"}`}>{v}</button>)}</div></>)}
-            </div>
-            {/* Water Flow */}
-            <div className="p-3 bg-slate-50 rounded-xl space-y-2">
-              <p className="text-sm font-semibold text-slate-800">Did you flush the pond or carry out water flow-through today?</p>
-              <div className="flex gap-2">{(["Yes","No"] as const).map(v=><button key={v} type="button" onClick={()=>{setFWaterFlow(v);if(v==="No")setFWaterSession("");}} className={`px-4 py-1.5 rounded-lg text-xs font-bold border transition-colors ${fWaterFlow===v?"bg-green-600 text-white border-green-600":"bg-white text-slate-600 border-slate-200 hover:border-green-400"}`}>{v}</button>)}</div>
-              {fWaterFlow==="Yes"&&(<><p className="text-sm font-semibold text-slate-800 mt-2">When was it done?</p><div className="flex gap-2">{(["Morning","Evening","Both"] as const).map(v=><button key={v} type="button" onClick={()=>setFWaterSession(v)} className={`px-4 py-1.5 rounded-lg text-xs font-bold border transition-colors ${fWaterSession===v?"bg-green-600 text-white border-green-600":"bg-white text-slate-600 border-slate-200 hover:border-green-400"}`}>{v}</button>)}</div></>)}
-            </div>
-            {/* Pumps & Electrical */}
-            <div className="p-3 bg-slate-50 rounded-xl space-y-2">
-              <p className="text-sm font-semibold text-slate-800">Have you turned off all pumping machines and electrical devices properly?</p>
-              <div className="flex gap-2">{(["Yes","No"] as const).map(v=><button key={v} type="button" onClick={()=>{setFPumpsOff(v);if(v==="No")setFPumpsOffConfirm("");}} className={`px-4 py-1.5 rounded-lg text-xs font-bold border transition-colors ${fPumpsOff===v?"bg-green-600 text-white border-green-600":"bg-white text-slate-600 border-slate-200 hover:border-green-400"}`}>{v}</button>)}</div>
-              {fPumpsOff==="Yes"&&(<><p className="text-sm font-semibold text-slate-800 mt-2">Are you sure you personally turned off all pumping machines or assisted with this task?</p><div className="flex gap-2">{(["Yes","No"] as const).map(v=><button key={v} type="button" onClick={()=>setFPumpsOffConfirm(v)} className={`px-4 py-1.5 rounded-lg text-xs font-bold border transition-colors ${fPumpsOffConfirm===v?"bg-green-600 text-white border-green-600":"bg-white text-slate-600 border-slate-200 hover:border-green-400"}`}>{v}</button>)}</div><p className="text-xs text-slate-400 italic mt-1">Click &quot;Yes&quot; only if you personally carried out this task or assisted.</p></>)}
-            </div>
-            {/* Equipment Storage */}
-            <div className="p-3 bg-slate-50 rounded-xl space-y-2">
-              <p className="text-sm font-semibold text-slate-800">Are all equipment properly stored?</p>
-              <div className="flex gap-2">{(["Yes","No"] as const).map(v=><button key={v} type="button" onClick={()=>{setFEquipStored(v);if(v==="No")setFEquipConfirm("");}} className={`px-4 py-1.5 rounded-lg text-xs font-bold border transition-colors ${fEquipStored===v?"bg-green-600 text-white border-green-600":"bg-white text-slate-600 border-slate-200 hover:border-green-400"}`}>{v}</button>)}</div>
-              {fEquipStored==="Yes"&&(<><p className="text-sm font-semibold text-slate-800 mt-2">Are you sure?</p><div className="flex gap-2">{(["Yes","No"] as const).map(v=><button key={v} type="button" onClick={()=>setFEquipConfirm(v)} className={`px-4 py-1.5 rounded-lg text-xs font-bold border transition-colors ${fEquipConfirm===v?"bg-green-600 text-white border-green-600":"bg-white text-slate-600 border-slate-200 hover:border-green-400"}`}>{v}</button>)}</div></>)}
-            </div>
-            <F label="Additional Notes (Optional)"><textarea className={`${IC} min-h-[80px] resize-y`} placeholder="Any other observations or actions taken…" value={fNotes} onChange={e=>setFNotes(e.target.value)}/></F>
+
+            <F label="Pond Report Category" required>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setFPondReportType("treatment")}
+                  className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold border transition-colors ${
+                    fPondReportType === "treatment"
+                      ? "bg-blue-600 text-white border-blue-600 shadow-xs"
+                      : "bg-white text-slate-700 border-slate-200 hover:border-blue-400"
+                  }`}
+                >
+                  Treatments
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFPondReportType("other_issue")}
+                  className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold border transition-colors ${
+                    fPondReportType === "other_issue"
+                      ? "bg-amber-600 text-white border-amber-600 shadow-xs"
+                      : "bg-white text-slate-700 border-slate-200 hover:border-amber-400"
+                  }`}
+                >
+                  Other Issues
+                </button>
+              </div>
+            </F>
+
+            {fPondReportType === "treatment" ? (
+              <div className="space-y-3 p-3 bg-blue-50/50 border border-blue-100 rounded-xl">
+                <p className="text-xs font-bold text-blue-900">Treatment Details</p>
+                <F label="Medicine / Treatment Applied" required>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Oxytetracycline / Salt bath / Potassium permanganate"
+                    value={fPondMedicine}
+                    onChange={e => setFPondMedicine(e.target.value)}
+                    className={IC}
+                  />
+                </F>
+                <F label="Cause / Observation / Diagnosis" required>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Fin rot symptoms, parasite observation, gasping"
+                    value={fPondCause}
+                    onChange={e => setFPondCause(e.target.value)}
+                    className={IC}
+                  />
+                </F>
+                <F label="Treatment Details / Dosage & Method">
+                  <textarea
+                    rows={2}
+                    placeholder="e.g. 50g per 1,000 liters, repeated over 3 days, water bath for 30 minutes…"
+                    value={fPondDetails}
+                    onChange={e => setFPondDetails(e.target.value)}
+                    className={IC}
+                  />
+                </F>
+                <F label="Action Taken">
+                  <input
+                    type="text"
+                    placeholder="e.g. Isolated affected fish, stopped feeding for 24 hours"
+                    value={fPondAction}
+                    onChange={e => setFPondAction(e.target.value)}
+                    className={IC}
+                  />
+                </F>
+                <F label="Notes / Recovery Remarks">
+                  <textarea
+                    rows={2}
+                    placeholder="e.g. Fish showed recovery by evening; normal schooling resumed"
+                    value={fPondRemarks}
+                    onChange={e => setFPondRemarks(e.target.value)}
+                    className={IC}
+                  />
+                </F>
+              </div>
+            ) : (
+              <div className="space-y-3 p-3 bg-amber-50/50 border border-amber-100 rounded-xl">
+                <p className="text-xs font-bold text-amber-900">Issue Details</p>
+                <F label="Issue / Incident" required>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Pump stopped working / Net torn / Algae bloom"
+                    value={fPondIssue}
+                    onChange={e => setFPondIssue(e.target.value)}
+                    className={IC}
+                  />
+                </F>
+                <F label="Description & Action Taken">
+                  <textarea
+                    rows={2}
+                    placeholder="Describe observations, circumstances and actions taken…"
+                    value={fPondDescription}
+                    onChange={e => setFPondDescription(e.target.value)}
+                    className={IC}
+                  />
+                </F>
+                <F label="Additional Notes">
+                  <textarea
+                    rows={2}
+                    placeholder="e.g. Water circulation resumed after generator restart…"
+                    value={fPondNotes}
+                    onChange={e => setFPondNotes(e.target.value)}
+                    className={IC}
+                  />
+                </F>
+              </div>
+            )}
           </div>
-        ):(
-          <F label="Content"><textarea className={`${IC} min-h-[120px] resize-y`} placeholder="Describe observations, issues or actions taken…" value={fContent} onChange={e=>setFContent(e.target.value)}/></F>
+        ) : (
+          <>
+            <F label="Report Title"><input className={IC} placeholder="e.g. Morning inspection — Pond 2" value={fTitle} onChange={e => setFTitle(e.target.value)} /></F>
+            {fType === "Daily" ? (
+              <div className="space-y-4">
+                {/* Feeding */}
+                <div className="p-3 bg-slate-50 rounded-xl space-y-2">
+                  <p className="text-sm font-semibold text-slate-800">Were you the person who fed the fish today?</p>
+                  <div className="flex gap-2">{(["Yes", "No"] as const).map(v => <button key={v} type="button" onClick={() => { setFFedFish(v); if (v === "No") setFFeedSession(""); }} className={`px-4 py-1.5 rounded-lg text-xs font-bold border transition-colors ${fFedFish === v ? "bg-green-600 text-white border-green-600" : "bg-white text-slate-600 border-slate-200 hover:border-green-400"}`}>{v}</button>)}</div>
+                  {fFedFish === "Yes" && (<><p className="text-sm font-semibold text-slate-800 mt-2">Which feeding did you complete?</p><div className="flex gap-2">{(["Morning", "Evening", "Both"] as const).map(v => <button key={v} type="button" onClick={() => setFFeedSession(v)} className={`px-4 py-1.5 rounded-lg text-xs font-bold border transition-colors ${fFeedSession === v ? "bg-green-600 text-white border-green-600" : "bg-white text-slate-600 border-slate-200 hover:border-green-400"}`}>{v}</button>)}</div></>)}
+                </div>
+                {/* Outlet */}
+                <div className="p-3 bg-slate-50 rounded-xl space-y-2">
+                  <p className="text-sm font-semibold text-slate-800">Did you lock the outlets and inlets and properly check to confirm?</p>
+                  <div className="flex gap-2">{(["Yes", "Not Me"] as const).map(v => <button key={v} type="button" onClick={() => { setFOutletLocked(v); if (v === "Not Me") setFOutletConfirm(""); }} className={`px-4 py-1.5 rounded-lg text-xs font-bold border transition-colors ${fOutletLocked === v ? "bg-green-600 text-white border-green-600" : "bg-white text-slate-600 border-slate-200 hover:border-green-400"}`}>{v}</button>)}</div>
+                  {fOutletLocked === "Yes" && (<><p className="text-sm font-semibold text-slate-800 mt-2">Are you sure you locked all pond outlets and inlets?</p><div className="flex gap-2">{(["Yes", "No"] as const).map(v => <button key={v} type="button" onClick={() => setFOutletConfirm(v)} className={`px-4 py-1.5 rounded-lg text-xs font-bold border transition-colors ${fOutletConfirm === v ? "bg-green-600 text-white border-green-600" : "bg-white text-slate-600 border-slate-200 hover:border-green-400"}`}>{v}</button>)}</div></>)}
+                </div>
+                {/* Water Flow */}
+                <div className="p-3 bg-slate-50 rounded-xl space-y-2">
+                  <p className="text-sm font-semibold text-slate-800">Did you flush the pond or carry out water flow-through today?</p>
+                  <div className="flex gap-2">{(["Yes", "No"] as const).map(v => <button key={v} type="button" onClick={() => { setFWaterFlow(v); if (v === "No") setFWaterSession(""); }} className={`px-4 py-1.5 rounded-lg text-xs font-bold border transition-colors ${fWaterFlow === v ? "bg-green-600 text-white border-green-600" : "bg-white text-slate-600 border-slate-200 hover:border-green-400"}`}>{v}</button>)}</div>
+                  {fWaterFlow === "Yes" && (<><p className="text-sm font-semibold text-slate-800 mt-2">When was it done?</p><div className="flex gap-2">{(["Morning", "Evening", "Both"] as const).map(v => <button key={v} type="button" onClick={() => setFWaterSession(v)} className={`px-4 py-1.5 rounded-lg text-xs font-bold border transition-colors ${fWaterSession === v ? "bg-green-600 text-white border-green-600" : "bg-white text-slate-600 border-slate-200 hover:border-green-400"}`}>{v}</button>)}</div></>)}
+                </div>
+                {/* Pumps & Electrical */}
+                <div className="p-3 bg-slate-50 rounded-xl space-y-2">
+                  <p className="text-sm font-semibold text-slate-800">Have you turned off all pumping machines and electrical devices properly?</p>
+                  <div className="flex gap-2">{(["Yes", "No"] as const).map(v => <button key={v} type="button" onClick={() => { setFPumpsOff(v); if (v === "No") setFPumpsOffConfirm(""); }} className={`px-4 py-1.5 rounded-lg text-xs font-bold border transition-colors ${fPumpsOff === v ? "bg-green-600 text-white border-green-600" : "bg-white text-slate-600 border-slate-200 hover:border-green-400"}`}>{v}</button>)}</div>
+                  {fPumpsOff === "Yes" && (<><p className="text-sm font-semibold text-slate-800 mt-2">Are you sure you personally turned off all pumping machines or assisted with this task?</p><div className="flex gap-2">{(["Yes", "No"] as const).map(v => <button key={v} type="button" onClick={() => setFPumpsOffConfirm(v)} className={`px-4 py-1.5 rounded-lg text-xs font-bold border transition-colors ${fPumpsOffConfirm === v ? "bg-green-600 text-white border-green-600" : "bg-white text-slate-600 border-slate-200 hover:border-green-400"}`}>{v}</button>)}</div><p className="text-xs text-slate-400 italic mt-1">Click &quot;Yes&quot; only if you personally carried out this task or assisted.</p></>)}
+                </div>
+                {/* Equipment Storage */}
+                <div className="p-3 bg-slate-50 rounded-xl space-y-2">
+                  <p className="text-sm font-semibold text-slate-800">Are all equipment properly stored?</p>
+                  <div className="flex gap-2">{(["Yes", "No"] as const).map(v => <button key={v} type="button" onClick={() => { setFEquipStored(v); if (v === "No") setFEquipConfirm(""); }} className={`px-4 py-1.5 rounded-lg text-xs font-bold border transition-colors ${fEquipStored === v ? "bg-green-600 text-white border-green-600" : "bg-white text-slate-600 border-slate-200 hover:border-green-400"}`}>{v}</button>)}</div>
+                  {fEquipStored === "Yes" && (<><p className="text-sm font-semibold text-slate-800 mt-2">Are you sure?</p><div className="flex gap-2">{(["Yes", "No"] as const).map(v => <button key={v} type="button" onClick={() => setFEquipConfirm(v)} className={`px-4 py-1.5 rounded-lg text-xs font-bold border transition-colors ${fEquipConfirm === v ? "bg-green-600 text-white border-green-600" : "bg-white text-slate-600 border-slate-200 hover:border-green-400"}`}>{v}</button>)}</div></>)}
+                </div>
+                <F label="Additional Notes (Optional)"><textarea className={`${IC} min-h-[80px] resize-y`} placeholder="Any other observations or actions taken…" value={fNotes} onChange={e => setFNotes(e.target.value)} /></F>
+              </div>
+            ) : (
+              <F label="Content"><textarea className={`${IC} min-h-[120px] resize-y`} placeholder="Describe observations, issues or actions taken…" value={fContent} onChange={e => setFContent(e.target.value)} /></F>
+            )}
+          </>
         )}
+
         <F label="Recorded By">
-          {staff.filter(s=>s.status==="Active").length>0
-            ?<select className={SC} value={fAuthor} onChange={e=>setFAuthor(e.target.value)}><option value="Admin">Admin</option>{staff.filter(s=>s.status==="Active").map(s=><option key={s.id} value={s.name}>{s.name} — {s.role}</option>)}</select>
-            :<input className={IC} placeholder="Name of recorder" value={fAuthor} onChange={e=>setFAuthor(e.target.value)}/>
+          {staff.filter(s => s.status === "Active").length > 0
+            ? <select className={SC} value={fAuthor} onChange={e => setFAuthor(e.target.value)}><option value="Admin">Admin</option>{staff.filter(s => s.status === "Active").map(s => <option key={s.id} value={s.name}>{s.name} — {s.role}</option>)}</select>
+            : <input className={IC} placeholder="Name of recorder" value={fAuthor} onChange={e => setFAuthor(e.target.value)} />
           }
         </F>
-        {submitError&&<p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{submitError}</p>}
-        <div className="flex gap-2 pt-1"><PBtn onClick={handleSubmit}><CheckCircle size={14}/> {editReport?"Save Changes":"Submit"}</PBtn><button onClick={()=>{setShowModal(false);setEditReport(null);}} className="px-4 py-2 text-sm text-slate-400">Cancel</button></div>
+        {submitError && <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{submitError}</p>}
+        <div className="flex gap-2 pt-1"><PBtn onClick={handleSubmit}><CheckCircle size={14} /> {editReport ? "Save Changes" : "Submit"}</PBtn><button onClick={() => { setShowModal(false); setEditReport(null); }} className="px-4 py-2 text-sm text-slate-400">Cancel</button></div>
       </Modal>}
     </div>
   );
