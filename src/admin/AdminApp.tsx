@@ -22,6 +22,7 @@ import {
   Save,
   Sparkles,
   RotateCw,
+  Trash2,
 } from "lucide-react";
 import AdminLogin from "./AdminLogin";
 import DashboardPage from "./pages/DashboardPage";
@@ -36,6 +37,7 @@ import {
   fetchLiveAdminUsers,
   updateAdminUserInDb,
   deleteAdminUserInDb,
+  deleteAllNonAdminUsersInDb,
   isDummyUser,
   saveAllAdminUsers,
 } from "../lib/userSync";
@@ -710,6 +712,19 @@ export default function AdminApp({ onExit }: { onExit?: () => void } = {}) {
                 logAction("System Reset", "system", "Reset local state and synced with live database");
                 handleSyncLiveUsers(true);
               }}
+              onPurgeNonAdminUsers={async () => {
+                setIsSyncing(true);
+                try {
+                  const res = await deleteAllNonAdminUsersInDb(adminEmail);
+                  toast.success(`Purged non-admin accounts. Preserved admin (${adminEmail}). Ready to start afresh.`);
+                  logAction("Purged Non-Admin Users", "system", `Purged accounts to start afresh. Preserved Master Admin: ${adminEmail}`);
+                  await handleSyncLiveUsers(false);
+                } catch (err: any) {
+                  toast.error(`Purge error: ${err?.message || "Check connection"}`);
+                } finally {
+                  setIsSyncing(false);
+                }
+              }}
             />
           )}
         </main>
@@ -798,6 +813,7 @@ function SettingsPage({
   onSyncLiveUsers,
   onClearDemoUsers,
   onResetAll,
+  onPurgeNonAdminUsers,
 }: {
   adminEmail: string;
   userCount: number;
@@ -807,6 +823,7 @@ function SettingsPage({
   onSyncLiveUsers?: () => void;
   onClearDemoUsers: () => void;
   onResetAll: () => void;
+  onPurgeNonAdminUsers?: () => void;
 }) {
   const [paystackCfg, setPaystackCfg] = useState<PaystackConfig>(loadPaystackConfig());
   const [isSaving, setIsSaving] = useState(false);
@@ -1060,6 +1077,19 @@ function SettingsPage({
           >
             <RotateCcw size={13} /> Restore Sample Demo Data
           </button>
+          {onPurgeNonAdminUsers && (
+            <button
+              onClick={() => {
+                if (window.confirm("ARE YOU SURE?\n\nThis will permanently delete all registered non-admin accounts from the database and local storage so you can start afresh.\n\nThe Master Admin account (" + adminEmail + ") will be strictly preserved.")) {
+                  onPurgeNonAdminUsers();
+                }
+              }}
+              disabled={isSyncing}
+              className="px-4 py-2.5 bg-rose-700 hover:bg-rose-600 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-colors shadow-md flex items-center gap-1.5 ml-auto"
+            >
+              <Trash2 size={13} /> Purge All Non-Admin Accounts (Start Afresh)
+            </button>
+          )}
         </div>
       </div>
     </div>

@@ -321,6 +321,80 @@ export async function deleteAdminUserInDb(id: string, email?: string): Promise<b
   return anySuccess;
 }
 
+/**
+ * Deletes all non-admin users and their data from the database and local storage,
+ * strictly preserving the Master Admin (edafejesugarec@gmail.com and any account with role='admin').
+ */
+export async function deleteAllNonAdminUsersInDb(preserveAdminEmail = "edafejesugarec@gmail.com"): Promise<{
+  deletedCount: number;
+  preservedAdmins: string[];
+}> {
+  const cleanAdminEmail = preserveAdminEmail.trim().toLowerCase();
+  let deletedCount = 0;
+  const preservedAdmins: string[] = [cleanAdminEmail];
+
+  try {
+    // 1. Fetch all user profiles and staff members
+    const [profRes, staffRes] = await Promise.all([
+      supabase.from("user_profiles").select("id, email, role, name"),
+      supabase.from("staff_members").select("id, email, name, user_id, staff_auth_id"),
+    ]);
+
+    const profiles = profRes.data || [];
+    const staff = staffRes.data || [];
+
+    // Filter non-admin users
+    const nonAdminProfiles = profiles.filter((p: any) => {
+      const email = (p.email || "").trim().toLowerCase();
+      const role = (p.role || "").trim().toLowerCase();
+      if (email === cleanAdminEmail || role === "admin" || role === "superadmin") {
+        if (!preservedAdmins.includes(email)) preservedAdmins.push(email);
+        return false;
+      }
+      return true;
+    });
+
+    for (const p of nonAdminProfiles) {
+      await deleteAdminUserInDb(p.id, p.email);
+      deletedCount++;
+    }
+
+    // Also clean up any non-admin staff members
+    for (const s of staff) {
+      const email = (s.email || "").trim().toLowerCase();
+      if (email !== cleanAdminEmail) {
+        if (s.id) await supabase.from("staff_members").delete().eq("id", s.id);
+        if (s.staff_auth_id) {
+          await supabase.from("user_profiles").delete().eq("id", s.staff_auth_id);
+          try {
+            await supabase.rpc("delete_user_completely", { target_user_id: s.staff_auth_id });
+          } catch {}
+        }
+      }
+    }
+
+    // Clean up local storage admin user lists except admin
+    try {
+      const raw = localStorage.getItem("pondtora_admin_users");
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          const kept = parsed.filter((u: any) => {
+            const e = (u.email || "").trim().toLowerCase();
+            return e === cleanAdminEmail || u.role === "admin" || u.role === "superadmin";
+          });
+          localStorage.setItem("pondtora_admin_users", JSON.stringify(kept));
+        }
+      }
+    } catch {}
+
+  } catch (err) {
+    console.warn("deleteAllNonAdminUsersInDb error:", err);
+  }
+
+  return { deletedCount, preservedAdmins };
+}
+
 export function logActivity(
   action: string,
   category: AdminActivityLog["category"],

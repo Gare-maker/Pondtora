@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { api, auth, remapId, isUuid } from "../lib/api";
-import { supabase } from "../lib/supabase";
+import { supabase, getAppUrl } from "../lib/supabase";
 import { projectId } from "../../utils/supabase/info";
 import pondtoraLogo from "../imports/loo-2.svg";
 import {
@@ -25,6 +25,8 @@ import PondManagementPage from "./pages/PondManagementPage";
 import FeedInventoryPage from "./pages/FeedInventoryPage";
 import AuthScreenPage from "./pages/AuthScreen";
 import LandingPage from "./pages/LandingPage";
+import ResetPasswordPage from "./pages/ResetPasswordPage";
+import CreatePasswordPage from "./pages/CreatePasswordPage";
 import EmployeeAssessmentsPage, { CandidateAssessment, INIT_C, INIT_K } from "./pages/EmployeeAssessmentsPage";
 import InvestorsPage from "./pages/InvestorsPage";
 import PondReportsComponent from "./pages/PondReportsComponent";
@@ -908,7 +910,7 @@ function StaffPage({
     setShowInvite(false);
   };
   const copyInviteLink = (email: string) => {
-    const link = `${window.location.origin}?type=invite&email=${encodeURIComponent(email)}`;
+    const link = `${getAppUrl()}/create-password?email=${encodeURIComponent(email)}`;
     navigator.clipboard.writeText(link);
     toast.success("Invitation link copied! You can share it via WhatsApp or SMS.");
   };
@@ -917,7 +919,7 @@ function StaffPage({
     try {
       const res = await api.staff.invite({
         email: s.email, name: s.name, phone: s.phone, role: s.role,
-        farms: s.farms, permissions: s.permissions, appUrl: window.location.origin
+        farms: s.farms, permissions: s.permissions, appUrl: getAppUrl()
       });
       if (res.emailSent) {
         toast.success(`Invite email sent to ${s.email}!`);
@@ -2445,7 +2447,7 @@ function SettingsPage({farms,onAddFarm,onEditFarm,onDeleteFarm,userProfile,onUpd
   const handleForgotPassword=async()=>{
     const email=userProfile?.email;
     if(!email)return;
-    await supabase.auth.resetPasswordForEmail(email,{redirectTo:`${window.location.origin}?type=recovery`});
+    await supabase.auth.resetPasswordForEmail(email,{redirectTo:`${getAppUrl()}/reset-password`});
     toast.success("Password reset link sent to your email.");
   };
   /* ── Farm section ── */
@@ -2978,12 +2980,31 @@ function mergeWithLocal<T extends { id?: string }>(backendItems?: T[], localItem
 
 /* ─── Root ──────────────────────────────────────────────────── */
 export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
+  const [routeState, setRouteState] = useState<"reset-password" | "create-password" | "normal">(() => {
+    if (typeof window === "undefined") return "normal";
+    const p = window.location.pathname.toLowerCase();
+    const h = window.location.hash.toLowerCase();
+    const sp = new URLSearchParams(window.location.search);
+    const hp = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+    if (p.startsWith("/reset-password") || h.startsWith("#/reset-password") || sp.get("type") === "recovery" || hp.get("type") === "recovery") {
+      return "reset-password";
+    }
+    if (p.startsWith("/create-password") || h.startsWith("#/create-password") || sp.get("type") === "invite" || hp.get("type") === "invite") {
+      return "create-password";
+    }
+    return "normal";
+  });
+
   const [isAuth,setIsAuth]=useState<boolean>(()=>localStorage.getItem("pondtora_is_auth")==="true");
   const [showLanding,setShowLanding]=useState<boolean>(()=>{
     if (typeof window !== "undefined") {
+      const p = window.location.pathname.toLowerCase();
+      const h = window.location.hash.toLowerCase();
       const sp = new URLSearchParams(window.location.search);
       const hp = new URLSearchParams(window.location.hash.replace(/^#/, ""));
       const isAuthCallback =
+        p.startsWith("/reset-password") || h.startsWith("#/reset-password") ||
+        p.startsWith("/create-password") || h.startsWith("#/create-password") ||
         sp.get("type") === "invite" || hp.get("type") === "invite" ||
         sp.get("type") === "recovery" || hp.get("type") === "recovery" ||
         sp.get("type") === "signup" || hp.get("type") === "signup" ||
@@ -2995,10 +3016,12 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   });
   const [authInitialView,setAuthInitialView]=useState<"login"|"create"|"recovery"|"invite">(()=>{
     if (typeof window !== "undefined") {
+      const p = window.location.pathname.toLowerCase();
+      const h = window.location.hash.toLowerCase();
       const sp = new URLSearchParams(window.location.search);
       const hp = new URLSearchParams(window.location.hash.replace(/^#/, ""));
-      if (sp.get("type") === "invite" || hp.get("type") === "invite") return "invite";
-      if (sp.get("type") === "recovery" || hp.get("type") === "recovery") return "recovery";
+      if (p.startsWith("/create-password") || h.startsWith("#/create-password") || sp.get("type") === "invite" || hp.get("type") === "invite") return "invite";
+      if (p.startsWith("/reset-password") || h.startsWith("#/reset-password") || sp.get("type") === "recovery" || hp.get("type") === "recovery") return "recovery";
     }
     return "login";
   });
@@ -3011,6 +3034,30 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   const mFarmRef=useRef<HTMLDivElement>(null);
   useEffect(()=>{const h=(e:MouseEvent)=>{if(mFarmRef.current&&!mFarmRef.current.contains(e.target as Node))setMFarmOpen(false);};document.addEventListener("mousedown",h);return()=>document.removeEventListener("mousedown",h);},[]);
   useEffect(()=>{const h=(e:KeyboardEvent)=>{if(e.key==="Escape")setMFarmOpen(false);};document.addEventListener("keydown",h);return()=>document.removeEventListener("keydown",h);},[]);
+  
+  useEffect(() => {
+    const handleUrlChange = () => {
+      const p = window.location.pathname.toLowerCase();
+      const h = window.location.hash.toLowerCase();
+      const sp = new URLSearchParams(window.location.search);
+      const hp = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+      if (p.startsWith("/reset-password") || h.startsWith("#/reset-password") || sp.get("type") === "recovery" || hp.get("type") === "recovery") {
+        setRouteState("reset-password");
+        setShowLanding(false);
+      } else if (p.startsWith("/create-password") || h.startsWith("#/create-password") || sp.get("type") === "invite" || hp.get("type") === "invite") {
+        setRouteState("create-password");
+        setShowLanding(false);
+      } else {
+        setRouteState("normal");
+      }
+    };
+    window.addEventListener("popstate", handleUrlChange);
+    window.addEventListener("hashchange", handleUrlChange);
+    return () => {
+      window.removeEventListener("popstate", handleUrlChange);
+      window.removeEventListener("hashchange", handleUrlChange);
+    };
+  }, []);
   
   const initialUid = typeof window !== "undefined" ? loadLocal("pondtora_user_profile", null)?.id : null;
   const readInit = <T,>(key: string, cacheProp: string, fallback: T): T => {
@@ -4119,13 +4166,17 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
 
   /* ── Restore session via Supabase Auth ── */
   useEffect(()=>{
+    const p = typeof window !== "undefined" ? window.location.pathname.toLowerCase() : "";
+    const h = typeof window !== "undefined" ? window.location.hash.toLowerCase() : "";
     const sp = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
     const hp = typeof window !== "undefined" ? new URLSearchParams(window.location.hash.replace(/^#/, "")) : null;
-    const isInviteFlow = sp?.get("type") === "invite" || hp?.get("type") === "invite";
-    const isRecoveryFlow = sp?.get("type") === "recovery" || hp?.get("type") === "recovery";
+
+    const isInviteFlow = p.startsWith("/create-password") || h.startsWith("#/create-password") || sp?.get("type") === "invite" || hp?.get("type") === "invite";
+    const isRecoveryFlow = p.startsWith("/reset-password") || h.startsWith("#/reset-password") || sp?.get("type") === "recovery" || hp?.get("type") === "recovery";
 
     if (isInviteFlow || isRecoveryFlow) {
       setShowLanding(false);
+      setRouteState(isInviteFlow ? "create-password" : "reset-password");
       setAuthInitialView(isInviteFlow ? "invite" : "recovery");
       setAuthLoading(false);
       return;
@@ -4184,11 +4235,24 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       if(event==="SIGNED_OUT"){
         resetAllStateAndStorage();
       } else if(session?.user && (event==="SIGNED_IN" || event==="TOKEN_REFRESHED")){
+        const curP = typeof window !== "undefined" ? window.location.pathname.toLowerCase() : "";
+        const curH = typeof window !== "undefined" ? window.location.hash.toLowerCase() : "";
         const curSp = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
         const curHp = typeof window !== "undefined" ? new URLSearchParams(window.location.hash.replace(/^#/, "")) : null;
-        if (curSp?.get("type") === "invite" || curHp?.get("type") === "invite") {
-          // Keep staff on set password screen until submission
+
+        const isInvite = curP.startsWith("/create-password") || curH.startsWith("#/create-password") || curSp?.get("type") === "invite" || curHp?.get("type") === "invite";
+        const isRecovery = curP.startsWith("/reset-password") || curH.startsWith("#/reset-password") || curSp?.get("type") === "recovery" || curHp?.get("type") === "recovery";
+
+        if (isInvite || isRecovery) {
+          // Keep user on password setup screen until submission
+          setRouteState(isInvite ? "create-password" : "reset-password");
+          setShowLanding(false);
           return;
+        }
+
+        // If email was just verified via email confirmation link, show toast and take user to dashboard
+        if (curSp?.get("verified") === "true" || curSp?.get("type") === "signup" || curHp?.get("type") === "signup") {
+          toast.success("Email verified successfully! Welcome to your dashboard.");
         }
 
         // Verify profile exists before granting dashboard access
@@ -4361,7 +4425,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     api.staff.invite({
       email:cleanStaff.email,name:cleanStaff.name,phone:cleanStaff.phone,role:cleanStaff.role,
       farms:cleanStaff.farms,permissions:cleanStaff.permissions,
-      appUrl:window.location.origin,
+      appUrl:getAppUrl(),
     }).then(res=>{
       if(res.staffMember?.id){setStaff(prev=>prev.map(x=>x.id===cleanStaff.id?{...x,id:res.staffMember.id}:x));}
       if(res.emailSent){
@@ -4823,6 +4887,42 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   );
   const _hash=window.location.hash;
   if(parseAssessUrlParts(_hash)) return <CandidateRoute/>;
+  if (routeState === "reset-password") {
+    return (
+      <ResetPasswordPage
+        onSuccess={(prof) => {
+          setRouteState("normal");
+          handleLogin(prof);
+        }}
+        onGoToLogin={() => {
+          if (typeof window !== "undefined") window.history.replaceState(null, "", "/");
+          setRouteState("normal");
+          setAuthInitialView("login");
+          setShowLanding(false);
+          setIsAuth(false);
+        }}
+      />
+    );
+  }
+
+  if (routeState === "create-password") {
+    return (
+      <CreatePasswordPage
+        onSuccess={(prof) => {
+          setRouteState("normal");
+          handleLogin(prof);
+        }}
+        onGoToLogin={() => {
+          if (typeof window !== "undefined") window.history.replaceState(null, "", "/");
+          setRouteState("normal");
+          setAuthInitialView("login");
+          setShowLanding(false);
+          setIsAuth(false);
+        }}
+      />
+    );
+  }
+
   if(!isAuth && showLanding) return <LandingPage onLogin={()=>{window.scrollTo(0,0);setAuthInitialView("login");setShowLanding(false);}} onSignup={()=>{window.scrollTo(0,0);setAuthInitialView("create");setShowLanding(false);}} onAdmin={onAdmin}/>;
   if(!isAuth) return <AuthScreenPage onLogin={handleLogin} onSignup={handleSignup} initialView={authInitialView} onAdmin={onAdmin}/>;
   if(isAuth && adminOverride.isSuspended) {

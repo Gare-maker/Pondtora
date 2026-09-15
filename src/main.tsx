@@ -9,11 +9,21 @@ const ADMIN_STORAGE_KEY = "pondtora_admin_mode";
 
 function detectAdmin(): boolean {
   try {
+    const pathname = window.location.pathname.toLowerCase();
+    const hash = window.location.hash.toLowerCase();
+    if (
+      pathname.startsWith("/reset-password") ||
+      pathname.startsWith("/create-password") ||
+      hash.startsWith("#/reset-password") ||
+      hash.startsWith("#/create-password")
+    ) {
+      return false;
+    }
     return (
-      window.location.pathname.startsWith("/admin") ||
+      pathname.startsWith("/admin") ||
       new URLSearchParams(window.location.search).has("admin") ||
-      window.location.hash === "#admin" ||
-      window.location.hash.startsWith("#/admin") ||
+      hash === "#admin" ||
+      hash.startsWith("#/admin") ||
       localStorage.getItem(ADMIN_STORAGE_KEY) === "1"
     );
   } catch {

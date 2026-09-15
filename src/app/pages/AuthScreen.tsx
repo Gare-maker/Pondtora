@@ -5,7 +5,7 @@ import pondtoraLogo from "../../imports/loo-2.svg";
 import type { UserProfile } from "../types";
 import { COUNTRIES, DIAL_CODES, FLAG_EMOJI, COUNTRY_CURRENCIES } from "../data";
 import { SearchableCountrySelect } from "../shared";
-import { supabase } from "../../lib/supabase";
+import { supabase, getAppUrl } from "../../lib/supabase";
 import { auth, api } from "../../lib/api";
 import { useDynamicPlans, yearlyPrice, EVERY_PLAN_INCLUDES } from "../pricingData";
 
@@ -78,6 +78,7 @@ function AuthScreen({
   // Detect URL search/hash for email verification / invite / recovery flows on mount + listen for PASSWORD_RECOVERY
   useEffect(() => {
     if (typeof window !== "undefined") {
+      const pathname = window.location.pathname.toLowerCase();
       const searchParams = new URLSearchParams(window.location.search);
       const hash = window.location.hash;
       const hashParams = new URLSearchParams(hash.startsWith("#") ? hash.slice(1) : hash);
@@ -108,8 +109,13 @@ function AuthScreen({
         });
       }
 
-      // 3. Check query/hash parameters for staff invitation flow
-      const isInvite = searchParams.get("type") === "invite" || hashParams.get("type") === "invite";
+      // 3. Check query/hash parameters or pathname for staff invitation flow
+      const isInvite =
+        pathname.startsWith("/create-password") ||
+        hash.startsWith("#/create-password") ||
+        searchParams.get("type") === "invite" ||
+        hashParams.get("type") === "invite";
+
       if (isInvite) {
         setView("invite");
         const paramEmail = searchParams.get("email") || hashParams.get("email");
@@ -126,11 +132,41 @@ function AuthScreen({
         });
       }
 
-      // 4. Check query/hash parameters for password recovery
-      const isRecovery = searchParams.get("type") === "recovery" || hashParams.get("type") === "recovery";
+      // 4. Check query/hash parameters or pathname for password recovery
+      const isRecovery =
+        pathname.startsWith("/reset-password") ||
+        hash.startsWith("#/reset-password") ||
+        searchParams.get("type") === "recovery" ||
+        hashParams.get("type") === "recovery";
+
       if (isRecovery) {
         setView("recovery");
       }
+
+      // 4b. Support PKCE code or token_hash if present in redirect link (only if session not already detected)
+      const authCode = searchParams.get("code");
+      const tokenHash = searchParams.get("token_hash") || hashParams.get("token_hash");
+      const linkType = (searchParams.get("type") || hashParams.get("type")) as any;
+
+      supabase.auth.getSession().then(({ data: { session } }) => {
+        if (!session) {
+          if (tokenHash && linkType) {
+            supabase.auth.verifyOtp({ token_hash: tokenHash, type: linkType }).then(({ error }) => {
+              if (!error) {
+                if (linkType === "recovery") setView("recovery");
+                else if (linkType === "invite") setView("invite");
+              }
+            });
+          } else if (authCode) {
+            supabase.auth.exchangeCodeForSession(authCode).then(({ error }) => {
+              if (!error) {
+                if (linkType === "recovery") setView("recovery");
+                else if (linkType === "invite") setView("invite");
+              }
+            });
+          }
+        }
+      });
     }
 
     // 5. Supabase Auth state listener for PASSWORD_RECOVERY and SIGNED_IN confirmation
@@ -193,7 +229,7 @@ function AuthScreen({
         type: 'signup',
         email: targetEmail,
         options: {
-          emailRedirectTo: window.location.origin,
+          emailRedirectTo: `${getAppUrl()}/?verified=true`,
         },
       });
       if (error) throw error;

@@ -1,4 +1,5 @@
-import { supabase, getAuthToken, getAuthUserId } from "./supabase";
+import { supabase, getAuthToken, getAuthUserId, getAppUrl } from "./supabase";
+export { getAppUrl };
 import type {
   Farm, UserProfile, Pond, StockEvent, FeedItem, FeedingRecord,
   BagOpenLog, FeedRemainingLog, Expense, Revenue, MortalityEntry,
@@ -344,7 +345,7 @@ export const auth = {
       email: opts.email,
       password: opts.password,
       options: {
-        emailRedirectTo: typeof window !== "undefined" ? `${window.location.origin}/?verified=true` : undefined,
+        emailRedirectTo: `${getAppUrl()}/?verified=true`,
         data: {
           name: opts.name ?? opts.email.split("@")[0],
           farm_name: opts.farmName ?? "My Farm",
@@ -392,7 +393,7 @@ export const auth = {
 
   resetPassword: async (email: string) => {
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}?type=recovery`,
+      redirectTo: `${getAppUrl()}/reset-password`,
     });
     if (error) throw error;
   },
@@ -851,9 +852,9 @@ export const api = {
       };
       await dbInsert<StaffMember>("staff_members", staffMember, "staffMembers");
 
-      const appUrl = opts.appUrl || window.location.origin;
-      const redirectTo = `${appUrl}?type=invite`;
-      const inviteLink = `${appUrl}?type=invite&email=${encodeURIComponent(staffMember.email)}`;
+      const appUrl = (opts.appUrl && opts.appUrl.trim()) ? opts.appUrl.trim() : getAppUrl();
+      const redirectTo = `${appUrl}/create-password`;
+      const inviteLink = `${appUrl}/create-password?email=${encodeURIComponent(staffMember.email)}`;
       let emailSent = false;
       let emailError: string | null = null;
 

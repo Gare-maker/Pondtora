@@ -8,6 +8,7 @@ import {
 import { Card, Bdg, PBtn, PER_PAGE } from "../shared";
 import { uid, TODAY } from "../data";
 import { api } from "../../lib/api";
+import { getAppUrl } from "../../lib/supabase";
 
 /* ─── Types ─────────────────────────────────────────────────── */
 export interface KQuestion { id:string; text:string; category:string; options:[string,string,string,string]; correctIndex:number; }
@@ -21,8 +22,9 @@ const C_CATS=["Communication","Teamwork","Leadership","Responsibility","Emotiona
 
 /* ─── Link Generation — uses current app URL + hash fragment ─── */
 function getAssessmentLink(type:"knowledge"|"compatibility",ownerId:string):string{
-  const base=window.location.origin+window.location.pathname;
-  return`${base}#/assess/${type}/${ownerId}`;
+  const pathname = typeof window !== "undefined" ? window.location.pathname : "/";
+  const base = `${getAppUrl()}${pathname.startsWith("/") ? "" : "/"}${pathname}`;
+  return `${base.replace(/\/+$/, "")}/#/assess/${type}/${ownerId}`;
 }
 function getNextRegen():string{
   const bucket=Math.floor(Date.now()/(6*60*60*1000));

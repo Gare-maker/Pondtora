@@ -362,7 +362,8 @@ app.post(`${P}/staff-members/invite`, async (c) => {
   // Send invite email (requires service role key)
   let inviteError = null;
   if (SVC_KEY()) {
-    const redirectTo = `${appUrl || "https://pondtora.app"}?type=invite`;
+    const baseAppUrl = (appUrl || "https://pondtora.site").replace(/\/+$/, "");
+    const redirectTo = `${baseAppUrl}/create-password`;
     const { error: ie } = await svc.auth.admin.inviteUserByEmail(email, {
       data: { owner_id: userId, role: "staff", staff_id: sm.id },
       redirectTo,
