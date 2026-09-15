@@ -4131,8 +4131,31 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       return;
     }
 
-    supabase.auth.getSession().then(({data:{session}})=>{
+    supabase.auth.getSession().then(async ({data:{session}})=>{
       if(session?.user){
+        // Verify user profile exists in database (guards against ghost accounts if deleted by admin)
+        const { data: prof, error: profErr } = await supabase
+          .from("user_profiles")
+          .select("id, status")
+          .eq("id", session.user.id)
+          .maybeSingle();
+
+        if (!prof && !profErr) {
+          // User was deleted by admin! Sign out immediately and clear state
+          await supabase.auth.signOut();
+          resetAllStateAndStorage();
+          setAuthLoading(false);
+          return;
+        }
+
+        if (prof?.status === "Suspended") {
+          await supabase.auth.signOut();
+          resetAllStateAndStorage();
+          toast.error("Your account has been suspended by an administrator.");
+          setAuthLoading(false);
+          return;
+        }
+
         const meta=session.user.user_metadata??{};
         const country=meta.country||"Nigeria";
         const cc=COUNTRY_CURRENCIES[country]??COUNTRY_CURRENCIES["Nigeria"];
@@ -4157,7 +4180,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       }
       setAuthLoading(false);
     });
-    const {data:{subscription}}=supabase.auth.onAuthStateChange((event,session)=>{
+    const {data:{subscription}}=supabase.auth.onAuthStateChange(async (event,session)=>{
       if(event==="SIGNED_OUT"){
         resetAllStateAndStorage();
       } else if(session?.user && (event==="SIGNED_IN" || event==="TOKEN_REFRESHED")){
@@ -4167,6 +4190,28 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
           // Keep staff on set password screen until submission
           return;
         }
+
+        // Verify profile exists before granting dashboard access
+        const { data: prof, error: profErr } = await supabase
+          .from("user_profiles")
+          .select("id, status")
+          .eq("id", session.user.id)
+          .maybeSingle();
+
+        if (!prof && !profErr) {
+          // Account was deleted by admin
+          await supabase.auth.signOut();
+          resetAllStateAndStorage();
+          return;
+        }
+
+        if (prof?.status === "Suspended") {
+          await supabase.auth.signOut();
+          resetAllStateAndStorage();
+          toast.error("Your account has been suspended by an administrator.");
+          return;
+        }
+
         const meta=session.user.user_metadata??{};
         const country=meta.country||"Nigeria";
         const cc=COUNTRY_CURRENCIES[country]??COUNTRY_CURRENCIES["Nigeria"];

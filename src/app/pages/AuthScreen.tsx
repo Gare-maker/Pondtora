@@ -265,22 +265,51 @@ function AuthScreen({
     if (!lEmail.trim() || !lPass.trim()) { setLErr("Please enter email and password."); return; }
     setLLoading(true);
     try {
-      const data = await auth.signIn(lEmail.trim().toLowerCase(), lPass);
+      const cleanEmail = lEmail.trim().toLowerCase();
+      const data = await auth.signIn(cleanEmail, lPass);
       const user = data.user;
       if (!user) throw new Error("Login failed — no user returned.");
+
+      // Check if user profile actually exists in database
+      // If deleted by admin, user_profiles is gone!
+      const { data: existingProf, error: profCheckErr } = await supabase
+        .from("user_profiles")
+        .select("id, name, email, status")
+        .eq("id", user.id)
+        .maybeSingle();
+
+      if (!existingProf && !profCheckErr) {
+        // User was deleted by admin! Sign out immediately and eliminate the orphaned auth user
+        await supabase.auth.signOut();
+        try {
+          await supabase.rpc("delete_user_completely", { target_user_id: user.id });
+        } catch {}
+        try {
+          await supabase.rpc("delete_user_by_email", { target_email: cleanEmail });
+        } catch {}
+        setLErr("This account has been deleted. You can create a new account afresh with this email.");
+        setUnconfirmedEmail("");
+        return;
+      }
+
+      if (existingProf?.status === "Suspended") {
+        await supabase.auth.signOut();
+        setLErr("This account has been suspended by an administrator. Please contact support.");
+        return;
+      }
 
       // Strict enforcement: block login until email is verified
       if (!user.email_confirmed_at) {
         await supabase.auth.signOut();
         setLErr("Please confirm your email address before signing in. Check your inbox for the confirmation link.");
-        setUnconfirmedEmail(lEmail.trim().toLowerCase());
+        setUnconfirmedEmail(cleanEmail);
         return;
       }
 
       const meta = user.user_metadata ?? {};
       const profile: UserProfile = {
         id: user.id,
-        name: meta.name ?? user.email?.split("@")[0] ?? "",
+        name: existingProf?.name || meta.name || user.email?.split("@")[0] || "",
         farmName: meta.farm_name ?? "",
         city: meta.city ?? "",
         state: meta.state ?? "",
@@ -351,10 +380,12 @@ function AuthScreen({
     setCErr("");
     setSelectedTrialPlan(planName);
     setCLoading(true);
+    const cleanEmail = cEmail.trim().toLowerCase();
     try {
       const phoneStr = `${DIAL_CODES[cDialC] ?? ""} ${cPhone.trim()}`.trim();
-      const data = await auth.signUp({
-        email: cEmail.trim().toLowerCase(),
+
+      const performSignUp = () => auth.signUp({
+        email: cleanEmail,
         password: cPass,
         name: cName.trim(),
         farmName: cFarm.trim(),
@@ -368,9 +399,37 @@ function AuthScreen({
         planBilling: trialBilling,
       });
 
+      let data: any;
+      try {
+        data = await performSignUp();
+      } catch (signupErr: any) {
+        const errMsg = signupErr?.message || "";
+        if (errMsg.includes("already registered") || errMsg.includes("User already registered")) {
+          // Check if this was an orphaned ghost account without a user_profiles row
+          const { data: prof } = await supabase.from("user_profiles").select("id").ilike("email", cleanEmail).maybeSingle();
+          if (!prof) {
+            // Clean up orphaned auth user completely and retry signup
+            try { await supabase.rpc("delete_user_by_email", { target_email: cleanEmail }); } catch {}
+            data = await performSignUp();
+          } else {
+            throw signupErr;
+          }
+        } else {
+          throw signupErr;
+        }
+      }
+
       // Check if user already exists (Supabase returns empty identities array when user exists and email confirmation is on)
-      if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
-        throw new Error("An account with this email address already exists. Please sign in.");
+      if (data?.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
+        const { data: prof } = await supabase.from("user_profiles").select("id").ilike("email", cleanEmail).maybeSingle();
+        if (!prof) {
+          // Orphaned auth user without a profile — clean up and retry
+          try { await supabase.rpc("delete_user_by_email", { target_email: cleanEmail }); } catch {}
+          data = await performSignUp();
+        }
+        if (data?.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
+          throw new Error("An account with this email address already exists. Please sign in.");
+        }
       }
 
       // Strict enforcement: only auto-login if email is confirmed
@@ -383,7 +442,7 @@ function AuthScreen({
           city: cCity.trim(),
           state: cState.trim(),
           country: cCountry,
-          email: user.email ?? cEmail.trim().toLowerCase(),
+          email: user.email ?? cleanEmail,
           phone: phoneStr,
           currencySymbol: cur.symbol,
           currencyCode: cur.code,

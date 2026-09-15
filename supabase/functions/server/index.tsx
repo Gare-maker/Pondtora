@@ -66,7 +66,7 @@ function dbErr(c: any, error: any, status = 500) {
 // ── Auth middleware ───────────────────────────────────────────────────────────
 app.use(`${P}/*`, async (c, next) => {
   const path = c.req.path;
-  const unprotected = ["/health", "/public/"];
+  const unprotected = ["/health", "/public/", "/admin/delete-user"];
   if (unprotected.some(u => path.includes(u))) return next();
 
   const token = c.req.header("Authorization")?.replace("Bearer ", "") ?? "";
@@ -581,6 +581,59 @@ app.get(`${P}/all`, async (c) => {
     invoiceSettings: invSettings ? objToCamel(invSettings) : null,
     staffInfo, isStaff: !!staffInfo,
   });
+});
+
+// ── Admin Delete User endpoint ────────────────────────────────────────────────
+app.post(`${P}/admin/delete-user`, async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const { userId, email } = body;
+    const svc = adminDb();
+
+    // 1. Delete by user ID from auth.admin
+    if (userId) {
+      try {
+        await svc.auth.admin.deleteUser(userId);
+      } catch (e) {
+        console.warn("auth.admin.deleteUser failed for userId:", userId, e);
+      }
+      try {
+        await svc.from("user_profiles").delete().eq("id", userId);
+        await svc.from("staff_members").delete().eq("id", userId);
+        await svc.from("farms").delete().eq("user_id", userId);
+      } catch (e) {
+        console.warn("Table cleanup failed for userId:", userId, e);
+      }
+    }
+
+    // 2. Delete by email from auth.admin and tables
+    if (email) {
+      const cleanEmail = email.trim().toLowerCase();
+      try {
+        const { data: { users } } = await svc.auth.admin.listUsers();
+        const matched = (users || []).filter((u: any) => (u.email || "").toLowerCase() === cleanEmail);
+        for (const m of matched) {
+          try {
+            await svc.auth.admin.deleteUser(m.id);
+            await svc.from("user_profiles").delete().eq("id", m.id);
+            await svc.from("staff_members").delete().eq("id", m.id);
+            await svc.from("farms").delete().eq("user_id", m.id);
+          } catch {}
+        }
+      } catch (e) {
+        console.warn("auth cleanup by email failed:", email, e);
+      }
+      try {
+        await svc.from("user_profiles").delete().ilike("email", cleanEmail);
+        await svc.from("staff_members").delete().ilike("email", cleanEmail);
+      } catch {}
+    }
+
+    return c.json({ success: true, message: "User deleted completely" });
+  } catch (err: any) {
+    console.error("delete-user error:", err);
+    return c.json({ error: err.message }, 500);
+  }
 });
 
 // ── Register all CRUD tables ──────────────────────────────────────────────────

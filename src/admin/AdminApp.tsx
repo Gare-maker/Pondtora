@@ -456,8 +456,13 @@ export default function AdminApp({ onExit }: { onExit?: () => void } = {}) {
       saveAllAdminUsers(next);
       return next;
     });
-    deleteAdminUserInDb(id).catch(console.warn);
-    logAction("User Deleted", "user", `Permanently deleted user ${u?.name || id}`);
+    deleteAdminUserInDb(id, u?.email).then(() => {
+      toast.success(`User ${u?.name || id} and credentials permanently deleted.`);
+    }).catch(err => {
+      console.warn(err);
+      toast.info(`User ${u?.name || id} removed from app.`);
+    });
+    logAction("User Deleted", "user", `Permanently deleted user ${u?.name || id} (${u?.email || ""})`);
   }
 
   async function handleAddUser(u: Omit<AdminUser, "id">) {

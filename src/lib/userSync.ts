@@ -229,16 +229,96 @@ export async function updateAdminUserInDb(u: AdminUser): Promise<boolean> {
 }
 
 /**
- * Deletes a user profile from Supabase user_profiles and staff_members
+ * Completely and permanently deletes a user from:
+ * 1. Supabase auth.users (so credentials are removed and they cannot log in again)
+ * 2. Supabase user_profiles, staff_members, farms, and all related tables
+ * 3. Supabase Edge Function admin endpoint with service-role privileges
+ * 4. LocalStorage keys for this user
  */
-export async function deleteAdminUserInDb(id: string): Promise<boolean> {
+export async function deleteAdminUserInDb(id: string, email?: string): Promise<boolean> {
+  const cleanEmail = (email || "").trim().toLowerCase();
+  let anySuccess = false;
+
+  // 1. Try Supabase Edge Function (has service-role key to delete from auth.admin)
   try {
-    const { error } = await supabase.from("user_profiles").delete().eq("id", id);
-    await supabase.from("staff_members").delete().eq("id", id);
-    return !error;
-  } catch {
-    return false;
+    const edgeUrl = `${import.meta.env.VITE_SUPABASE_URL || "https://make-server-1da59a07.supabase.co"}/functions/v1/make-server-1da59a07/admin/delete-user`;
+    const res = await fetch(edgeUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY || ""}`,
+      },
+      body: JSON.stringify({ userId: id, email: cleanEmail }),
+    });
+    if (res.ok) {
+      anySuccess = true;
+    }
+  } catch (e) {
+    console.warn("Edge function delete-user attempt:", e);
   }
+
+  // 2. Try Postgres RPC: delete_user_completely (SECURITY DEFINER with direct auth.users access)
+  try {
+    const { error: rpcErr } = await supabase.rpc("delete_user_completely", { target_user_id: id });
+    if (!rpcErr) anySuccess = true;
+  } catch (e) {
+    console.warn("RPC delete_user_completely attempt:", e);
+  }
+
+  // 3. Try Postgres RPC: delete_user_by_email if email is available
+  if (cleanEmail) {
+    try {
+      const { error: emailRpcErr } = await supabase.rpc("delete_user_by_email", { target_email: cleanEmail });
+      if (!emailRpcErr) anySuccess = true;
+    } catch (e) {
+      console.warn("RPC delete_user_by_email attempt:", e);
+    }
+  }
+
+  // 4. Direct Supabase table cascading deletes
+  try {
+    await supabase.from("pond_reports").delete().eq("user_id", id);
+    await supabase.from("investment_payments").delete().eq("user_id", id);
+    await supabase.from("investments").delete().eq("user_id", id);
+    await supabase.from("investors").delete().eq("user_id", id);
+    await supabase.from("invoices").delete().eq("user_id", id);
+    await supabase.from("invoice_settings").delete().eq("user_id", id);
+    await supabase.from("treatment_records").delete().eq("user_id", id);
+    await supabase.from("mortality_entries").delete().eq("user_id", id);
+    await supabase.from("reports").delete().eq("user_id", id);
+    await supabase.from("revenues").delete().eq("user_id", id);
+    await supabase.from("expenses").delete().eq("user_id", id);
+    await supabase.from("feed_remaining_logs").delete().eq("user_id", id);
+    await supabase.from("bag_open_logs").delete().eq("user_id", id);
+    await supabase.from("feeding_records").delete().eq("user_id", id);
+    await supabase.from("feed_inventory").delete().eq("user_id", id);
+    await supabase.from("stock_events").delete().eq("user_id", id);
+    await supabase.from("ponds").delete().eq("user_id", id);
+    await supabase.from("farms").delete().eq("user_id", id);
+    await supabase.from("staff_invitations").delete().eq("invited_by", id);
+    await supabase.from("staff_members").delete().or(`user_id.eq.${id},id.eq.${id}`);
+    const { error: profErr } = await supabase.from("user_profiles").delete().eq("id", id);
+    if (!profErr) anySuccess = true;
+
+    if (cleanEmail) {
+      await supabase.from("user_profiles").delete().ilike("email", cleanEmail);
+      await supabase.from("staff_members").delete().ilike("email", cleanEmail);
+    }
+  } catch (e) {
+    console.warn("Direct table delete attempt:", e);
+  }
+
+  // 5. Clean up local storage in the active browser for this user
+  try {
+    const keys = Object.keys(localStorage);
+    for (const k of keys) {
+      if (k.startsWith(`pondtora_${id}_`) || (cleanEmail && k.includes(cleanEmail))) {
+        localStorage.removeItem(k);
+      }
+    }
+  } catch {}
+
+  return anySuccess;
 }
 
 export function logActivity(

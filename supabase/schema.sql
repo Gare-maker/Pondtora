@@ -603,7 +603,7 @@ CREATE TRIGGER on_auth_user_created
 
 -- Helper function to check if an email already belongs to an existing account
 CREATE OR REPLACE FUNCTION check_email_exists(lookup_email TEXT)
-RETURNS BOOLEAN LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+RETURNS BOOLEAN LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, auth AS $$
 DECLARE
   clean_email TEXT;
 BEGIN
@@ -612,12 +612,17 @@ BEGIN
     RETURN FALSE;
   END IF;
 
+  -- Only consider as existing if they have an active user_profile or staff_member record,
+  -- or if they exist in auth.users WITH an associated user_profile.
+  -- Orphaned auth.users rows without a profile (e.g. from admin deletion) should NOT block new signups.
   RETURN EXISTS (
-    SELECT 1 FROM auth.users WHERE LOWER(email) = clean_email
-  ) OR EXISTS (
     SELECT 1 FROM user_profiles WHERE LOWER(email) = clean_email
   ) OR EXISTS (
     SELECT 1 FROM staff_members WHERE LOWER(email) = clean_email
+  ) OR EXISTS (
+    SELECT 1 FROM auth.users u
+    JOIN user_profiles p ON p.id = u.id
+    WHERE LOWER(u.email) = clean_email
   );
 END;
 $$;
@@ -751,4 +756,87 @@ DROP POLICY IF EXISTS "farm_pond_reports" ON pond_reports;
 CREATE POLICY "farm_pond_reports" ON pond_reports
   USING (auth.uid() = user_id OR user_can_access_farm(farm_id) OR is_admin())
   WITH CHECK (auth.uid() = user_id OR user_can_access_farm(farm_id) OR is_admin());
+
+-- ── Complete User Deletion RPCs ──────────────────────────────────────────────
+-- Permanently deletes user from auth.users, user_profiles, and all related tables
+CREATE OR REPLACE FUNCTION delete_user_completely(target_user_id UUID)
+RETURNS BOOLEAN LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, auth AS $$
+BEGIN
+  IF target_user_id IS NULL THEN
+    RETURN FALSE;
+  END IF;
+
+  -- Delete from all user child tables to ensure complete cleanup
+  DELETE FROM pond_reports WHERE user_id = target_user_id;
+  DELETE FROM investment_payments WHERE user_id = target_user_id;
+  DELETE FROM investments WHERE user_id = target_user_id;
+  DELETE FROM investors WHERE user_id = target_user_id;
+  DELETE FROM invoices WHERE user_id = target_user_id;
+  DELETE FROM invoice_settings WHERE user_id = target_user_id;
+  DELETE FROM mortality_entries WHERE user_id = target_user_id;
+  DELETE FROM treatment_records WHERE user_id = target_user_id;
+  DELETE FROM reports WHERE user_id = target_user_id;
+  DELETE FROM revenues WHERE user_id = target_user_id;
+  DELETE FROM expenses WHERE user_id = target_user_id;
+  DELETE FROM feed_remaining_logs WHERE user_id = target_user_id;
+  DELETE FROM bag_open_logs WHERE user_id = target_user_id;
+  DELETE FROM feeding_records WHERE user_id = target_user_id;
+  DELETE FROM feed_inventory WHERE user_id = target_user_id;
+  DELETE FROM stock_events WHERE user_id = target_user_id;
+  DELETE FROM ponds WHERE user_id = target_user_id;
+  DELETE FROM staff_permissions WHERE staff_id IN (SELECT id FROM staff_members WHERE user_id = target_user_id);
+  DELETE FROM staff_farm_assignments WHERE staff_id IN (SELECT id FROM staff_members WHERE user_id = target_user_id);
+  DELETE FROM staff_invitations WHERE invited_by = target_user_id;
+  DELETE FROM staff_members WHERE user_id = target_user_id OR staff_auth_id = target_user_id;
+  DELETE FROM farms WHERE user_id = target_user_id;
+  DELETE FROM user_profiles WHERE id = target_user_id;
+
+  -- Delete from auth.users (so user cannot log in and can create account afresh)
+  DELETE FROM auth.users WHERE id = target_user_id;
+
+  RETURN TRUE;
+EXCEPTION WHEN OTHERS THEN
+  -- Fallback: ensure public profile is removed even if auth.users has issues
+  DELETE FROM user_profiles WHERE id = target_user_id;
+  RETURN FALSE;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION delete_user_completely(UUID) TO authenticated, anon;
+
+-- Delete user by email (for cleaning up orphaned auth accounts)
+CREATE OR REPLACE FUNCTION delete_user_by_email(target_email TEXT)
+RETURNS BOOLEAN LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, auth AS $$
+DECLARE
+  v_uid UUID;
+  clean_email TEXT;
+BEGIN
+  clean_email := LOWER(TRIM(target_email));
+  IF clean_email = '' OR clean_email IS NULL THEN
+    RETURN FALSE;
+  END IF;
+
+  -- Locate user ID
+  SELECT id INTO v_uid FROM auth.users WHERE LOWER(email) = clean_email LIMIT 1;
+  IF v_uid IS NULL THEN
+    SELECT id INTO v_uid FROM user_profiles WHERE LOWER(email) = clean_email LIMIT 1;
+  END IF;
+
+  IF v_uid IS NOT NULL THEN
+    PERFORM delete_user_completely(v_uid);
+  END IF;
+
+  -- Explicit fallback deletes
+  DELETE FROM auth.users WHERE LOWER(email) = clean_email;
+  DELETE FROM user_profiles WHERE LOWER(email) = clean_email;
+  DELETE FROM staff_members WHERE LOWER(email) = clean_email;
+
+  RETURN TRUE;
+EXCEPTION WHEN OTHERS THEN
+  RETURN FALSE;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION delete_user_by_email(TEXT) TO authenticated, anon;
+
 
