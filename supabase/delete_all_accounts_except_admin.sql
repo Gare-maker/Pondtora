@@ -8,7 +8,7 @@
 -- 3. Click "Run" (or press Ctrl + Enter / Cmd + Enter).
 -- 4. Result:
 --    - All non-admin user accounts (auth.users and user_profiles) are permanently deleted.
---    - Master Admin account (edafejesugarec@gmail.com) and any superadmins are strictly preserved.
+--    - Master Admin account (edafejesugarec@gmail.com) is strictly preserved.
 --    - All operational data buckets (ponds, feedings, records, logs, invoices) are wiped clean ("empty buckets").
 --    - A clean primary farm is preserved/created for the admin account.
 --    - The emails previously registered (User A, staff, etc.) are 100% freed to start afresh.
@@ -21,114 +21,88 @@ BEGIN;
 DO $$
 DECLARE
   v_master_admin_email TEXT := 'edafejesugarec@gmail.com';
-  v_admin_ids UUID[];
-  v_wipe_operational_data BOOLEAN := TRUE; -- Set TRUE to clear test ponds/feedings/records for empty buckets
+  v_admin_count INTEGER := 0;
   v_deleted_auth_count INTEGER := 0;
   v_deleted_prof_count INTEGER := 0;
 BEGIN
-  -- 1. Identify all admin IDs to preserve
-  SELECT ARRAY_AGG(DISTINCT id) INTO v_admin_ids
-  FROM (
+  -- 1. Create temporary table of Admin IDs to preserve
+  CREATE TEMP TABLE IF NOT EXISTS _admin_ids_to_keep (id UUID PRIMARY KEY) ON COMMIT DROP;
+  TRUNCATE TABLE _admin_ids_to_keep;
+
+  INSERT INTO _admin_ids_to_keep (id)
+  SELECT DISTINCT id FROM (
     SELECT id FROM auth.users WHERE LOWER(email) = LOWER(v_master_admin_email)
     UNION
     SELECT id FROM user_profiles WHERE role IN ('admin', 'superadmin') OR LOWER(email) = LOWER(v_master_admin_email)
-  ) sub;
+  ) sub
+  WHERE id IS NOT NULL;
 
-  IF v_admin_ids IS NULL OR array_length(v_admin_ids, 1) IS NULL THEN
+  SELECT COUNT(*) INTO v_admin_count FROM _admin_ids_to_keep;
+
+  IF v_admin_count = 0 THEN
     RAISE EXCEPTION 'Safety check failed: Master admin account % not found! Aborting to prevent accidental lock-out.', v_master_admin_email;
   END IF;
 
-  RAISE NOTICE 'Preserving Admin Account IDs: %', v_admin_ids;
+  RAISE NOTICE 'Preserving % Admin Account(s).', v_admin_count;
 
-  -- 2. Explicitly clean all operational child tables
-  IF v_wipe_operational_data THEN
-    -- Complete empty buckets for operational records
-    DELETE FROM pond_reports;
-    DELETE FROM investment_payments;
-    DELETE FROM investments;
-    DELETE FROM investors;
-    DELETE FROM invoices;
-    DELETE FROM invoice_settings WHERE user_id NOT = ANY(v_admin_ids);
-    DELETE FROM customers;
-    DELETE FROM price_groups;
-    DELETE FROM knowledge_results;
-    DELETE FROM compatibility_results;
-    DELETE FROM mortality_entries;
-    DELETE FROM treatment_records;
-    DELETE FROM reports;
-    DELETE FROM revenues;
-    DELETE FROM expenses;
-    DELETE FROM feed_remaining_logs;
-    DELETE FROM bag_open_logs;
-    DELETE FROM feeding_records;
-    DELETE FROM feed_inventory;
-    DELETE FROM stock_events;
-    DELETE FROM ponds;
-    DELETE FROM staff_permissions;
-    DELETE FROM staff_farm_assignments;
-    DELETE FROM staff_invitations;
-    DELETE FROM staff_members;
-    DELETE FROM farms WHERE user_id NOT = ANY(v_admin_ids);
-  ELSE
-    -- Non-admin data cleanup only
-    DELETE FROM pond_reports WHERE user_id NOT = ANY(v_admin_ids);
-    DELETE FROM investment_payments WHERE user_id NOT = ANY(v_admin_ids);
-    DELETE FROM investments WHERE user_id NOT = ANY(v_admin_ids);
-    DELETE FROM investors WHERE user_id NOT = ANY(v_admin_ids);
-    DELETE FROM invoices WHERE user_id NOT = ANY(v_admin_ids);
-    DELETE FROM invoice_settings WHERE user_id NOT = ANY(v_admin_ids);
-    DELETE FROM customers WHERE user_id NOT = ANY(v_admin_ids);
-    DELETE FROM price_groups WHERE user_id NOT = ANY(v_admin_ids);
-    DELETE FROM knowledge_results WHERE user_id NOT = ANY(v_admin_ids);
-    DELETE FROM compatibility_results WHERE user_id NOT = ANY(v_admin_ids);
-    DELETE FROM mortality_entries WHERE user_id NOT = ANY(v_admin_ids);
-    DELETE FROM treatment_records WHERE user_id NOT = ANY(v_admin_ids);
-    DELETE FROM reports WHERE user_id NOT = ANY(v_admin_ids);
-    DELETE FROM revenues WHERE user_id NOT = ANY(v_admin_ids);
-    DELETE FROM expenses WHERE user_id NOT = ANY(v_admin_ids);
-    DELETE FROM feed_remaining_logs WHERE user_id NOT = ANY(v_admin_ids);
-    DELETE FROM bag_open_logs WHERE user_id NOT = ANY(v_admin_ids);
-    DELETE FROM feeding_records WHERE user_id NOT = ANY(v_admin_ids);
-    DELETE FROM feed_inventory WHERE user_id NOT = ANY(v_admin_ids);
-    DELETE FROM stock_events WHERE user_id NOT = ANY(v_admin_ids);
-    DELETE FROM ponds WHERE user_id NOT = ANY(v_admin_ids);
-    DELETE FROM staff_permissions WHERE staff_id IN (SELECT id FROM staff_members WHERE user_id NOT = ANY(v_admin_ids));
-    DELETE FROM staff_farm_assignments WHERE staff_id IN (SELECT id FROM staff_members WHERE user_id NOT = ANY(v_admin_ids));
-    DELETE FROM staff_invitations WHERE invited_by NOT = ANY(v_admin_ids);
-    DELETE FROM staff_members WHERE (user_id NOT = ANY(v_admin_ids)) OR (staff_auth_id IS NOT NULL AND staff_auth_id NOT = ANY(v_admin_ids));
-    DELETE FROM farms WHERE user_id NOT = ANY(v_admin_ids);
-  END IF;
+  -- 2. Empty operational data buckets (clean slate / empty buckets)
+  DELETE FROM pond_reports;
+  DELETE FROM investment_payments;
+  DELETE FROM investments;
+  DELETE FROM investors;
+  DELETE FROM invoices;
+  DELETE FROM invoice_settings WHERE user_id NOT IN (SELECT id FROM _admin_ids_to_keep);
+  DELETE FROM customers;
+  DELETE FROM price_groups;
+  DELETE FROM knowledge_results;
+  DELETE FROM compatibility_results;
+  DELETE FROM mortality_entries;
+  DELETE FROM treatment_records;
+  DELETE FROM reports;
+  DELETE FROM revenues;
+  DELETE FROM expenses;
+  DELETE FROM feed_remaining_logs;
+  DELETE FROM bag_open_logs;
+  DELETE FROM feeding_records;
+  DELETE FROM feed_inventory;
+  DELETE FROM stock_events;
+  DELETE FROM ponds;
+  DELETE FROM staff_permissions;
+  DELETE FROM staff_farm_assignments;
+  DELETE FROM staff_invitations;
+  DELETE FROM staff_members;
+  DELETE FROM farms WHERE user_id NOT IN (SELECT id FROM _admin_ids_to_keep);
 
   -- 3. Delete non-admin profiles from user_profiles table
   DELETE FROM user_profiles 
-  WHERE id NOT = ANY(v_admin_ids) 
+  WHERE id NOT IN (SELECT id FROM _admin_ids_to_keep) 
     AND LOWER(email) != LOWER(v_master_admin_email);
   GET DIAGNOSTICS v_deleted_prof_count = ROW_COUNT;
 
   -- 4. Delete sessions, identities, and refresh tokens for non-admin accounts
-  DELETE FROM auth.refresh_tokens WHERE user_id NOT = ANY(v_admin_ids);
-  DELETE FROM auth.sessions WHERE user_id NOT = ANY(v_admin_ids);
+  DELETE FROM auth.refresh_tokens WHERE user_id NOT IN (SELECT id FROM _admin_ids_to_keep);
+  DELETE FROM auth.sessions WHERE user_id NOT IN (SELECT id FROM _admin_ids_to_keep);
   BEGIN
-    DELETE FROM auth.identities WHERE user_id NOT = ANY(v_admin_ids);
+    DELETE FROM auth.identities WHERE user_id NOT IN (SELECT id FROM _admin_ids_to_keep);
   EXCEPTION WHEN OTHERS THEN NULL;
   END;
 
-  -- 5. Delete non-admin accounts from auth.users (frees email for fresh signups)
+  -- 5. Delete non-admin accounts from auth.users (frees emails for clean fresh signups)
   DELETE FROM auth.users 
-  WHERE id NOT = ANY(v_admin_ids) 
+  WHERE id NOT IN (SELECT id FROM _admin_ids_to_keep) 
     AND LOWER(email) != LOWER(v_master_admin_email);
   GET DIAGNOSTICS v_deleted_auth_count = ROW_COUNT;
 
   -- 6. Clean storage objects if storage schema exists
   BEGIN
     IF EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'storage' AND table_name = 'objects') THEN
-      DELETE FROM storage.objects WHERE owner NOT = ANY(v_admin_ids);
+      DELETE FROM storage.objects WHERE owner NOT IN (SELECT id FROM _admin_ids_to_keep);
     END IF;
   EXCEPTION WHEN OTHERS THEN NULL;
   END;
 
   -- 7. Ensure Admin has exactly one clean primary farm ready
-  IF NOT EXISTS (SELECT 1 FROM farms WHERE user_id = ANY(v_admin_ids)) THEN
+  IF NOT EXISTS (SELECT 1 FROM farms WHERE user_id IN (SELECT id FROM _admin_ids_to_keep)) THEN
     INSERT INTO farms (id, user_id, name, city, state, country)
     SELECT 
       gen_random_uuid(),
@@ -138,7 +112,7 @@ BEGIN
       'Lagos',
       'Nigeria'
     FROM auth.users u
-    WHERE u.id = ANY(v_admin_ids)
+    WHERE u.id IN (SELECT id FROM _admin_ids_to_keep)
     LIMIT 1;
   END IF;
 
