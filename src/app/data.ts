@@ -9,6 +9,10 @@ export const POND_TYPES   = ["Earthen","Concrete","Tarpaulin"];
 export const POND_SPECIES = ["Catfish","Tilapia","Carp","Salmon","Bass","Trout","Other"];
 export const MORT_CAUSES = ["Unknown","Disease","Water stress","Predation","Handling","Oxygen depletion"];
 export const TODAY=(()=>{const d=new Date();return`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;})();
+export function getTodayStr(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
 export const INIT_FARMS:Farm[]=[
   {id:"FARM-001",name:"Aqua Laguna Station",city:"Lagos",state:"Lagos",country:"Nigeria"},
 ];

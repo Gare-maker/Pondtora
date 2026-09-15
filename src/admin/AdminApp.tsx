@@ -427,8 +427,13 @@ export default function AdminApp({ onExit }: { onExit?: () => void } = {}) {
       setAdminEmail(info.email);
     }
     setLoggedIn(true);
+    setPage("dashboard");
     logAction("Admin Sign In", "auth", `Successfully signed into admin panel`);
   }
+
+  useEffect(() => {
+    setPage("dashboard");
+  }, []);
 
   if (!loggedIn) {
     return <AdminLogin onLogin={handleLoginSuccess} onExit={onExit} />;
@@ -509,7 +514,7 @@ export default function AdminApp({ onExit }: { onExit?: () => void } = {}) {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 flex font-['Barlow',sans-serif]">
+    <div className="h-screen overflow-hidden bg-slate-50 flex font-['Barlow',sans-serif]">
       <Toaster position="top-right" richColors duration={2500} />
       {/* Mobile Backdrop */}
       {sideOpen && (
@@ -518,7 +523,7 @@ export default function AdminApp({ onExit }: { onExit?: () => void } = {}) {
 
       {/* Admin Sidebar */}
       <aside
-        className={`fixed inset-y-0 left-0 z-50 w-64 bg-slate-900 flex flex-col transition-transform duration-200 lg:translate-x-0 lg:static lg:z-auto ${
+        className={`fixed inset-y-0 left-0 z-50 w-64 bg-slate-900 flex flex-col transition-transform duration-200 lg:translate-x-0 lg:static lg:h-screen lg:shrink-0 lg:z-auto ${
           sideOpen ? "translate-x-0" : "-translate-x-full"
         }`}
       >
@@ -595,9 +600,9 @@ export default function AdminApp({ onExit }: { onExit?: () => void } = {}) {
       </aside>
 
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col h-screen overflow-hidden min-w-0">
         {/* Top Header Bar */}
-        <header className="bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between gap-3 lg:px-7 sticky top-0 z-20 shadow-sm">
+        <header className="bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between gap-3 lg:px-7 shrink-0 z-20 shadow-sm">
           <div className="flex items-center gap-3">
             <button
               onClick={() => setSideOpen(true)}

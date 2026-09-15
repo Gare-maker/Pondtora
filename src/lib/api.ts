@@ -334,7 +334,7 @@ export const auth = {
       email: opts.email,
       password: opts.password,
       options: {
-        emailRedirectTo: typeof window !== "undefined" ? window.location.origin : undefined,
+        emailRedirectTo: typeof window !== "undefined" ? `${window.location.origin}/?verified=true` : undefined,
         data: {
           name: opts.name ?? opts.email.split("@")[0],
           farm_name: opts.farmName ?? "My Farm",
@@ -839,6 +839,9 @@ export const api = {
               name: staffMember.name,
               role: "staff",
               owner_id: userId,
+              staff_id: staffMember.id,
+              permissions: staffMember.permissions,
+              farms: staffMember.farms,
             },
           },
         });

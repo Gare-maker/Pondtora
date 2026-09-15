@@ -17,7 +17,7 @@ import {
   ResponsiveContainer, PieChart, Pie, Cell, Legend
 } from "recharts";
 import type { View, SortDir, MonthData, FeedItem, Pond, Expense, Revenue, FeedingRecord, FeedEditEntry, MortalityEntry, BagOpenLog, FeedRemainingLog, StaffMember, Report, UserProfile, StockEvent, PriceGroup, Customer, InvSettings, InvoiceLineItem, Invoice, Farm, TreatmentRecord, WItem, EditEntry, Investor, Investment, InvestmentPayment, PondReport } from "./types";
-import { EXPENSE_CATS, REVENUE_SRCS, POND_TYPES, POND_SPECIES, MORT_CAUSES, TODAY, fmt, yFmt, uid, toMon, toYr, PAYMENT_METHODS, INV_STATUSES, STAFF_PERMISSIONS, STAFF_ROLES_ALL, INIT_INV_SETTINGS, ADMIN_NAME, downloadCSV, openPrintWindow, COUNTRY_CURRENCIES, COUNTRIES, DIAL_CODES, FLAG_EMOJI, convertNGN, fmtStockingDate, isSameDate } from "./data";
+import { EXPENSE_CATS, REVENUE_SRCS, POND_TYPES, POND_SPECIES, MORT_CAUSES, TODAY, getTodayStr, fmt, yFmt, uid, toMon, toYr, PAYMENT_METHODS, INV_STATUSES, STAFF_PERMISSIONS, STAFF_ROLES_ALL, INIT_INV_SETTINGS, ADMIN_NAME, downloadCSV, openPrintWindow, COUNTRY_CURRENCIES, COUNTRIES, DIAL_CODES, FLAG_EMOJI, convertNGN, fmtStockingDate, isSameDate } from "./data";
 import { Card, Bdg, PBtn, Pagination, PER_PAGE, StatCard, Tip, Modal, F, IC, SC, SearchableSelect, SelDrop, DMONTHS_S, DateFilter, SearchableCountrySelect, SH, useSort, DateInput, NumInput } from "./shared";
 import InvoicesPage from "./pages/InvoicesPage";
 import FeedDocumentationPage from "./pages/FeedDocumentationPage";
@@ -1817,15 +1817,34 @@ function NotificationsPage({notifications,onMarkRead,onMarkAllRead,farms,activeF
     const rd=nDay==="All"||(()=>{const d=new Date(n.date);return!isNaN(d.getTime())&&String(d.getDate()).padStart(2,"0")===nDay;})();
     return ry&&rm&&rd;
   });
-  const dateLabel=(d:string)=>{const today=new Date(TODAY);const nd=new Date(d);if(isNaN(nd.getTime()))return d;const diff=Math.round((today.getTime()-nd.getTime())/(1000*60*60*24));if(diff===0)return"Today";if(diff===1)return"Yesterday";return nd.toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long",year:"numeric"});};
+  const todayDate = new Date();
+  todayDate.setHours(0, 0, 0, 0);
+
+  const dateLabel=(d:string)=>{
+    const nd=new Date(d);
+    if(isNaN(nd.getTime()))return d;
+    nd.setHours(0, 0, 0, 0);
+    const diff=Math.round((todayDate.getTime()-nd.getTime())/(1000*60*60*24));
+    if(diff===0)return"Today";
+    if(diff===1)return"Yesterday";
+    return nd.toLocaleDateString("en-GB",{weekday:"long",day:"numeric",month:"long",year:"numeric"});
+  };
   const pagedNotifs=filtered.slice((notifPage-1)*PER_PAGE,notifPage*PER_PAGE);
   const grouped=pagedNotifs.reduce<{label:string;date:string;items:AppNotification[]}[]>((acc,n)=>{const lbl=dateLabel(n.date);const ex=acc.find(g=>g.date===n.date);if(ex)ex.items.push(n);else acc.push({label:lbl,date:n.date,items:[n]});return acc;},[]).sort((a,b)=>b.date.localeCompare(a.date));
+
+  const formattedToday = new Date().toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric" });
+
   return(
     <div className="p-4 sm:p-6 space-y-5 w-full">
       <div className="sticky top-0 z-10 bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 flex items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Notifications</h1>
-          <p className="text-xs text-slate-400 mt-0.5">{unread>0?`${unread} unread notification${unread!==1?"s":""}`:""}</p>
+          <div className="flex items-center gap-2.5">
+            <h1 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Notifications</h1>
+            <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+              {formattedToday}
+            </span>
+          </div>
+          <p className="text-xs text-slate-400 mt-0.5">{unread>0?`${unread} unread notification${unread!==1?"s":""}`:"All caught up"}</p>
         </div>
         {unread>0&&<button onClick={onMarkAllRead} className="text-xs font-semibold text-green-600 hover:text-green-800 transition-colors">Mark all as read</button>}
       </div>
@@ -2960,8 +2979,29 @@ function mergeWithLocal<T extends { id?: string }>(backendItems?: T[], localItem
 /* ─── Root ──────────────────────────────────────────────────── */
 export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   const [isAuth,setIsAuth]=useState<boolean>(()=>localStorage.getItem("pondtora_is_auth")==="true");
-  const [showLanding,setShowLanding]=useState<boolean>(()=>localStorage.getItem("pondtora_show_landing")!=="false");
-  const [authInitialView,setAuthInitialView]=useState<"login"|"create">("login");
+  const [showLanding,setShowLanding]=useState<boolean>(()=>{
+    if (typeof window !== "undefined") {
+      const sp = new URLSearchParams(window.location.search);
+      const hp = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+      const isAuthCallback =
+        sp.get("type") === "invite" || hp.get("type") === "invite" ||
+        sp.get("type") === "recovery" || hp.get("type") === "recovery" ||
+        sp.get("type") === "signup" || hp.get("type") === "signup" ||
+        sp.get("verified") === "true" || hp.has("access_token") || sp.has("code") ||
+        hp.has("error") || sp.has("error");
+      if (isAuthCallback) return false;
+    }
+    return localStorage.getItem("pondtora_show_landing")!=="false";
+  });
+  const [authInitialView,setAuthInitialView]=useState<"login"|"create"|"recovery"|"invite">(()=>{
+    if (typeof window !== "undefined") {
+      const sp = new URLSearchParams(window.location.search);
+      const hp = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+      if (sp.get("type") === "invite" || hp.get("type") === "invite") return "invite";
+      if (sp.get("type") === "recovery" || hp.get("type") === "recovery") return "recovery";
+    }
+    return "login";
+  });
   const [userProfile,setUserProfile]=useState<UserProfile|null>(()=>loadLocal("pondtora_user_profile",null));
   const [active,setActive_]=useState<View>("financial");
   const setActive=(v:View)=>{setActive_(v);};
@@ -3895,6 +3935,18 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
 
   /* ── Restore session via Supabase Auth ── */
   useEffect(()=>{
+    const sp = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
+    const hp = typeof window !== "undefined" ? new URLSearchParams(window.location.hash.replace(/^#/, "")) : null;
+    const isInviteFlow = sp?.get("type") === "invite" || hp?.get("type") === "invite";
+    const isRecoveryFlow = sp?.get("type") === "recovery" || hp?.get("type") === "recovery";
+
+    if (isInviteFlow || isRecoveryFlow) {
+      setShowLanding(false);
+      setAuthInitialView(isInviteFlow ? "invite" : "recovery");
+      setAuthLoading(false);
+      return;
+    }
+
     supabase.auth.getSession().then(({data:{session}})=>{
       if(session?.user){
         const meta=session.user.user_metadata??{};
@@ -3908,6 +3960,8 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
           email:session.user.email||"",phone:meta.phone||"",
           currencySymbol:meta.currency_symbol||cc.symbol,
           currencyCode:meta.currency_code||cc.code,
+          role:meta.role,
+          permissions:meta.permissions,
         });
         if(meta.active_farm_id){
           setActiveFarmId(meta.active_farm_id);
@@ -3922,6 +3976,12 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       if(event==="SIGNED_OUT"){
         resetAllStateAndStorage();
       } else if(session?.user && (event==="SIGNED_IN" || event==="TOKEN_REFRESHED")){
+        const curSp = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
+        const curHp = typeof window !== "undefined" ? new URLSearchParams(window.location.hash.replace(/^#/, "")) : null;
+        if (curSp?.get("type") === "invite" || curHp?.get("type") === "invite") {
+          // Keep staff on set password screen until submission
+          return;
+        }
         const meta=session.user.user_metadata??{};
         const country=meta.country||"Nigeria";
         const cc=COUNTRY_CURRENCIES[country]??COUNTRY_CURRENCIES["Nigeria"];
@@ -3937,6 +3997,8 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
             email:session.user.email||"",phone:meta.phone||"",
             currencySymbol:meta.currency_symbol||cc.symbol,
             currencyCode:meta.currency_code||cc.code,
+            role:meta.role,
+            permissions:meta.permissions,
           };
         });
         if(meta.active_farm_id){
@@ -4294,11 +4356,11 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     }
   };
   /* Permission derivation — owner has all permissions */
-  const currentStaff=staff.find(s=>s.email===userProfile?.email);
-  const isOwner=!currentStaff||currentStaff.role==="Admin";
+  const currentStaff=staff.find(s=>s.email?.toLowerCase()===userProfile?.email?.toLowerCase());
+  const isOwner=(!currentStaff && userProfile?.role !== "staff") || currentStaff?.role==="Admin";
   const hasPerm=(p:string)=>{
     if(isOwner)return true;
-    const perms=currentStaff?.permissions||[];
+    const perms=currentStaff?.permissions || userProfile?.permissions || [];
     if(perms.includes(p))return true;
     if(p==="Invoices"&&perms.includes("Invoice"))return true;
     if(p==="Invoice"&&perms.includes("Invoices"))return true;
@@ -4311,7 +4373,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
 
   /* Auto-route staff members to their first permitted page if current page is restricted */
   useEffect(()=>{
-    if(!isOwner&&currentStaff){
+    if(!isOwner){
       const allowedViews=NAV.filter(({id})=>{
         if(id==="staff"||id==="pricing"||id==="settings")return false;
         const perm=NAV_PERM[id];
@@ -4321,7 +4383,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
         setActive_(allowedViews[0]);
       }
     }
-  },[isOwner,currentStaff,active]);
+  },[isOwner,currentStaff,userProfile?.permissions,active]);
   const notifications=useMemo(()=>{
     const fedToday=new Set(
       farmFeeding
@@ -4331,31 +4393,43 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     const bagsToday=farmBagLogs.some(b=>b&&isSameDate(b.date,TODAY)&&(Number(b.bagsOpened)||0)>0);
     const farm=farms.find(f=>f.id===activeFarmId)||farms[0];
     const notifs:AppNotification[]=[];
-    farmPonds.filter(p=>p.status==="Active"&&!fedToday.has(p.name)).forEach(p=>{
-      const nid=`notif-feed-${p.id}`;
-      if(!dismissedNotifIds.has(nid)){
-        notifs.push({id:nid,type:"feeding",pondName:p.name,farmId:activeFarmId,farmName:farm?.name||"",date:TODAY,read:readNotifIds.has(nid)});
-      }
-    });
-    if(!bagsToday){
-      const nid=`notif-bags-${activeFarmId}`;
-      if(!dismissedNotifIds.has(nid)){
-        notifs.push({id:nid,type:"bags",farmId:activeFarmId,farmName:farm?.name||"",date:TODAY,read:readNotifIds.has(nid)});
-      }
-    }
-    // Feed inventory low-stock alerts (≤3 bags remaining)
-    const openedByKey=bagLogs.reduce<Record<string,number>>((acc,b)=>{const k=`${b.brand}|${b.size}`;acc[k]=(acc[k]||0)+b.bagsOpened;return acc;},{});
-    const invByKey=farmInventory.reduce<Record<string,number>>((acc,i)=>{const k=`${i.brand}|${i.size}`;acc[k]=(acc[k]||0)+i.bags;return acc;},{});
-    Object.entries(invByKey).forEach(([k,total])=>{
-      const inStock=Math.max(0,total-(openedByKey[k]||0));
-      if(inStock<=3&&inStock>=0){
-        const nid=`inv-low-${activeFarmId}-${k}`;
-        if(!dismissedNotifIds.has(nid)){
-          const[brand,size]=k.split("|");
-          notifs.push({id:nid,type:"bags" as any,farmId:activeFarmId,farmName:farm?.name||"",date:TODAY,read:readNotifIds.has(nid),message:`Low stock: ${brand} ${size} — only ${inStock} bag${inStock!==1?"s":""} remaining`});
+
+    // Guards: only alert for feeding and opening bags if feed is added and active ponds exist
+    const hasFeedCreated = farmInventory.length > 0 && farmInventory.some(i => (Number(i.bags) || 0) > 0);
+    const activePonds = farmPonds.filter(p => p.status === "Active");
+    const hasActivePonds = activePonds.length > 0;
+
+    if (hasActivePonds && hasFeedCreated) {
+      activePonds.filter(p => !fedToday.has(p.name)).forEach(p => {
+        const nid = `notif-feed-${p.id}`;
+        if (!dismissedNotifIds.has(nid)) {
+          notifs.push({ id: nid, type: "feeding", pondName: p.name, farmId: activeFarmId, farmName: farm?.name || "", date: TODAY, read: readNotifIds.has(nid) });
+        }
+      });
+
+      if (!bagsToday) {
+        const nid = `notif-bags-${activeFarmId}`;
+        if (!dismissedNotifIds.has(nid)) {
+          notifs.push({ id: nid, type: "bags", farmId: activeFarmId, farmName: farm?.name || "", date: TODAY, read: readNotifIds.has(nid) });
         }
       }
-    });
+    }
+
+    // Feed inventory low-stock alerts (≤3 bags remaining) - only if feed inventory exists
+    if (farmInventory.length > 0) {
+      const openedByKey=bagLogs.reduce<Record<string,number>>((acc,b)=>{const k=`${b.brand}|${b.size}`;acc[k]=(acc[k]||0)+b.bagsOpened;return acc;},{});
+      const invByKey=farmInventory.reduce<Record<string,number>>((acc,i)=>{const k=`${i.brand}|${i.size}`;acc[k]=(acc[k]||0)+i.bags;return acc;},{});
+      Object.entries(invByKey).forEach(([k,total])=>{
+        const inStock=Math.max(0,total-(openedByKey[k]||0));
+        if(inStock<=3&&inStock>=0){
+          const nid=`inv-low-${activeFarmId}-${k}`;
+          if(!dismissedNotifIds.has(nid)){
+            const[brand,size]=k.split("|");
+            notifs.push({id:nid,type:"bags" as any,farmId:activeFarmId,farmName:farm?.name||"",date:TODAY,read:readNotifIds.has(nid),message:`Low stock: ${brand} ${size} — only ${inStock} bag${inStock!==1?"s":""} remaining`});
+          }
+        }
+      });
+    }
 
     // Investor payment due reminders (7 days advance) & overdue alerts
     farmInvestments.forEach(inv => {

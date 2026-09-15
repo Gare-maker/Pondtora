@@ -37,7 +37,11 @@ export function loadAllAdminUsers(): AdminUser[] {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed) && parsed.length > 0) {
         return parsed
-          .filter(u => u && typeof u === "object" && typeof u.id === "string")
+          .filter(u => {
+            if (!u || typeof u !== "object" || typeof u.id !== "string") return false;
+            const r = (u.role || "").toLowerCase();
+            return r !== "staff" && r !== "staff member";
+          })
           .map(u => ({
             ...u,
             subscriptionStatus: computeSubscriptionStatus(u),
@@ -81,16 +85,29 @@ export async function fetchLiveAdminUsers(): Promise<{
     const rawFarms = farmsRes.data || [];
     const rawPonds = pondsRes.data || [];
 
+    // Collect all staff emails to strictly exclude invited staff from the Business Admin users list
+    const staffEmails = new Set(
+      rawStaff
+        .map((s: any) => (s.email || "").toLowerCase().trim())
+        .filter(Boolean)
+    );
+
     const dbUsers: AdminUser[] = [];
 
-    // 1. Process user profiles (farm owners)
+    // 1. Process user profiles (farm owners only - excluding staff)
     rawProfiles.forEach((p: any) => {
+      const pEmail = (p.email || "").toLowerCase().trim();
+      const pRole = (p.role || "").toLowerCase().trim();
+      if (pRole === "staff" || pRole === "staff member" || staffEmails.has(pEmail)) {
+        return;
+      }
+
       const userFarms = rawFarms.filter((f: any) => f.user_id === p.id);
       const farmCount = Math.max(userFarms.length, 1);
       const farmName = p.farm_name || userFarms[0]?.name || "Primary Farm";
 
       const local = existingLocal.find(
-        x => x.id === p.id || (x.email && x.email.toLowerCase() === (p.email || "").toLowerCase())
+        x => x.id === p.id || (x.email && x.email.toLowerCase() === pEmail)
       );
 
       const hasPaid = Boolean(
@@ -130,47 +147,9 @@ export async function fetchLiveAdminUsers(): Promise<{
       dbUsers.push(u);
     });
 
-    // 2. Process staff members (include staff with logins/emails)
     const existingEmails = new Set(dbUsers.map(u => (u.email || "").toLowerCase().trim()));
-    rawStaff.forEach((s: any) => {
-      const sEmail = (s.email || "").toLowerCase().trim();
-      if (!sEmail || existingEmails.has(sEmail)) return;
-      existingEmails.add(sEmail);
 
-      const ownerFarm = rawFarms.find((f: any) => f.id === s.farms?.[0]) || rawFarms.find((f: any) => f.user_id === s.user_id);
-      const ownerProfile = rawProfiles.find((p: any) => p.id === s.user_id);
-      const farmName = ownerFarm?.name || ownerProfile?.farm_name || "Assigned Farm";
-
-      const local = existingLocal.find(
-        x => x.id === s.id || (x.email && x.email.toLowerCase() === sEmail)
-      );
-
-      const u: AdminUser = {
-        id: s.id || s.staff_auth_id || crypto.randomUUID(),
-        name: s.name || sEmail.split("@")[0],
-        email: sEmail,
-        farmName: farmName,
-        phone: s.phone || local?.phone || "",
-        city: local?.city || "Lagos",
-        state: local?.state || "Lagos",
-        country: local?.country || "Nigeria",
-        role: s.role || "Staff Member",
-        activePlan: "Starter",
-        trialStartDate: null,
-        billingFrequency: "monthly",
-        subscriptionAmount: null,
-        subscriptionStatus: "Active",
-        subscriptionStart: s.created_at ? s.created_at.slice(0, 10) : null,
-        subscriptionExpiry: null,
-        accountStatus: (s.status === "Active" && local?.accountStatus !== "Suspended") ? "Active" : "Suspended",
-        freeAccess: true,
-        farmCount: (s.farms && s.farms.length) ? s.farms.length : 1,
-        createdAt: s.created_at ? s.created_at.slice(0, 10) : (local?.createdAt || new Date().toISOString().slice(0, 10)),
-      };
-      dbUsers.push(u);
-    });
-
-    // 3. Scan localStorage for any cached profiles
+    // 2. Scan localStorage for any cached profiles (farm owners only)
     try {
       Object.keys(localStorage).forEach(key => {
         if (key.endsWith("_user_profile") || key === "pondtora_user_profile") {
@@ -178,9 +157,10 @@ export async function fetchLiveAdminUsers(): Promise<{
             const raw = localStorage.getItem(key);
             if (raw) {
               const prof = JSON.parse(raw);
-              if (prof?.email) {
+              const profRole = (prof?.role || "").toLowerCase().trim();
+              if (prof?.email && profRole !== "staff" && profRole !== "staff member") {
                 const em = prof.email.toLowerCase().trim();
-                if (!existingEmails.has(em)) {
+                if (!existingEmails.has(em) && !staffEmails.has(em)) {
                   existingEmails.add(em);
                   const uObj = syncUserProfileToAdmin(prof);
                   if (uObj) dbUsers.push(uObj);
@@ -194,12 +174,17 @@ export async function fetchLiveAdminUsers(): Promise<{
 
     const dbIds = new Set(dbUsers.map(u => u.id));
     const extraLocal = existingLocal.filter(
-      u => !isDummyUser(u) && !dbIds.has(u.id) && !existingEmails.has((u.email || "").toLowerCase().trim())
+      u => !isDummyUser(u) &&
+           !dbIds.has(u.id) &&
+           !existingEmails.has((u.email || "").toLowerCase().trim()) &&
+           (u.role || "").toLowerCase() !== "staff" &&
+           (u.role || "").toLowerCase() !== "staff member" &&
+           !staffEmails.has((u.email || "").toLowerCase().trim())
     );
 
     const finalUsers = [...dbUsers, ...extraLocal];
     saveAllAdminUsers(finalUsers);
-    return { users: finalUsers, isLiveFromDb: rawProfiles.length > 0 || rawStaff.length > 0, count: finalUsers.length };
+    return { users: finalUsers, isLiveFromDb: rawProfiles.length > 0, count: finalUsers.length };
   } catch (err) {
     console.warn("fetchLiveAdminUsers error:", err);
     const cleanLocal = loadAllAdminUsers();
@@ -288,6 +273,8 @@ export function syncUserProfileToAdmin(
   farmCount: number = 1
 ): AdminUser | null {
   if (!profile || !profile.email) return null;
+  const profRole = (profile.role || "").toLowerCase().trim();
+  if (profRole === "staff" || profRole === "staff member") return null;
 
   const targetEmail = (profile.email || "").trim().toLowerCase();
   if (!targetEmail) return null;

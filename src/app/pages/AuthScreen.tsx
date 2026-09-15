@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from "react";
-import { CheckCircle, ChevronLeft, Loader2, AlertCircle, Eye, EyeOff, Mail, Check, Sparkles, Fish } from "lucide-react";
+import { CheckCircle, ChevronLeft, Loader2, AlertCircle, Eye, EyeOff, Mail, Check, Sparkles, Fish, ArrowRight, ShieldCheck, RefreshCw, ExternalLink } from "lucide-react";
 import { toast } from "sonner";
 import pondtoraLogo from "../../imports/loo-2.svg";
 import type { UserProfile } from "../types";
 import { COUNTRIES, DIAL_CODES, FLAG_EMOJI, COUNTRY_CURRENCIES } from "../data";
 import { SearchableCountrySelect } from "../shared";
 import { supabase } from "../../lib/supabase";
-import { auth } from "../../lib/api";
+import { auth, api } from "../../lib/api";
 import { useDynamicPlans, yearlyPrice, EVERY_PLAN_INCLUDES } from "../pricingData";
 
 const AIC = "w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg bg-white text-slate-900 placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-green-300 transition";
@@ -65,39 +65,88 @@ function AuthScreen({
   onLogin: (profile: UserProfile) => void;
   onSignup: (profile: UserProfile) => void;
   onAdmin?: () => void;
-  initialView?: "login" | "create";
+  initialView?: "login" | "create" | "recovery" | "invite";
 }) {
   const [view, setView] = useState<ViewType>(initialView);
 
-  // Detect URL search/hash for invite / recovery flows on mount + listen for PASSWORD_RECOVERY
+  // ── Email Verification Popup State ─────────────────────────────────────────
+  const [showVerifiedModal, setShowVerifiedModal] = useState(false);
+  const [verifiedEmail, setVerifiedEmail] = useState("");
+  const [verificationError, setVerificationError] = useState<string | null>(null);
+  const [verifyingSession, setVerifyingSession] = useState(false);
+
+  // Detect URL search/hash for email verification / invite / recovery flows on mount + listen for PASSWORD_RECOVERY
   useEffect(() => {
     if (typeof window !== "undefined") {
-      // 1. Check query parameters (e.g. ?type=recovery)
       const searchParams = new URLSearchParams(window.location.search);
-      const searchType = searchParams.get("type");
-      if (searchType === "recovery") {
-        setView("recovery");
+      const hash = window.location.hash;
+      const hashParams = new URLSearchParams(hash.startsWith("#") ? hash.slice(1) : hash);
+
+      // 1. Check for error parameters returned from Supabase Auth redirects
+      const errorDesc = searchParams.get("error_description") || hashParams.get("error_description");
+      const errCode = searchParams.get("error_code") || hashParams.get("error_code") || searchParams.get("error") || hashParams.get("error");
+      if (errorDesc || errCode) {
+        const decoded = errorDesc ? decodeURIComponent(errorDesc.replace(/\+/g, " ")) : "Verification or access link is invalid or has expired.";
+        setVerificationError(decoded);
+        setShowVerifiedModal(true);
       }
 
-      // 2. Check URL hash (e.g. #type=recovery or #type=invite)
-      const hash = window.location.hash;
-      if (hash) {
-        const hashParams = new URLSearchParams(hash.slice(1));
-        const hashType = hashParams.get("type");
-        if (hashType === "invite") {
-          setView("invite");
-        } else if (hashType === "recovery") {
-          setView("recovery");
+      // 2. Check query/hash parameters for email verification confirmation
+      const isVerified =
+        searchParams.get("verified") === "true" ||
+        searchParams.get("type") === "signup" ||
+        searchParams.get("type") === "email_confirmation" ||
+        hashParams.get("type") === "signup" ||
+        hashParams.get("type") === "email_confirmation";
+
+      if (isVerified && !errorDesc && !errCode) {
+        setShowVerifiedModal(true);
+        supabase.auth.getSession().then(({ data: { session } }) => {
+          if (session?.user?.email) {
+            setVerifiedEmail(session.user.email);
+          }
+        });
+      }
+
+      // 3. Check query/hash parameters for staff invitation flow
+      const isInvite = searchParams.get("type") === "invite" || hashParams.get("type") === "invite";
+      if (isInvite) {
+        setView("invite");
+        const paramEmail = searchParams.get("email") || hashParams.get("email");
+        if (paramEmail) {
+          setUnconfirmedEmail(paramEmail);
         }
+        supabase.auth.getSession().then(({ data: { session } }) => {
+          if (session?.user?.email) {
+            setUnconfirmedEmail(session.user.email);
+            if (session.user.user_metadata?.name) {
+              setInvName(session.user.user_metadata.name);
+            }
+          }
+        });
+      }
+
+      // 4. Check query/hash parameters for password recovery
+      const isRecovery = searchParams.get("type") === "recovery" || hashParams.get("type") === "recovery";
+      if (isRecovery) {
+        setView("recovery");
       }
     }
 
-    // 3. Supabase Auth state listener for PASSWORD_RECOVERY event
+    // 5. Supabase Auth state listener for PASSWORD_RECOVERY and SIGNED_IN confirmation
     let subRes: any;
     try {
-      subRes = supabase.auth.onAuthStateChange((event) => {
+      subRes = supabase.auth.onAuthStateChange((event, session) => {
         if (event === "PASSWORD_RECOVERY") {
           setView("recovery");
+        } else if (event === "SIGNED_IN" && session?.user?.email_confirmed_at) {
+          // If URL indicated verification, track the confirmed email
+          const sp = new URLSearchParams(window.location.search);
+          const hp = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+          if (sp.get("verified") === "true" || sp.get("type") === "signup" || hp.get("type") === "signup") {
+            setVerifiedEmail(session.user.email || "");
+            setShowVerifiedModal(true);
+          }
         }
       });
     } catch {}
@@ -178,6 +227,7 @@ function AuthScreen({
   const [cCity, setCCity] = useState("");
   const [cErr, setCErr] = useState("");
   const [cLoading, setCLoading] = useState(false);
+  const [checkingEmail, setCheckingEmail] = useState(false);
   const [cAgreed, setCAgreed] = useState(false);
   const [showCPass, setShowCPass] = useState(false);
   const [signupSent, setSignupSent] = useState(false);
@@ -259,11 +309,16 @@ function AuthScreen({
   };
 
   // ── Step 1: Validate Details and advance to Plan Selection ───────────────
-  const handleProceedToPlan = (e: React.FormEvent) => {
+  const handleProceedToPlan = async (e: React.FormEvent) => {
     e.preventDefault();
     setCErr("");
     if (!cName.trim() || !cEmail.trim() || !cPass.trim() || !cFarm.trim()) {
       setCErr("Please fill in all required fields.");
+      return;
+    }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(cEmail.trim())) {
+      setCErr("Please enter a valid email address.");
       return;
     }
     if (!cAgreed) {
@@ -274,6 +329,20 @@ function AuthScreen({
       setCErr("Password must be at least 6 characters.");
       return;
     }
+
+    setCheckingEmail(true);
+    try {
+      const check = await api.staff.checkEmailExists(cEmail.trim().toLowerCase());
+      if (check.exists) {
+        setCErr("An account with this email address already exists. Please sign in.");
+        return;
+      }
+    } catch {
+      // Fallback: proceed and let Supabase auth enforce duplicate prevention
+    } finally {
+      setCheckingEmail(false);
+    }
+
     setCreateStep("plan");
   };
 
@@ -298,6 +367,11 @@ function AuthScreen({
         activePlan: planName,
         planBilling: trialBilling,
       });
+
+      // Check if user already exists (Supabase returns empty identities array when user exists and email confirmation is on)
+      if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
+        throw new Error("An account with this email address already exists. Please sign in.");
+      }
 
       // Strict enforcement: only auto-login if email is confirmed
       if (data.session && data.user?.email_confirmed_at) {
@@ -386,7 +460,45 @@ function AuthScreen({
     }
   };
 
-  // ── Invite → staff sets their own password ─────────────────────────────────
+  // ── Go to App from Verification Modal ──────────────────────────────────────
+  const handleGoToApp = async () => {
+    setVerifyingSession(true);
+    try {
+      if (typeof window !== "undefined") {
+        window.history.replaceState(null, "", window.location.pathname);
+      }
+      setShowVerifiedModal(false);
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        const user = session.user;
+        const meta = user.user_metadata ?? {};
+        const profile: UserProfile = {
+          id: user.id,
+          name: meta.name ?? user.email?.split("@")[0] ?? "User",
+          farmName: meta.farm_name ?? "",
+          city: meta.city ?? "",
+          state: meta.state ?? "",
+          country: meta.country ?? "Nigeria",
+          email: user.email ?? "",
+          phone: meta.phone ?? "",
+          currencySymbol: meta.currency_symbol ?? "₦",
+          currencyCode: meta.currency_code ?? "NGN",
+          activePlan: meta.active_plan,
+          trialStartDate: meta.trial_start_date,
+        };
+        onLogin(profile);
+      } else {
+        setView("login");
+        toast.success("Account verified! Please sign in with your credentials.");
+      }
+    } catch (e: any) {
+      setView("login");
+    } finally {
+      setVerifyingSession(false);
+    }
+  };
+
+  // ── Invite → staff sets their own password and immediately logs in ────────
   const handleInvite = async (e: React.FormEvent) => {
     e.preventDefault();
     setInvErr("");
@@ -395,17 +507,50 @@ function AuthScreen({
     if (invPass.length < 6) { setInvErr("Password must be at least 6 characters."); return; }
     setInvLoading(true);
     try {
-      // Supabase already has a session established from the invite hash
+      // Supabase already has a session established from the invite hash/OTP
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) throw new Error("Invitation link is invalid or has expired.");
+      if (!session) throw new Error("Invitation link is invalid or has expired. Please ask your farm administrator for a new invite.");
 
       const updateData = invName.trim()
         ? { password: invPass, data: { name: invName.trim() } }
         : { password: invPass };
-      const { error } = await supabase.auth.updateUser(updateData);
+      const { data: updated, error } = await supabase.auth.updateUser(updateData);
       if (error) throw error;
 
-      setInvDone(true);
+      const user = updated.user || session.user;
+      const meta = user.user_metadata ?? {};
+      const userEmail = (user.email || "").trim().toLowerCase();
+
+      // Mark staff member status as Active in database
+      try {
+        await supabase
+          .from("staff_members")
+          .update({ status: "Active" })
+          .ilike("email", userEmail);
+      } catch (err) {
+        console.warn("Could not mark staff as Active in staff_members table:", err);
+      }
+
+      if (typeof window !== "undefined") {
+        window.history.replaceState(null, "", window.location.pathname);
+      }
+
+      toast.success("Password set successfully! Welcome to Pondtora.");
+
+      const profile: UserProfile = {
+        id: user.id,
+        name: invName.trim() || meta.name || userEmail.split("@")[0] || "Staff",
+        farmName: meta.farm_name ?? "",
+        city: meta.city ?? "",
+        state: meta.state ?? "",
+        country: meta.country ?? "Nigeria",
+        email: userEmail,
+        phone: meta.phone ?? "",
+        currencySymbol: meta.currency_symbol ?? "₦",
+        currencyCode: meta.currency_code ?? "NGN",
+        role: "staff",
+      };
+      onLogin(profile);
     } catch (err: any) {
       setInvErr(err?.message ?? "Failed to accept invitation. The link may have expired.");
     } finally {
@@ -539,7 +684,29 @@ function AuthScreen({
             <form onSubmit={handleProceedToPlan} className="space-y-3">
               <div className="grid grid-cols-2 gap-3">
                 <div><label className={LBL}>Full Name *</label><input className={AIC} placeholder="Jane Doe" value={cName} onChange={e => setCName(e.target.value)} /></div>
-                <div><label className={LBL}>Email *</label><input type="email" className={AIC} placeholder="you@example.com" value={cEmail} onChange={e => setCEmail(e.target.value)} /></div>
+                <div>
+                  <label className={LBL}>Email *</label>
+                  <input
+                    type="email"
+                    className={AIC}
+                    placeholder="you@example.com"
+                    value={cEmail}
+                    onChange={e => {
+                      setCEmail(e.target.value);
+                      if (cErr) setCErr("");
+                    }}
+                    onBlur={async () => {
+                      if (cEmail.trim() && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cEmail.trim())) {
+                        try {
+                          const res = await api.staff.checkEmailExists(cEmail.trim().toLowerCase());
+                          if (res.exists) {
+                            setCErr("An account with this email address already exists. Please sign in.");
+                          }
+                        } catch {}
+                      }
+                    }}
+                  />
+                </div>
               </div>
               <div>
                 <label className={LBL}>Password *</label>
@@ -570,8 +737,19 @@ function AuthScreen({
                 <span className="text-xs text-slate-500 leading-relaxed">I agree to the <button type="button" onClick={() => setView("terms")} className="text-green-600 hover:text-green-800 font-semibold underline">Terms and Conditions</button></span>
               </label>
               {cErr && <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2 flex items-center gap-2"><AlertCircle size={13} />{cErr}</p>}
-              <button type="submit" className="w-full py-2.5 bg-green-600 hover:bg-green-700 text-white text-sm font-bold rounded-lg transition-colors mt-1 flex items-center justify-center gap-2">
-                Continue to Select Plan →
+              <button
+                type="submit"
+                disabled={checkingEmail}
+                className="w-full py-2.5 bg-green-600 hover:bg-green-700 disabled:opacity-60 text-white text-sm font-bold rounded-lg transition-colors mt-1 flex items-center justify-center gap-2 cursor-pointer"
+              >
+                {checkingEmail ? (
+                  <>
+                    <Loader2 size={16} className="animate-spin" />
+                    <span>Checking email…</span>
+                  </>
+                ) : (
+                  <span>Continue to Select Plan →</span>
+                )}
               </button>
               <button type="button" onClick={() => setView("login")} className="w-full text-center text-xs text-slate-400 hover:text-slate-600 pt-1">Already have an account? Sign in</button>
             </form>
@@ -924,7 +1102,18 @@ function AuthScreen({
                     We sent a reset link to <span className="font-semibold text-slate-600">{fEmail}</span>. Click the link to set a new password.
                   </p>
                 </div>
-                <button type="button" onClick={() => setView("login")} className="w-full text-center text-xs text-green-600 hover:text-green-800 font-semibold">Back to sign in</button>
+                <div className="space-y-2 pt-1">
+                  <a
+                    href="https://mail.google.com"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-full py-2.5 bg-green-600 hover:bg-green-700 text-white text-xs sm:text-sm font-bold rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer shadow-sm hover:shadow-md"
+                  >
+                    <span>Open Gmail</span>
+                    <ExternalLink size={14} />
+                  </a>
+                  <button type="button" onClick={() => setView("login")} className="w-full text-center text-xs text-slate-400 hover:text-slate-600 pt-1">Back to sign in</button>
+                </div>
               </div>
             )
           )}
@@ -987,13 +1176,91 @@ function AuthScreen({
               </div>
               {invErr && <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2 flex items-center gap-2"><AlertCircle size={13} />{invErr}</p>}
               <button type="submit" disabled={invLoading} className="w-full py-2.5 bg-green-600 hover:bg-green-700 disabled:opacity-60 text-white text-sm font-bold rounded-lg transition-colors flex items-center justify-center gap-2">
-                {invLoading ? <><Loader2 size={15} className="animate-spin" /> Activating…</> : "Activate My Account"}
+                {invLoading ? <><Loader2 size={15} className="animate-spin" /> Setting Password…</> : <><span>Set Password & Enter App</span><ArrowRight size={15} /></>}
               </button>
             </form>
           )}
         </div>
         <p className="text-[11px] text-slate-300 mt-4 text-center">© 2026 Pondtora · All rights reserved</p>
       </div>
+
+      {/* ── Email Verified Popup Modal ── */}
+      {showVerifiedModal && (
+        <div className="fixed inset-0 z-[120] bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4 font-['Barlow',sans-serif]">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 sm:p-8 text-center shadow-2xl border border-slate-100 animate-in fade-in zoom-in-95 duration-200">
+            {verificationError ? (
+              <>
+                <div className="w-16 h-16 rounded-2xl bg-red-50 border-2 border-red-200 text-red-600 flex items-center justify-center mx-auto mb-4">
+                  <AlertCircle size={32} />
+                </div>
+                <h2 className="text-2xl font-bold font-['Barlow_Condensed',sans-serif] text-slate-900">
+                  Verification Notice
+                </h2>
+                <p className="text-xs sm:text-sm text-slate-500 mt-2 leading-relaxed">
+                  {verificationError}
+                </p>
+                <div className="mt-6 space-y-2">
+                  <button
+                    onClick={() => {
+                      if (typeof window !== "undefined") window.history.replaceState(null, "", window.location.pathname);
+                      setShowVerifiedModal(false);
+                      setVerificationError(null);
+                      setView("login");
+                    }}
+                    className="w-full py-2.5 px-4 bg-slate-900 hover:bg-slate-800 text-white font-bold text-xs sm:text-sm rounded-xl transition-all cursor-pointer"
+                  >
+                    Go to Sign In
+                  </button>
+                  {unconfirmedEmail && (
+                    <button
+                      onClick={() => {
+                        setShowVerifiedModal(false);
+                        setVerificationError(null);
+                        handleResendConfirmation(unconfirmedEmail);
+                      }}
+                      className="w-full py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs sm:text-sm rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer"
+                    >
+                      <RefreshCw size={14} /> Resend Confirmation Email
+                    </button>
+                  )}
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="w-16 h-16 rounded-2xl bg-emerald-50 border-2 border-emerald-200 text-emerald-600 flex items-center justify-center mx-auto mb-4 shadow-sm">
+                  <CheckCircle size={34} className="text-green-500" />
+                </div>
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-[11px] font-bold uppercase tracking-wider mb-2">
+                  <Sparkles size={12} /> Email Verified
+                </div>
+                <h2 className="text-2xl font-extrabold font-['Barlow_Condensed',sans-serif] text-slate-900">
+                  Account Verified Successfully!
+                </h2>
+                <p className="text-xs sm:text-sm text-slate-500 mt-2 leading-relaxed">
+                  Your email address {verifiedEmail ? <strong className="text-slate-800">({verifiedEmail})</strong> : ""} has been confirmed. Your Pondtora account is now active and ready.
+                </p>
+                <div className="my-5 p-3.5 bg-slate-50 border border-slate-200/80 rounded-2xl text-left space-y-2">
+                  <div className="flex items-center gap-2 text-xs text-slate-700">
+                    <ShieldCheck size={15} className="text-green-600 shrink-0" />
+                    <span>Secure aquaculture management unlocked</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs text-slate-700">
+                    <Check size={15} className="text-green-600 shrink-0" />
+                    <span>Real-time farm sync & reporting active</span>
+                  </div>
+                </div>
+                <button
+                  onClick={handleGoToApp}
+                  disabled={verifyingSession}
+                  className="w-full py-3 px-4 bg-green-600 hover:bg-green-700 text-white font-bold text-sm rounded-xl transition-all shadow-md shadow-green-600/25 flex items-center justify-center gap-2 disabled:opacity-60 cursor-pointer"
+                >
+                  {verifyingSession ? <Loader2 size={16} className="animate-spin" /> : <><span>Go to Pondtora App</span><ArrowRight size={16} /></>}
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
