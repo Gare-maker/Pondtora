@@ -3012,31 +3012,67 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   useEffect(()=>{const h=(e:MouseEvent)=>{if(mFarmRef.current&&!mFarmRef.current.contains(e.target as Node))setMFarmOpen(false);};document.addEventListener("mousedown",h);return()=>document.removeEventListener("mousedown",h);},[]);
   useEffect(()=>{const h=(e:KeyboardEvent)=>{if(e.key==="Escape")setMFarmOpen(false);};document.addEventListener("keydown",h);return()=>document.removeEventListener("keydown",h);},[]);
   
-  const [farms,setFarms]=useState<Farm[]>([]);
-  const [activeFarmId,setActiveFarmId]=useState<string>("");
+  const initialUid = typeof window !== "undefined" ? loadLocal("pondtora_user_profile", null)?.id : null;
+  const readInit = <T,>(key: string, cacheProp: string, fallback: T): T => {
+    if (!initialUid) return fallback;
+    const direct = loadLocal(`pondtora_${initialUid}_${key}`, null);
+    if (direct !== null && (Array.isArray(direct) ? direct.length > 0 : true)) return direct;
+    try {
+      const rawCache = localStorage.getItem(`pondtora_${initialUid}_cache`);
+      if (rawCache) {
+        const parsed = JSON.parse(rawCache);
+        if (parsed && parsed[cacheProp] !== undefined && (Array.isArray(parsed[cacheProp]) ? parsed[cacheProp].length > 0 : true)) {
+          return parsed[cacheProp];
+        }
+      }
+    } catch {}
+    return direct ?? fallback;
+  };
+
+  const isDataLoadedRef = useRef(false);
+
+  const loadUserLocal = useCallback(<T,>(uid: string | undefined | null, key: string, cacheProp: string, fallback: T): T => {
+    const targetUid = uid || userProfile?.id || initialUid;
+    if (!targetUid) return fallback;
+    const direct = loadLocal(`pondtora_${targetUid}_${key}`, null);
+    if (direct !== null && (Array.isArray(direct) ? direct.length > 0 : true)) return direct;
+    try {
+      const rawCache = localStorage.getItem(`pondtora_${targetUid}_cache`);
+      if (rawCache) {
+        const parsed = JSON.parse(rawCache);
+        if (parsed && parsed[cacheProp] !== undefined && (Array.isArray(parsed[cacheProp]) ? parsed[cacheProp].length > 0 : true)) {
+          return parsed[cacheProp];
+        }
+      }
+    } catch {}
+    return direct ?? fallback;
+  }, [userProfile?.id, initialUid]);
+
+  const [farms,setFarms]=useState<Farm[]>(()=>readInit("farms","farms",[]));
+  const [activeFarmId,setActiveFarmId]=useState<string>(()=>initialUid?(localStorage.getItem(`pondtora_${initialUid}_active_farm_id`)||""): "");
   const [showAddFarm,setShowAddFarm]=useState(false);
   const [addFarmF,setAddFarmF]=useState({name:"",city:"",state:"",country:"Nigeria"});
   
-  const [ponds,setPonds]=useState<Pond[]>([]);
-  const [inventory,setInventory]=useState<FeedItem[]>([]);
-  const [feeding,setFeeding]=useState<FeedingRecord[]>([]);
-  const [bagLogs,setBagLogs]=useState<BagOpenLog[]>([]);
-  const [remainLogs,setRemainLogs]=useState<FeedRemainingLog[]>([]);
-  const [expenses,setExpenses]=useState<Expense[]>([]);
-  const [revenues,setRevenues]=useState<Revenue[]>([]);
-  const [mortality,setMortality]=useState<MortalityEntry[]>([]);
-  const [treatments,setTreatments]=useState<TreatmentRecord[]>([]);
-  const [staff,setStaff]=useState<StaffMember[]>([]);
-  const [stockEvents,setStockEvents]=useState<StockEvent[]>([]);
-  const [reports,setReports]=useState<Report[]>([]);
-  const [customers,setCustomers]=useState<Customer[]>([]);
-  const [priceGroups,setPriceGroups]=useState<PriceGroup[]>([]);
-  const [invoices,setInvoices]=useState<Invoice[]>([]);
-  const [invSettings,setInvSettings]=useState<InvSettings>(INIT_INV_SETTINGS);
-  const [investors,setInvestors]=useState<Investor[]>([]);
-  const [investments,setInvestments]=useState<Investment[]>([]);
-  const [investmentPayments,setInvestmentPayments]=useState<InvestmentPayment[]>([]);
-  const [pondReports,setPondReports]=useState<PondReport[]>([]);
+  const [ponds,setPonds]=useState<Pond[]>(()=>readInit("ponds","ponds",[]));
+  const [inventory,setInventory]=useState<FeedItem[]>(()=>readInit("inventory","feedInventory",[]));
+  const [feeding,setFeeding]=useState<FeedingRecord[]>(()=>readInit("feeding","feedingRecords",[]));
+  const [bagLogs,setBagLogs]=useState<BagOpenLog[]>(()=>readInit("bag_logs","bagOpenLogs",[]));
+  const [remainLogs,setRemainLogs]=useState<FeedRemainingLog[]>(()=>readInit("remain_logs","feedRemainingLogs",[]));
+  const [expenses,setExpenses]=useState<Expense[]>(()=>readInit("expenses","expenses",[]));
+  const [revenues,setRevenues]=useState<Revenue[]>(()=>readInit("revenues","revenues",[]));
+  const [mortality,setMortality]=useState<MortalityEntry[]>(()=>readInit("mortality","mortalityEntries",[]));
+  const [treatments,setTreatments]=useState<TreatmentRecord[]>(()=>readInit("treatments","treatmentRecords",[]));
+  const [staff,setStaff]=useState<StaffMember[]>(()=>readInit("staff","staffMembers",[]));
+  const [stockEvents,setStockEvents]=useState<StockEvent[]>(()=>readInit("stock_events","stockEvents",[]));
+  const [reports,setReports]=useState<Report[]>(()=>readInit("reports","reports",[]));
+  const [customers,setCustomers]=useState<Customer[]>(()=>readInit("customers","customers",[]));
+  const [priceGroups,setPriceGroups]=useState<PriceGroup[]>(()=>readInit("price_groups","priceGroups",[]));
+  const [invoices,setInvoices]=useState<Invoice[]>(()=>readInit("invoices","invoices",[]));
+  const [invSettings,setInvSettings]=useState<InvSettings>(()=>readInit("inv_settings","invoiceSettings",INIT_INV_SETTINGS));
+  const [investors,setInvestors]=useState<Investor[]>(()=>readInit("investors","investors",[]));
+  const [investments,setInvestments]=useState<Investment[]>(()=>readInit("investments","investments",[]));
+  const [investmentPayments,setInvestmentPayments]=useState<InvestmentPayment[]>(()=>readInit("investment_payments","investmentPayments",[]));
+  const [pondReports,setPondReports]=useState<PondReport[]>(()=>readInit("pond_reports","pondReports",[]));
 
   const [kQuestionsState,setKQuestions_]=useState<any[]>(()=>loadLocal("pondtora_k_questions",INIT_K));
   const [cQuestionsState,setCQuestions_]=useState<any[]>(()=>loadLocal("pondtora_c_questions",INIT_C));
@@ -3049,41 +3085,68 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   useEffect(()=>{
     if(userProfile?.id){
       saveLocal(`pondtora_${userProfile.id}_user_profile`,userProfile);
-      saveLocal(`pondtora_${userProfile.id}_farms`,farms);
+      if (isDataLoadedRef.current || farms.length > 0) saveLocal(`pondtora_${userProfile.id}_farms`,farms);
       if(activeFarmId)localStorage.setItem(`pondtora_${userProfile.id}_active_farm_id`,activeFarmId);
-      saveLocal(`pondtora_${userProfile.id}_ponds`,ponds);
-      saveLocal(`pondtora_${userProfile.id}_inventory`,inventory);
-      saveLocal(`pondtora_${userProfile.id}_feeding`,feeding);
-      saveLocal(`pondtora_${userProfile.id}_bag_logs`,bagLogs);
-      saveLocal(`pondtora_${userProfile.id}_remain_logs`,remainLogs);
-      saveLocal(`pondtora_${userProfile.id}_expenses`,expenses);
-      saveLocal(`pondtora_${userProfile.id}_revenues`,revenues);
-      saveLocal(`pondtora_${userProfile.id}_mortality`,mortality);
-      saveLocal(`pondtora_${userProfile.id}_treatments`,treatments);
-      saveLocal(`pondtora_${userProfile.id}_staff`,staff);
-      saveLocal(`pondtora_${userProfile.id}_stock_events`,stockEvents);
-      saveLocal(`pondtora_${userProfile.id}_reports`,reports);
-      saveLocal(`pondtora_${userProfile.id}_customers`,customers);
-      saveLocal(`pondtora_${userProfile.id}_price_groups`,priceGroups);
-      saveLocal(`pondtora_${userProfile.id}_invoices`,invoices);
+      if (isDataLoadedRef.current || ponds.length > 0) saveLocal(`pondtora_${userProfile.id}_ponds`,ponds);
+      if (isDataLoadedRef.current || inventory.length > 0) saveLocal(`pondtora_${userProfile.id}_inventory`,inventory);
+      if (isDataLoadedRef.current || feeding.length > 0) saveLocal(`pondtora_${userProfile.id}_feeding`,feeding);
+      if (isDataLoadedRef.current || bagLogs.length > 0) saveLocal(`pondtora_${userProfile.id}_bag_logs`,bagLogs);
+      if (isDataLoadedRef.current || remainLogs.length > 0) saveLocal(`pondtora_${userProfile.id}_remain_logs`,remainLogs);
+      if (isDataLoadedRef.current || expenses.length > 0) saveLocal(`pondtora_${userProfile.id}_expenses`,expenses);
+      if (isDataLoadedRef.current || revenues.length > 0) saveLocal(`pondtora_${userProfile.id}_revenues`,revenues);
+      if (isDataLoadedRef.current || mortality.length > 0) saveLocal(`pondtora_${userProfile.id}_mortality`,mortality);
+      if (isDataLoadedRef.current || treatments.length > 0) saveLocal(`pondtora_${userProfile.id}_treatments`,treatments);
+      if (isDataLoadedRef.current || staff.length > 0) saveLocal(`pondtora_${userProfile.id}_staff`,staff);
+      if (isDataLoadedRef.current || stockEvents.length > 0) saveLocal(`pondtora_${userProfile.id}_stock_events`,stockEvents);
+      if (isDataLoadedRef.current || reports.length > 0) saveLocal(`pondtora_${userProfile.id}_reports`,reports);
+      if (isDataLoadedRef.current || customers.length > 0) saveLocal(`pondtora_${userProfile.id}_customers`,customers);
+      if (isDataLoadedRef.current || priceGroups.length > 0) saveLocal(`pondtora_${userProfile.id}_price_groups`,priceGroups);
+      if (isDataLoadedRef.current || invoices.length > 0) saveLocal(`pondtora_${userProfile.id}_invoices`,invoices);
       saveLocal(`pondtora_${userProfile.id}_inv_settings`,invSettings);
-      saveLocal(`pondtora_${userProfile.id}_investors`,investors);
-      saveLocal(`pondtora_${userProfile.id}_investments`,investments);
-      saveLocal(`pondtora_${userProfile.id}_investment_payments`,investmentPayments);
-      saveLocal(`pondtora_${userProfile.id}_pond_reports`,pondReports);
+      if (isDataLoadedRef.current || investors.length > 0) saveLocal(`pondtora_${userProfile.id}_investors`,investors);
+      if (isDataLoadedRef.current || investments.length > 0) saveLocal(`pondtora_${userProfile.id}_investments`,investments);
+      if (isDataLoadedRef.current || investmentPayments.length > 0) saveLocal(`pondtora_${userProfile.id}_investment_payments`,investmentPayments);
+      if (isDataLoadedRef.current || pondReports.length > 0) saveLocal(`pondtora_${userProfile.id}_pond_reports`,pondReports);
     }
   },[userProfile,farms,activeFarmId,ponds,inventory,feeding,bagLogs,remainLogs,expenses,revenues,mortality,treatments,staff,stockEvents,reports,customers,priceGroups,invoices,invSettings,investors,investments,investmentPayments,pondReports]);
 
   useEffect(()=>{
-    if(farms.length>0&&(!activeFarmId||!farms.some(f=>f.id===activeFarmId))){
-      const target=farms[0].id;
-      setActiveFarmId(target);
-      if(userProfile?.id){
-        localStorage.setItem(`pondtora_${userProfile.id}_active_farm_id`,target);
-        api.farms.syncActiveFarm(target);
+    if(farms.length>0){
+      const currentValid = activeFarmId && farms.some(f => f.id === activeFarmId);
+      const activePondCount = currentValid ? ponds.filter(p => p.farmId === activeFarmId).length : 0;
+      if (!currentValid || (activePondCount === 0 && ponds.length > 0)) {
+        const farmPondCounts = new Map<string, number>();
+        ponds.forEach(p => {
+          if (p.farmId) farmPondCounts.set(p.farmId, (farmPondCounts.get(p.farmId) || 0) + 1);
+        });
+        let bestFarm = farms[0];
+        let bestCount = farmPondCounts.get(bestFarm.id) || 0;
+        for (const f of farms) {
+          const count = farmPondCounts.get(f.id) || 0;
+          if (count > bestCount) {
+            bestFarm = f;
+            bestCount = count;
+          }
+        }
+        if (bestFarm && bestFarm.id !== activeFarmId) {
+          setActiveFarmId(bestFarm.id);
+          if (userProfile?.id) {
+            localStorage.setItem(`pondtora_${userProfile.id}_active_farm_id`, bestFarm.id);
+            api.farms.syncActiveFarm(bestFarm.id);
+          }
+          return;
+        }
+      }
+      if (!currentValid) {
+        const target = farms[0].id;
+        setActiveFarmId(target);
+        if(userProfile?.id){
+          localStorage.setItem(`pondtora_${userProfile.id}_active_farm_id`, target);
+          api.farms.syncActiveFarm(target);
+        }
       }
     }
-  },[farms,activeFarmId,userProfile?.id]);
+  },[farms,activeFarmId,ponds,userProfile?.id]);
   /* ── Subscription state (global so limits apply everywhere) ── */
   const [activePlan,setActivePlan_]=useState<string|null>(()=>localStorage.getItem("pondtora_plan"));
   const [trialStartDate,setTrialStartDate_]=useState<string|null>(()=>localStorage.getItem("pondtora_trial_start"));
@@ -3682,18 +3745,23 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
 
   /* ── Apply backend authoritative data to state ── */
   const applyBackendData=useCallback((d:any)=>{
-    const rawFarms: Farm[] = d.farms || [];
+    if (!d) return;
+    isDataLoadedRef.current = true;
 
-    // Deduplicate farms:
-    // If the account has multiple farms on a 1-farm plan or has duplicate/generic names ("My Farm"),
-    // consolidate them under the primary farm and remap record farmIds so no data is lost.
+    const rawFarms: Farm[] = (d.farms && d.farms.length > 0)
+      ? d.farms
+      : (userProfile?.id ? loadUserLocal(userProfile.id, "farms", "farms", []) : []);
+
     let resolvedFarms = rawFarms;
     const isMultiFarmPlan = activePlan === "3-Farm Plan" || activePlan === "5-Farm Plan" || activePlan === "Unlimited Farms";
     const duplicateFarmIdMap = new Map<string, string>(); // maps duplicateFarmId -> primaryFarmId
 
+    const pondsData: Pond[] = (d.ponds && d.ponds.length > 0)
+      ? d.ponds
+      : (userProfile?.id ? loadUserLocal(userProfile.id, "ponds", "ponds", []) : []);
+
     if (rawFarms.length > 1 && !isMultiFarmPlan) {
       // Find farm with most ponds/records or earliest created
-      const pondsData: Pond[] = d.ponds || [];
       const farmPondCounts = new Map<string, number>();
       pondsData.forEach(p => {
         if (p.farmId) farmPondCounts.set(p.farmId, (farmPondCounts.get(p.farmId) || 0) + 1);
@@ -3734,24 +3802,45 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
 
     if (resolvedFarms.length > 0) {
       setFarms(resolvedFarms);
-      const primaryId = resolvedFarms[0].id;
+      // Smart active farm selection: pick the farm that actually contains ponds if current/stored has none
+      const farmPondCounts = new Map<string, number>();
+      pondsData.forEach(p => {
+        if (p.farmId) farmPondCounts.set(p.farmId, (farmPondCounts.get(p.farmId) || 0) + 1);
+      });
+
+      let defaultTarget = resolvedFarms[0].id;
+      let maxPonds = farmPondCounts.get(defaultTarget) || 0;
+      for (const f of resolvedFarms) {
+        const c = farmPondCounts.get(f.id) || 0;
+        if (c > maxPonds) {
+          defaultTarget = f.id;
+          maxPonds = c;
+        }
+      }
+
       setActiveFarmId(prev => {
-        if (prev && resolvedFarms.some(f => f.id === prev)) return prev;
+        if (prev && resolvedFarms.some(f => f.id === prev)) {
+          const prevCount = farmPondCounts.get(prev) || 0;
+          if (prevCount > 0 || maxPonds === 0) return prev;
+        }
         const stored = userProfile?.id ? localStorage.getItem(`pondtora_${userProfile.id}_active_farm_id`) : null;
-        if (stored && resolvedFarms.some(f => f.id === stored)) return stored;
-        return primaryId;
+        if (stored && resolvedFarms.some(f => f.id === stored)) {
+          const storedCount = farmPondCounts.get(stored) || 0;
+          if (storedCount > 0 || maxPonds === 0) return stored;
+        }
+        return defaultTarget;
       });
     } else if (userProfile?.id) {
-      setFarms([]);
-      setActiveFarmId("");
-      const farmName = userProfile.farmName || "My Farm";
-      api.farms.create({ name: farmName, country: userProfile.country || "Nigeria" }).then(nf => {
-        if (nf?.id) {
-          setFarms([nf]);
-          setActiveFarmId(nf.id);
-          api.farms.syncActiveFarm(nf.id);
-        }
-      }).catch(console.warn);
+      if (userProfile.role !== "staff" && !(userProfile as any).ownerId) {
+        const farmName = userProfile.farmName || "My Farm";
+        api.farms.create({ name: farmName, country: userProfile.country || "Nigeria" }).then(nf => {
+          if (nf?.id) {
+            setFarms([nf]);
+            setActiveFarmId(nf.id);
+            api.farms.syncActiveFarm(nf.id);
+          }
+        }).catch(console.warn);
+      }
     }
 
     if (d.userProfiles?.length > 0) {
@@ -3768,90 +3857,163 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       if (duplicateFarmIdMap.has(fid)) {
         return duplicateFarmIdMap.get(fid)!;
       }
+      if (resolvedFarms.length === 1 && resolvedFarms[0]?.id) {
+        return resolvedFarms[0].id;
+      }
+      if (resolvedFarms.length > 0 && !resolvedFarms.some(f => f.id === fid)) {
+        return resolvedFarms[0].id;
+      }
       return fid;
     };
 
     // Set backend authoritative data directly for the current authenticated user, normalizing farmId
-    if (d.ponds) {
-      const normPonds = d.ponds.map((p: Pond) => ({ ...p, farmId: normFid(p.farmId) }));
+    if (pondsData) {
+      const normPonds = pondsData.map((p: Pond) => ({ ...p, farmId: normFid(p.farmId) }));
       setPonds(normPonds);
     }
-    if (d.stockEvents) {
-      const normStock = d.stockEvents.map((se: StockEvent) => ({ ...se, farmId: normFid(se.farmId) }));
+
+    const stockData: StockEvent[] = (d.stockEvents && d.stockEvents.length > 0)
+      ? d.stockEvents
+      : (userProfile?.id ? loadUserLocal(userProfile.id, "stock_events", "stockEvents", []) : []);
+    if (stockData) {
+      const normStock = stockData.map((se: StockEvent) => ({ ...se, farmId: normFid(se.farmId) }));
       setStockEvents(normStock);
     }
-    if (d.feedInventory) {
-      const normInv = d.feedInventory.map((i: FeedItem) => ({ ...i, farmId: normFid(i.farmId) }));
+
+    const invData: FeedItem[] = (d.feedInventory && d.feedInventory.length > 0)
+      ? d.feedInventory
+      : (userProfile?.id ? loadUserLocal(userProfile.id, "inventory", "feedInventory", []) : []);
+    if (invData) {
+      const normInv = invData.map((i: FeedItem) => ({ ...i, farmId: normFid(i.farmId) }));
       setInventory(normInv);
     }
-    if (d.feedingRecords) {
-      const normFeed = d.feedingRecords.map((fr: FeedingRecord) => ({ ...fr, farmId: normFid(fr.farmId) }));
+
+    const feedData: FeedingRecord[] = (d.feedingRecords && d.feedingRecords.length > 0)
+      ? d.feedingRecords
+      : (userProfile?.id ? loadUserLocal(userProfile.id, "feeding", "feedingRecords", []) : []);
+    if (feedData) {
+      const normFeed = feedData.map((fr: FeedingRecord) => ({ ...fr, farmId: normFid(fr.farmId) }));
       setFeeding(normFeed);
     }
-    if (d.bagOpenLogs) {
-      const normBags = d.bagOpenLogs.map((b: BagOpenLog) => ({ ...b, farmId: normFid(b.farmId) }));
+
+    const bagData: BagOpenLog[] = (d.bagOpenLogs && d.bagOpenLogs.length > 0)
+      ? d.bagOpenLogs
+      : (userProfile?.id ? loadUserLocal(userProfile.id, "bag_logs", "bagOpenLogs", []) : []);
+    if (bagData) {
+      const normBags = bagData.map((b: BagOpenLog) => ({ ...b, farmId: normFid(b.farmId) }));
       setBagLogs(normBags);
     }
-    if (d.feedRemainingLogs) {
-      const normRemain = d.feedRemainingLogs.map((r: FeedRemainingLog) => ({ ...r, farmId: normFid(r.farmId) }));
+
+    const remData: FeedRemainingLog[] = (d.feedRemainingLogs && d.feedRemainingLogs.length > 0)
+      ? d.feedRemainingLogs
+      : (userProfile?.id ? loadUserLocal(userProfile.id, "remain_logs", "feedRemainingLogs", []) : []);
+    if (remData) {
+      const normRemain = remData.map((r: FeedRemainingLog) => ({ ...r, farmId: normFid(r.farmId) }));
       setRemainLogs(normRemain);
     }
-    if (d.expenses) {
-      const normExp = d.expenses.map((e: Expense) => ({ ...e, farmId: normFid(e.farmId) }));
+
+    const expData: Expense[] = (d.expenses && d.expenses.length > 0)
+      ? d.expenses
+      : (userProfile?.id ? loadUserLocal(userProfile.id, "expenses", "expenses", []) : []);
+    if (expData) {
+      const normExp = expData.map((e: Expense) => ({ ...e, farmId: normFid(e.farmId) }));
       setExpenses(normExp);
     }
-    if (d.revenues) {
+
+    const revData: Revenue[] = (d.revenues && d.revenues.length > 0)
+      ? d.revenues
+      : (userProfile?.id ? loadUserLocal(userProfile.id, "revenues", "revenues", []) : []);
+    if (revData) {
       // Invoices marked as paid must not reflect in revenues or financial dashboard
-      const invoiceRevs = d.revenues.filter((r: Revenue) => r.notes?.startsWith("Payment for Invoice"));
+      const invoiceRevs = revData.filter((r: Revenue) => r.notes?.startsWith("Payment for Invoice"));
       invoiceRevs.forEach((r: Revenue) => api.revenues.remove(r.id).catch(console.warn));
-      const cleanRevs = d.revenues.filter((r: Revenue) => !r.notes?.startsWith("Payment for Invoice"));
+      const cleanRevs = revData.filter((r: Revenue) => !r.notes?.startsWith("Payment for Invoice"));
       const normRev = cleanRevs.map((r: Revenue) => ({ ...r, farmId: normFid(r.farmId) }));
       setRevenues(normRev);
     }
-    if (d.mortalityEntries) {
-      const normMort = d.mortalityEntries.map((m: MortalityEntry) => ({ ...m, farmId: normFid(m.farmId) }));
+
+    const mortData: MortalityEntry[] = (d.mortalityEntries && d.mortalityEntries.length > 0)
+      ? d.mortalityEntries
+      : (userProfile?.id ? loadUserLocal(userProfile.id, "mortality", "mortalityEntries", []) : []);
+    if (mortData) {
+      const normMort = mortData.map((m: MortalityEntry) => ({ ...m, farmId: normFid(m.farmId) }));
       setMortality(normMort);
     }
-    if (d.treatmentRecords) {
-      const normTreat = d.treatmentRecords.map((t: TreatmentRecord) => ({ ...t, farmId: normFid(t.farmId) }));
+
+    const treatData: TreatmentRecord[] = (d.treatmentRecords && d.treatmentRecords.length > 0)
+      ? d.treatmentRecords
+      : (userProfile?.id ? loadUserLocal(userProfile.id, "treatments", "treatmentRecords", []) : []);
+    if (treatData) {
+      const normTreat = treatData.map((t: TreatmentRecord) => ({ ...t, farmId: normFid(t.farmId) }));
       setTreatments(normTreat);
     }
+
     if (d.staffMembers) setStaff(d.staffMembers);
-    if (d.reports) {
-      const normRep = d.reports.map((r: Report) => ({ ...r, farmId: normFid(r.farmId) }));
+
+    const repData: Report[] = (d.reports && d.reports.length > 0)
+      ? d.reports
+      : (userProfile?.id ? loadUserLocal(userProfile.id, "reports", "reports", []) : []);
+    if (repData) {
+      const normRep = repData.map((r: Report) => ({ ...r, farmId: normFid(r.farmId) }));
       setReports(normRep);
     }
-    if (d.customers) {
-      const normCust = d.customers.map((c: Customer) => ({ ...c, farmId: normFid(c.farmId) }));
+
+    const custData: Customer[] = (d.customers && d.customers.length > 0)
+      ? d.customers
+      : (userProfile?.id ? loadUserLocal(userProfile.id, "customers", "customers", []) : []);
+    if (custData) {
+      const normCust = custData.map((c: Customer) => ({ ...c, farmId: normFid(c.farmId) }));
       setCustomers(normCust);
     }
-    if (d.priceGroups) {
-      const normPg = d.priceGroups.map((pg: PriceGroup) => ({ ...pg, farmId: normFid(pg.farmId) }));
+
+    const pgData: PriceGroup[] = (d.priceGroups && d.priceGroups.length > 0)
+      ? d.priceGroups
+      : (userProfile?.id ? loadUserLocal(userProfile.id, "price_groups", "priceGroups", []) : []);
+    if (pgData) {
+      const normPg = pgData.map((pg: PriceGroup) => ({ ...pg, farmId: normFid(pg.farmId) }));
       setPriceGroups(normPg);
     }
-    if (d.invoices) {
-      const normInv = d.invoices.map((inv: Invoice) => ({ ...inv, farmId: normFid(inv.farmId) }));
+
+    const invsData: Invoice[] = (d.invoices && d.invoices.length > 0)
+      ? d.invoices
+      : (userProfile?.id ? loadUserLocal(userProfile.id, "invoices", "invoices", []) : []);
+    if (invsData) {
+      const normInv = invsData.map((inv: Invoice) => ({ ...inv, farmId: normFid(inv.farmId) }));
       setInvoices(normInv);
     }
+
     if (d.invoiceSettings) setInvSettings(d.invoiceSettings);
     if (d.investors) setInvestors(d.investors);
-    if (d.investments) {
-      const normInv = d.investments.map((inv: Investment) => ({ ...inv, farmId: normFid(inv.farmId) }));
+
+    const investData: Investment[] = (d.investments && d.investments.length > 0)
+      ? d.investments
+      : (userProfile?.id ? loadUserLocal(userProfile.id, "investments", "investments", []) : []);
+    if (investData) {
+      const normInv = investData.map((inv: Investment) => ({ ...inv, farmId: normFid(inv.farmId) }));
       setInvestments(normInv);
     }
-    if (d.investmentPayments) {
-      const normPay = d.investmentPayments.map((p: InvestmentPayment) => ({ ...p, farmId: normFid(p.farmId) }));
+
+    const payData: InvestmentPayment[] = (d.investmentPayments && d.investmentPayments.length > 0)
+      ? d.investmentPayments
+      : (userProfile?.id ? loadUserLocal(userProfile.id, "investment_payments", "investmentPayments", []) : []);
+    if (payData) {
+      const normPay = payData.map((p: InvestmentPayment) => ({ ...p, farmId: normFid(p.farmId) }));
       setInvestmentPayments(normPay);
     }
-    if (d.pondReports) {
-      const normPr = d.pondReports.map((pr: PondReport) => ({ ...pr, farmId: normFid(pr.farmId) }));
+
+    const prData: PondReport[] = (d.pondReports && d.pondReports.length > 0)
+      ? d.pondReports
+      : (userProfile?.id ? loadUserLocal(userProfile.id, "pond_reports", "pondReports", []) : []);
+    if (prData) {
+      const normPr = prData.map((pr: PondReport) => ({ ...pr, farmId: normFid(pr.farmId) }));
       setPondReports(normPr);
     }
+
     if (d.knowledgeQuestions?.length > 0) setKQuestions_(d.knowledgeQuestions);
     if (d.compatibilityQuestions?.length > 0) setCQuestions_(d.compatibilityQuestions);
     if (d.knowledgeResults) setKResults_(d.knowledgeResults);
     if (d.compatibilityResults) setCResults_(d.compatibilityResults);
-  }, [userProfile, activePlan]);
+  }, [userProfile, activePlan, loadUserLocal]);
 
   /* ── Auto-create tables then reload ── */
   const runAutoSetup=useCallback(async()=>{
@@ -3888,30 +4050,52 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       console.warn("Backend load failed, falling back to local storage cache:",e);
       if(userProfile?.id){
         const uid=userProfile.id;
-        const cf=loadLocal(`pondtora_${uid}_farms`,[]);
+        const cf=loadUserLocal(uid,"farms","farms",[]);
         if(cf.length>0)setFarms(cf);
-        const cp=loadLocal(`pondtora_${uid}_ponds`,[]);
+        const cp=loadUserLocal(uid,"ponds","ponds",[]);
         if(cp.length>0)setPonds(cp);
-        const ce=loadLocal(`pondtora_${uid}_expenses`,[]);
+        const ce=loadUserLocal(uid,"expenses","expenses",[]);
         if(ce.length>0)setExpenses(ce);
-        const cr=loadLocal(`pondtora_${uid}_revenues`,[]);
+        const cr=loadUserLocal(uid,"revenues","revenues",[]);
         const cleanCr=cr.filter((r: Revenue) => !r.notes?.startsWith("Payment for Invoice"));
         if(cleanCr.length>0)setRevenues(cleanCr);
-        const ci=loadLocal(`pondtora_${uid}_inventory`,[]);
+        const ci=loadUserLocal(uid,"inventory","feedInventory",[]);
         if(ci.length>0)setInventory(ci);
-        const cfd=loadLocal(`pondtora_${uid}_feeding`,[]);
+        const cfd=loadUserLocal(uid,"feeding","feedingRecords",[]);
         if(cfd.length>0)setFeeding(cfd);
-        const cinvst=loadLocal(`pondtora_${uid}_investors`,[]);
+        const cbg=loadUserLocal(uid,"bag_logs","bagOpenLogs",[]);
+        if(cbg.length>0)setBagLogs(cbg);
+        const crm=loadUserLocal(uid,"remain_logs","feedRemainingLogs",[]);
+        if(crm.length>0)setRemainLogs(crm);
+        const cm=loadUserLocal(uid,"mortality","mortalityEntries",[]);
+        if(cm.length>0)setMortality(cm);
+        const ct=loadUserLocal(uid,"treatments","treatmentRecords",[]);
+        if(ct.length>0)setTreatments(ct);
+        const cs=loadUserLocal(uid,"staff","staffMembers",[]);
+        if(cs.length>0)setStaff(cs);
+        const cse=loadUserLocal(uid,"stock_events","stockEvents",[]);
+        if(cse.length>0)setStockEvents(cse);
+        const crp=loadUserLocal(uid,"reports","reports",[]);
+        if(crp.length>0)setReports(crp);
+        const ccu=loadUserLocal(uid,"customers","customers",[]);
+        if(ccu.length>0)setCustomers(ccu);
+        const cpg=loadUserLocal(uid,"price_groups","priceGroups",[]);
+        if(cpg.length>0)setPriceGroups(cpg);
+        const cinv=loadUserLocal(uid,"invoices","invoices",[]);
+        if(cinv.length>0)setInvoices(cinv);
+        const cinvs=loadUserLocal(uid,"inv_settings","invoiceSettings",INIT_INV_SETTINGS);
+        if(cinvs)setInvSettings(cinvs);
+        const cinvst=loadUserLocal(uid,"investors","investors",[]);
         if(cinvst.length>0)setInvestors(cinvst);
-        const cinv=loadLocal(`pondtora_${uid}_investments`,[]);
-        if(cinv.length>0)setInvestments(cinv);
-        const cpay=loadLocal(`pondtora_${uid}_investment_payments`,[]);
+        const cinvm=loadUserLocal(uid,"investments","investments",[]);
+        if(cinvm.length>0)setInvestments(cinvm);
+        const cpay=loadUserLocal(uid,"investment_payments","investmentPayments",[]);
         if(cpay.length>0)setInvestmentPayments(cpay);
-        const cpr=loadLocal(`pondtora_${uid}_pond_reports`,[]);
+        const cpr=loadUserLocal(uid,"pond_reports","pondReports",[]);
         if(cpr.length>0)setPondReports(cpr);
       }
     }
-  },[applyBackendData,runAutoSetup,userProfile?.id]);
+  },[applyBackendData,runAutoSetup,userProfile?.id,loadUserLocal]);
 
   /* Re-fetch backend data when tab/window gains focus (cross-device sync) */
   useEffect(()=>{
@@ -3962,6 +4146,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
           currencyCode:meta.currency_code||cc.code,
           role:meta.role,
           permissions:meta.permissions,
+          ownerId:meta.owner_id,
         });
         if(meta.active_farm_id){
           setActiveFarmId(meta.active_farm_id);
@@ -3999,6 +4184,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
             currencyCode:meta.currency_code||cc.code,
             role:meta.role,
             permissions:meta.permissions,
+            ownerId:meta.owner_id,
           };
         });
         if(meta.active_farm_id){
@@ -4051,10 +4237,55 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   },[resetAllState]);
 
   const handleLogin=(profile:UserProfile)=>{
-    resetAllState();
     setUserProfile(profile);
     setIsAuth(true);
     setShowLanding(false);
+    if(profile?.id){
+      const uid=profile.id;
+      const cf=loadUserLocal(uid,"farms","farms",[]);
+      if(cf.length>0)setFarms(cf);
+      const cp=loadUserLocal(uid,"ponds","ponds",[]);
+      if(cp.length>0)setPonds(cp);
+      const ce=loadUserLocal(uid,"expenses","expenses",[]);
+      if(ce.length>0)setExpenses(ce);
+      const cr=loadUserLocal(uid,"revenues","revenues",[]);
+      const cleanCr=cr.filter((r: Revenue) => !r.notes?.startsWith("Payment for Invoice"));
+      if(cleanCr.length>0)setRevenues(cleanCr);
+      const ci=loadUserLocal(uid,"inventory","feedInventory",[]);
+      if(ci.length>0)setInventory(ci);
+      const cfd=loadUserLocal(uid,"feeding","feedingRecords",[]);
+      if(cfd.length>0)setFeeding(cfd);
+      const cbg=loadUserLocal(uid,"bag_logs","bagOpenLogs",[]);
+      if(cbg.length>0)setBagLogs(cbg);
+      const crm=loadUserLocal(uid,"remain_logs","feedRemainingLogs",[]);
+      if(crm.length>0)setRemainLogs(crm);
+      const cm=loadUserLocal(uid,"mortality","mortalityEntries",[]);
+      if(cm.length>0)setMortality(cm);
+      const ct=loadUserLocal(uid,"treatments","treatmentRecords",[]);
+      if(ct.length>0)setTreatments(ct);
+      const cs=loadUserLocal(uid,"staff","staffMembers",[]);
+      if(cs.length>0)setStaff(cs);
+      const cse=loadUserLocal(uid,"stock_events","stockEvents",[]);
+      if(cse.length>0)setStockEvents(cse);
+      const crp=loadUserLocal(uid,"reports","reports",[]);
+      if(crp.length>0)setReports(crp);
+      const ccu=loadUserLocal(uid,"customers","customers",[]);
+      if(ccu.length>0)setCustomers(ccu);
+      const cpg=loadUserLocal(uid,"price_groups","priceGroups",[]);
+      if(cpg.length>0)setPriceGroups(cpg);
+      const cinv=loadUserLocal(uid,"invoices","invoices",[]);
+      if(cinv.length>0)setInvoices(cinv);
+      const cinvs=loadUserLocal(uid,"inv_settings","invoiceSettings",INIT_INV_SETTINGS);
+      if(cinvs)setInvSettings(cinvs);
+      const cinvst=loadUserLocal(uid,"investors","investors",[]);
+      if(cinvst.length>0)setInvestors(cinvst);
+      const cinvm=loadUserLocal(uid,"investments","investments",[]);
+      if(cinvm.length>0)setInvestments(cinvm);
+      const cpay=loadUserLocal(uid,"investment_payments","investmentPayments",[]);
+      if(cpay.length>0)setInvestmentPayments(cpay);
+      const cpr=loadUserLocal(uid,"pond_reports","pondReports",[]);
+      if(cpr.length>0)setPondReports(cpr);
+    }
     loadFromBackend();
   };
   const handleLogout=async()=>{
@@ -4220,17 +4451,40 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   const addPriceGroup=(g:PriceGroup)=>{const ng={...g,id:isUuid(g.id)?g.id:crypto.randomUUID(),farmId:activeFarmId};setPriceGroups(prev=>[...prev,ng]);api.priceGroups.create(ng).catch(console.warn);};
   const editPriceGroup=(g:PriceGroup)=>{setPriceGroups(prev=>prev.map(x=>x.id===g.id?g:x));api.priceGroups.update(g).catch(console.warn);};
   const delPriceGroup=(id:string)=>{setPriceGroups(prev=>prev.filter(g=>g.id!==id));api.priceGroups.remove(id).catch(console.warn);};
+  /* ── Permission derivation & farm scoping ── */
+  const currentStaff = staff.find(s => s.email?.toLowerCase() === userProfile?.email?.toLowerCase());
+  const isInvitedStaff = (userProfile?.role === "staff" || Boolean((userProfile as any)?.ownerId)) &&
+    Boolean(currentStaff && currentStaff.userId && currentStaff.userId !== userProfile?.id);
+  const isOwner = !isInvitedStaff || currentStaff?.role === "Admin" || currentStaff?.role === "Director";
+
+  const hasPerm = (p: string) => {
+    if (isOwner) return true;
+    const perms = currentStaff?.permissions || userProfile?.permissions || [];
+    if (perms.length === 0) {
+      return p === "Pond Management" || p === "Feed Stock" || p === "Feeding Records" || p === "Reports";
+    }
+    if (perms.includes(p)) return true;
+    if (p === "Invoices" && perms.includes("Invoice")) return true;
+    if (p === "Invoice" && perms.includes("Invoices")) return true;
+    if (p === "Staff Assessments" && perms.includes("Staff Assessment")) return true;
+    if (p === "Staff Assessment" && perms.includes("Staff Assessments")) return true;
+    if (p === "Pond Details" && perms.includes("Pond Management")) return true;
+    return false;
+  };
+
+  const assignedStaffFarms = farms.filter(f => currentStaff?.farms?.includes(f.id) || (userProfile as any)?.farms?.includes(f.id));
+  const accessibleFarms = isOwner ? farms : (assignedStaffFarms.length > 0 ? assignedStaffFarms : farms);
+
   /* Derived data — computed unconditionally before any early return (Rules of Hooks) */
-  const hasOneFarmOrNone = farms.length <= 1;
+  const hasOneFarmOrNone = accessibleFarms.length <= 1;
   const matchesFarm = (fid?: string, pondName?: string) => {
     if (hasOneFarmOrNone) return true;
-    if (fid && (fid === activeFarmId || fid === "default")) return true;
-    if (!fid && pondName) {
+    if (!fid || fid === "default" || fid === "—" || fid === activeFarmId) return true;
+    if (pondName) {
       const p = ponds.find(x => x.name.toLowerCase() === pondName.toLowerCase());
       if (p && (!p.farmId || p.farmId === "default" || p.farmId === activeFarmId)) return true;
     }
-    if (!fid) return true;
-    return false;
+    return fid === activeFarmId;
   };
   const farmPonds=ponds.filter(p=>matchesFarm(p.farmId));
   const farmFeeding=feeding.filter(r=>matchesFarm(r.farmId,r.pond));
@@ -4355,21 +4609,6 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       toast.error("Pond report saved locally — sync error");
     }
   };
-  /* Permission derivation — owner has all permissions */
-  const currentStaff=staff.find(s=>s.email?.toLowerCase()===userProfile?.email?.toLowerCase());
-  const isOwner=(!currentStaff && userProfile?.role !== "staff") || currentStaff?.role==="Admin";
-  const hasPerm=(p:string)=>{
-    if(isOwner)return true;
-    const perms=currentStaff?.permissions || userProfile?.permissions || [];
-    if(perms.includes(p))return true;
-    if(p==="Invoices"&&perms.includes("Invoice"))return true;
-    if(p==="Invoice"&&perms.includes("Invoices"))return true;
-    if(p==="Staff Assessments"&&perms.includes("Staff Assessment"))return true;
-    if(p==="Staff Assessment"&&perms.includes("Staff Assessments"))return true;
-    if(p==="Pond Details"&&perms.includes("Pond Management"))return true;
-    return false;
-  };
-  const accessibleFarms=isOwner?farms:farms.filter(f=>currentStaff?.farms?.includes(f.id));
 
   /* Auto-route staff members to their first permitted page if current page is restricted */
   useEffect(()=>{

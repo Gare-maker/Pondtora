@@ -308,7 +308,17 @@ function saveLocalCache(data: any, userId?: string) {
   if (!userId) return;
   try {
     const current = getLocalCache(userId) || {};
-    localStorage.setItem(getUserCacheKey(userId), JSON.stringify({ ...current, ...data }));
+    const merged: any = { ...current };
+    for (const [k, v] of Object.entries(data)) {
+      if (Array.isArray(v)) {
+        if (v.length > 0 || !Array.isArray(current[k]) || current[k].length === 0) {
+          merged[k] = v;
+        }
+      } else if (v !== null && v !== undefined) {
+        merged[k] = v;
+      }
+    }
+    localStorage.setItem(getUserCacheKey(userId), JSON.stringify(merged));
   } catch (e) {
     console.warn("Failed to update localStorage cache", e);
   }
@@ -647,52 +657,69 @@ export const api = {
         safeQuery(supabase.from("pond_reports").select("*")),
       ]);
 
-      let farms = (farmsRes.data || []).map((r: any) => objToCamel<Farm>(r));
+      // Robust extract helper: uses authoritative query data when present; falls back to cached data if query errors or returns empty
+      const extract = <T,>(res: any, cacheKey: string, mapper: (r: any) => T): T[] => {
+        if (res && !res.error && Array.isArray(res.data) && res.data.length > 0) {
+          return res.data.map(mapper);
+        }
+        if (res?.error) {
+          console.warn(`Query for ${cacheKey} returned error:`, res.error);
+        }
+        if (cached && Array.isArray(cached[cacheKey]) && cached[cacheKey].length > 0) {
+          return cached[cacheKey];
+        }
+        return (res?.data || []).map(mapper);
+      };
+
+      let farms = extract<Farm>(farmsRes, "farms", (r: any) => objToCamel<Farm>(r));
 
       // If user is staff with assigned farms, include those assigned farms
-      const staffMember = (staffRes.data || []).find((s: any) => s.staff_auth_id === userId);
+      const staffList = (staffRes.data || []).map((r: any) => objToCamel<StaffMember>(r));
+      const userProfilesList = (profilesRes.data || []).map((r: any) => objToCamel<UserProfile>(r));
+      const userEmail = userProfilesList[0]?.email;
+      const staffMember = staffList.find((s: any) => s.staffAuthId === userId || (userEmail && s.email?.toLowerCase() === userEmail.toLowerCase()));
       if (staffMember?.farms && staffMember.farms.length > 0) {
-        const { data: assignedFarms } = await safeQuery(
-          supabase.from("farms").select("*").in("id", staffMember.farms)
-        );
-        if (assignedFarms) {
-          const farmMap = new Map(farms.map((f: Farm) => [f.id, f]));
-          for (const af of assignedFarms) {
-            const camel = objToCamel<Farm>(af);
-            farmMap.set(camel.id, camel);
+        const missingFarmIds = staffMember.farms.filter((fid: string) => !farms.some(f => f.id === fid));
+        if (missingFarmIds.length > 0) {
+          const { data: assignedFarms } = await safeQuery(
+            supabase.from("farms").select("*").in("id", missingFarmIds)
+          );
+          if (assignedFarms) {
+            for (const af of assignedFarms) {
+              farms.push(objToCamel<Farm>(af));
+            }
           }
-          farms = Array.from(farmMap.values());
         }
       }
 
       const result = {
         needsSetup: false,
         farms,
-        userProfiles: (profilesRes.data || []).map((r: any) => objToCamel<UserProfile>(r)),
-        ponds: (pondsRes.data || []).map((r: any) => objToCamel<Pond>(r)),
-        stockEvents: (stockRes.data || []).map((r: any) => objToCamel<StockEvent>(r)),
-        feedInventory: (invRes.data || []).map((r: any) => objToCamel<FeedItem>(r)),
-        feedingRecords: (feedRes.data || []).map((r: any) => objToCamel<FeedingRecord>(r)),
-        bagOpenLogs: (bagRes.data || []).map((r: any) => objToCamel<BagOpenLog>(r)),
-        feedRemainingLogs: (remainRes.data || []).map((r: any) => objToCamel<FeedRemainingLog>(r)),
-        expenses: (expRes.data || []).map((r: any) => objToCamel<Expense>(r)),
-        revenues: (revRes.data || []).map((r: any) => objToCamel<Revenue>(r)),
-        mortalityEntries: (mortRes.data || []).map((r: any) => objToCamel<MortalityEntry>(r)),
-        treatmentRecords: (treatRes.data || []).map((r: any) => objToCamel<TreatmentRecord>(r)),
-        staffMembers: (staffRes.data || []).map((r: any) => objToCamel<StaffMember>(r)),
-        reports: (repRes.data || []).map((r: any) => objToCamel<Report>(r)),
-        customers: (custRes.data || []).map((r: any) => objToCamel<Customer>(r)),
-        priceGroups: (pgRes.data || []).map((r: any) => objToCamel<PriceGroup>(r)),
-        invoices: (invsRes.data || []).map((r: any) => objToCamel<Invoice>(r)),
-        invoiceSettings: setRes.data ? objToCamel<InvSettings>(setRes.data) : null,
-        knowledgeQuestions: (kqRes.data || []).map((r: any) => objToCamel(r)),
-        compatibilityQuestions: (cqRes.data || []).map((r: any) => objToCamel(r)),
-        knowledgeResults: (krRes.data || []).map((r: any) => objToCamel(r)),
-        compatibilityResults: (crRes.data || []).map((r: any) => objToCamel(r)),
-        investors: (investorsRes.data || []).map((r: any) => objToCamel<Investor>(r)),
-        investments: (investmentsRes.data || []).map((r: any) => objToCamel<Investment>(r)),
-        investmentPayments: (invPayRes.data || []).map((r: any) => objToCamel<InvestmentPayment>(r)),
-        pondReports: (pondRepRes.data || []).map((r: any) => objToCamel<PondReport>(r)),
+        userProfiles: userProfilesList.length > 0 ? userProfilesList : (cached?.userProfiles || []),
+        ponds: extract<Pond>(pondsRes, "ponds", (r: any) => objToCamel<Pond>(r)),
+        stockEvents: extract<StockEvent>(stockRes, "stockEvents", (r: any) => objToCamel<StockEvent>(r)),
+        feedInventory: extract<FeedItem>(invRes, "feedInventory", (r: any) => objToCamel<FeedItem>(r)),
+        feedingRecords: extract<FeedingRecord>(feedRes, "feedingRecords", (r: any) => objToCamel<FeedingRecord>(r)),
+        bagOpenLogs: extract<BagOpenLog>(bagRes, "bagOpenLogs", (r: any) => objToCamel<BagOpenLog>(r)),
+        feedRemainingLogs: extract<FeedRemainingLog>(remainRes, "feedRemainingLogs", (r: any) => objToCamel<FeedRemainingLog>(r)),
+        expenses: extract<Expense>(expRes, "expenses", (r: any) => objToCamel<Expense>(r)),
+        revenues: extract<Revenue>(revRes, "revenues", (r: any) => objToCamel<Revenue>(r)),
+        mortalityEntries: extract<MortalityEntry>(mortRes, "mortalityEntries", (r: any) => objToCamel<MortalityEntry>(r)),
+        treatmentRecords: extract<TreatmentRecord>(treatRes, "treatmentRecords", (r: any) => objToCamel<TreatmentRecord>(r)),
+        staffMembers: staffList.length > 0 ? staffList : (cached?.staffMembers || []),
+        reports: extract<Report>(repRes, "reports", (r: any) => objToCamel<Report>(r)),
+        customers: extract<Customer>(custRes, "customers", (r: any) => objToCamel<Customer>(r)),
+        priceGroups: extract<PriceGroup>(pgRes, "priceGroups", (r: any) => objToCamel<PriceGroup>(r)),
+        invoices: extract<Invoice>(invsRes, "invoices", (r: any) => objToCamel<Invoice>(r)),
+        invoiceSettings: setRes.data ? objToCamel<InvSettings>(setRes.data) : (cached?.invoiceSettings || null),
+        knowledgeQuestions: extract(kqRes, "knowledgeQuestions", (r: any) => objToCamel(r)),
+        compatibilityQuestions: extract(cqRes, "compatibilityQuestions", (r: any) => objToCamel(r)),
+        knowledgeResults: extract(krRes, "knowledgeResults", (r: any) => objToCamel(r)),
+        compatibilityResults: extract(crRes, "compatibilityResults", (r: any) => objToCamel(r)),
+        investors: extract<Investor>(investorsRes, "investors", (r: any) => objToCamel<Investor>(r)),
+        investments: extract<Investment>(investmentsRes, "investments", (r: any) => objToCamel<Investment>(r)),
+        investmentPayments: extract<InvestmentPayment>(invPayRes, "investmentPayments", (r: any) => objToCamel<InvestmentPayment>(r)),
+        pondReports: extract<PondReport>(pondRepRes, "pondReports", (r: any) => objToCamel<PondReport>(r)),
         staffInfo: staffMember || null,
         isStaff: !!staffMember,
       };
