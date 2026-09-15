@@ -343,6 +343,28 @@ function AuthScreen({
       }
 
       const meta = user.user_metadata ?? {};
+      let staffPerms: string[] = meta.permissions || [];
+      let staffOwnerId: string = meta.owner_id || "";
+      let staffRole: string = meta.role || (existingProf?.role || "owner");
+      let staffFarms: string[] = meta.farms || [];
+
+      try {
+        const { data: staffRow } = await supabase
+          .from("staff_members")
+          .select("id, name, role, permissions, farms, user_id")
+          .ilike("email", cleanEmail)
+          .maybeSingle();
+
+        if (staffRow) {
+          if (staffRow.permissions && staffRow.permissions.length > 0) staffPerms = staffRow.permissions;
+          if (staffRow.user_id) staffOwnerId = staffRow.user_id;
+          if (staffRow.farms && staffRow.farms.length > 0) staffFarms = staffRow.farms;
+          staffRole = "staff";
+        }
+      } catch (e) {
+        console.warn("Error checking staff_members table on login:", e);
+      }
+
       const profile: UserProfile = {
         id: user.id,
         name: existingProf?.name || meta.name || user.email?.split("@")[0] || "",
@@ -356,6 +378,10 @@ function AuthScreen({
         currencyCode: meta.currency_code ?? "NGN",
         activePlan: meta.active_plan,
         trialStartDate: meta.trial_start_date,
+        role: staffRole,
+        permissions: staffPerms,
+        ownerId: staffOwnerId,
+        farms: staffFarms,
       };
       onLogin(profile);
     } catch (err: any) {

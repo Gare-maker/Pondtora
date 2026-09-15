@@ -126,12 +126,30 @@ export default function CreatePasswordPage({ onSuccess, onGoToLogin }: CreatePas
       const meta = user.user_metadata ?? {};
       const cleanEmail = (user.email || userEmail || "").trim().toLowerCase();
 
-      // Mark staff member status as Active in the database
+      // Mark staff member status as Active in the database and pull assigned permissions/farms
+      let staffPerms: string[] = meta.permissions || [];
+      let staffOwnerId: string = meta.owner_id || "";
+      let staffFarms: string[] = meta.farms || [];
+      let staffRole: string = meta.role || "staff";
+
       try {
-        await supabase
+        const { data: staffRow } = await supabase
           .from("staff_members")
-          .update({ status: "Active", name: name.trim() || meta.name })
-          .ilike("email", cleanEmail);
+          .select("id, name, role, permissions, farms, user_id")
+          .ilike("email", cleanEmail)
+          .maybeSingle();
+
+        if (staffRow) {
+          if (staffRow.permissions && staffRow.permissions.length > 0) staffPerms = staffRow.permissions;
+          if (staffRow.user_id) staffOwnerId = staffRow.user_id;
+          if (staffRow.farms && staffRow.farms.length > 0) staffFarms = staffRow.farms;
+          if (staffRow.role) staffRole = staffRow.role;
+
+          await supabase
+            .from("staff_members")
+            .update({ status: "Active", name: name.trim() || meta.name })
+            .eq("id", staffRow.id);
+        }
       } catch (err) {
         console.warn("Could not mark staff as Active in staff_members table:", err);
       }
@@ -156,8 +174,9 @@ export default function CreatePasswordPage({ onSuccess, onGoToLogin }: CreatePas
         currencySymbol: meta.currency_symbol ?? "₦",
         currencyCode: meta.currency_code ?? "NGN",
         role: "staff",
-        permissions: meta.permissions,
-        ownerId: meta.owner_id,
+        permissions: staffPerms,
+        ownerId: staffOwnerId,
+        farms: staffFarms,
       };
 
       setTimeout(() => {

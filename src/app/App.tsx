@@ -124,10 +124,10 @@ function Sidebar({active,onNav,collapsed,onToggle,farms,activeFarmId,onSwitchFar
       )}
       <nav className="flex-1 py-3 px-2 overflow-y-auto space-y-0.5">
         {NAV.filter(({id})=>{
-          if(id==="staff"||id==="pricing"||id==="settings")return isOwner===true;
+          if(id==="staff"||id==="pricing"||id==="settings") return isOwner === true;
           const perm=NAV_PERM[id];
-          if(!perm)return true;
-          return hasPerm?hasPerm(perm):true;
+          if(!perm) return isOwner === true;
+          return hasPerm ? hasPerm(perm) : (isOwner === true);
         }).map(({id,icon:Icon,label})=>{
           const isA=active===id;
           const showDivider=id==="pricing";
@@ -3132,28 +3132,28 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   useEffect(()=>{
     if(userProfile?.id){
       saveLocal(`pondtora_${userProfile.id}_user_profile`,userProfile);
-      if (isDataLoadedRef.current || farms.length > 0) saveLocal(`pondtora_${userProfile.id}_farms`,farms);
+      saveLocal(`pondtora_${userProfile.id}_farms`,farms);
       if(activeFarmId)localStorage.setItem(`pondtora_${userProfile.id}_active_farm_id`,activeFarmId);
-      if (isDataLoadedRef.current || ponds.length > 0) saveLocal(`pondtora_${userProfile.id}_ponds`,ponds);
-      if (isDataLoadedRef.current || inventory.length > 0) saveLocal(`pondtora_${userProfile.id}_inventory`,inventory);
-      if (isDataLoadedRef.current || feeding.length > 0) saveLocal(`pondtora_${userProfile.id}_feeding`,feeding);
-      if (isDataLoadedRef.current || bagLogs.length > 0) saveLocal(`pondtora_${userProfile.id}_bag_logs`,bagLogs);
-      if (isDataLoadedRef.current || remainLogs.length > 0) saveLocal(`pondtora_${userProfile.id}_remain_logs`,remainLogs);
-      if (isDataLoadedRef.current || expenses.length > 0) saveLocal(`pondtora_${userProfile.id}_expenses`,expenses);
-      if (isDataLoadedRef.current || revenues.length > 0) saveLocal(`pondtora_${userProfile.id}_revenues`,revenues);
-      if (isDataLoadedRef.current || mortality.length > 0) saveLocal(`pondtora_${userProfile.id}_mortality`,mortality);
-      if (isDataLoadedRef.current || treatments.length > 0) saveLocal(`pondtora_${userProfile.id}_treatments`,treatments);
-      if (isDataLoadedRef.current || staff.length > 0) saveLocal(`pondtora_${userProfile.id}_staff`,staff);
-      if (isDataLoadedRef.current || stockEvents.length > 0) saveLocal(`pondtora_${userProfile.id}_stock_events`,stockEvents);
-      if (isDataLoadedRef.current || reports.length > 0) saveLocal(`pondtora_${userProfile.id}_reports`,reports);
-      if (isDataLoadedRef.current || customers.length > 0) saveLocal(`pondtora_${userProfile.id}_customers`,customers);
-      if (isDataLoadedRef.current || priceGroups.length > 0) saveLocal(`pondtora_${userProfile.id}_price_groups`,priceGroups);
-      if (isDataLoadedRef.current || invoices.length > 0) saveLocal(`pondtora_${userProfile.id}_invoices`,invoices);
+      saveLocal(`pondtora_${userProfile.id}_ponds`,ponds);
+      saveLocal(`pondtora_${userProfile.id}_inventory`,inventory);
+      saveLocal(`pondtora_${userProfile.id}_feeding`,feeding);
+      saveLocal(`pondtora_${userProfile.id}_bag_logs`,bagLogs);
+      saveLocal(`pondtora_${userProfile.id}_remain_logs`,remainLogs);
+      saveLocal(`pondtora_${userProfile.id}_expenses`,expenses);
+      saveLocal(`pondtora_${userProfile.id}_revenues`,revenues);
+      saveLocal(`pondtora_${userProfile.id}_mortality`,mortality);
+      saveLocal(`pondtora_${userProfile.id}_treatments`,treatments);
+      saveLocal(`pondtora_${userProfile.id}_staff`,staff);
+      saveLocal(`pondtora_${userProfile.id}_stock_events`,stockEvents);
+      saveLocal(`pondtora_${userProfile.id}_reports`,reports);
+      saveLocal(`pondtora_${userProfile.id}_customers`,customers);
+      saveLocal(`pondtora_${userProfile.id}_price_groups`,priceGroups);
+      saveLocal(`pondtora_${userProfile.id}_invoices`,invoices);
       saveLocal(`pondtora_${userProfile.id}_inv_settings`,invSettings);
-      if (isDataLoadedRef.current || investors.length > 0) saveLocal(`pondtora_${userProfile.id}_investors`,investors);
-      if (isDataLoadedRef.current || investments.length > 0) saveLocal(`pondtora_${userProfile.id}_investments`,investments);
-      if (isDataLoadedRef.current || investmentPayments.length > 0) saveLocal(`pondtora_${userProfile.id}_investment_payments`,investmentPayments);
-      if (isDataLoadedRef.current || pondReports.length > 0) saveLocal(`pondtora_${userProfile.id}_pond_reports`,pondReports);
+      saveLocal(`pondtora_${userProfile.id}_investors`,investors);
+      saveLocal(`pondtora_${userProfile.id}_investments`,investments);
+      saveLocal(`pondtora_${userProfile.id}_investment_payments`,investmentPayments);
+      saveLocal(`pondtora_${userProfile.id}_pond_reports`,pondReports);
     }
   },[userProfile,farms,activeFarmId,ponds,inventory,feeding,bagLogs,remainLogs,expenses,revenues,mortality,treatments,staff,stockEvents,reports,customers,priceGroups,invoices,invSettings,investors,investments,investmentPayments,pondReports]);
 
@@ -3919,7 +3919,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       setPonds(normPonds);
     }
 
-    const stockData: StockEvent[] = (d.stockEvents && d.stockEvents.length > 0)
+    const stockData: StockEvent[] = Array.isArray(d.stockEvents)
       ? d.stockEvents
       : (userProfile?.id ? loadUserLocal(userProfile.id, "stock_events", "stockEvents", []) : []);
     if (stockData) {
@@ -3927,7 +3927,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       setStockEvents(normStock);
     }
 
-    const invData: FeedItem[] = (d.feedInventory && d.feedInventory.length > 0)
+    const invData: FeedItem[] = Array.isArray(d.feedInventory)
       ? d.feedInventory
       : (userProfile?.id ? loadUserLocal(userProfile.id, "inventory", "feedInventory", []) : []);
     if (invData) {
@@ -3935,7 +3935,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       setInventory(normInv);
     }
 
-    const feedData: FeedingRecord[] = (d.feedingRecords && d.feedingRecords.length > 0)
+    const feedData: FeedingRecord[] = Array.isArray(d.feedingRecords)
       ? d.feedingRecords
       : (userProfile?.id ? loadUserLocal(userProfile.id, "feeding", "feedingRecords", []) : []);
     if (feedData) {
@@ -3943,7 +3943,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       setFeeding(normFeed);
     }
 
-    const bagData: BagOpenLog[] = (d.bagOpenLogs && d.bagOpenLogs.length > 0)
+    const bagData: BagOpenLog[] = Array.isArray(d.bagOpenLogs)
       ? d.bagOpenLogs
       : (userProfile?.id ? loadUserLocal(userProfile.id, "bag_logs", "bagOpenLogs", []) : []);
     if (bagData) {
@@ -3951,7 +3951,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       setBagLogs(normBags);
     }
 
-    const remData: FeedRemainingLog[] = (d.feedRemainingLogs && d.feedRemainingLogs.length > 0)
+    const remData: FeedRemainingLog[] = Array.isArray(d.feedRemainingLogs)
       ? d.feedRemainingLogs
       : (userProfile?.id ? loadUserLocal(userProfile.id, "remain_logs", "feedRemainingLogs", []) : []);
     if (remData) {
@@ -3959,7 +3959,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       setRemainLogs(normRemain);
     }
 
-    const expData: Expense[] = (d.expenses && d.expenses.length > 0)
+    const expData: Expense[] = Array.isArray(d.expenses)
       ? d.expenses
       : (userProfile?.id ? loadUserLocal(userProfile.id, "expenses", "expenses", []) : []);
     if (expData) {
@@ -3967,7 +3967,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       setExpenses(normExp);
     }
 
-    const revData: Revenue[] = (d.revenues && d.revenues.length > 0)
+    const revData: Revenue[] = Array.isArray(d.revenues)
       ? d.revenues
       : (userProfile?.id ? loadUserLocal(userProfile.id, "revenues", "revenues", []) : []);
     if (revData) {
@@ -3979,7 +3979,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       setRevenues(normRev);
     }
 
-    const mortData: MortalityEntry[] = (d.mortalityEntries && d.mortalityEntries.length > 0)
+    const mortData: MortalityEntry[] = Array.isArray(d.mortalityEntries)
       ? d.mortalityEntries
       : (userProfile?.id ? loadUserLocal(userProfile.id, "mortality", "mortalityEntries", []) : []);
     if (mortData) {
@@ -3987,7 +3987,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       setMortality(normMort);
     }
 
-    const treatData: TreatmentRecord[] = (d.treatmentRecords && d.treatmentRecords.length > 0)
+    const treatData: TreatmentRecord[] = Array.isArray(d.treatmentRecords)
       ? d.treatmentRecords
       : (userProfile?.id ? loadUserLocal(userProfile.id, "treatments", "treatmentRecords", []) : []);
     if (treatData) {
@@ -3995,9 +3995,9 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       setTreatments(normTreat);
     }
 
-    if (d.staffMembers) setStaff(d.staffMembers);
+    if (Array.isArray(d.staffMembers)) setStaff(d.staffMembers);
 
-    const repData: Report[] = (d.reports && d.reports.length > 0)
+    const repData: Report[] = Array.isArray(d.reports)
       ? d.reports
       : (userProfile?.id ? loadUserLocal(userProfile.id, "reports", "reports", []) : []);
     if (repData) {
@@ -4005,7 +4005,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       setReports(normRep);
     }
 
-    const custData: Customer[] = (d.customers && d.customers.length > 0)
+    const custData: Customer[] = Array.isArray(d.customers)
       ? d.customers
       : (userProfile?.id ? loadUserLocal(userProfile.id, "customers", "customers", []) : []);
     if (custData) {
@@ -4013,7 +4013,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       setCustomers(normCust);
     }
 
-    const pgData: PriceGroup[] = (d.priceGroups && d.priceGroups.length > 0)
+    const pgData: PriceGroup[] = Array.isArray(d.priceGroups)
       ? d.priceGroups
       : (userProfile?.id ? loadUserLocal(userProfile.id, "price_groups", "priceGroups", []) : []);
     if (pgData) {
@@ -4021,7 +4021,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       setPriceGroups(normPg);
     }
 
-    const invsData: Invoice[] = (d.invoices && d.invoices.length > 0)
+    const invsData: Invoice[] = Array.isArray(d.invoices)
       ? d.invoices
       : (userProfile?.id ? loadUserLocal(userProfile.id, "invoices", "invoices", []) : []);
     if (invsData) {
@@ -4030,9 +4030,9 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     }
 
     if (d.invoiceSettings) setInvSettings(d.invoiceSettings);
-    if (d.investors) setInvestors(d.investors);
+    if (Array.isArray(d.investors)) setInvestors(d.investors);
 
-    const investData: Investment[] = (d.investments && d.investments.length > 0)
+    const investData: Investment[] = Array.isArray(d.investments)
       ? d.investments
       : (userProfile?.id ? loadUserLocal(userProfile.id, "investments", "investments", []) : []);
     if (investData) {
@@ -4040,7 +4040,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       setInvestments(normInv);
     }
 
-    const payData: InvestmentPayment[] = (d.investmentPayments && d.investmentPayments.length > 0)
+    const payData: InvestmentPayment[] = Array.isArray(d.investmentPayments)
       ? d.investmentPayments
       : (userProfile?.id ? loadUserLocal(userProfile.id, "investment_payments", "investmentPayments", []) : []);
     if (payData) {
@@ -4048,7 +4048,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       setInvestmentPayments(normPay);
     }
 
-    const prData: PondReport[] = (d.pondReports && d.pondReports.length > 0)
+    const prData: PondReport[] = Array.isArray(d.pondReports)
       ? d.pondReports
       : (userProfile?.id ? loadUserLocal(userProfile.id, "pond_reports", "pondReports", []) : []);
     if (prData) {
@@ -4210,6 +4210,27 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
         const meta=session.user.user_metadata??{};
         const country=meta.country||"Nigeria";
         const cc=COUNTRY_CURRENCIES[country]??COUNTRY_CURRENCIES["Nigeria"];
+
+        let staffPerms: string[] = meta.permissions || [];
+        let staffOwnerId: string = meta.owner_id || "";
+        let staffRole: string = meta.role || (prof?.role || "owner");
+        let staffFarms: string[] = meta.farms || [];
+
+        try {
+          const { data: staffRow } = await supabase
+            .from("staff_members")
+            .select("id, name, role, permissions, farms, user_id")
+            .ilike("email", session.user.email || "")
+            .maybeSingle();
+
+          if (staffRow) {
+            if (staffRow.permissions && staffRow.permissions.length > 0) staffPerms = staffRow.permissions;
+            if (staffRow.user_id) staffOwnerId = staffRow.user_id;
+            if (staffRow.farms && staffRow.farms.length > 0) staffFarms = staffRow.farms;
+            staffRole = "staff";
+          }
+        } catch {}
+
         setUserProfile({
           id:session.user.id,
           name:meta.name||session.user.email?.split("@")[0]||"User",
@@ -4218,9 +4239,9 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
           email:session.user.email||"",phone:meta.phone||"",
           currencySymbol:meta.currency_symbol||cc.symbol,
           currencyCode:meta.currency_code||cc.code,
-          role:meta.role,
-          permissions:meta.permissions,
-          ownerId:meta.owner_id,
+          role:staffRole,
+          permissions:staffPerms,
+          ownerId:staffOwnerId,
         });
         if(meta.active_farm_id){
           setActiveFarmId(meta.active_farm_id);
@@ -4279,6 +4300,27 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
         const meta=session.user.user_metadata??{};
         const country=meta.country||"Nigeria";
         const cc=COUNTRY_CURRENCIES[country]??COUNTRY_CURRENCIES["Nigeria"];
+
+        let staffPerms: string[] = meta.permissions || [];
+        let staffOwnerId: string = meta.owner_id || "";
+        let staffRole: string = meta.role || (prof?.role || "owner");
+        let staffFarms: string[] = meta.farms || [];
+
+        try {
+          const { data: staffRow } = await supabase
+            .from("staff_members")
+            .select("id, name, role, permissions, farms, user_id")
+            .ilike("email", session.user.email || "")
+            .maybeSingle();
+
+          if (staffRow) {
+            if (staffRow.permissions && staffRow.permissions.length > 0) staffPerms = staffRow.permissions;
+            if (staffRow.user_id) staffOwnerId = staffRow.user_id;
+            if (staffRow.farms && staffRow.farms.length > 0) staffFarms = staffRow.farms;
+            staffRole = "staff";
+          }
+        } catch {}
+
         setUserProfile(prev=>{
           if(prev?.id && prev.id !== session.user.id){
             resetAllState();
@@ -4291,9 +4333,9 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
             email:session.user.email||"",phone:meta.phone||"",
             currencySymbol:meta.currency_symbol||cc.symbol,
             currencyCode:meta.currency_code||cc.code,
-            role:meta.role,
-            permissions:meta.permissions,
-            ownerId:meta.owner_id,
+            role:staffRole,
+            permissions:staffPerms,
+            ownerId:staffOwnerId,
           };
         });
         if(meta.active_farm_id){
@@ -4561,22 +4603,20 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   const editPriceGroup=(g:PriceGroup)=>{setPriceGroups(prev=>prev.map(x=>x.id===g.id?g:x));api.priceGroups.update(g).catch(console.warn);};
   const delPriceGroup=(id:string)=>{setPriceGroups(prev=>prev.filter(g=>g.id!==id));api.priceGroups.remove(id).catch(console.warn);};
   /* ── Permission derivation & farm scoping ── */
-  const currentStaff = staff.find(s => s.email?.toLowerCase() === userProfile?.email?.toLowerCase());
-  const isInvitedStaff = (userProfile?.role === "staff" || Boolean((userProfile as any)?.ownerId)) &&
-    Boolean(currentStaff && currentStaff.userId && currentStaff.userId !== userProfile?.id);
-  const isOwner = !isInvitedStaff || currentStaff?.role === "Admin" || currentStaff?.role === "Director";
+  const currentStaff = staff.find(s => s.email?.trim().toLowerCase() === userProfile?.email?.trim().toLowerCase());
+  const isStaff = userProfile?.role === "staff" || Boolean((userProfile as any)?.ownerId) || (Boolean(currentStaff) && currentStaff?.role !== "Admin" && currentStaff?.role !== "Director" && userProfile?.role !== "owner");
+  const isOwner = !isStaff;
 
   const hasPerm = (p: string) => {
     if (isOwner) return true;
-    const perms = currentStaff?.permissions || userProfile?.permissions || [];
-    if (perms.length === 0) {
-      return p === "Pond Management" || p === "Feed Stock" || p === "Feeding Records" || p === "Reports";
-    }
+    const perms = (currentStaff?.permissions && currentStaff.permissions.length > 0)
+      ? currentStaff.permissions
+      : (userProfile?.permissions || []);
+    if (perms.length === 0) return false;
     if (perms.includes(p)) return true;
     if (p === "Invoices" && perms.includes("Invoice")) return true;
     if (p === "Invoice" && perms.includes("Invoices")) return true;
-    if (p === "Staff Assessments" && perms.includes("Staff Assessment")) return true;
-    if (p === "Staff Assessment" && perms.includes("Staff Assessments")) return true;
+    if (p === "Staff Assessments" && (perms.includes("Staff Assessment") || perms.includes("Staff Assessments"))) return true;
     if (p === "Pond Details" && perms.includes("Pond Management")) return true;
     return false;
   };
@@ -4725,7 +4765,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       const allowedViews=NAV.filter(({id})=>{
         if(id==="staff"||id==="pricing"||id==="settings")return false;
         const perm=NAV_PERM[id];
-        return !perm||hasPerm(perm);
+        return Boolean(perm && hasPerm(perm));
       }).map(n=>n.id);
       if(allowedViews.length>0&&!allowedViews.includes(active)){
         setActive_(allowedViews[0]);

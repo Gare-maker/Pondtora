@@ -548,11 +548,23 @@ async function dbDelete(table: string, id: string, cacheKey?: string): Promise<{
   const userId = await getUserId();
   const targetId = isUuid(id) ? id : (idMap.get(id) || toUuid(id));
 
-  // Update local cache scoped to current user
-  if (cacheKey && userId) {
-    const cached = getLocalCache(userId) || {};
-    const list = cached[cacheKey] || [];
-    saveLocalCache({ [cacheKey]: list.filter((x: any) => x.id !== id && x.id !== targetId) }, userId);
+  // Update local cache scoped to current user immediately
+  if (userId) {
+    if (cacheKey) {
+      const cached = getLocalCache(userId) || {};
+      const list = cached[cacheKey] || [];
+      saveLocalCache({ [cacheKey]: list.filter((x: any) => x.id !== id && x.id !== targetId) }, userId);
+    }
+    try {
+      const directKey = `pondtora_${userId}_${table}`;
+      const direct = localStorage.getItem(directKey);
+      if (direct) {
+        const parsed = JSON.parse(direct);
+        if (Array.isArray(parsed)) {
+          localStorage.setItem(directKey, JSON.stringify(parsed.filter((x: any) => x.id !== id && x.id !== targetId)));
+        }
+      }
+    } catch {}
   }
 
   try {
@@ -658,9 +670,9 @@ export const api = {
         safeQuery(supabase.from("pond_reports").select("*")),
       ]);
 
-      // Robust extract helper: uses authoritative query data when present; falls back to cached data if query errors or returns empty
+      // Robust extract helper: uses authoritative query data when present; falls back to cached data only on query failure
       const extract = <T,>(res: any, cacheKey: string, mapper: (r: any) => T): T[] => {
-        if (res && !res.error && Array.isArray(res.data) && res.data.length > 0) {
+        if (res && !res.error && Array.isArray(res.data)) {
           return res.data.map(mapper);
         }
         if (res?.error) {
@@ -675,8 +687,8 @@ export const api = {
       let farms = extract<Farm>(farmsRes, "farms", (r: any) => objToCamel<Farm>(r));
 
       // If user is staff with assigned farms, include those assigned farms
-      const staffList = (staffRes.data || []).map((r: any) => objToCamel<StaffMember>(r));
-      const userProfilesList = (profilesRes.data || []).map((r: any) => objToCamel<UserProfile>(r));
+      const staffList = (staffRes?.data || []).map((r: any) => objToCamel<StaffMember>(r));
+      const userProfilesList = (profilesRes?.data || []).map((r: any) => objToCamel<UserProfile>(r));
       const userEmail = userProfilesList[0]?.email;
       const staffMember = staffList.find((s: any) => s.staffAuthId === userId || (userEmail && s.email?.toLowerCase() === userEmail.toLowerCase()));
       if (staffMember?.farms && staffMember.farms.length > 0) {
@@ -696,7 +708,7 @@ export const api = {
       const result = {
         needsSetup: false,
         farms,
-        userProfiles: userProfilesList.length > 0 ? userProfilesList : (cached?.userProfiles || []),
+        userProfiles: (profilesRes && !profilesRes.error && Array.isArray(profilesRes.data)) ? userProfilesList : (cached?.userProfiles || []),
         ponds: extract<Pond>(pondsRes, "ponds", (r: any) => objToCamel<Pond>(r)),
         stockEvents: extract<StockEvent>(stockRes, "stockEvents", (r: any) => objToCamel<StockEvent>(r)),
         feedInventory: extract<FeedItem>(invRes, "feedInventory", (r: any) => objToCamel<FeedItem>(r)),
@@ -707,7 +719,7 @@ export const api = {
         revenues: extract<Revenue>(revRes, "revenues", (r: any) => objToCamel<Revenue>(r)),
         mortalityEntries: extract<MortalityEntry>(mortRes, "mortalityEntries", (r: any) => objToCamel<MortalityEntry>(r)),
         treatmentRecords: extract<TreatmentRecord>(treatRes, "treatmentRecords", (r: any) => objToCamel<TreatmentRecord>(r)),
-        staffMembers: staffList.length > 0 ? staffList : (cached?.staffMembers || []),
+        staffMembers: (staffRes && !staffRes.error && Array.isArray(staffRes.data)) ? staffList : (cached?.staffMembers || []),
         reports: extract<Report>(repRes, "reports", (r: any) => objToCamel<Report>(r)),
         customers: extract<Customer>(custRes, "customers", (r: any) => objToCamel<Customer>(r)),
         priceGroups: extract<PriceGroup>(pgRes, "priceGroups", (r: any) => objToCamel<PriceGroup>(r)),
@@ -889,7 +901,28 @@ export const api = {
       return { success: true, staffMember, invitation: null, emailSent, emailError, inviteLink };
     },
     update: (s: StaffMember) => dbUpdate<StaffMember>("staff_members", s, "staffMembers"),
-    remove: (id: string) => dbDelete("staff_members", id, "staffMembers"),
+    remove: async (id: string) => {
+      const userId = await getUserId();
+      const targetId = isUuid(id) ? id : (idMap.get(id) || toUuid(id));
+      if (userId) {
+        const cached = getLocalCache(userId) || {};
+        const list = cached.staffMembers || [];
+        saveLocalCache({ staffMembers: list.filter((x: any) => x.id !== id && x.id !== targetId) }, userId);
+        try {
+          const direct = localStorage.getItem(`pondtora_${userId}_staff`);
+          if (direct) {
+            const parsed = JSON.parse(direct);
+            if (Array.isArray(parsed)) {
+              localStorage.setItem(`pondtora_${userId}_staff`, JSON.stringify(parsed.filter((x: any) => x.id !== id && x.id !== targetId)));
+            }
+          }
+        } catch {}
+      }
+      try { await supabase.from("staff_farm_assignments").delete().eq("staff_id", targetId); } catch {}
+      try { await supabase.from("staff_permissions").delete().eq("staff_id", targetId); } catch {}
+      try { await supabase.from("staff_invitations").delete().eq("staff_id", targetId); } catch {}
+      return dbDelete("staff_members", id, "staffMembers");
+    },
   },
 
   // ── Ponds ──────────────────────────────────────────────────────────────────
