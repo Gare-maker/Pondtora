@@ -79,11 +79,19 @@ BEGIN
     AND LOWER(email) != LOWER(v_master_admin_email);
   GET DIAGNOSTICS v_deleted_prof_count = ROW_COUNT;
 
-  -- 4. Delete sessions, identities, and refresh tokens for non-admin accounts
-  DELETE FROM auth.refresh_tokens WHERE user_id NOT IN (SELECT id FROM _admin_ids_to_keep);
-  DELETE FROM auth.sessions WHERE user_id NOT IN (SELECT id FROM _admin_ids_to_keep);
+  -- 4. Delete sessions, identities, and refresh tokens for non-admin accounts (cast to text to prevent varchar/uuid mismatch)
   BEGIN
-    DELETE FROM auth.identities WHERE user_id NOT IN (SELECT id FROM _admin_ids_to_keep);
+    DELETE FROM auth.refresh_tokens WHERE user_id::text NOT IN (SELECT id::text FROM _admin_ids_to_keep);
+  EXCEPTION WHEN OTHERS THEN NULL;
+  END;
+
+  BEGIN
+    DELETE FROM auth.sessions WHERE user_id::text NOT IN (SELECT id::text FROM _admin_ids_to_keep);
+  EXCEPTION WHEN OTHERS THEN NULL;
+  END;
+
+  BEGIN
+    DELETE FROM auth.identities WHERE user_id::text NOT IN (SELECT id::text FROM _admin_ids_to_keep);
   EXCEPTION WHEN OTHERS THEN NULL;
   END;
 
@@ -96,7 +104,7 @@ BEGIN
   -- 6. Clean storage objects if storage schema exists
   BEGIN
     IF EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'storage' AND table_name = 'objects') THEN
-      DELETE FROM storage.objects WHERE owner NOT IN (SELECT id FROM _admin_ids_to_keep);
+      DELETE FROM storage.objects WHERE owner::text NOT IN (SELECT id::text FROM _admin_ids_to_keep);
     END IF;
   EXCEPTION WHEN OTHERS THEN NULL;
   END;
