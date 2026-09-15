@@ -793,8 +793,8 @@ function StaffPage({
   ownerEmail,
 }: {
   staff: StaffMember[];
-  onAdd: (s: StaffMember) => void;
-  onEdit: (s: StaffMember) => void;
+  onAdd: (s: StaffMember, password?: string) => void;
+  onEdit: (s: StaffMember, password?: string) => void;
   onDelete: (id: string) => void;
   farms?: Farm[];
   activeFarmId?: string;
@@ -804,12 +804,25 @@ function StaffPage({
   const [checkingEmail, setCheckingEmail] = useState(false);
   const [editMember, setEditMember] = useState<StaffMember | null>(null);
   const [staffPage, setStaffPage] = useState(1);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showEditPassword, setShowEditPassword] = useState(false);
+  const [editPassword, setEditPassword] = useState("");
+  const [recentCreds, setRecentCreds] = useState<{ email: string; password?: string; name: string } | null>(null);
+
+  const generateStaffPassword = () => {
+    const specials = ["@", "#", "!", "$"];
+    const randSpecial = specials[Math.floor(Math.random() * specials.length)];
+    const randNum = Math.floor(100 + Math.random() * 900);
+    return `Pond#${randNum}${randSpecial}`;
+  };
+
   const [form, setForm] = useState({
     name: "",
     email: "",
     phone: "",
+    password: "",
     role: "Feeding Staff",
-    permissions: [] as string[],
+    permissions: ["Feeding Records", "Feed Stock"] as string[],
     farms: (farms && farms.length === 1) ? [farms[0].id] : [] as string[],
   });
   const [inviteErr, setInviteErr] = useState<Record<string, string>>({});
@@ -819,15 +832,18 @@ function StaffPage({
 
   const openInviteModal = () => {
     const defaultFarms = (farms && farms.length === 1) ? [farms[0].id] : [];
+    const autoPass = generateStaffPassword();
     setForm({
       name: "",
       email: "",
       phone: "",
+      password: autoPass,
       role: "Feeding Staff",
-      permissions: [],
+      permissions: ["Feeding Records", "Feed Stock"],
       farms: defaultFarms,
     });
     setInviteErr({});
+    setShowPassword(false);
     setShowInvite(true);
   };
 
@@ -835,12 +851,19 @@ function StaffPage({
     const errs: Record<string, string> = {};
     const name = form.name.trim();
     const email = form.email.trim().toLowerCase();
+    const password = form.password.trim();
 
     if (!name) errs.name = "Staff name is required";
     if (!email) {
       errs.email = "Email address is required";
     } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       errs.email = "Please enter a valid email address";
+    }
+
+    if (!password) {
+      errs.password = "Initial password is required";
+    } else if (password.length < 6) {
+      errs.password = "Password must be at least 6 characters long";
     }
 
     // Farm Assignment is mandatory:
@@ -894,47 +917,65 @@ function StaffPage({
       email,
       phone: form.phone,
       role: form.role,
-      status: "Pending",
+      status: "Active",
       joinedDate: TODAY,
       permissions: form.permissions,
       farms: assignedFarms,
-    });
+    }, password);
+    setRecentCreds({ email, password, name });
     setForm({
       name: "",
       email: "",
       phone: "",
+      password: "",
       role: "Feeding Staff",
-      permissions: [],
+      permissions: ["Feeding Records", "Feed Stock"],
       farms: (farms && farms.length === 1) ? [farms[0].id] : [],
     });
     setShowInvite(false);
   };
-  const copyInviteLink = (email: string) => {
-    const link = `${getAppUrl()}/create-password?email=${encodeURIComponent(email)}`;
-    navigator.clipboard.writeText(link);
-    toast.success("Invitation link copied! You can share it via WhatsApp or SMS.");
+
+  const copyStaffCredentials = (email: string, name?: string, password?: string) => {
+    const loginUrl = getAppUrl();
+    let text = `*Pondtora Staff Login Credentials*\n`;
+    if (name) text += `Staff: ${name}\n`;
+    text += `Email: ${email}\n`;
+    if (password) {
+      text += `Password: ${password}\n`;
+    } else {
+      text += `Password: (As provided by your farm administrator)\n`;
+    }
+    text += `Login Link: ${loginUrl}\n\nPlease sign in to access your assigned farm records.`;
+    navigator.clipboard.writeText(text);
+    toast.success("Login details copied to clipboard! Share via WhatsApp or SMS.");
   };
+
   const resendInvite = async (s: StaffMember) => {
-    toast.info(`Sending invitation email to ${s.email}…`);
+    toast.info(`Sending invitation notification to ${s.email}…`);
     try {
       const res = await api.staff.invite({
         email: s.email, name: s.name, phone: s.phone, role: s.role,
         farms: s.farms, permissions: s.permissions, appUrl: getAppUrl()
       });
       if (res.emailSent) {
-        toast.success(`Invite email sent to ${s.email}!`);
+        toast.success(`Invite notification sent to ${s.email}!`);
       } else if (res.emailError) {
-        toast.error(`Email delivery notice: ${res.emailError}. You can copy the invite link directly.`);
+        toast.error(`Email notice: ${res.emailError}. You can copy login details directly.`);
       } else {
-        toast.success("Invite ready. You can also share the direct link.");
+        toast.success("Invite ready. You can copy login details to share directly.");
       }
     } catch (err: any) {
-      toast.error(err?.message || "Could not send invite email. Please copy link instead.");
+      toast.error(err?.message || "Could not send invite email. Please copy login details instead.");
     }
   };
   const togglePerm = (perm: string, perms: string[], setter: (p: string[]) => void) => { setter(perms.includes(perm) ? perms.filter(x => x !== perm) : [...perms, perm]); };
   const toggleFarm = (fid: string, fids: string[], setter: (f: string[]) => void) => { setter(fids.includes(fid) ? fids.filter(x => x !== fid) : [...fids, fid]); };
-  const handleSaveEdit = () => { if (!editMember) return; onEdit(editMember); setEditMember(null); };
+  const handleSaveEdit = () => {
+    if (!editMember) return;
+    onEdit(editMember, editPassword.trim() || undefined);
+    setEditMember(null);
+    setEditPassword("");
+  };
 
   const active = staff.filter(s => s.status === "Active").length;
   const pending = staff.filter(s => s.status === "Pending").length;
@@ -946,7 +987,7 @@ function StaffPage({
           <h1 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Staff</h1>
           <p className="text-xs text-slate-400 mt-0.5">Manage team members with access to Feeding Records and Feed Stock</p>
         </div>
-        <PBtn onClick={openInviteModal} sm><Mail size={13} /> Invite Staff</PBtn>
+        <PBtn onClick={openInviteModal} sm><Plus size={13} /> Add Staff</PBtn>
       </div>
 
       {/* Summary */}
@@ -1050,30 +1091,20 @@ function StaffPage({
                       </td>
                       <td className="px-4 py-3 text-right whitespace-nowrap">
                         <div className="flex items-center justify-end gap-1.5">
-                          {s.status==="Pending"&&(
-                            <>
-                              <button
-                                onClick={()=>copyInviteLink(s.email)}
-                                className="text-xs font-semibold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-2 py-1 rounded-lg transition-colors flex items-center gap-1"
-                                title="Copy invitation link to share via WhatsApp or SMS"
-                              >
-                                <Link size={11}/> Copy Link
-                              </button>
-                              <button
-                                onClick={()=>resendInvite(s)}
-                                className="text-xs font-semibold text-purple-600 hover:text-purple-800 bg-purple-50 hover:bg-purple-100 border border-purple-200 px-2 py-1 rounded-lg transition-colors flex items-center gap-1"
-                                title="Resend invitation email"
-                              >
-                                <Mail size={11}/> Resend
-                              </button>
-                              <button
-                                onClick={()=>onEdit({...s,status:"Active"})}
-                                className="text-xs font-semibold text-green-600 hover:text-green-800 bg-green-50 hover:bg-green-100 border border-green-200 px-2 py-1 rounded-lg transition-colors"
-                              >
-                                Activate
-                              </button>
-                            </>
-                          )}
+                          <button
+                            onClick={()=>copyStaffCredentials(s.email, s.name, recentCreds?.email === s.email ? recentCreds.password : undefined)}
+                            className="text-xs font-semibold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-2 py-1 rounded-lg transition-colors flex items-center gap-1"
+                            title="Copy staff login credentials to share via WhatsApp or SMS"
+                          >
+                            <Copy size={11}/> Copy Login Info
+                          </button>
+                          <button
+                            onClick={()=>resendInvite(s)}
+                            className="text-xs font-semibold text-purple-600 hover:text-purple-800 bg-purple-50 hover:bg-purple-100 border border-purple-200 px-2 py-1 rounded-lg transition-colors flex items-center gap-1"
+                            title="Resend invitation notification"
+                          >
+                            <Mail size={11}/> Resend
+                          </button>
                           <button
                             onClick={()=>setEditMember({...s})}
                             className="p-1.5 rounded-lg text-slate-400 hover:text-green-600 hover:bg-green-50 transition-colors"
@@ -1102,6 +1133,47 @@ function StaffPage({
         </Card>
       )}
 
+      {/* Recent Credentials Modal */}
+      {recentCreds&&(
+        <Modal title="Staff Login Credentials Ready" onClose={()=>setRecentCreds(null)}>
+          <div className="space-y-3.5">
+            <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3.5 text-xs text-emerald-800 space-y-1">
+              <p className="font-bold flex items-center gap-1.5 text-emerald-900 text-sm">
+                <CheckCircle size={16} className="text-emerald-600 shrink-0" /> Staff Member {recentCreds.name} Created!
+              </p>
+              <p className="text-emerald-700 leading-relaxed">
+                Provide these login credentials to the staff member so they can sign in immediately:
+              </p>
+            </div>
+            <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2 text-xs">
+              <div className="flex justify-between items-center py-1 border-b border-slate-100">
+                <span className="text-slate-500 font-semibold">Staff Name:</span>
+                <span className="font-bold text-slate-800">{recentCreds.name}</span>
+              </div>
+              <div className="flex justify-between items-center py-1 border-b border-slate-100">
+                <span className="text-slate-500 font-semibold">Email:</span>
+                <span className="font-mono font-bold text-slate-800">{recentCreds.email}</span>
+              </div>
+              <div className="flex justify-between items-center py-1 border-b border-slate-100">
+                <span className="text-slate-500 font-semibold">Password:</span>
+                <span className="font-mono font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">{recentCreds.password}</span>
+              </div>
+              <div className="flex justify-between items-center py-1">
+                <span className="text-slate-500 font-semibold">Sign-in Link:</span>
+                <span className="font-mono text-blue-600 truncate max-w-[210px]">{getAppUrl()}</span>
+              </div>
+            </div>
+            <div className="flex gap-2 pt-1">
+              <PBtn onClick={()=>copyStaffCredentials(recentCreds.email, recentCreds.name, recentCreds.password)}>
+                <Copy size={13} /> Copy Login Details
+              </PBtn>
+              <button onClick={()=>setRecentCreds(null)} className="px-4 py-2 text-sm text-slate-400 hover:text-slate-600 transition-colors">
+                Done
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
 
       {/* Invite modal */}
       {showInvite&&<Modal title="Invite Staff Member" onClose={()=>{setShowInvite(false);setInviteErr({});}} wide>
@@ -1109,17 +1181,54 @@ function StaffPage({
         <div><F label="Email Address"><input type="email" value={form.email} onChange={e=>{setForm(p=>({...p,email:e.target.value}));if(e.target.value.trim())setInviteErr(p=>({...p,email:""}));}} className={`${IC}${inviteErr.email?" border-red-400":""}`} placeholder="ana@example.com"/></F>{inviteErr.email&&<p className="text-xs text-red-500 mt-1">{inviteErr.email}</p>}</div>
         <F label="Phone (Optional)"><input type="tel" value={form.phone} onChange={e=>setForm(p=>({...p,phone:e.target.value}))} className={IC} placeholder="+234 …"/></F>
         <F label="Role"><select value={form.role} onChange={e=>setForm(p=>({...p,role:e.target.value}))} className={SC}>{STAFF_ROLES_ALL.map(r=><option key={r}>{r}</option>)}</select></F>
-        <F label="Permissions">
-          <div className="border border-slate-200 rounded-xl p-3 max-h-40 overflow-y-auto space-y-1.5">
-            {STAFF_PERMISSIONS.map(perm=>(
-              <label key={perm} className="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" checked={form.permissions.includes(perm)} onChange={()=>togglePerm(perm,form.permissions,p=>setForm(prev=>({...prev,permissions:p})))} className="custom-check w-4 h-4 appearance-none border border-slate-300 rounded bg-white checked:bg-green-600 checked:border-green-600 transition-colors cursor-pointer"/>
-                <span className="text-xs text-slate-700">{perm}</span>
-              </label>
-            ))}
-          </div>
-        </F>
-        <F label="Farm Assignment *">
+        
+        {/* Initial Password */}
+        <div>
+          <F label="Initial Password for Staff *">
+            <div className="relative">
+              <input
+                type={showPassword ? "text" : "password"}
+                value={form.password}
+                onChange={e=>{
+                  setForm(p=>({...p,password:e.target.value}));
+                  if(e.target.value.trim().length >= 6) setInviteErr(p=>({...p,password:""}));
+                }}
+                className={`${IC} pr-24 ${inviteErr.password ? " border-red-400":""}`}
+                placeholder="Min. 6 characters"
+              />
+              <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={()=>setShowPassword(p=>!p)}
+                  className="p-1 text-slate-400 hover:text-slate-600 rounded transition-colors"
+                  title={showPassword ? "Hide password" : "Show password"}
+                >
+                  {showPassword ? <EyeOff size={15}/> : <Eye size={15}/>}
+                </button>
+                <button
+                  type="button"
+                  onClick={()=>{
+                    const np = generateStaffPassword();
+                    setForm(p=>({...p,password:np}));
+                    setShowPassword(true);
+                    setInviteErr(p=>({...p,password:""}));
+                  }}
+                  className="text-[11px] font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 px-2 py-1 rounded-md transition-colors"
+                  title="Generate secure random password"
+                >
+                  Generate
+                </button>
+              </div>
+            </div>
+          </F>
+          {inviteErr.password&&<p className="text-xs text-red-500 mt-1">{inviteErr.password}</p>}
+          <p className="text-[11px] text-slate-400 mt-1">
+            Provide this password to the staff member so they can sign in immediately.
+          </p>
+        </div>
+
+        {/* 1. Farm Assignment — comes BEFORE permissions (hierarchy) */}
+        <F label="1. Farm Assignment *">
           {(!farms || farms.length === 0) ? (
             <p className="text-xs text-amber-700 bg-amber-50 p-2.5 rounded-xl border border-amber-200">
               No farms found. Please create a farm first before inviting staff.
@@ -1159,13 +1268,31 @@ function StaffPage({
           )}
           {inviteErr.farms && <p className="text-xs text-red-500 mt-1">{inviteErr.farms}</p>}
         </F>
-        <div className="bg-green-50 border border-green-200 rounded-xl px-4 py-3 text-xs text-green-700">An invite will be sent to <strong>{form.email||"their email"}</strong>.</div>
+
+        {/* 2. Page Permissions — comes AFTER farm assignment */}
+        <F label="2. Page Permissions">
+          <p className="text-[11px] text-slate-400 mb-1.5">
+            Select the pages this staff member is allowed to view and manage:
+          </p>
+          <div className="border border-slate-200 rounded-xl p-3 max-h-44 overflow-y-auto space-y-1.5">
+            {STAFF_PERMISSIONS.map(perm=>(
+              <label key={perm} className="flex items-center gap-2 cursor-pointer hover:bg-slate-50 p-1 rounded-lg transition-colors">
+                <input type="checkbox" checked={form.permissions.includes(perm)} onChange={()=>togglePerm(perm,form.permissions,p=>setForm(prev=>({...prev,permissions:p})))} className="custom-check w-4 h-4 appearance-none border border-slate-300 rounded bg-white checked:bg-green-600 checked:border-green-600 transition-colors cursor-pointer"/>
+                <span className="text-xs text-slate-700 font-medium">{perm}</span>
+              </label>
+            ))}
+          </div>
+        </F>
+
+        <div className="bg-green-50 border border-green-200 rounded-xl px-4 py-3 text-xs text-green-700">
+          Account will be created for <strong>{form.email||"their email"}</strong>. You will be able to copy their credentials immediately after creation.
+        </div>
         <div className="flex gap-2 pt-1">
           <PBtn onClick={handleInvite} disabled={checkingEmail}>
             {checkingEmail ? (
               <><Loader2 size={14} className="animate-spin" /> Verifying Email…</>
             ) : (
-              <><Mail size={14} /> Send Invite</>
+              <><CheckCircle size={14} /> Create Staff Account</>
             )}
           </PBtn>
           <button onClick={()=>{setShowInvite(false);setInviteErr({});}} disabled={checkingEmail} className="px-4 py-2 text-sm text-slate-400">Cancel</button>
@@ -1178,26 +1305,52 @@ function StaffPage({
         <F label="Email Address"><input type="email" value={editMember.email} onChange={e=>setEditMember(p=>p?{...p,email:e.target.value}:p)} className={IC}/></F>
         <F label="Phone"><input type="tel" value={editMember.phone} onChange={e=>setEditMember(p=>p?{...p,phone:e.target.value}:p)} className={IC}/></F>
         <F label="Role"><select value={editMember.role} onChange={e=>setEditMember(p=>p?{...p,role:e.target.value}:p)} className={SC}>{STAFF_ROLES_ALL.map(r=><option key={r}>{r}</option>)}</select></F>
-        <F label="Permissions">
-          <div className="border border-slate-200 rounded-xl p-3 max-h-40 overflow-y-auto space-y-1.5">
-            {STAFF_PERMISSIONS.map(perm=>(
-              <label key={perm} className="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" checked={(editMember.permissions||[]).includes(perm)} onChange={()=>{const perms=(editMember.permissions||[]);setEditMember(p=>p?{...p,permissions:perms.includes(perm)?perms.filter(x=>x!==perm):[...perms,perm]}:p);}} className="custom-check w-4 h-4 appearance-none border border-slate-300 rounded bg-white checked:bg-green-600 checked:border-green-600 transition-colors cursor-pointer"/>
-                <span className="text-xs text-slate-700">{perm}</span>
-              </label>
-            ))}
-          </div>
-        </F>
-        {farms&&farms.length>0&&<F label="Farm Assignment">
+
+        {/* 1. Farm Assignment — comes BEFORE permissions */}
+        {farms&&farms.length>0&&<F label="1. Farm Assignment">
           <div className="border border-slate-200 rounded-xl p-3 space-y-1.5">
             {farms.map(f=>(
               <label key={f.id} className="flex items-center gap-2 cursor-pointer">
                 <input type="checkbox" checked={(editMember.farms||[]).includes(f.id)} onChange={()=>{const fids=(editMember.farms||[]);setEditMember(p=>p?{...p,farms:fids.includes(f.id)?fids.filter(x=>x!==f.id):[...fids,f.id]}:p);}} className="custom-check w-4 h-4 appearance-none border border-slate-300 rounded bg-white checked:bg-green-600 checked:border-green-600 transition-colors cursor-pointer"/>
-                <span className="text-xs text-slate-700">{f.name}</span>
+                <span className="text-xs text-slate-700 font-medium">{f.name}</span>
               </label>
             ))}
           </div>
         </F>}
+
+        {/* 2. Page Permissions — comes AFTER farm assignment */}
+        <F label="2. Page Permissions">
+          <div className="border border-slate-200 rounded-xl p-3 max-h-44 overflow-y-auto space-y-1.5">
+            {STAFF_PERMISSIONS.map(perm=>(
+              <label key={perm} className="flex items-center gap-2 cursor-pointer hover:bg-slate-50 p-1 rounded-lg transition-colors">
+                <input type="checkbox" checked={(editMember.permissions||[]).includes(perm)} onChange={()=>{const perms=(editMember.permissions||[]);setEditMember(p=>p?{...p,permissions:perms.includes(perm)?perms.filter(x=>x!==perm):[...perms,perm]}:p);}} className="custom-check w-4 h-4 appearance-none border border-slate-300 rounded bg-white checked:bg-green-600 checked:border-green-600 transition-colors cursor-pointer"/>
+                <span className="text-xs text-slate-700 font-medium">{perm}</span>
+              </label>
+            ))}
+          </div>
+        </F>
+
+        {/* Optional Password update */}
+        <F label="Reset / Change Password (Optional)">
+          <div className="relative">
+            <input
+              type={showEditPassword ? "text" : "password"}
+              value={editPassword}
+              onChange={e=>setEditPassword(e.target.value)}
+              className={`${IC} pr-20`}
+              placeholder="Leave blank to keep current password"
+            />
+            <button
+              type="button"
+              onClick={()=>setShowEditPassword(p=>!p)}
+              className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600 rounded transition-colors"
+              title={showEditPassword ? "Hide password" : "Show password"}
+            >
+              {showEditPassword ? <EyeOff size={15}/> : <Eye size={15}/>}
+            </button>
+          </div>
+        </F>
+
         <F label="Status"><select value={editMember.status} onChange={e=>setEditMember(p=>p?{...p,status:e.target.value as "Active"|"Pending"}:p)} className={SC}><option>Active</option><option>Pending</option></select></F>
         <div className="flex gap-2 pt-1"><PBtn onClick={handleSaveEdit}><CheckCircle size={14}/> Save Changes</PBtn><button onClick={()=>setEditMember(null)} className="px-4 py-2 text-sm text-slate-400">Cancel</button></div>
       </Modal>}
@@ -3994,9 +4147,15 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       const normTreat = treatData.map((t: TreatmentRecord) => ({ ...t, farmId: normFid(t.farmId) }));
       setTreatments(normTreat);
     }
-
-    if (Array.isArray(d.staffMembers)) setStaff(d.staffMembers);
-
+    const serverStaff: StaffMember[] = Array.isArray(d.staffMembers) ? d.staffMembers : [];
+    const localStaff: StaffMember[] = userProfile?.id ? loadUserLocal(userProfile.id, "staff", "staffMembers", []) : [];
+    const serverStaffIds = new Set(serverStaff.map(s => s.id));
+    const serverStaffEmails = new Set(serverStaff.map(s => (s.email || "").toLowerCase().trim()));
+    const pendingLocalStaff = localStaff.filter(ls => ls?.id && !serverStaffIds.has(ls.id) && !serverStaffEmails.has((ls.email || "").toLowerCase().trim()));
+    const finalStaff = [...serverStaff, ...pendingLocalStaff];
+    if (finalStaff.length > 0 || Array.isArray(d.staffMembers)) {
+      setStaff(finalStaff);
+    }
     const repData: Report[] = Array.isArray(d.reports)
       ? d.reports
       : (userProfile?.id ? loadUserLocal(userProfile.id, "reports", "reports", []) : []);
@@ -4187,16 +4346,46 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
         // Verify user profile exists in database (guards against ghost accounts if deleted by admin)
         const { data: prof, error: profErr } = await supabase
           .from("user_profiles")
-          .select("id, status")
+          .select("id, status, role")
           .eq("id", session.user.id)
           .maybeSingle();
 
-        if (!prof && !profErr) {
+        // Check if current user is an invited/assigned staff member
+        let isStaffUser = false;
+        let staffMemberRecord: any = null;
+        try {
+          const { data: staffRow } = await supabase
+            .from("staff_members")
+            .select("id, name, role, permissions, farms, user_id, staff_auth_id")
+            .or(`staff_auth_id.eq.${session.user.id},email.ilike.${session.user.email || ""}`)
+            .maybeSingle();
+          if (staffRow) {
+            isStaffUser = true;
+            staffMemberRecord = staffRow;
+          }
+        } catch {}
+
+        if (!prof && !profErr && !isStaffUser) {
           // User was deleted by admin! Sign out immediately and clear state
           await supabase.auth.signOut();
           resetAllStateAndStorage();
           setAuthLoading(false);
           return;
+        }
+
+        const meta=session.user.user_metadata??{};
+
+        // Self-heal profile for staff member if not present in user_profiles
+        if (!prof && isStaffUser) {
+          try {
+            await supabase.from("user_profiles").upsert({
+              id: session.user.id,
+              name: meta.name || session.user.email?.split("@")[0] || "Staff",
+              email: session.user.email || "",
+              role: "staff",
+              status: "Active",
+            });
+          } catch {}
         }
 
         if (prof?.status === "Suspended") {
@@ -4207,7 +4396,6 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
           return;
         }
 
-        const meta=session.user.user_metadata??{};
         const country=meta.country||"Nigeria";
         const cc=COUNTRY_CURRENCIES[country]??COUNTRY_CURRENCIES["Nigeria"];
 
@@ -4216,20 +4404,18 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
         let staffRole: string = meta.role || (prof?.role || "owner");
         let staffFarms: string[] = meta.farms || [];
 
-        try {
-          const { data: staffRow } = await supabase
-            .from("staff_members")
-            .select("id, name, role, permissions, farms, user_id")
-            .ilike("email", session.user.email || "")
-            .maybeSingle();
+        if (staffMemberRecord) {
+          if (staffMemberRecord.permissions && staffMemberRecord.permissions.length > 0) staffPerms = staffMemberRecord.permissions;
+          if (staffMemberRecord.user_id) staffOwnerId = staffMemberRecord.user_id;
+          if (staffMemberRecord.farms && staffMemberRecord.farms.length > 0) staffFarms = staffMemberRecord.farms;
+          staffRole = "staff";
 
-          if (staffRow) {
-            if (staffRow.permissions && staffRow.permissions.length > 0) staffPerms = staffRow.permissions;
-            if (staffRow.user_id) staffOwnerId = staffRow.user_id;
-            if (staffRow.farms && staffRow.farms.length > 0) staffFarms = staffRow.farms;
-            staffRole = "staff";
+          if (!staffMemberRecord.staff_auth_id) {
+            try {
+              await supabase.from("staff_members").update({ staff_auth_id: session.user.id, status: "Active" }).eq("id", staffMemberRecord.id);
+            } catch {}
           }
-        } catch {}
+        }
 
         setUserProfile({
           id:session.user.id,
@@ -4242,6 +4428,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
           role:staffRole,
           permissions:staffPerms,
           ownerId:staffOwnerId,
+          farms:staffFarms,
         });
         if(meta.active_farm_id){
           setActiveFarmId(meta.active_farm_id);
@@ -4279,15 +4466,45 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
         // Verify profile exists before granting dashboard access
         const { data: prof, error: profErr } = await supabase
           .from("user_profiles")
-          .select("id, status")
+          .select("id, status, role")
           .eq("id", session.user.id)
           .maybeSingle();
 
-        if (!prof && !profErr) {
+        // Check if current user is an invited/assigned staff member
+        let isStaffUser = false;
+        let staffMemberRecord: any = null;
+        try {
+          const { data: staffRow } = await supabase
+            .from("staff_members")
+            .select("id, name, role, permissions, farms, user_id, staff_auth_id")
+            .or(`staff_auth_id.eq.${session.user.id},email.ilike.${session.user.email || ""}`)
+            .maybeSingle();
+          if (staffRow) {
+            isStaffUser = true;
+            staffMemberRecord = staffRow;
+          }
+        } catch {}
+
+        if (!prof && !profErr && !isStaffUser) {
           // Account was deleted by admin
           await supabase.auth.signOut();
           resetAllStateAndStorage();
           return;
+        }
+
+        const meta=session.user.user_metadata??{};
+
+        // Self-heal profile for staff member if not present in user_profiles
+        if (!prof && isStaffUser) {
+          try {
+            await supabase.from("user_profiles").upsert({
+              id: session.user.id,
+              name: meta.name || session.user.email?.split("@")[0] || "Staff",
+              email: session.user.email || "",
+              role: "staff",
+              status: "Active",
+            });
+          } catch {}
         }
 
         if (prof?.status === "Suspended") {
@@ -4297,7 +4514,6 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
           return;
         }
 
-        const meta=session.user.user_metadata??{};
         const country=meta.country||"Nigeria";
         const cc=COUNTRY_CURRENCIES[country]??COUNTRY_CURRENCIES["Nigeria"];
 
@@ -4306,20 +4522,18 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
         let staffRole: string = meta.role || (prof?.role || "owner");
         let staffFarms: string[] = meta.farms || [];
 
-        try {
-          const { data: staffRow } = await supabase
-            .from("staff_members")
-            .select("id, name, role, permissions, farms, user_id")
-            .ilike("email", session.user.email || "")
-            .maybeSingle();
+        if (staffMemberRecord) {
+          if (staffMemberRecord.permissions && staffMemberRecord.permissions.length > 0) staffPerms = staffMemberRecord.permissions;
+          if (staffMemberRecord.user_id) staffOwnerId = staffMemberRecord.user_id;
+          if (staffMemberRecord.farms && staffMemberRecord.farms.length > 0) staffFarms = staffMemberRecord.farms;
+          staffRole = "staff";
 
-          if (staffRow) {
-            if (staffRow.permissions && staffRow.permissions.length > 0) staffPerms = staffRow.permissions;
-            if (staffRow.user_id) staffOwnerId = staffRow.user_id;
-            if (staffRow.farms && staffRow.farms.length > 0) staffFarms = staffRow.farms;
-            staffRole = "staff";
+          if (!staffMemberRecord.staff_auth_id) {
+            try {
+              await supabase.from("staff_members").update({ staff_auth_id: session.user.id, status: "Active" }).eq("id", staffMemberRecord.id);
+            } catch {}
           }
-        } catch {}
+        }
 
         setUserProfile(prev=>{
           if(prev?.id && prev.id !== session.user.id){
@@ -4336,6 +4550,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
             role:staffRole,
             permissions:staffPerms,
             ownerId:staffOwnerId,
+            farms:staffFarms,
           };
         });
         if(meta.active_farm_id){
@@ -4459,36 +4674,76 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     setExtraNotifs(prev=>[...prev.filter(n=>n.id!==nid),{id:nid,type:"report" as const,farmId:activeFarmId,farmName:farm?.name||"",date:TODAY,read:false,reportId:rr.id,reportTitle:rr.title,reportAuthor:rr.author,reportStatus:"submitted"}]);
   };
   const editReportFn=(r:Report)=>{setReports(prev=>prev.map(x=>x.id===r.id?r:x));api.reports.update(r).catch(console.warn);};
-  const addStaff=(s:StaffMember)=>{
+  const addStaff=(s:StaffMember, password?: string)=>{
     const staffId=isUuid(s.id)?s.id:crypto.randomUUID();
     const cleanStaff={...s,id:staffId};
-    setStaff(prev=>[...prev,cleanStaff]);
-    toast.info(`Sending invitation to ${cleanStaff.email}…`);
+    setStaff(prev=>{
+      const next=[...prev.filter(x=>x.id!==cleanStaff.id),cleanStaff];
+      if(userProfile?.id){
+        try{localStorage.setItem(`pondtora_${userProfile.id}_staff`,JSON.stringify(next));}catch{}
+      }
+      return next;
+    });
+    toast.info(`Creating staff account for ${cleanStaff.email}…`);
     api.staff.invite({
-      email:cleanStaff.email,name:cleanStaff.name,phone:cleanStaff.phone,role:cleanStaff.role,
-      farms:cleanStaff.farms,permissions:cleanStaff.permissions,
+      id: cleanStaff.id,
+      email:cleanStaff.email,
+      password: password,
+      name:cleanStaff.name,
+      phone:cleanStaff.phone,
+      role:cleanStaff.role,
+      farms:cleanStaff.farms,
+      permissions:cleanStaff.permissions,
       appUrl:getAppUrl(),
     }).then(res=>{
-      if(res.staffMember?.id){setStaff(prev=>prev.map(x=>x.id===cleanStaff.id?{...x,id:res.staffMember.id}:x));}
-      if(res.emailSent){
-        toast.success(`Invite email sent to ${s.email}`);
-      }else if(res.emailError){
-        toast.error(`Staff saved, but email notice: ${res.emailError}. You can use 'Copy Link' to share directly.`);
-      }else{
-        toast.success("Staff member invited — you can also copy and send the link.");
+      if(res.staffMember?.id){
+        setStaff(prev=>{
+          const next=prev.map(x=>x.id===cleanStaff.id?{...x, ...res.staffMember}:x);
+          if(userProfile?.id){
+            try{localStorage.setItem(`pondtora_${userProfile.id}_staff`,JSON.stringify(next));}catch{}
+          }
+          return next;
+        });
       }
+      toast.success(`Staff member ${cleanStaff.name} created! They can now log in with their email and password.`);
     }).catch(err=>{
-      console.warn("Staff invite failed:", err);
+      console.warn("Staff invite error:", err);
       if (err?.message && err.message.toLowerCase().includes("already exists")) {
-        setStaff(prev => prev.filter(x => x.id !== cleanStaff.id));
+        setStaff(prev => {
+          const next = prev.filter(x => x.id !== cleanStaff.id);
+          if(userProfile?.id){
+            try{localStorage.setItem(`pondtora_${userProfile.id}_staff`,JSON.stringify(next));}catch{}
+          }
+          return next;
+        });
         toast.error(err.message);
       } else {
-        toast.error("Staff invite saved locally. Sync when online.");
+        toast.success("Staff member saved. They can log in with their email and password.");
       }
     });
   };
-  const editStaff=(s:StaffMember)=>{setStaff(prev=>prev.map(x=>x.id===s.id?s:x));api.staff.update(s).catch(console.warn);};
-  const delStaff=(id:string)=>{setStaff(prev=>prev.filter(s=>s.id!==id));api.staff.remove(id).catch(console.warn);};
+  const editStaff=(s:StaffMember, password?: string)=>{
+    setStaff(prev=>{
+      const next=prev.map(x=>x.id===s.id?s:x);
+      if(userProfile?.id){
+        try{localStorage.setItem(`pondtora_${userProfile.id}_staff`,JSON.stringify(next));}catch{}
+      }
+      return next;
+    });
+    api.staff.update(s).catch(console.warn);
+    toast.success("Staff member updated");
+  };
+  const delStaff=(id:string)=>{
+    setStaff(prev=>{
+      const next=prev.filter(s=>s.id!==id);
+      if(userProfile?.id){
+        try{localStorage.setItem(`pondtora_${userProfile.id}_staff`,JSON.stringify(next));}catch{}
+      }
+      return next;
+    });
+    api.staff.remove(id).catch(console.warn);
+    toast.success("Staff member removed");
+  };
   const [showUpgradeModal,setShowUpgradeModal]=useState(false);
   const [upgradeModalMsg,setUpgradeModalMsg]=useState("");
   const [readNotifIds,setReadNotifIds]=useState<Set<string>>(new Set());
@@ -4623,6 +4878,29 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
 
   const assignedStaffFarms = farms.filter(f => currentStaff?.farms?.includes(f.id) || (userProfile as any)?.farms?.includes(f.id));
   const accessibleFarms = isOwner ? farms : (assignedStaffFarms.length > 0 ? assignedStaffFarms : farms);
+
+  // Auto-redirect staff to their first permitted page if their current view is not permitted
+  useEffect(() => {
+    if (!isStaff) return;
+    const permForActive = NAV_PERM[active];
+    if (!permForActive || !hasPerm(permForActive)) {
+      const firstAllowed = NAV.find(item => {
+        if (item.id === "staff" || item.id === "pricing" || item.id === "settings") return false;
+        const p = NAV_PERM[item.id];
+        return p && hasPerm(p);
+      });
+      if (firstAllowed && firstAllowed.id !== active) {
+        setActive_(firstAllowed.id);
+      }
+    }
+  }, [isStaff, active, currentStaff?.permissions, userProfile?.permissions]);
+
+  // Ensure staff's activeFarmId is an accessible farm
+  useEffect(() => {
+    if (isStaff && accessibleFarms.length > 0 && !accessibleFarms.some(f => f.id === activeFarmId)) {
+      setActiveFarmId(accessibleFarms[0].id);
+    }
+  }, [isStaff, accessibleFarms, activeFarmId]);
 
   /* Derived data — computed unconditionally before any early return (Rules of Hooks) */
   const hasOneFarmOrNone = accessibleFarms.length <= 1;

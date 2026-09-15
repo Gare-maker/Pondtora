@@ -1,5 +1,7 @@
 import { supabase, getAuthToken, getAuthUserId, getAppUrl } from "./supabase";
 export { getAppUrl };
+import { createClient } from "@supabase/supabase-js";
+import { projectId, publicAnonKey } from "../../utils/supabase/info";
 import type {
   Farm, UserProfile, Pond, StockEvent, FeedItem, FeedingRecord,
   BagOpenLog, FeedRemainingLog, Expense, Revenue, MortalityEntry,
@@ -7,6 +9,21 @@ import type {
   Invoice, InvSettings, Investor, Investment, InvestmentPayment, PondReport,
 } from "../app/types";
 import { INIT_K, INIT_C } from "../app/data";
+
+// Dedicated non-persisting client for background staff auth provisioning
+// Guarantees the logged-in owner's session in localStorage is NEVER overwritten
+const authStaffCreator = createClient(
+  `https://${projectId}.supabase.co`,
+  publicAnonKey,
+  {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+      detectSessionInUrl: false,
+    },
+  }
+);
+
 
 // ── Helpers for UUID & Case Conversion ────────────────────────────────────────
 
@@ -152,7 +169,7 @@ const TABLE_ALLOWED_COLUMNS: Record<string, Set<string>> = {
   ]),
   staff_members: new Set([
     "id", "user_id", "staff_auth_id", "name", "email", "phone", "role", "status",
-    "joined_date", "created_at", "updated_at"
+    "joined_date", "permissions", "farms", "created_at", "updated_at"
   ]),
   ponds: new Set([
     "id", "user_id", "farm_id", "name", "type", "species", "size_m2", "initial_stock",
@@ -477,8 +494,10 @@ async function dbInsert<T extends { id?: string }>(table: string, item: T, cache
 
   try {
     let { data, error } = await supabase.from(table).upsert(snake).select().maybeSingle();
-    // Auto-heal if a column doesn't exist in user's Postgres schema
-    if (error && error.message && error.message.includes("column") && error.message.includes("does not exist")) {
+    // Auto-heal if columns don't exist in user's Postgres schema (e.g. permissions, farms on staff_members)
+    let healAttempts = 0;
+    while (error && error.message && error.message.includes("column") && error.message.includes("does not exist") && healAttempts < 6) {
+      healAttempts++;
       const match = error.message.match(/column "([^"]+)"/);
       if (match && match[1]) {
         console.warn(`Column ${match[1]} does not exist on ${table}, stripping and retrying...`);
@@ -486,6 +505,8 @@ async function dbInsert<T extends { id?: string }>(table: string, item: T, cache
         const retry = await supabase.from(table).upsert(snake).select().maybeSingle();
         data = retry.data;
         error = retry.error;
+      } else {
+        break;
       }
     }
     if (error) {
@@ -515,7 +536,9 @@ async function dbUpdate<T extends { id?: string }>(table: string, item: T, cache
   try {
     if (targetId) {
       let { data, error } = await supabase.from(table).update(snake).eq("id", targetId).select().maybeSingle();
-      if (error && error.message && error.message.includes("column") && error.message.includes("does not exist")) {
+      let healAttempts = 0;
+      while (error && error.message && error.message.includes("column") && error.message.includes("does not exist") && healAttempts < 6) {
+        healAttempts++;
         const match = error.message.match(/column "([^"]+)"/);
         if (match && match[1]) {
           console.warn(`Column ${match[1]} does not exist on ${table}, stripping and retrying update...`);
@@ -523,6 +546,8 @@ async function dbUpdate<T extends { id?: string }>(table: string, item: T, cache
           const retry = await supabase.from(table).update(snake).eq("id", targetId).select().maybeSingle();
           data = retry.data;
           error = retry.error;
+        } else {
+          break;
         }
       }
       if (!data && !error) {
@@ -638,7 +663,7 @@ export const api = {
       const [
         farmsRes, profilesRes, pondsRes, stockRes, invRes, feedRes,
         bagRes, remainRes, expRes, revRes, mortRes, treatRes,
-        staffRes, repRes, custRes, pgRes, invsRes, setRes,
+        staffRes, farmAssignRes, staffPermRes, repRes, custRes, pgRes, invsRes, setRes,
         kqRes, cqRes, krRes, crRes,
         investorsRes, investmentsRes, invPayRes, pondRepRes
       ] = await Promise.all([
@@ -655,6 +680,8 @@ export const api = {
         safeQuery(supabase.from("mortality_entries").select("*")),
         safeQuery(supabase.from("treatment_records").select("*")),
         safeQuery(supabase.from("staff_members").select("*")),
+        safeQuery(supabase.from("staff_farm_assignments").select("*")),
+        safeQuery(supabase.from("staff_permissions").select("*")),
         safeQuery(supabase.from("reports").select("*")),
         safeQuery(supabase.from("customers").select("*")),
         safeQuery(supabase.from("price_groups").select("*")),
@@ -686,8 +713,28 @@ export const api = {
 
       let farms = extract<Farm>(farmsRes, "farms", (r: any) => objToCamel<Farm>(r));
 
+      // Build complete staff list with linked farms and permissions
+      const rawStaffList = (staffRes?.data || []).map((r: any) => objToCamel<StaffMember>(r));
+      const cachedStaff = ((cached?.staffMembers || []) as StaffMember[]);
+      const serverStaffIds = new Set(rawStaffList.map((s: any) => s.id));
+      const serverStaffEmails = new Set(rawStaffList.map((s: any) => (s.email || "").toLowerCase().trim()));
+      const pendingCachedStaff = cachedStaff.filter(
+        cs => cs?.id && !serverStaffIds.has(cs.id) && !serverStaffEmails.has((cs.email || "").toLowerCase().trim())
+      );
+      const combinedStaffRaw = [...rawStaffList, ...pendingCachedStaff];
+
+      const staffList: StaffMember[] = combinedStaffRaw.map((s: any) => {
+        const sFarms = (farmAssignRes?.data || []).filter((a: any) => a.staff_id === s.id).map((a: any) => a.farm_id);
+        const sPerms = (staffPermRes?.data || []).filter((p: any) => p.staff_id === s.id && (p.can_view ?? true)).map((p: any) => p.feature);
+        const cachedStaffItem = cachedStaff.find((c: any) => c.id === s.id);
+        return {
+          ...s,
+          farms: (s.farms && s.farms.length > 0) ? s.farms : (sFarms.length > 0 ? sFarms : (cachedStaffItem?.farms || [])),
+          permissions: (s.permissions && s.permissions.length > 0) ? s.permissions : (sPerms.length > 0 ? sPerms : (cachedStaffItem?.permissions || [])),
+        };
+      });
+
       // If user is staff with assigned farms, include those assigned farms
-      const staffList = (staffRes?.data || []).map((r: any) => objToCamel<StaffMember>(r));
       const userProfilesList = (profilesRes?.data || []).map((r: any) => objToCamel<UserProfile>(r));
       const userEmail = userProfilesList[0]?.email;
       const staffMember = staffList.find((s: any) => s.staffAuthId === userId || (userEmail && s.email?.toLowerCase() === userEmail.toLowerCase()));
@@ -705,6 +752,10 @@ export const api = {
         }
       }
 
+      const finalStaffMembers = staffList.length > 0
+        ? staffList
+        : (cachedStaff.length > 0 ? cachedStaff : []);
+
       const result = {
         needsSetup: false,
         farms,
@@ -719,7 +770,7 @@ export const api = {
         revenues: extract<Revenue>(revRes, "revenues", (r: any) => objToCamel<Revenue>(r)),
         mortalityEntries: extract<MortalityEntry>(mortRes, "mortalityEntries", (r: any) => objToCamel<MortalityEntry>(r)),
         treatmentRecords: extract<TreatmentRecord>(treatRes, "treatmentRecords", (r: any) => objToCamel<TreatmentRecord>(r)),
-        staffMembers: (staffRes && !staffRes.error && Array.isArray(staffRes.data)) ? staffList : (cached?.staffMembers || []),
+        staffMembers: finalStaffMembers,
         reports: extract<Report>(repRes, "reports", (r: any) => objToCamel<Report>(r)),
         customers: extract<Customer>(custRes, "customers", (r: any) => objToCamel<Customer>(r)),
         priceGroups: extract<PriceGroup>(pgRes, "priceGroups", (r: any) => objToCamel<PriceGroup>(r)),
@@ -784,21 +835,35 @@ export const api = {
   // ── Staff ──────────────────────────────────────────────────────────────────
   staff: {
     list: () => dbList<StaffMember>("staff_members", "staffMembers"),
-    checkEmailExists: async (email: string): Promise<{ exists: boolean; reason?: string }> => {
+    checkEmailExists: async (email: string, currentOwnerId?: string): Promise<{ exists: boolean; reason?: string }> => {
       const cleanEmail = email.trim().toLowerCase();
       if (!cleanEmail) return { exists: false };
 
-      // 1. Try RPC check if available in Supabase
+      // 1. Try RPC check if available in Supabase (SECURITY DEFINER allows looking up across all accounts)
       try {
         const { data, error } = await supabase.rpc("check_email_exists", { lookup_email: cleanEmail });
         if (!error && typeof data === "boolean" && data === true) {
-          return { exists: true, reason: "An account with this email address already exists." };
+          return { exists: true, reason: "This email is already associated to an account or to a farm." };
         }
       } catch (e) {
         // RPC might not be deployed yet in remote DB, fallback safely
       }
 
-      // 2. Query user_profiles directly
+      // 2. Query edge function check endpoint if available
+      try {
+        const edgeUrl = `${import.meta.env.VITE_SUPABASE_URL || "https://make-server-1da59a07.supabase.co"}/functions/v1/make-server-1da59a07/check-email?email=${encodeURIComponent(cleanEmail)}`;
+        const res = await fetch(edgeUrl, {
+          headers: { Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY || ""}` }
+        });
+        if (res.ok) {
+          const json = await res.json();
+          if (json.exists) {
+            return { exists: true, reason: json.reason || "This email is already associated to an account or to a farm." };
+          }
+        }
+      } catch {}
+
+      // 3. Query user_profiles directly
       try {
         const { data, error } = await supabase
           .from("user_profiles")
@@ -806,101 +871,294 @@ export const api = {
           .ilike("email", cleanEmail)
           .limit(1);
         if (!error && data && data.length > 0) {
-          return { exists: true, reason: "A registered user with this email address already exists." };
+          return { exists: true, reason: "This email is already associated to an account or to a farm." };
         }
       } catch {}
 
-      // 3. Query staff_members directly
+      // 4. Query staff_members directly
       try {
         const { data, error } = await supabase
           .from("staff_members")
-          .select("id, email")
+          .select("id, email, user_id")
           .ilike("email", cleanEmail)
           .limit(1);
         if (!error && data && data.length > 0) {
-          return { exists: true, reason: "A staff member with this email address already exists." };
+          return { exists: true, reason: "This email is already associated to an account or to a farm." };
         }
       } catch {}
 
-      // 4. Query cached local admin users if present
-      try {
-        const raw = localStorage.getItem("pondtora_admin_users");
-        if (raw) {
-          const list = JSON.parse(raw);
-          if (Array.isArray(list) && list.some(u => u?.email && u.email.trim().toLowerCase() === cleanEmail)) {
-            return { exists: true, reason: "An account with this email address already exists." };
-          }
-        }
-      } catch {}
-
+      // 5. Query cached local admin users only if offline or DB was unreachable
+      // (If DB query succeeded and returned no match, do NOT let stale cache block new registrations)
       return { exists: false };
     },
     invite: async (opts: {
+      id?: string;
       email: string;
+      password?: string;
       name?: string;
       phone?: string;
       role?: string;
       farms?: string[];
       permissions?: string[];
+      farmName?: string;
       appUrl?: string;
     }) => {
       const cleanEmail = opts.email.trim().toLowerCase();
-      const existing = await api.staff.checkEmailExists(cleanEmail);
+      const userId = await getUserId();
+
+      // Check duplicate email
+      const existing = await api.staff.checkEmailExists(cleanEmail, userId);
       if (existing.exists) {
-        throw new Error(existing.reason || `An account with email "${cleanEmail}" already exists.`);
+        throw new Error(existing.reason || "This email is already associated to an account or to a farm.");
       }
 
-      const userId = await getUserId();
+      const appUrl = (opts.appUrl && opts.appUrl.trim()) ? opts.appUrl.trim() : getAppUrl();
+      const loginUrl = appUrl;
+      const staffId = (opts.id && isUuid(opts.id)) ? opts.id : crypto.randomUUID();
+      let staffAuthId: string | undefined = undefined;
+      let emailSent = false;
+      let emailError: string | null = null;
+
+      // 1. If password is provided, provision staff auth user immediately
+      // Try direct Postgres RPC first (creates or updates auth.users + confirms email immediately)
+      if (opts.password) {
+        try {
+          const { data: rpcUid, error: rpcErr } = await supabase.rpc("provision_staff_auth_user", {
+            p_email: cleanEmail,
+            p_password: opts.password,
+            p_name: opts.name || cleanEmail.split("@")[0],
+            p_owner_id: userId || null,
+            p_staff_id: staffId,
+          });
+          if (!rpcErr && rpcUid) {
+            staffAuthId = rpcUid;
+            emailSent = true;
+          } else if (rpcErr) {
+            console.warn("provision_staff_auth_user RPC notice:", rpcErr.message);
+          }
+        } catch (rpcErr) {
+          console.warn("provision_staff_auth_user RPC exception:", rpcErr);
+        }
+
+        // Fallback to authStaffCreator.auth.signUp if RPC was not available
+        if (!staffAuthId) {
+          try {
+            const { data: signUpData, error: signUpErr } = await authStaffCreator.auth.signUp({
+              email: cleanEmail,
+              password: opts.password,
+              options: {
+                emailRedirectTo: `${loginUrl}/?verified=true`,
+                data: {
+                  name: opts.name || cleanEmail.split("@")[0],
+                  role: "staff",
+                  owner_id: userId,
+                  staff_id: staffId,
+                  permissions: opts.permissions || [],
+                  farms: opts.farms || [],
+                  farm_name: opts.farmName || "",
+                },
+              },
+            });
+            if (signUpErr) {
+              console.warn("authStaffCreator signUp warning:", signUpErr.message);
+              emailError = signUpErr.message;
+            } else if (signUpData?.user) {
+              staffAuthId = signUpData.user.id;
+              emailSent = true;
+            }
+          } catch (authErr: any) {
+            console.warn("Error signing up staff account:", authErr);
+            emailError = authErr?.message || String(authErr);
+          }
+        }
+      }
+
       const staffMember: StaffMember = {
-        id: crypto.randomUUID(),
+        id: staffId,
         name: opts.name || opts.email.split("@")[0],
         email: cleanEmail,
         phone: opts.phone || "",
         role: opts.role || "General Staff",
-        status: "Pending",
+        status: "Active",
         joinedDate: new Date().toISOString(),
         permissions: opts.permissions || [],
         farms: opts.farms || [],
+        ...(staffAuthId ? { staffAuthId } : {}),
       };
+
+      // 2. Insert/upsert into staff_members table
       await dbInsert<StaffMember>("staff_members", staffMember, "staffMembers");
 
-      const appUrl = (opts.appUrl && opts.appUrl.trim()) ? opts.appUrl.trim() : getAppUrl();
-      const redirectTo = `${appUrl}/create-password`;
-      const inviteLink = `${appUrl}/create-password?email=${encodeURIComponent(staffMember.email)}`;
-      let emailSent = false;
-      let emailError: string | null = null;
-
-      try {
-        const { error: otpErr } = await supabase.auth.signInWithOtp({
-          email: staffMember.email,
-          options: {
-            emailRedirectTo: redirectTo,
-            data: {
-              name: staffMember.name,
-              role: "staff",
-              owner_id: userId,
-              staff_id: staffMember.id,
-              permissions: staffMember.permissions,
-              farms: staffMember.farms,
-            },
-          },
-        });
-        if (otpErr) {
-          console.warn("Supabase signInWithOtp invite failed, trying reset password fallback:", otpErr.message);
-          emailError = otpErr.message;
-          const { error: resetErr } = await supabase.auth.resetPasswordForEmail(staffMember.email, { redirectTo });
-          if (!resetErr) emailSent = true;
-        } else {
-          emailSent = true;
-        }
-      } catch (err: any) {
-        console.warn("Invite email dispatch error:", err);
-        emailError = err?.message || String(err);
+      if (staffAuthId) {
+        try {
+          await supabase.from("staff_members").update({ staff_auth_id: staffAuthId, status: "Active" }).eq("id", staffMember.id);
+        } catch {}
+        try {
+          await supabase.from("user_profiles").upsert({
+            id: staffAuthId,
+            name: staffMember.name,
+            email: cleanEmail,
+            phone: staffMember.phone,
+            role: "staff",
+            status: "Active",
+          });
+        } catch {}
       }
 
-      return { success: true, staffMember, invitation: null, emailSent, emailError, inviteLink };
+      // 3. Insert into staff_farm_assignments & staff_permissions in Supabase
+      if (opts.farms && opts.farms.length > 0) {
+        try {
+          await supabase.from("staff_farm_assignments").delete().eq("staff_id", staffMember.id);
+          const farmRows = opts.farms.map(fid => ({
+            staff_id: staffMember.id,
+            farm_id: fid,
+            assigned_by: userId || null,
+          }));
+          await supabase.from("staff_farm_assignments").insert(farmRows);
+        } catch (e) {
+          console.warn("Could not insert staff_farm_assignments:", e);
+        }
+      }
+
+      if (opts.permissions && opts.permissions.length > 0) {
+        try {
+          await supabase.from("staff_permissions").delete().eq("staff_id", staffMember.id);
+          const permRows = opts.permissions.map(feat => ({
+            staff_id: staffMember.id,
+            feature: feat,
+            can_view: true,
+            can_create: true,
+            can_edit: true,
+            can_delete: false,
+          }));
+          await supabase.from("staff_permissions").insert(permRows);
+        } catch (e) {
+          console.warn("Could not insert staff_permissions:", e);
+        }
+      }
+
+      // Also create staff_invitations row for tracking
+      try {
+        await supabase.from("staff_invitations").insert({
+          email: cleanEmail,
+          invited_by: userId || null,
+          staff_id: staffMember.id,
+          status: "accepted",
+          expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+        });
+      } catch (e) {}
+
+      // 4. If password was not passed or email not sent yet, fallback to edge function or OTP
+      if (!opts.password && !emailSent) {
+        try {
+          const edgeUrl = `${import.meta.env.VITE_SUPABASE_URL || "https://make-server-1da59a07.supabase.co"}/functions/v1/make-server-1da59a07/staff-members/invite`;
+          const res = await fetch(edgeUrl, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY || ""}`,
+            },
+            body: JSON.stringify({
+              userId,
+              email: staffMember.email,
+              name: staffMember.name,
+              phone: staffMember.phone,
+              role: staffMember.role,
+              farms: staffMember.farms,
+              permissions: staffMember.permissions,
+              farmName: opts.farmName || "",
+              appUrl,
+            }),
+          });
+          if (res.ok) {
+            const edgeData = await res.json();
+            if (edgeData.success) {
+              emailSent = !edgeData.inviteError;
+              if (edgeData.inviteError) emailError = edgeData.inviteError;
+            }
+          }
+        } catch (edgeErr) {
+          console.warn("Edge function invite fallback notice:", edgeErr);
+        }
+
+        if (!emailSent) {
+          try {
+            const { error: otpErr } = await supabase.auth.signInWithOtp({
+              email: staffMember.email,
+              options: {
+                emailRedirectTo: `${loginUrl}/?verified=true`,
+                data: {
+                  name: staffMember.name,
+                  role: "staff",
+                  owner_id: userId,
+                  staff_id: staffMember.id,
+                  permissions: staffMember.permissions,
+                  farms: staffMember.farms,
+                  farm_name: opts.farmName || "",
+                },
+              },
+            });
+            if (otpErr) {
+              emailError = otpErr.message;
+            } else {
+              emailSent = true;
+            }
+          } catch (err: any) {
+            emailError = err?.message || String(err);
+          }
+        }
+      }
+
+      return { success: true, staffMember, invitation: null, emailSent, emailError, inviteLink: loginUrl };
     },
-    update: (s: StaffMember) => dbUpdate<StaffMember>("staff_members", s, "staffMembers"),
+    update: async (s: StaffMember, password?: string) => {
+      const res = await dbUpdate<StaffMember>("staff_members", s, "staffMembers");
+      const userId = await getUserId();
+      const targetId = (s.id && isUuid(s.id)) ? s.id : (idMap.get(s.id) || toUuid(s.id));
+
+      if (password && password.trim().length >= 6) {
+        try {
+          await supabase.rpc("provision_staff_auth_user", {
+            p_email: s.email.trim().toLowerCase(),
+            p_password: password.trim(),
+            p_name: s.name || s.email.split("@")[0],
+            p_owner_id: userId || null,
+            p_staff_id: targetId,
+          });
+        } catch (rpcErr) {
+          console.warn("provision_staff_auth_user RPC update fallback:", rpcErr);
+        }
+      }
+
+      if (s.farms !== undefined) {
+        try {
+          await supabase.from("staff_farm_assignments").delete().eq("staff_id", targetId);
+          if (s.farms.length > 0) {
+            await supabase.from("staff_farm_assignments").insert(
+              s.farms.map(fid => ({ staff_id: targetId, farm_id: fid, assigned_by: userId || null }))
+            );
+          }
+        } catch {}
+      }
+      if (s.permissions !== undefined) {
+        try {
+          await supabase.from("staff_permissions").delete().eq("staff_id", targetId);
+          if (s.permissions.length > 0) {
+            await supabase.from("staff_permissions").insert(
+              s.permissions.map(feat => ({
+                staff_id: targetId,
+                feature: feat,
+                can_view: true,
+                can_create: true,
+                can_edit: true,
+                can_delete: false,
+              }))
+            );
+          }
+        } catch {}
+      }
+      return res;
+    },
     remove: async (id: string) => {
       const userId = await getUserId();
       const targetId = isUuid(id) ? id : (idMap.get(id) || toUuid(id));

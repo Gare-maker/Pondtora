@@ -103,8 +103,15 @@ export async function fetchLiveAdminUsers(): Promise<{
       }
 
       const userFarms = rawFarms.filter((f: any) => f.user_id === p.id);
-      const farmCount = Math.max(userFarms.length, 1);
+      const farmCount = userFarms.length > 0 ? userFarms.length : (p.farm_name ? 1 : (local?.farmCount || 1));
       const farmName = p.farm_name || userFarms[0]?.name || "Primary Farm";
+
+      const userFarmIds = new Set(userFarms.map((f: any) => f.id));
+      const userPonds = rawPonds.filter((pd: any) => pd.user_id === p.id || (pd.farm_id && userFarmIds.has(pd.farm_id)));
+      const pondCount = userPonds.length || local?.pondCount || 0;
+
+      const userStaff = rawStaff.filter((s: any) => s.user_id === p.id);
+      const staffCount = userStaff.length || local?.staffCount || 0;
 
       const local = existingLocal.find(
         x => x.id === p.id || (x.email && x.email.toLowerCase() === pEmail)
@@ -139,6 +146,8 @@ export async function fetchLiveAdminUsers(): Promise<{
         accountStatus: (p.status === "Suspended" || local?.accountStatus === "Suspended") ? "Suspended" : "Active",
         freeAccess: Boolean(local?.freeAccess),
         farmCount: farmCount,
+        pondCount: pondCount,
+        staffCount: staffCount,
         paystackReference: local?.paystackReference || p.paystack_reference,
         lastPaymentDate: local?.lastPaymentDate || p.last_payment_date,
         createdAt: p.created_at ? p.created_at.slice(0, 10) : (local?.createdAt || new Date().toISOString().slice(0, 10)),

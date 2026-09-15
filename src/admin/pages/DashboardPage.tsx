@@ -323,7 +323,12 @@ export default function DashboardPage({
                 </thead>
                 <tbody className="divide-y divide-slate-50">
                   {recent.map(u => (
-                    <tr key={u.id} className="hover:bg-slate-50/70 transition-colors">
+                    <tr
+                      key={u.id}
+                      onClick={() => onNavigate?.("users")}
+                      className="hover:bg-emerald-50/40 transition-colors cursor-pointer"
+                      title="Click to view full user accounts"
+                    >
                       <td className="py-2.5 pr-3">
                         <p className="font-semibold text-slate-800 truncate max-w-[160px]">{u.name}</p>
                         <p className="text-slate-400 text-[11px] truncate max-w-[160px]">{u.email}</p>

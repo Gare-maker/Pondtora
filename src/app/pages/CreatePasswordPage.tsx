@@ -110,23 +110,56 @@ export default function CreatePasswordPage({ onSuccess, onGoToLogin }: CreatePas
     setLoading(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        throw new Error("Invitation session not found. Please click the invitation link in your email again or ask your farm administrator for a new invite.");
+      let user = session?.user;
+      const cleanEmail = (userEmail || session?.user?.email || "").trim().toLowerCase();
+
+      if (session) {
+        // Update password and name in Supabase Auth
+        const updateData = name.trim()
+          ? { password, data: { name: name.trim() } }
+          : { password };
+
+        const { data: updated, error } = await supabase.auth.updateUser(updateData);
+        if (error) throw error;
+        user = updated.user || session.user;
+      } else {
+        if (!cleanEmail) {
+          throw new Error("Email address not found. Please click the sign-in link or contact your farm administrator.");
+        }
+        // Try sign in with this password
+        const { data: signInData, error: signInErr } = await supabase.auth.signInWithPassword({
+          email: cleanEmail,
+          password,
+        });
+        if (signInData?.user) {
+          user = signInData.user;
+        } else {
+          // If signIn failed, try signUp with this password
+          const { data: signUpData, error: signUpErr } = await supabase.auth.signUp({
+            email: cleanEmail,
+            password,
+            options: {
+              data: {
+                name: name.trim() || cleanEmail.split("@")[0],
+                role: "staff",
+              },
+            },
+          });
+          if (signUpData?.user) {
+            user = signUpData.user;
+          } else {
+            throw signInErr || signUpErr || new Error("Could not authenticate. Please try signing in on the main login screen.");
+          }
+        }
       }
 
-      // Update password and name in Supabase Auth
-      const updateData = name.trim()
-        ? { password, data: { name: name.trim() } }
-        : { password };
+      if (!user) {
+        throw new Error("Unable to establish staff session. Please sign in directly on the login page.");
+      }
 
-      const { data: updated, error } = await supabase.auth.updateUser(updateData);
-      if (error) throw error;
-
-      const user = updated.user || session.user;
       const meta = user.user_metadata ?? {};
-      const cleanEmail = (user.email || userEmail || "").trim().toLowerCase();
 
-      // Mark staff member status as Active in the database and pull assigned permissions/farms
+      // Mark staff member status as Active in the database and link staff_auth_id
       let staffPerms: string[] = meta.permissions || [];
       let staffOwnerId: string = meta.owner_id || "";
       let staffFarms: string[] = meta.farms || [];
@@ -147,9 +180,21 @@ export default function CreatePasswordPage({ onSuccess, onGoToLogin }: CreatePas
 
           await supabase
             .from("staff_members")
-            .update({ status: "Active", name: name.trim() || meta.name })
+            .update({
+              status: "Active",
+              name: name.trim() || meta.name,
+              staff_auth_id: user.id,
+            })
             .eq("id", staffRow.id);
         }
+
+        await supabase.from("user_profiles").upsert({
+          id: user.id,
+          name: name.trim() || meta.name || cleanEmail.split("@")[0],
+          email: cleanEmail,
+          role: "staff",
+          status: "Active",
+        });
       } catch (err) {
         console.warn("Could not mark staff as Active in staff_members table:", err);
       }

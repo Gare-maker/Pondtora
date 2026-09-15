@@ -318,26 +318,73 @@ app.get(`${P}/staff-members`, async (c) => {
   })));
 });
 
-// Invite staff
+// Invite or add staff
 app.post(`${P}/staff-members/invite`, async (c) => {
   const userId = c.get("userId") as string;
-  const { email, name, phone, role, farms = [], permissions = [], appUrl } = await c.req.json();
+  const { email, password, name, phone, role, farms = [], permissions = [], appUrl } = await c.req.json();
   if (!email) return c.json({ error: "Email is required" }, 400);
   const svc = adminDb();
 
-  // Upsert staff_members record (no password field — passwords are Supabase Auth only)
+  let staffAuthId: string | null = null;
+  let inviteError = null;
+
+  if (password && SVC_KEY()) {
+    try {
+      const { data: userData, error: createErr } = await svc.auth.admin.createUser({
+        email,
+        password,
+        email_confirm: true,
+        user_metadata: {
+          name: name || email.split("@")[0],
+          role: "staff",
+          owner_id: userId,
+          permissions,
+          farms,
+        },
+      });
+      if (!createErr && userData?.user) {
+        staffAuthId = userData.user.id;
+      } else if (createErr) {
+        inviteError = createErr.message;
+      }
+    } catch (e: any) {
+      inviteError = e?.message || String(e);
+    }
+  }
+
+  // Upsert staff_members record
   const { data: sm, error: smErr } = await svc
     .from("staff_members")
-    .upsert({ user_id: userId, name: name || email.split("@")[0], email,
-      phone: phone || "", role: role || "General Staff", status: "Pending",
-      joined_date: new Date().toISOString() }, { onConflict: "user_id,email" })
+    .upsert({
+      user_id: userId,
+      name: name || email.split("@")[0],
+      email,
+      phone: phone || "",
+      role: role || "General Staff",
+      status: "Active",
+      joined_date: new Date().toISOString(),
+      ...(staffAuthId ? { staff_auth_id: staffAuthId } : {}),
+    }, { onConflict: "user_id,email" })
     .select().single();
   if (smErr) return dbErr(c, smErr);
 
+  if (staffAuthId) {
+    try {
+      await svc.from("user_profiles").upsert({
+        id: staffAuthId,
+        name: name || email.split("@")[0],
+        email,
+        phone: phone || "",
+        role: "staff",
+        status: "Active",
+      });
+    } catch {}
+  }
+
   // Create invitation record
   await svc.from("staff_invitations").insert({
-    email, invited_by: userId, staff_id: sm.id, status: "pending",
-    expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+    email, invited_by: userId, staff_id: sm.id, status: "accepted",
+    expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
   });
 
   // Farm assignments
@@ -359,27 +406,43 @@ app.post(`${P}/staff-members/invite`, async (c) => {
     );
   }
 
-  // Send invite email (requires service role key)
-  let inviteError = null;
-  if (SVC_KEY()) {
-    const baseAppUrl = (appUrl || "https://pondtora.site").replace(/\/+$/, "");
-    const redirectTo = `${baseAppUrl}/create-password`;
-    const { error: ie } = await svc.auth.admin.inviteUserByEmail(email, {
-      data: { owner_id: userId, role: "staff", staff_id: sm.id },
-      redirectTo,
-    });
-    if (ie && !ie.message.includes("already registered") && !ie.message.includes("already exists")) {
-      inviteError = ie.message;
+  // If no password was provided, send invite email
+  if (!password) {
+    if (SVC_KEY()) {
+      const baseAppUrl = (appUrl || "https://pondtora.site").replace(/\/+$/, "");
+      const redirectTo = `${baseAppUrl}/create-password`;
+      const { error: ie } = await svc.auth.admin.inviteUserByEmail(email, {
+        data: { owner_id: userId, role: "staff", staff_id: sm.id },
+        redirectTo,
+      });
+      if (ie && !ie.message.includes("already registered") && !ie.message.includes("already exists")) {
+        inviteError = ie.message;
+      }
+    } else {
+      inviteError = "SUPABASE_SERVICE_ROLE_KEY not set — invite email could not be sent.";
     }
-  } else {
-    inviteError = "SUPABASE_SERVICE_ROLE_KEY not set — invite email could not be sent.";
   }
 
   return c.json({
     success: true,
-    staffMember: { ...objToCamel(sm), farms, permissions },
+    staffMember: { ...objToCamel(sm), farms, permissions, ...(staffAuthId ? { staffAuthId } : {}) },
     inviteError,
   }, 201);
+});
+
+// Update staff password
+app.post(`${P}/staff-members/:id/password`, async (c) => {
+  const userId = c.get("userId") as string;
+  const { password } = await c.req.json();
+  if (!password || password.length < 6) return c.json({ error: "Password must be at least 6 characters" }, 400);
+  const svc = adminDb();
+  const { data: sm } = await svc.from("staff_members").select("staff_auth_id").eq("id", c.req.param("id")).eq("user_id", userId).maybeSingle();
+  if (sm?.staff_auth_id && SVC_KEY()) {
+    const { error } = await svc.auth.admin.updateUserById(sm.staff_auth_id, { password });
+    if (error) return c.json({ error: error.message }, 400);
+    return c.json({ success: true });
+  }
+  return c.json({ success: false, error: "Staff auth account not found" }, 404);
 });
 
 app.put(`${P}/staff-members/:id`, async (c) => {

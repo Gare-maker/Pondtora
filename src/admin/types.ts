@@ -22,6 +22,8 @@ export interface AdminUser {
   accountStatus: AccountStatus;
   freeAccess?: boolean;
   farmCount?: number;
+  pondCount?: number;
+  staffCount?: number;
   hasPaid?: boolean;
   paystackReference?: string;
   lastPaymentDate?: string;

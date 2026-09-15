@@ -334,15 +334,25 @@ function AuthScreen({
         return;
       }
 
-      // Strict enforcement: block login until email is verified
-      if (!user.email_confirmed_at) {
-        await supabase.auth.signOut();
-        setLErr("Please confirm your email address before signing in. Check your inbox for the confirmation link.");
-        setUnconfirmedEmail(cleanEmail);
-        return;
+      const meta = user.user_metadata ?? {};
+      const isStaffMeta = meta.role === "staff" || Boolean(meta.owner_id) || existingProf?.role === "staff" || existingProf?.role === "staff member";
+
+      // Strict enforcement: block login until email is verified, unless user is staff provisioned by an owner
+      if (!user.email_confirmed_at && !isStaffMeta) {
+        let isStaffRecord = false;
+        try {
+          const { data: smRow } = await supabase.from("staff_members").select("id").ilike("email", cleanEmail).maybeSingle();
+          if (smRow) isStaffRecord = true;
+        } catch {}
+
+        if (!isStaffRecord) {
+          await supabase.auth.signOut();
+          setLErr("Please confirm your email address before signing in. Check your inbox for the confirmation link.");
+          setUnconfirmedEmail(cleanEmail);
+          return;
+        }
       }
 
-      const meta = user.user_metadata ?? {};
       let staffPerms: string[] = meta.permissions || [];
       let staffOwnerId: string = meta.owner_id || "";
       let staffRole: string = meta.role || (existingProf?.role || "owner");
@@ -360,6 +370,13 @@ function AuthScreen({
           if (staffRow.user_id) staffOwnerId = staffRow.user_id;
           if (staffRow.farms && staffRow.farms.length > 0) staffFarms = staffRow.farms;
           staffRole = "staff";
+
+          try {
+            await supabase
+              .from("staff_members")
+              .update({ staff_auth_id: user.id, status: "Active" })
+              .eq("id", staffRow.id);
+          } catch {}
         }
       } catch (e) {
         console.warn("Error checking staff_members table on login:", e);
