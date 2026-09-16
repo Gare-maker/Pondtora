@@ -954,11 +954,12 @@ function StaffPage({
     toast.info(`Sending invitation notification to ${s.email}…`);
     try {
       const res = await api.staff.invite({
+        id: s.id,
         email: s.email, name: s.name, phone: s.phone, role: s.role,
         farms: s.farms, permissions: s.permissions, appUrl: getAppUrl()
       });
       if (res.emailSent) {
-        toast.success(`Invite notification sent to ${s.email}!`);
+        toast.success(`Verification email sent to ${s.email}! They can click the link in their email to verify and sign in.`);
       } else if (res.emailError) {
         toast.error(`Email notice: ${res.emailError}. You can copy login details directly.`);
       } else {
@@ -4705,7 +4706,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
           return next;
         });
       }
-      toast.success(`Staff member ${cleanStaff.name} created! They can now log in with their email and password.`);
+      toast.success(`Staff account created for ${cleanStaff.name}! An invitation email has been sent to ${cleanStaff.email} to verify their account.`);
     }).catch(err=>{
       console.warn("Staff invite error:", err);
       if (err?.message && err.message.toLowerCase().includes("already exists")) {

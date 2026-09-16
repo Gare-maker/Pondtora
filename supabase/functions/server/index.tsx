@@ -321,35 +321,72 @@ app.get(`${P}/staff-members`, async (c) => {
 // Invite or add staff
 app.post(`${P}/staff-members/invite`, async (c) => {
   const userId = c.get("userId") as string;
-  const { email, password, name, phone, role, farms = [], permissions = [], appUrl } = await c.req.json();
+  const { email, password, name, phone, role, farms = [], permissions = [], appUrl, farmName } = await c.req.json();
   if (!email) return c.json({ error: "Email is required" }, 400);
   const svc = adminDb();
 
   let staffAuthId: string | null = null;
   let inviteError = null;
+  const baseAppUrl = (appUrl || "https://pondtora.site").replace(/\/+$/, "");
+  const redirectTo = `${baseAppUrl}/create-password`;
 
-  if (password && SVC_KEY()) {
-    try {
-      const { data: userData, error: createErr } = await svc.auth.admin.createUser({
-        email,
-        password,
-        email_confirm: true,
-        user_metadata: {
-          name: name || email.split("@")[0],
-          role: "staff",
-          owner_id: userId,
-          permissions,
-          farms,
-        },
-      });
-      if (!createErr && userData?.user) {
-        staffAuthId = userData.user.id;
-      } else if (createErr) {
-        inviteError = createErr.message;
+  if (SVC_KEY()) {
+    // Always send an invite email so the staff member can verify their account.
+    // inviteUserByEmail creates the auth user (if new) and sends the invite email.
+    const { data: inviteData, error: ie } = await svc.auth.admin.inviteUserByEmail(email, {
+      data: {
+        name: name || email.split("@")[0],
+        owner_id: userId,
+        role: "staff",
+        farm_name: farmName || "",
+        permissions,
+        farms,
+      },
+      redirectTo,
+    });
+
+    if (ie) {
+      if (ie.message.includes("already registered") || ie.message.includes("already exists")) {
+        // User already exists — find them and resend a magic link so they can verify
+        const { data: listData } = await svc.auth.admin.listUsers();
+        const existing = (listData?.users || []).find((u: any) => u.email?.toLowerCase() === email.toLowerCase());
+        if (existing) {
+          staffAuthId = existing.id;
+          // Send a new magic link so they receive a verification email
+          await svc.auth.admin.generateLink({
+            type: "magiclink",
+            email,
+            options: { redirectTo },
+          }).catch(() => {});
+        }
+      } else {
+        inviteError = ie.message;
       }
-    } catch (e: any) {
-      inviteError = e?.message || String(e);
+    } else if (inviteData?.user) {
+      staffAuthId = inviteData.user.id;
     }
+
+    // If a password was also provided, set it so the staff can log in immediately
+    // without waiting for the email link, while still receiving the invite email.
+    if (password && staffAuthId) {
+      try {
+        await svc.auth.admin.updateUserById(staffAuthId, {
+          password,
+          user_metadata: {
+            name: name || email.split("@")[0],
+            role: "staff",
+            owner_id: userId,
+            farm_name: farmName || "",
+            permissions,
+            farms,
+          },
+        });
+      } catch (e: any) {
+        console.warn("Could not set staff password:", e?.message);
+      }
+    }
+  } else {
+    inviteError = "SUPABASE_SERVICE_ROLE_KEY not set — invite email could not be sent.";
   }
 
   // Upsert staff_members record
@@ -368,6 +405,23 @@ app.post(`${P}/staff-members/invite`, async (c) => {
     .select().single();
   if (smErr) return dbErr(c, smErr);
 
+  // Update auth user metadata with the real staff_id now that we have it
+  if (staffAuthId && sm?.id) {
+    try {
+      await svc.auth.admin.updateUserById(staffAuthId, {
+        user_metadata: {
+          name: name || email.split("@")[0],
+          role: "staff",
+          owner_id: userId,
+          staff_id: sm.id,
+          farm_name: farmName || "",
+          permissions,
+          farms,
+        },
+      });
+    } catch {}
+  }
+
   if (staffAuthId) {
     try {
       await svc.from("user_profiles").upsert({
@@ -381,11 +435,13 @@ app.post(`${P}/staff-members/invite`, async (c) => {
     } catch {}
   }
 
-  // Create invitation record
-  await svc.from("staff_invitations").insert({
-    email, invited_by: userId, staff_id: sm.id, status: "accepted",
-    expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-  });
+  // Create invitation record (status: pending until they click the link)
+  try {
+    await svc.from("staff_invitations").insert({
+      email, invited_by: userId, staff_id: sm.id, status: "pending",
+      expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+    });
+  } catch {}
 
   // Farm assignments
   if (farms.length > 0) {
@@ -404,23 +460,6 @@ app.post(`${P}/staff-members/invite`, async (c) => {
         can_view: true, can_create: true, can_edit: true, can_delete: false,
       }))
     );
-  }
-
-  // If no password was provided, send invite email
-  if (!password) {
-    if (SVC_KEY()) {
-      const baseAppUrl = (appUrl || "https://pondtora.site").replace(/\/+$/, "");
-      const redirectTo = `${baseAppUrl}/create-password`;
-      const { error: ie } = await svc.auth.admin.inviteUserByEmail(email, {
-        data: { owner_id: userId, role: "staff", staff_id: sm.id },
-        redirectTo,
-      });
-      if (ie && !ie.message.includes("already registered") && !ie.message.includes("already exists")) {
-        inviteError = ie.message;
-      }
-    } else {
-      inviteError = "SUPABASE_SERVICE_ROLE_KEY not set — invite email could not be sent.";
-    }
   }
 
   return c.json({

@@ -835,7 +835,7 @@ export const api = {
   // ── Staff ──────────────────────────────────────────────────────────────────
   staff: {
     list: () => dbList<StaffMember>("staff_members", "staffMembers"),
-    checkEmailExists: async (email: string, currentOwnerId?: string): Promise<{ exists: boolean; reason?: string }> => {
+    checkEmailExists: async (email: string, currentOwnerId?: string, excludeStaffId?: string): Promise<{ exists: boolean; reason?: string }> => {
       const cleanEmail = email.trim().toLowerCase();
       if (!cleanEmail) return { exists: false };
 
@@ -843,7 +843,9 @@ export const api = {
       try {
         const { data, error } = await supabase.rpc("check_email_exists", { lookup_email: cleanEmail });
         if (!error && typeof data === "boolean" && data === true) {
-          return { exists: true, reason: "This email is already associated to an account or to a farm." };
+          if (!excludeStaffId) {
+            return { exists: true, reason: "This email is already associated to an account or to a farm." };
+          }
         }
       } catch (e) {
         // RPC might not be deployed yet in remote DB, fallback safely
@@ -851,13 +853,13 @@ export const api = {
 
       // 2. Query edge function check endpoint if available
       try {
-        const edgeUrl = `${import.meta.env.VITE_SUPABASE_URL || "https://make-server-1da59a07.supabase.co"}/functions/v1/make-server-1da59a07/check-email?email=${encodeURIComponent(cleanEmail)}`;
+        const edgeUrl = `${import.meta.env.VITE_SUPABASE_URL || "https://fegtvgfkxueorybefthj.supabase.co"}/functions/v1/make-server-1da59a07/check-email?email=${encodeURIComponent(cleanEmail)}`;
         const res = await fetch(edgeUrl, {
           headers: { Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY || ""}` }
         });
         if (res.ok) {
           const json = await res.json();
-          if (json.exists) {
+          if (json.exists && !excludeStaffId) {
             return { exists: true, reason: json.reason || "This email is already associated to an account or to a farm." };
           }
         }
@@ -867,28 +869,35 @@ export const api = {
       try {
         const { data, error } = await supabase
           .from("user_profiles")
-          .select("id, email")
+          .select("id, email, role")
           .ilike("email", cleanEmail)
           .limit(1);
         if (!error && data && data.length > 0) {
-          return { exists: true, reason: "This email is already associated to an account or to a farm." };
+          if (data[0].role === "owner") {
+            return { exists: true, reason: "This email belongs to a farm owner account." };
+          }
+          if (!excludeStaffId) {
+            return { exists: true, reason: "This email is already associated to an account or to a farm." };
+          }
         }
       } catch {}
 
       // 4. Query staff_members directly
       try {
-        const { data, error } = await supabase
+        let query = supabase
           .from("staff_members")
           .select("id, email, user_id")
-          .ilike("email", cleanEmail)
-          .limit(1);
+          .ilike("email", cleanEmail);
+        if (excludeStaffId) {
+          query = query.neq("id", excludeStaffId);
+        }
+        const { data, error } = await query.limit(1);
         if (!error && data && data.length > 0) {
-          return { exists: true, reason: "This email is already associated to an account or to a farm." };
+          return { exists: true, reason: "A staff member with this email already exists." };
         }
       } catch {}
 
       // 5. Query cached local admin users only if offline or DB was unreachable
-      // (If DB query succeeded and returned no match, do NOT let stale cache block new registrations)
       return { exists: false };
     },
     invite: async (opts: {
@@ -906,8 +915,8 @@ export const api = {
       const cleanEmail = opts.email.trim().toLowerCase();
       const userId = await getUserId();
 
-      // Check duplicate email
-      const existing = await api.staff.checkEmailExists(cleanEmail, userId);
+      // Check duplicate email (exempt current staff member when resending or editing)
+      const existing = await api.staff.checkEmailExists(cleanEmail, userId, opts.id);
       if (existing.exists) {
         throw new Error(existing.reason || "This email is already associated to an account or to a farm.");
       }
@@ -919,58 +928,107 @@ export const api = {
       let emailSent = false;
       let emailError: string | null = null;
 
-      // 1. If password is provided, provision staff auth user immediately
-      // Try direct Postgres RPC first (creates or updates auth.users + confirms email immediately)
-      if (opts.password) {
+      // 1. Primary path: Supabase GoTrue Auth signUp
+      // Uses authStaffCreator (isolated Supabase client with persistSession: false)
+      // to ensure the logged-in owner session is NEVER compromised.
+      // Calling auth.signUp creates the user in Supabase Auth and triggers the official
+      // email verification link to /create-password.
+      const staffPassword = (opts.password && opts.password.trim().length >= 6)
+        ? opts.password.trim()
+        : `Pond#${Math.floor(100 + Math.random() * 900)}@${Math.floor(10 + Math.random() * 90)}`;
+
+      try {
+        const { data: signUpData, error: signUpErr } = await authStaffCreator.auth.signUp({
+          email: cleanEmail,
+          password: staffPassword,
+          options: {
+            emailRedirectTo: `${loginUrl}/create-password`,
+            data: {
+              name: opts.name || cleanEmail.split("@")[0],
+              role: "staff",
+              owner_id: userId,
+              staff_id: staffId,
+              permissions: opts.permissions || [],
+              farms: opts.farms || [],
+              farm_name: opts.farmName || "",
+            },
+          },
+        });
+
+        if (!signUpErr && signUpData?.user) {
+          staffAuthId = signUpData.user.id;
+          emailSent = true;
+        } else if (signUpErr) {
+          const errMsg = (signUpErr.message || "").toLowerCase();
+          if (errMsg.includes("already registered") || errMsg.includes("already exists") || errMsg.includes("user already")) {
+            // User already exists in Supabase Auth.
+            // First attempt: Resend verification email
+            const { error: resendErr } = await authStaffCreator.auth.resend({
+              type: "signup",
+              email: cleanEmail,
+              options: {
+                emailRedirectTo: `${loginUrl}/create-password`,
+              },
+            });
+
+            if (!resendErr) {
+              emailSent = true;
+            } else {
+              // If resend failed (e.g. email was already confirmed or rate limit),
+              // send password recovery email which provides an immediate secure link to /create-password:
+              const { error: resetErr } = await authStaffCreator.auth.resetPasswordForEmail(cleanEmail, {
+                redirectTo: `${loginUrl}/create-password`,
+              });
+              if (!resetErr) {
+                emailSent = true;
+              } else {
+                emailError = resendErr.message || resetErr.message;
+              }
+            }
+
+            // Sync password if owner provided one:
+            if (opts.password && opts.password.trim().length >= 6) {
+              try {
+                const { data: rpcUid } = await supabase.rpc("provision_staff_auth_user", {
+                  p_email: cleanEmail,
+                  p_password: opts.password.trim(),
+                  p_name: opts.name || cleanEmail.split("@")[0],
+                  p_owner_id: userId || null,
+                  p_staff_id: staffId,
+                });
+                if (rpcUid) staffAuthId = rpcUid;
+              } catch {}
+            }
+          } else {
+            emailError = signUpErr.message;
+          }
+        }
+      } catch (authErr: any) {
+        console.warn("authStaffCreator.auth.signUp error:", authErr);
+        emailError = authErr?.message || String(authErr);
+      }
+
+      // 2. Emergency fallback: If user was not created and no auth ID yet, provision via RPC
+      if (!staffAuthId && opts.password && opts.password.trim().length >= 6) {
         try {
           const { data: rpcUid, error: rpcErr } = await supabase.rpc("provision_staff_auth_user", {
             p_email: cleanEmail,
-            p_password: opts.password,
+            p_password: opts.password.trim(),
             p_name: opts.name || cleanEmail.split("@")[0],
             p_owner_id: userId || null,
             p_staff_id: staffId,
           });
           if (!rpcErr && rpcUid) {
             staffAuthId = rpcUid;
-            emailSent = true;
-          } else if (rpcErr) {
-            console.warn("provision_staff_auth_user RPC notice:", rpcErr.message);
+            // Attempt to send a recovery link so they still receive an email verification
+            try {
+              const { error: resetErr } = await authStaffCreator.auth.resetPasswordForEmail(cleanEmail, {
+                redirectTo: `${loginUrl}/create-password`,
+              });
+              if (!resetErr) emailSent = true;
+            } catch {}
           }
-        } catch (rpcErr) {
-          console.warn("provision_staff_auth_user RPC exception:", rpcErr);
-        }
-
-        // Fallback to authStaffCreator.auth.signUp if RPC was not available
-        if (!staffAuthId) {
-          try {
-            const { data: signUpData, error: signUpErr } = await authStaffCreator.auth.signUp({
-              email: cleanEmail,
-              password: opts.password,
-              options: {
-                emailRedirectTo: `${loginUrl}/?verified=true`,
-                data: {
-                  name: opts.name || cleanEmail.split("@")[0],
-                  role: "staff",
-                  owner_id: userId,
-                  staff_id: staffId,
-                  permissions: opts.permissions || [],
-                  farms: opts.farms || [],
-                  farm_name: opts.farmName || "",
-                },
-              },
-            });
-            if (signUpErr) {
-              console.warn("authStaffCreator signUp warning:", signUpErr.message);
-              emailError = signUpErr.message;
-            } else if (signUpData?.user) {
-              staffAuthId = signUpData.user.id;
-              emailSent = true;
-            }
-          } catch (authErr: any) {
-            console.warn("Error signing up staff account:", authErr);
-            emailError = authErr?.message || String(authErr);
-          }
-        }
+        } catch {}
       }
 
       const staffMember: StaffMember = {
@@ -979,19 +1037,19 @@ export const api = {
         email: cleanEmail,
         phone: opts.phone || "",
         role: opts.role || "General Staff",
-        status: "Active",
+        status: "Pending",
         joinedDate: new Date().toISOString(),
         permissions: opts.permissions || [],
         farms: opts.farms || [],
         ...(staffAuthId ? { staffAuthId } : {}),
       };
 
-      // 2. Insert/upsert into staff_members table
+      // 3. Insert/upsert into staff_members table
       await dbInsert<StaffMember>("staff_members", staffMember, "staffMembers");
 
       if (staffAuthId) {
         try {
-          await supabase.from("staff_members").update({ staff_auth_id: staffAuthId, status: "Active" }).eq("id", staffMember.id);
+          await supabase.from("staff_members").update({ staff_auth_id: staffAuthId, status: "Pending" }).eq("id", staffMember.id);
         } catch {}
         try {
           await supabase.from("user_profiles").upsert({
@@ -1000,12 +1058,12 @@ export const api = {
             email: cleanEmail,
             phone: staffMember.phone,
             role: "staff",
-            status: "Active",
+            status: "Pending",
           });
         } catch {}
       }
 
-      // 3. Insert into staff_farm_assignments & staff_permissions in Supabase
+      // 4. Insert into staff_farm_assignments & staff_permissions in Supabase
       if (opts.farms && opts.farms.length > 0) {
         try {
           await supabase.from("staff_farm_assignments").delete().eq("staff_id", staffMember.id);
@@ -1043,71 +1101,10 @@ export const api = {
           email: cleanEmail,
           invited_by: userId || null,
           staff_id: staffMember.id,
-          status: "accepted",
+          status: "pending",
           expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
         });
       } catch (e) {}
-
-      // 4. If password was not passed or email not sent yet, fallback to edge function or OTP
-      if (!opts.password && !emailSent) {
-        try {
-          const edgeUrl = `${import.meta.env.VITE_SUPABASE_URL || "https://make-server-1da59a07.supabase.co"}/functions/v1/make-server-1da59a07/staff-members/invite`;
-          const res = await fetch(edgeUrl, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "Authorization": `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY || ""}`,
-            },
-            body: JSON.stringify({
-              userId,
-              email: staffMember.email,
-              name: staffMember.name,
-              phone: staffMember.phone,
-              role: staffMember.role,
-              farms: staffMember.farms,
-              permissions: staffMember.permissions,
-              farmName: opts.farmName || "",
-              appUrl,
-            }),
-          });
-          if (res.ok) {
-            const edgeData = await res.json();
-            if (edgeData.success) {
-              emailSent = !edgeData.inviteError;
-              if (edgeData.inviteError) emailError = edgeData.inviteError;
-            }
-          }
-        } catch (edgeErr) {
-          console.warn("Edge function invite fallback notice:", edgeErr);
-        }
-
-        if (!emailSent) {
-          try {
-            const { error: otpErr } = await supabase.auth.signInWithOtp({
-              email: staffMember.email,
-              options: {
-                emailRedirectTo: `${loginUrl}/?verified=true`,
-                data: {
-                  name: staffMember.name,
-                  role: "staff",
-                  owner_id: userId,
-                  staff_id: staffMember.id,
-                  permissions: staffMember.permissions,
-                  farms: staffMember.farms,
-                  farm_name: opts.farmName || "",
-                },
-              },
-            });
-            if (otpErr) {
-              emailError = otpErr.message;
-            } else {
-              emailSent = true;
-            }
-          } catch (err: any) {
-            emailError = err?.message || String(err);
-          }
-        }
-      }
 
       return { success: true, staffMember, invitation: null, emailSent, emailError, inviteLink: loginUrl };
     },
