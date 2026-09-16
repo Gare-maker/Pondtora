@@ -3,7 +3,8 @@ import {
   Search, Plus, MoreVertical, Eye, Edit2, Ban, Trash2, CheckCircle,
   ChevronUp, ChevronDown, Download, Clock, Shield, Sparkles, Filter,
   RotateCw, Phone, Mail, MapPin, Copy, ExternalLink, MessageCircle,
-  Building, Droplets, Users as UsersIcon, X, Check, ArrowRight, UserCheck, AlertCircle
+  Building, Droplets, Users as UsersIcon, X, Check, ArrowRight, UserCheck, AlertCircle,
+  CreditCard
 } from "lucide-react";
 import { Card, Bdg, PBtn, Pagination, PER_PAGE, Modal, F, IC, SC } from "../../app/shared";
 import type { AdminUser, AdminPlan, AccountStatus } from "../types";
