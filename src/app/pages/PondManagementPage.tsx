@@ -1004,7 +1004,7 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
       totalCost:0,
       status:"Empty",
       notes:addF.notes,
-      farmId:activeFarmId,
+      farmId: activeFarmId || farms[0]?.id || "",
       lengthFt:addF.lengthFt,
       widthFt:addF.widthFt,
       category:addF.category as "Production"|"Nursery"

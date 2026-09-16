@@ -59,7 +59,7 @@ function Sidebar({active,onNav,collapsed,onToggle,farms,activeFarmId,onSwitchFar
   const [farmOpen,setFarmOpen]=useState(false);
   const [showLogoutModal,setShowLogoutModal]=useState(false);
   const farmDropRef=useRef<HTMLDivElement>(null);
-  const activeFarm=farms.find(f=>f.id===activeFarmId)||farms[0];
+  const activeFarm = farms.find(f => f.id === activeFarmId) || farms[0] || (userProfile?.farmName ? { id: activeFarmId || "default", name: userProfile.farmName, city: userProfile.city || "", state: userProfile.state || "", country: userProfile.country || "Nigeria" } : null);
 
   const displayName=(userProfile?.name||currentStaff?.name||userProfile?.email?.split("@")[0]||"User").trim();
   const displayRole=isOwner?(userProfile?.role||"Farm Owner"):(currentStaff?.role||"Staff Member");
@@ -95,8 +95,10 @@ function Sidebar({active,onNav,collapsed,onToggle,farms,activeFarmId,onSwitchFar
         <div ref={farmDropRef} className="px-3 py-2.5 border-b border-slate-800/80 relative">
           <button onClick={()=>setFarmOpen(p=>!p)} className="w-full flex items-center gap-2 bg-slate-800/70 hover:bg-slate-800 border border-slate-700/60 rounded-xl px-3 py-2 transition-colors">
             <div className="flex-1 min-w-0 text-left">
-              <p className="text-xs font-bold text-white truncate leading-tight">{activeFarm?.name||"Select Farm"}</p>
-              <p className="text-[10px] text-slate-400 truncate">{activeFarm?.city}, {activeFarm?.state}</p>
+              <p className="text-xs font-bold text-white truncate leading-tight">{activeFarm?.name||userProfile?.farmName||"Select Farm"}</p>
+              <p className="text-[10px] text-slate-400 truncate">
+                {activeFarm?.city ? `${activeFarm.city}${activeFarm.state ? `, ${activeFarm.state}` : ''}` : (activeFarm?.state || (activeFarm?.country && activeFarm.country !== "Nigeria" ? activeFarm.country : "") || "")}
+              </p>
             </div>
             <ChevronDown size={12} className={`text-slate-400 transition-transform shrink-0 ${farmOpen?"rotate-180":""}`}/>
           </button>
@@ -3955,13 +3957,14 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
 
     let resolvedFarms = rawFarms;
     const isMultiFarmPlan = activePlan === "3-Farm Plan" || activePlan === "5-Farm Plan" || activePlan === "Unlimited Farms";
+    const isStaffUser = userProfile?.role === "staff" || Boolean((userProfile as any)?.ownerId) || d.isStaff;
     const duplicateFarmIdMap = new Map<string, string>(); // maps duplicateFarmId -> primaryFarmId
 
     const pondsData: Pond[] = (d.ponds && d.ponds.length > 0)
       ? d.ponds
       : (userProfile?.id ? loadUserLocal(userProfile.id, "ponds", "ponds", []) : []);
 
-    if (rawFarms.length > 1 && !isMultiFarmPlan) {
+    if (rawFarms.length > 1 && !isMultiFarmPlan && !isStaffUser) {
       // Find farm with most ponds/records or earliest created
       const farmPondCounts = new Map<string, number>();
       pondsData.forEach(p => {
@@ -3985,7 +3988,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       }
       resolvedFarms = [primary];
     } else if (rawFarms.length > 1) {
-      // Multi-farm plan: merge only identical duplicate farm names
+      // Multi-farm plan or staff: merge only identical duplicate farm names
       const seenNames = new Map<string, Farm>();
       const deduped: Farm[] = [];
       for (const f of rawFarms) {
@@ -4678,6 +4681,9 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   const addStaff=(s:StaffMember, password?: string)=>{
     const staffId=isUuid(s.id)?s.id:crypto.randomUUID();
     const cleanStaff={...s,id:staffId};
+    const currentFarm = farms.find(f => f.id === activeFarmId) || farms[0];
+    const defaultFarms = (cleanStaff.farms && cleanStaff.farms.length > 0) ? cleanStaff.farms : (activeFarmId ? [activeFarmId] : (farms[0]?.id ? [farms[0].id] : []));
+    cleanStaff.farms = defaultFarms;
     setStaff(prev=>{
       const next=[...prev.filter(x=>x.id!==cleanStaff.id),cleanStaff];
       if(userProfile?.id){
@@ -4693,8 +4699,9 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       name:cleanStaff.name,
       phone:cleanStaff.phone,
       role:cleanStaff.role,
-      farms:cleanStaff.farms,
+      farms:defaultFarms,
       permissions:cleanStaff.permissions,
+      farmName: currentFarm?.name || userProfile?.farmName || "My Farm",
       appUrl:getAppUrl(),
     }).then(res=>{
       if(res.staffMember?.id){
@@ -5345,17 +5352,19 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
           </div>
           <div className="relative" ref={mFarmRef}>
             <button onClick={()=>setMFarmOpen(p=>!p)} className="flex items-center gap-1.5 text-xs text-emerald-400 font-semibold bg-slate-800 border border-slate-700/80 px-2.5 py-1.5 rounded-lg hover:bg-slate-700/80 transition-colors">
-              <span className="truncate max-w-[130px] text-slate-200">{farms.find(f=>f.id===activeFarmId)?.name||"Select Farm"}</span>
+              <span className="truncate max-w-[130px] text-slate-200">
+                {(accessibleFarms.find(f=>f.id===activeFarmId)||farms.find(f=>f.id===activeFarmId)||accessibleFarms[0]||farms[0])?.name || userProfile?.farmName || "Select Farm"}
+              </span>
               <ChevronDown size={11} className={`text-slate-400 transition-transform ${mFarmOpen?"rotate-180":""}`}/>
             </button>
             {mFarmOpen&&(
               <div className="absolute right-0 top-full mt-1 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl z-50 overflow-hidden min-w-[200px]">
-                {accessibleFarms.map(f=>(
+                {(accessibleFarms.length > 0 ? accessibleFarms : farms).map(f=>(
                   <button key={f.id} onClick={()=>{handleSwitchFarm(f.id);setMFarmOpen(false);}} className={`w-full flex items-center gap-2 px-3 py-2.5 text-left hover:bg-slate-800 transition-colors ${f.id===activeFarmId?"bg-emerald-500/10":""}`}>
                     <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${f.id===activeFarmId?"bg-emerald-400":"bg-slate-600"}`}/>
                     <div className="min-w-0 flex-1">
                       <p className={`text-xs font-semibold truncate ${f.id===activeFarmId?"text-emerald-300":"text-slate-200"}`}>{f.name}</p>
-                      <p className="text-[10px] text-slate-400">{f.city}, {f.state}</p>
+                      <p className="text-[10px] text-slate-400">{f.city ? `${f.city}${f.state ? `, ${f.state}` : ''}` : (f.state || "")}</p>
                     </div>
                     {f.id===activeFarmId&&<CheckCircle size={12} className="text-emerald-400 shrink-0"/>}
                   </button>

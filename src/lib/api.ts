@@ -612,20 +612,50 @@ export const api = {
     const userId = await getUserId();
     if (!userId) return { profile: null, farms: [], staffInfo: null, isStaff: false };
 
+    let userEmail = "";
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      userEmail = (session?.user?.email || "").toLowerCase().trim();
+    } catch {}
+
     const [profRes, farmsRes, staffRes] = await Promise.all([
       supabase.from("user_profiles").select("*").eq("id", userId).maybeSingle(),
       supabase.from("farms").select("*").eq("user_id", userId),
-      supabase.from("staff_members").select("*").eq("staff_auth_id", userId).maybeSingle(),
+      supabase.from("staff_members").select("*").or(`staff_auth_id.eq.${userId},email.ilike.${userEmail || userId}`).maybeSingle(),
     ]);
 
     const profile = profRes.data ? objToCamel<UserProfile>(profRes.data) : null;
     let farms = (farmsRes.data || []).map(f => objToCamel<Farm>(f));
-    const isStaff = !!staffRes.data;
+    const isStaff = !!staffRes.data || profile?.role === "staff";
 
-    // If staff member with assigned farms, fetch assigned farms
-    if (isStaff && staffRes.data?.farms && farms.length === 0) {
-      const { data: allFarms } = await supabase.from("farms").select("*");
-      farms = (allFarms || []).filter((f: any) => staffRes.data.farms.includes(f.id)).map(f => objToCamel<Farm>(f));
+    // If staff member, resolve all assigned or owner farms
+    if (isStaff && staffRes.data) {
+      const staffData = staffRes.data;
+      const targetFarmIds = new Set<string>();
+      if (Array.isArray(staffData.farms)) {
+        staffData.farms.forEach((id: string) => { if (isUuid(id)) targetFarmIds.add(id); });
+      }
+      try {
+        const { data: sfaRows } = await supabase.from("staff_farm_assignments").select("farm_id").eq("staff_id", staffData.id);
+        (sfaRows || []).forEach((r: any) => { if (r.farm_id && isUuid(r.farm_id)) targetFarmIds.add(r.farm_id); });
+      } catch {}
+
+      if (targetFarmIds.size > 0) {
+        const { data: assignedFarms } = await supabase.from("farms").select("*").in("id", Array.from(targetFarmIds));
+        (assignedFarms || []).forEach((f: any) => {
+          if (!farms.some(x => x.id === f.id)) farms.push(objToCamel<Farm>(f));
+        });
+      } else if (staffData.user_id && farms.length === 0) {
+        const { data: ownerFarms } = await supabase.from("farms").select("*").eq("user_id", staffData.user_id);
+        (ownerFarms || []).forEach((f: any) => {
+          if (!farms.some(x => x.id === f.id)) farms.push(objToCamel<Farm>(f));
+        });
+      }
+
+      // Self-heal staff_auth_id if not yet linked
+      if (!staffData.staff_auth_id && userId) {
+        supabase.from("staff_members").update({ staff_auth_id: userId, status: "Active" }).eq("id", staffData.id).then();
+      }
     }
 
     return { profile, farms, staffInfo: staffRes.data || null, isStaff };
@@ -734,19 +764,69 @@ export const api = {
         };
       });
 
-      // If user is staff with assigned farms, include those assigned farms
+      // If user is staff with assigned farms, resolve all their accessible farms
       const userProfilesList = (profilesRes?.data || []).map((r: any) => objToCamel<UserProfile>(r));
-      const userEmail = userProfilesList[0]?.email;
-      const staffMember = staffList.find((s: any) => s.staffAuthId === userId || (userEmail && s.email?.toLowerCase() === userEmail.toLowerCase()));
-      if (staffMember?.farms && staffMember.farms.length > 0) {
-        const missingFarmIds = staffMember.farms.filter((fid: string) => !farms.some(f => f.id === fid));
-        if (missingFarmIds.length > 0) {
-          const { data: assignedFarms } = await safeQuery(
-            supabase.from("farms").select("*").in("id", missingFarmIds)
+      let userEmail = (userProfilesList[0]?.email || "").toLowerCase().trim();
+      if (!userEmail) {
+        try {
+          const { data: { session } } = await supabase.auth.getSession();
+          userEmail = (session?.user?.email || "").toLowerCase().trim();
+        } catch {}
+      }
+
+      let staffMember = staffList.find((s: any) => s.staffAuthId === userId || (userEmail && s.email?.toLowerCase() === userEmail));
+      if (!staffMember && userEmail) {
+        // Fallback direct check if staff row wasn't in list due to RLS
+        const { data: directStaff } = await safeQuery(
+          supabase.from("staff_members").select("*").or(`staff_auth_id.eq.${userId},email.ilike.${userEmail}`).maybeSingle()
+        );
+        if (directStaff) {
+          staffMember = objToCamel<StaffMember>(directStaff);
+          if (!staffList.some(s => s.id === staffMember!.id)) {
+            staffList.push(staffMember);
+          }
+        }
+      }
+
+      if (staffMember) {
+        // Self-heal staff_auth_id and status if not yet linked
+        if (!staffMember.staffAuthId && userId) {
+          supabase.from("staff_members").update({ staff_auth_id: userId, status: "Active" }).eq("id", staffMember.id).then();
+          staffMember.staffAuthId = userId;
+        }
+
+        const targetFarmIds = new Set<string>();
+        if (Array.isArray(staffMember.farms)) {
+          staffMember.farms.forEach((fid: string) => { if (fid && isUuid(fid)) targetFarmIds.add(fid); });
+        }
+        (farmAssignRes?.data || []).filter((a: any) => a.staff_id === staffMember!.id).forEach((a: any) => {
+          if (a.farm_id && isUuid(a.farm_id)) targetFarmIds.add(a.farm_id);
+        });
+
+        if (targetFarmIds.size > 0) {
+          const missingFarmIds = Array.from(targetFarmIds).filter(fid => !farms.some(f => f.id === fid));
+          if (missingFarmIds.length > 0) {
+            const { data: assignedFarms } = await safeQuery(
+              supabase.from("farms").select("*").in("id", missingFarmIds)
+            );
+            if (assignedFarms) {
+              for (const af of assignedFarms) {
+                if (!farms.some(f => f.id === af.id)) {
+                  farms.push(objToCamel<Farm>(af));
+                }
+              }
+            }
+          }
+        } else if (staffMember.userId) {
+          // If no specific farm assignment restriction, grant access to all owner's farms
+          const { data: ownerFarms } = await safeQuery(
+            supabase.from("farms").select("*").eq("user_id", staffMember.userId)
           );
-          if (assignedFarms) {
-            for (const af of assignedFarms) {
-              farms.push(objToCamel<Farm>(af));
+          if (ownerFarms) {
+            for (const of of ownerFarms) {
+              if (!farms.some(f => f.id === of.id)) {
+                farms.push(objToCamel<Farm>(of));
+              }
             }
           }
         }
@@ -1229,18 +1309,25 @@ export const api = {
           if (fRow?.id) validFarmId = fRow.id;
         }
         if (!validFarmId) {
+          // Check if user is staff with assigned farms
+          try {
+            const { data: staffRow } = await supabase
+              .from("staff_members")
+              .select("farms, user_id")
+              .or(`staff_auth_id.eq.${userId}`)
+              .maybeSingle();
+            if (staffRow?.farms && Array.isArray(staffRow.farms) && staffRow.farms.length > 0 && isUuid(staffRow.farms[0])) {
+              validFarmId = staffRow.farms[0];
+            } else if (staffRow?.user_id) {
+              const { data: ownerFarms } = await supabase.from("farms").select("id").eq("user_id", staffRow.user_id).order("created_at", { ascending: true }).limit(1);
+              if (ownerFarms && ownerFarms.length > 0) validFarmId = ownerFarms[0].id;
+            }
+          } catch {}
+        }
+        if (!validFarmId) {
           const { data: userFarms } = await supabase.from("farms").select("id").eq("user_id", userId).order("created_at", { ascending: true }).limit(1);
           if (userFarms && userFarms.length > 0) {
             validFarmId = userFarms[0].id;
-          } else {
-            const newFid = crypto.randomUUID();
-            const { data: newF } = await supabase.from("farms").insert({
-              id: newFid,
-              user_id: userId,
-              name: "Main Farm",
-              country: "Nigeria"
-            }).select().maybeSingle();
-            validFarmId = newF?.id || newFid;
           }
         }
         if (validFarmId) {
@@ -1248,16 +1335,17 @@ export const api = {
         }
       }
 
-      // Validate duplicate pond name (case-insensitive) for the user & farm
-      if (p.name && p.name.trim() && userId) {
+      // Validate duplicate pond name (case-insensitive) for the farm
+      if (p.name && p.name.trim()) {
         const trimmedName = p.name.trim();
         let q = supabase
           .from("ponds")
           .select("id, name")
-          .eq("user_id", userId)
           .ilike("name", trimmedName);
         if (dbPond.farmId && isUuid(dbPond.farmId)) {
           q = q.eq("farm_id", dbPond.farmId);
+        } else if (userId) {
+          q = q.eq("user_id", userId);
         }
         const { data: existing, error: checkErr } = await q;
         if (!checkErr && existing && existing.length > 0) {
@@ -1285,17 +1373,18 @@ export const api = {
 
       // Check duplicate name on update if changed
       const userId = await getUserId();
-      if (p.name && p.name.trim() && userId) {
+      if (p.name && p.name.trim()) {
         const trimmedName = p.name.trim();
         const targetId = isUuid(p.id) ? p.id : idMap.get(p.id) || p.id;
         let q = supabase
           .from("ponds")
           .select("id, name")
-          .eq("user_id", userId)
           .ilike("name", trimmedName)
           .neq("id", targetId);
         if (p.farmId && isUuid(p.farmId)) {
           q = q.eq("farm_id", p.farmId);
+        } else if (userId) {
+          q = q.eq("user_id", userId);
         }
         const { data: existing, error: checkErr } = await q;
         if (!checkErr && existing && existing.length > 0) {

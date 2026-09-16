@@ -359,19 +359,31 @@ $$;
 
 CREATE OR REPLACE FUNCTION user_can_access_farm(p_farm_id UUID)
 RETURNS BOOLEAN LANGUAGE sql SECURITY DEFINER STABLE AS $$
+  -- 1. Farm Owner
   SELECT EXISTS (SELECT 1 FROM farms f WHERE f.id = p_farm_id AND f.user_id = auth.uid())
+  -- 2. Assigned staff member (by auth UID or by email)
   OR EXISTS (
     SELECT 1 FROM staff_members sm
-    WHERE sm.staff_auth_id = auth.uid() 
-      AND sm.status = 'Active'
+    WHERE (sm.staff_auth_id = auth.uid() OR LOWER(sm.email) = LOWER(COALESCE(auth.jwt()->>'email', '')))
       AND (
         (sm.farms IS NOT NULL AND sm.farms::text LIKE '%' || p_farm_id::text || '%')
+        OR EXISTS (
+          SELECT 1 FROM staff_farm_assignments sfa
+          WHERE sfa.staff_id = sm.id AND sfa.farm_id = p_farm_id
+        )
+        OR (
+          (sm.farms IS NULL OR sm.farms::text = '[]' OR sm.farms::text = '""')
+          AND NOT EXISTS (SELECT 1 FROM staff_farm_assignments sfa WHERE sfa.staff_id = sm.id)
+          AND EXISTS (SELECT 1 FROM farms f WHERE f.id = p_farm_id AND f.user_id = sm.user_id)
+        )
       )
   )
+  -- 3. Superadmin
   OR EXISTS (
-    SELECT 1 FROM staff_farm_assignments sfa
-    JOIN staff_members sm ON sm.id = sfa.staff_id
-    WHERE sfa.farm_id = p_farm_id AND sm.staff_auth_id = auth.uid() AND sm.status = 'Active'
+    SELECT 1 FROM user_profiles
+    WHERE id = auth.uid() AND (role = 'admin' OR role = 'superadmin' OR email = 'edafejesugarec@gmail.com')
+  ) OR (
+    auth.jwt() ->> 'email' = 'edafejesugarec@gmail.com'
   );
 $$;
 
@@ -386,13 +398,25 @@ CREATE POLICY "owner_farms" ON farms
   USING (auth.uid() = user_id OR user_can_access_farm(id) OR is_admin())
   WITH CHECK (auth.uid() = user_id OR is_admin());
 
--- staff_members: owner manages, staff sees self
+-- staff_members: owner manages, staff sees self / colleagues on farm
 DROP POLICY IF EXISTS "owner_staff" ON staff_members;
 CREATE POLICY "owner_staff" ON staff_members
-  FOR ALL USING (auth.uid() = user_id OR is_admin()) WITH CHECK (auth.uid() = user_id OR is_admin());
+  FOR ALL USING (
+    auth.uid() = user_id 
+    OR auth.uid() = staff_auth_id 
+    OR LOWER(email) = LOWER(COALESCE(auth.jwt()->>'email', '')) 
+    OR is_admin()
+  ) WITH CHECK (
+    auth.uid() = user_id 
+    OR auth.uid() = staff_auth_id 
+    OR is_admin()
+  );
 DROP POLICY IF EXISTS "staff_view_self" ON staff_members;
 CREATE POLICY "staff_view_self" ON staff_members
-  FOR SELECT USING (auth.uid() = staff_auth_id);
+  FOR SELECT USING (
+    auth.uid() = staff_auth_id 
+    OR LOWER(email) = LOWER(COALESCE(auth.jwt()->>'email', ''))
+  );
 
 -- staff_invitations
 DROP POLICY IF EXISTS "inviter_invitations" ON staff_invitations;
