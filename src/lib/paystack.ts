@@ -1,7 +1,4 @@
-/**
- * Paystack Integration Helper for Pondtora
- * Supports Option A: Paystack Inline Popup / Direct Subscription Checkout
- */
+import { supabase } from "./supabase";
 
 export interface PaystackConfig {
   mode: "test" | "live";
@@ -19,25 +16,82 @@ export const DEFAULT_PAYSTACK_CONFIG: PaystackConfig = {
     import.meta.env.VITE_PAYSTACK_LIVE_PUBLIC_KEY || "pk_live_460ba5856621112e2cfa532db6999201fbe0be1a",
 };
 
+// In-memory cache
+let cachedConfig: PaystackConfig | null = null;
+
 export function loadPaystackConfig(): PaystackConfig {
+  if (cachedConfig) return cachedConfig;
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      // Strip any legacy secret keys from local storage
       delete (parsed as any).testSecretKey;
       delete (parsed as any).liveSecretKey;
-      return { ...DEFAULT_PAYSTACK_CONFIG, ...parsed };
+      cachedConfig = { ...DEFAULT_PAYSTACK_CONFIG, ...parsed };
+      return cachedConfig;
     }
   } catch {}
-  return DEFAULT_PAYSTACK_CONFIG;
+  cachedConfig = { ...DEFAULT_PAYSTACK_CONFIG };
+  return cachedConfig;
+}
+
+/**
+ * Fetch latest global Paystack configuration from Supabase platform_settings
+ */
+export async function fetchRemotePaystackConfig(): Promise<PaystackConfig> {
+  try {
+    const { data, error } = await supabase
+      .from("platform_settings")
+      .select("value")
+      .eq("key", "paystack_config")
+      .maybeSingle();
+
+    if (!error && data?.value && typeof data.value === "object") {
+      const remote = data.value as Partial<PaystackConfig>;
+      const merged: PaystackConfig = {
+        mode: remote.mode === "live" ? "live" : "test",
+        testPublicKey: remote.testPublicKey || DEFAULT_PAYSTACK_CONFIG.testPublicKey,
+        livePublicKey: remote.livePublicKey || DEFAULT_PAYSTACK_CONFIG.livePublicKey,
+      };
+      cachedConfig = merged;
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
+      window.dispatchEvent(new CustomEvent("pondtora:paystack_config_updated", { detail: merged }));
+      return merged;
+    }
+  } catch (err) {
+    console.warn("fetchRemotePaystackConfig fallback to local:", err);
+  }
+  return loadPaystackConfig();
+}
+
+// Automatically sync remote config in the background on startup
+if (typeof window !== "undefined") {
+  fetchRemotePaystackConfig().catch(() => {});
 }
 
 export function savePaystackConfig(cfg: PaystackConfig): void {
+  cachedConfig = cfg;
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(cfg));
     window.dispatchEvent(new CustomEvent("pondtora:paystack_config_updated", { detail: cfg }));
   } catch {}
+
+  // Persist to Supabase platform_settings table so it never reverts across browsers/devices
+  supabase
+    .from("platform_settings")
+    .upsert({
+      key: "paystack_config",
+      value: {
+        mode: cfg.mode,
+        testPublicKey: cfg.testPublicKey,
+        livePublicKey: cfg.livePublicKey,
+      },
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "key" })
+    .then(({ error }) => {
+      if (error) console.warn("Could not persist paystack_config to Supabase:", error);
+    })
+    .catch(err => console.warn("Supabase paystack_config save error:", err));
 }
 
 export function getActivePaystackPublicKey(): string {

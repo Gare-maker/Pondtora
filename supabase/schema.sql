@@ -260,6 +260,13 @@ CREATE TABLE IF NOT EXISTS invoice_settings (
   payment_terms TEXT, updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- platform_settings (global configuration for paystack mode, public keys, system toggles)
+CREATE TABLE IF NOT EXISTS platform_settings (
+  key TEXT PRIMARY KEY,
+  value JSONB NOT NULL DEFAULT '{}'::jsonb,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- knowledge_questions
 CREATE TABLE IF NOT EXISTS knowledge_questions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -339,10 +346,17 @@ ALTER TABLE customers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE price_groups ENABLE ROW LEVEL SECURITY;
 ALTER TABLE invoices ENABLE ROW LEVEL SECURITY;
 ALTER TABLE invoice_settings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE platform_settings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE knowledge_questions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE knowledge_results ENABLE ROW LEVEL SECURITY;
 ALTER TABLE compatibility_questions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE compatibility_results ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "allow_read_platform_settings" ON platform_settings;
+CREATE POLICY "allow_read_platform_settings" ON platform_settings FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "allow_write_platform_settings" ON platform_settings;
+CREATE POLICY "allow_write_platform_settings" ON platform_settings FOR ALL USING (true) WITH CHECK (true);
 
 -- RLS Policies
 

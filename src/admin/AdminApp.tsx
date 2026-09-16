@@ -32,7 +32,7 @@ import PlansPage from "./pages/PlansPage";
 import type { AdminUser, AdminPlan, AdminActivityLog } from "./types";
 import { DEFAULT_PLANS } from "./types";
 import { projectId } from "../../utils/supabase/info";
-import { loadPaystackConfig, savePaystackConfig, PaystackConfig } from "../lib/paystack";
+import { loadPaystackConfig, savePaystackConfig, fetchRemotePaystackConfig, PaystackConfig } from "../lib/paystack";
 import {
   fetchLiveAdminUsers,
   updateAdminUserInDb,
@@ -42,6 +42,58 @@ import {
   saveAllAdminUsers,
 } from "../lib/userSync";
 import { Toaster, toast } from "sonner";
+
+interface AdminErrorBoundaryProps {
+  children: React.ReactNode;
+}
+
+interface AdminErrorBoundaryState {
+  hasError: boolean;
+  error: Error | null;
+}
+
+class AdminErrorBoundary extends React.Component<AdminErrorBoundaryProps, AdminErrorBoundaryState> {
+  constructor(props: AdminErrorBoundaryProps) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error): AdminErrorBoundaryState {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    console.error("Admin view error caught:", error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="bg-white border border-rose-200 rounded-2xl p-6 shadow-sm max-w-lg mx-auto my-8 text-center space-y-3">
+          <div className="w-12 h-12 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center font-bold text-xl mx-auto">
+            ⚠️
+          </div>
+          <h2 className="text-base font-bold text-slate-900">View Rendering Error</h2>
+          <p className="text-xs text-slate-500 leading-relaxed">
+            An unexpected error occurred while rendering this admin section. The error has been captured safely.
+          </p>
+          {this.state.error && (
+            <p className="text-[11px] font-mono text-rose-700 bg-rose-50 p-2.5 rounded-lg text-left overflow-x-auto">
+              {this.state.error.message || String(this.state.error)}
+            </p>
+          )}
+          <button
+            onClick={() => this.setState({ hasError: false, error: null })}
+            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-colors"
+          >
+            Reset View & Retry
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 type Page = "dashboard" | "users" | "subscriptions" | "plans" | "logs" | "settings";
 
@@ -649,84 +701,86 @@ export default function AdminApp({ onExit }: { onExit?: () => void } = {}) {
 
         {/* Dynamic Page Views */}
         <main className="flex-1 overflow-y-auto p-4 lg:p-7">
-          {page === "dashboard" && (
-            <DashboardPage
-              users={users}
-              plans={plans}
-              logs={logs}
-              onNavigate={p => setPage(p as Page)}
-              onRefresh={() => handleSyncLiveUsers(true)}
-              isRefreshing={isSyncing}
-              isLiveDb={isLiveDb}
-              lastSynced={lastSynced}
-            />
-          )}
-          {page === "users" && (
-            <UsersPage
-              users={users}
-              plans={plans}
-              onAdd={handleAddUser}
-              onUpdate={handleUpdateUser}
-              onDelete={handleDeleteUser}
-              onRefresh={() => handleSyncLiveUsers(true)}
-              isRefreshing={isSyncing}
-            />
-          )}
-          {page === "subscriptions" && (
-            <SubscriptionsPage
-              users={users}
-              plans={plans}
-              onUpdate={handleUpdateUser}
-            />
-          )}
-          {page === "plans" && (
-            <PlansPage
-              plans={plans}
-              onAdd={handleAddPlan}
-              onUpdate={handleUpdatePlan}
-              onResetDefaults={handleResetDefaultPlans}
-            />
-          )}
-          {page === "logs" && <ActivityLogsPage logs={logs} onClear={() => setLogs([])} />}
-          {page === "settings" && (
-            <SettingsPage
-              adminEmail={adminEmail}
-              userCount={users.length}
-              planCount={plans.length}
-              isSyncing={isSyncing}
-              isLiveDb={isLiveDb}
-              onSyncLiveUsers={() => handleSyncLiveUsers(true)}
-              onClearDemoUsers={() => {
-                const realUsers = users.filter(u => !isDummyUser(u));
-                setUsers(realUsers);
-                saveAllAdminUsers(realUsers);
-                setLogs(prev => prev.filter(l => !l.id.startsWith("log-")));
-                logAction("Demo Data Cleared", "system", "Cleared demo sample users — system is in live production mode");
-                handleSyncLiveUsers(true);
-              }}
-              onResetAll={() => {
-                setUsers([]);
-                saveAllAdminUsers([]);
-                setPlans(DEFAULT_PLANS);
-                setLogs(INITIAL_LOGS);
-                logAction("System Reset", "system", "Reset local state and synced with live database");
-                handleSyncLiveUsers(true);
-              }}
-              onPurgeNonAdminUsers={async () => {
-                setIsSyncing(true);
-                try {
-                  const res = await deleteAllNonAdminUsersInDb(adminEmail);
-                  toast.success(`Purged non-admin accounts. Preserved admin (${adminEmail}). Ready to start afresh.`);
-                  logAction("Purged Non-Admin Users", "system", `Purged accounts to start afresh. Preserved Master Admin: ${adminEmail}`);
-                  await handleSyncLiveUsers(false);
-                } catch (err: any) {
-                  toast.error(`Purge error: ${err?.message || "Check connection"}`);
-                } finally {
-                  setIsSyncing(false);
-                }
-              }}
-            />
-          )}
+          <AdminErrorBoundary key={page}>
+            {page === "dashboard" && (
+              <DashboardPage
+                users={users}
+                plans={plans}
+                logs={logs}
+                onNavigate={p => setPage(p as Page)}
+                onRefresh={() => handleSyncLiveUsers(true)}
+                isRefreshing={isSyncing}
+                isLiveDb={isLiveDb}
+                lastSynced={lastSynced}
+              />
+            )}
+            {page === "users" && (
+              <UsersPage
+                users={users}
+                plans={plans}
+                onAdd={handleAddUser}
+                onUpdate={handleUpdateUser}
+                onDelete={handleDeleteUser}
+                onRefresh={() => handleSyncLiveUsers(true)}
+                isRefreshing={isSyncing}
+              />
+            )}
+            {page === "subscriptions" && (
+              <SubscriptionsPage
+                users={users}
+                plans={plans}
+                onUpdate={handleUpdateUser}
+              />
+            )}
+            {page === "plans" && (
+              <PlansPage
+                plans={plans}
+                onAdd={handleAddPlan}
+                onUpdate={handleUpdatePlan}
+                onResetDefaults={handleResetDefaultPlans}
+              />
+            )}
+            {page === "logs" && <ActivityLogsPage logs={logs} onClear={() => setLogs([])} />}
+            {page === "settings" && (
+              <SettingsPage
+                adminEmail={adminEmail}
+                userCount={users.length}
+                planCount={plans.length}
+                isSyncing={isSyncing}
+                isLiveDb={isLiveDb}
+                onSyncLiveUsers={() => handleSyncLiveUsers(true)}
+                onClearDemoUsers={() => {
+                  const realUsers = users.filter(u => !isDummyUser(u));
+                  setUsers(realUsers);
+                  saveAllAdminUsers(realUsers);
+                  setLogs(prev => prev.filter(l => !l.id.startsWith("log-")));
+                  logAction("Demo Data Cleared", "system", "Cleared demo sample users — system is in live production mode");
+                  handleSyncLiveUsers(true);
+                }}
+                onResetAll={() => {
+                  setUsers([]);
+                  saveAllAdminUsers([]);
+                  setPlans(DEFAULT_PLANS);
+                  setLogs(INITIAL_LOGS);
+                  logAction("System Reset", "system", "Reset local state and synced with live database");
+                  handleSyncLiveUsers(true);
+                }}
+                onPurgeNonAdminUsers={async () => {
+                  setIsSyncing(true);
+                  try {
+                    const res = await deleteAllNonAdminUsersInDb(adminEmail);
+                    toast.success(`Purged non-admin accounts. Preserved admin (${adminEmail}). Ready to start afresh.`);
+                    logAction("Purged Non-Admin Users", "system", `Purged accounts to start afresh. Preserved Master Admin: ${adminEmail}`);
+                    await handleSyncLiveUsers(false);
+                  } catch (err: any) {
+                    toast.error(`Purge error: ${err?.message || "Check connection"}`);
+                  } finally {
+                    setIsSyncing(false);
+                  }
+                }}
+              />
+            )}
+          </AdminErrorBoundary>
         </main>
       </div>
     </div>
@@ -828,13 +882,25 @@ function SettingsPage({
   const [paystackCfg, setPaystackCfg] = useState<PaystackConfig>(loadPaystackConfig());
   const [isSaving, setIsSaving] = useState(false);
 
+  useEffect(() => {
+    fetchRemotePaystackConfig().then(cfg => {
+      setPaystackCfg(cfg);
+    }).catch(() => {});
+
+    const onUpdate = (e: any) => {
+      if (e.detail) setPaystackCfg(e.detail);
+    };
+    window.addEventListener("pondtora:paystack_config_updated", onUpdate);
+    return () => window.removeEventListener("pondtora:paystack_config_updated", onUpdate);
+  }, []);
+
   const handleSavePaystack = (e: React.FormEvent) => {
     e.preventDefault();
     setIsSaving(true);
     savePaystackConfig(paystackCfg);
     setTimeout(() => {
       setIsSaving(false);
-      toast.success("Paystack gateway configuration updated successfully!");
+      toast.success("Paystack gateway configuration updated and saved to cloud database!");
     }, 300);
   };
 
@@ -842,7 +908,7 @@ function SettingsPage({
     const updated = { ...paystackCfg, mode };
     setPaystackCfg(updated);
     savePaystackConfig(updated);
-    toast.success(`Paystack switched to ${mode === "live" ? "🟢 LIVE Mode" : "🟡 TEST Mode"}`);
+    toast.success(`Paystack switched to ${mode === "live" ? "🟢 LIVE Mode" : "🟡 TEST Mode"} (Saved to cloud)`);
   };
 
   return (
