@@ -953,19 +953,28 @@ function StaffPage({
   };
 
   const resendInvite = async (s: StaffMember) => {
-    toast.info(`Sending invitation notification to ${s.email}…`);
+    toast.info(`Sending invitation & verification email to ${s.email}…`);
     try {
-      const res = await api.staff.invite({
+      const res = await api.staff.resendInvite({
         id: s.id,
-        email: s.email, name: s.name, phone: s.phone, role: s.role,
-        farms: s.farms, permissions: s.permissions, appUrl: getAppUrl()
+        email: s.email,
+        name: s.name,
+        role: s.role,
+        farms: s.farms,
+        permissions: s.permissions,
+        appUrl: getAppUrl(),
       });
       if (res.emailSent) {
-        toast.success(`Verification email sent to ${s.email}! They can click the link in their email to verify and sign in.`);
+        toast.success(`Verification link sent to ${s.email}! They can click the link in their email to access their account.`);
       } else if (res.emailError) {
-        toast.error(`Email notice: ${res.emailError}. You can copy login details directly.`);
+        const lower = res.emailError.toLowerCase();
+        if (lower.includes("security") || lower.includes("rate") || lower.includes("once every")) {
+          toast.error(`Email cooldown active: Please wait a moment before resending, or click "Copy Login Info" to send details directly.`);
+        } else {
+          toast.error(`Email notice: ${res.emailError}. You can copy login details directly.`);
+        }
       } else {
-        toast.success("Invite ready. You can copy login details to share directly.");
+        toast.success("Verification email dispatched! You can also copy login details to share directly.");
       }
     } catch (err: any) {
       toast.error(err?.message || "Could not send invite email. Please copy login details instead.");
@@ -3287,29 +3296,35 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   useEffect(()=>{localStorage.setItem("pondtora_show_landing",showLanding?"true":"false");},[showLanding]);
   useEffect(()=>{
     if(userProfile?.id){
-      saveLocal(`pondtora_${userProfile.id}_user_profile`,userProfile);
-      saveLocal(`pondtora_${userProfile.id}_farms`,farms);
-      if(activeFarmId)localStorage.setItem(`pondtora_${userProfile.id}_active_farm_id`,activeFarmId);
-      saveLocal(`pondtora_${userProfile.id}_ponds`,ponds);
-      saveLocal(`pondtora_${userProfile.id}_inventory`,inventory);
-      saveLocal(`pondtora_${userProfile.id}_feeding`,feeding);
-      saveLocal(`pondtora_${userProfile.id}_bag_logs`,bagLogs);
-      saveLocal(`pondtora_${userProfile.id}_remain_logs`,remainLogs);
-      saveLocal(`pondtora_${userProfile.id}_expenses`,expenses);
-      saveLocal(`pondtora_${userProfile.id}_revenues`,revenues);
-      saveLocal(`pondtora_${userProfile.id}_mortality`,mortality);
-      saveLocal(`pondtora_${userProfile.id}_treatments`,treatments);
-      saveLocal(`pondtora_${userProfile.id}_staff`,staff);
-      saveLocal(`pondtora_${userProfile.id}_stock_events`,stockEvents);
-      saveLocal(`pondtora_${userProfile.id}_reports`,reports);
-      saveLocal(`pondtora_${userProfile.id}_customers`,customers);
-      saveLocal(`pondtora_${userProfile.id}_price_groups`,priceGroups);
-      saveLocal(`pondtora_${userProfile.id}_invoices`,invoices);
-      saveLocal(`pondtora_${userProfile.id}_inv_settings`,invSettings);
-      saveLocal(`pondtora_${userProfile.id}_investors`,investors);
-      saveLocal(`pondtora_${userProfile.id}_investments`,investments);
-      saveLocal(`pondtora_${userProfile.id}_investment_payments`,investmentPayments);
-      saveLocal(`pondtora_${userProfile.id}_pond_reports`,pondReports);
+      const uids = [userProfile.id];
+      if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
+        uids.push(userProfile.ownerId);
+      }
+      uids.forEach(uid => {
+        saveLocal(`pondtora_${uid}_user_profile`,userProfile);
+        saveLocal(`pondtora_${uid}_farms`,farms);
+        if(activeFarmId)localStorage.setItem(`pondtora_${uid}_active_farm_id`,activeFarmId);
+        saveLocal(`pondtora_${uid}_ponds`,ponds);
+        saveLocal(`pondtora_${uid}_inventory`,inventory);
+        saveLocal(`pondtora_${uid}_feeding`,feeding);
+        saveLocal(`pondtora_${uid}_bag_logs`,bagLogs);
+        saveLocal(`pondtora_${uid}_remain_logs`,remainLogs);
+        saveLocal(`pondtora_${uid}_expenses`,expenses);
+        saveLocal(`pondtora_${uid}_revenues`,revenues);
+        saveLocal(`pondtora_${uid}_mortality`,mortality);
+        saveLocal(`pondtora_${uid}_treatments`,treatments);
+        saveLocal(`pondtora_${uid}_staff`,staff);
+        saveLocal(`pondtora_${uid}_stock_events`,stockEvents);
+        saveLocal(`pondtora_${uid}_reports`,reports);
+        saveLocal(`pondtora_${uid}_customers`,customers);
+        saveLocal(`pondtora_${uid}_price_groups`,priceGroups);
+        saveLocal(`pondtora_${uid}_invoices`,invoices);
+        saveLocal(`pondtora_${uid}_inv_settings`,invSettings);
+        saveLocal(`pondtora_${uid}_investors`,investors);
+        saveLocal(`pondtora_${uid}_investments`,investments);
+        saveLocal(`pondtora_${uid}_investment_payments`,investmentPayments);
+        saveLocal(`pondtora_${uid}_pond_reports`,pondReports);
+      });
     }
   },[userProfile,farms,activeFarmId,ponds,inventory,feeding,bagLogs,remainLogs,expenses,revenues,mortality,treatments,staff,stockEvents,reports,customers,priceGroups,invoices,invSettings,investors,investments,investmentPayments,pondReports]);
 
@@ -4414,11 +4429,9 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
           if (staffMemberRecord.farms && staffMemberRecord.farms.length > 0) staffFarms = staffMemberRecord.farms;
           staffRole = "staff";
 
-          if (!staffMemberRecord.staff_auth_id) {
-            try {
-              await supabase.from("staff_members").update({ staff_auth_id: session.user.id, status: "Active" }).eq("id", staffMemberRecord.id);
-            } catch {}
-          }
+          try {
+            await supabase.from("staff_members").update({ staff_auth_id: session.user.id, status: "Active" }).eq("id", staffMemberRecord.id);
+          } catch {}
         }
 
         setUserProfile({
@@ -4532,11 +4545,9 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
           if (staffMemberRecord.farms && staffMemberRecord.farms.length > 0) staffFarms = staffMemberRecord.farms;
           staffRole = "staff";
 
-          if (!staffMemberRecord.staff_auth_id) {
-            try {
-              await supabase.from("staff_members").update({ staff_auth_id: session.user.id, status: "Active" }).eq("id", staffMemberRecord.id);
-            } catch {}
-          }
+          try {
+            await supabase.from("staff_members").update({ staff_auth_id: session.user.id, status: "Active" }).eq("id", staffMemberRecord.id);
+          } catch {}
         }
 
         setUserProfile(prev=>{
@@ -4738,7 +4749,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       }
       return next;
     });
-    api.staff.update(s).catch(console.warn);
+    api.staff.update(s, password).catch(console.warn);
     toast.success("Staff member updated");
   };
   const delStaff=(id:string)=>{

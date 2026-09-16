@@ -241,13 +241,11 @@ export function objToSnake(obj: Record<string, any>, userId?: string, table?: st
     const key = SNAKE_MAP[k] || toSnake(k);
     out[key] = v;
   }
-  // Preserve existing user_id if valid; otherwise assign current authenticated userId
-  if (!out["user_id"] || !isUuid(out["user_id"])) {
-    if (userId && isUuid(userId)) {
-      out["user_id"] = userId;
-    } else {
-      delete out["user_id"];
-    }
+  // Ensure user_id is assigned to the effective owner ID so all farm staff share the exact same database
+  if (userId && isUuid(userId)) {
+    out["user_id"] = userId;
+  } else if (!out["user_id"] || !isUuid(out["user_id"])) {
+    delete out["user_id"];
   }
 
   // Normalize date fields to valid ISO date or null to prevent Postgres syntax errors
@@ -782,8 +780,8 @@ export const api = {
         });
       }
 
-      // Self-heal staff_auth_id if not yet linked
-      if (!staffData.staff_auth_id && userId) {
+      // Unconditionally ensure staff_auth_id and Active status are synced for logged-in staff member
+      if (userId) {
         supabase.from("staff_members").update({ staff_auth_id: userId, status: "Active" }).eq("id", staffData.id).then();
       }
     }
@@ -889,10 +887,23 @@ export const api = {
         const cachedStaffItem = cachedStaff.find((c: any) => c.id === s.id);
         return {
           ...s,
+          status: s.status || "Active",
           farms: (s.farms && s.farms.length > 0) ? s.farms : (sFarms.length > 0 ? sFarms : (cachedStaffItem?.farms || [])),
           permissions: (s.permissions && s.permissions.length > 0) ? s.permissions : (sPerms.length > 0 ? sPerms : (cachedStaffItem?.permissions || [])),
         };
       });
+
+      // Auto-detect and sync Active status for staff members who have auth accounts or profiles
+      const activeStaffIdsToUpdate: string[] = [];
+      staffList.forEach(s => {
+        if (s.staffAuthId && s.status !== "Active") {
+          s.status = "Active";
+          activeStaffIdsToUpdate.push(s.id);
+        }
+      });
+      if (activeStaffIdsToUpdate.length > 0) {
+        supabase.from("staff_members").update({ status: "Active" }).in("id", activeStaffIdsToUpdate).then();
+      }
 
       // If user is staff with assigned farms, resolve all their accessible farms
       const userProfilesList = (profilesRes?.data || []).map((r: any) => objToCamel<UserProfile>(r));
@@ -919,10 +930,11 @@ export const api = {
       }
 
       if (staffMember) {
-        // Self-heal staff_auth_id and status if not yet linked
-        if (!staffMember.staffAuthId && userId) {
+        // Unconditionally sync staff_auth_id and status to Active for currently logged in staff
+        if (userId) {
           supabase.from("staff_members").update({ staff_auth_id: userId, status: "Active" }).eq("id", staffMember.id).then();
           staffMember.staffAuthId = userId;
+          staffMember.status = "Active";
         }
 
         const targetFarmIds = new Set<string>();
@@ -1140,6 +1152,75 @@ export const api = {
       // 5. Query cached local admin users only if offline or DB was unreachable
       return { exists: false };
     },
+    resendInvite: async (s: {
+      id?: string;
+      email: string;
+      name?: string;
+      role?: string;
+      farms?: string[];
+      permissions?: string[];
+      appUrl?: string;
+    }) => {
+      const cleanEmail = s.email.trim().toLowerCase();
+      const loginUrl = (s.appUrl && s.appUrl.trim()) ? s.appUrl.trim() : getAppUrl();
+      const userId = await getUserId();
+      let emailSent = false;
+      let emailError: string | null = null;
+
+      // 1. First attempt: Resend signup verification email via GoTrue
+      try {
+        const { error: resendErr } = await authStaffCreator.auth.resend({
+          type: "signup",
+          email: cleanEmail,
+          options: {
+            emailRedirectTo: `${loginUrl}/create-password`,
+          },
+        });
+
+        if (!resendErr) {
+          emailSent = true;
+        } else {
+          // 2. If signup resend fails (e.g. user already confirmed or registered),
+          // send password recovery link which always delivers an immediate email to /create-password:
+          const { error: resetErr } = await authStaffCreator.auth.resetPasswordForEmail(cleanEmail, {
+            redirectTo: `${loginUrl}/create-password`,
+          });
+          if (!resetErr) {
+            emailSent = true;
+          } else {
+            emailError = resendErr.message || resetErr.message;
+          }
+        }
+      } catch (err: any) {
+        try {
+          const { error: resetErr } = await authStaffCreator.auth.resetPasswordForEmail(cleanEmail, {
+            redirectTo: `${loginUrl}/create-password`,
+          });
+          if (!resetErr) {
+            emailSent = true;
+          } else {
+            emailError = resetErr.message || err?.message || "Could not send verification email";
+          }
+        } catch (e: any) {
+          emailError = e?.message || err?.message || "Could not send verification email";
+        }
+      }
+
+      // 3. Renew staff_invitations record
+      try {
+        if (s.id) {
+          await supabase.from("staff_invitations").upsert({
+            staff_id: s.id,
+            email: cleanEmail,
+            invited_by: userId || null,
+            status: "pending",
+            expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+          }, { onConflict: "staff_id" }).catch(() => {});
+        }
+      } catch {}
+
+      return { success: emailSent, emailSent, emailError };
+    },
     invite: async (opts: {
       id?: string;
       email: string;
@@ -1171,8 +1252,6 @@ export const api = {
       // 1. Primary path: Supabase GoTrue Auth signUp
       // Uses authStaffCreator (isolated Supabase client with persistSession: false)
       // to ensure the logged-in owner session is NEVER compromised.
-      // Calling auth.signUp creates the user in Supabase Auth and triggers the official
-      // email verification link to /create-password.
       const staffPassword = (opts.password && opts.password.trim().length >= 6)
         ? opts.password.trim()
         : `Pond#${Math.floor(100 + Math.random() * 900)}@${Math.floor(10 + Math.random() * 90)}`;
@@ -1197,7 +1276,31 @@ export const api = {
 
         if (!signUpErr && signUpData?.user) {
           staffAuthId = signUpData.user.id;
-          emailSent = true;
+          // If the user already existed in Supabase, Gotrue returns identities: [] and does not send email.
+          // In that case, explicitly trigger resend / password reset email:
+          if (signUpData.user.identities && signUpData.user.identities.length === 0) {
+            const { error: resendErr } = await authStaffCreator.auth.resend({
+              type: "signup",
+              email: cleanEmail,
+              options: {
+                emailRedirectTo: `${loginUrl}/create-password`,
+              },
+            });
+            if (!resendErr) {
+              emailSent = true;
+            } else {
+              const { error: resetErr } = await authStaffCreator.auth.resetPasswordForEmail(cleanEmail, {
+                redirectTo: `${loginUrl}/create-password`,
+              });
+              if (!resetErr) {
+                emailSent = true;
+              } else {
+                emailError = resendErr.message || resetErr.message;
+              }
+            }
+          } else {
+            emailSent = true;
+          }
         } else if (signUpErr) {
           const errMsg = (signUpErr.message || "").toLowerCase();
           if (errMsg.includes("already registered") || errMsg.includes("already exists") || errMsg.includes("user already")) {

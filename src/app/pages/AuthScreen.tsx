@@ -659,11 +659,11 @@ function AuthScreen({
       const meta = user.user_metadata ?? {};
       const userEmail = (user.email || "").trim().toLowerCase();
 
-      // Mark staff member status as Active in database
+      // Mark staff member status as Active in database and link staff_auth_id
       try {
         await supabase
           .from("staff_members")
-          .update({ status: "Active" })
+          .update({ status: "Active", staff_auth_id: user.id })
           .ilike("email", userEmail);
       } catch (err) {
         console.warn("Could not mark staff as Active in staff_members table:", err);

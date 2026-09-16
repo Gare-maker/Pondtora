@@ -103,6 +103,7 @@ CREATE POLICY "owner_staff" ON staff_members
   ) WITH CHECK (
     auth.uid() = user_id 
     OR auth.uid() = staff_auth_id 
+    OR LOWER(email) = LOWER(COALESCE(auth.jwt()->>'email', ''))
     OR is_admin()
   );
 
