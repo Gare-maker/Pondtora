@@ -34,21 +34,22 @@ function copyToClipboard(text: string, label: string) {
 }
 
 function copyUserDossier(u: AdminUser, extra?: { farms: any[]; ponds: any[]; staff: any[] }) {
+  if (!u) return;
   const lines = [
     `*Pondtora Farmer Dossier*`,
     `----------------------------------------`,
-    `Name: ${u.name}`,
-    `Email: ${u.email}`,
+    `Name: ${u.name || "Farmer"}`,
+    `Email: ${u.email || "No email"}`,
     `Phone: ${u.phone || "Not provided"}`,
     `Farm Name: ${u.farmName || "Primary Farm"}`,
     `Location: ${[u.city, u.state, u.country].filter(Boolean).join(", ") || "Nigeria"}`,
     `Role: ${u.role || "Farm Owner"}`,
-    `Account Status: ${u.accountStatus}`,
+    `Account Status: ${u.accountStatus || "Active"}`,
     `Registration Date: ${fmtDate(u.createdAt)}`,
     ``,
     `*Subscription & Billing*`,
     `Plan: ${u.activePlan || "No Plan"} (${u.billingFrequency || "monthly"})`,
-    `Status: ${u.subscriptionStatus}${u.freeAccess ? " (Complimentary VIP)" : ""}`,
+    `Status: ${u.subscriptionStatus || "Trial"}${u.freeAccess ? " (Complimentary VIP)" : ""}`,
     `Price Override: ${fmtMoney(u.subscriptionAmount)}`,
     `Trial Start: ${fmtDate(u.trialStartDate)} (${trialDaysLeft(u.trialStartDate)} days left)`,
     `Subscription Start: ${fmtDate(u.subscriptionStart)}`,
@@ -65,14 +66,21 @@ function copyUserDossier(u: AdminUser, extra?: { farms: any[]; ponds: any[]; sta
   if (extra?.staff && extra.staff.length > 0) {
     lines.push(``, `*Staff Members Added:*`);
     extra.staff.forEach((s, idx) => {
-      lines.push(`  ${idx + 1}. ${s.name} (${s.email}) - ${s.role} [${s.status}]`);
+      lines.push(`  ${idx + 1}. ${s?.name || "Staff"} (${s?.email || ""}) - ${s?.role || "Staff"} [${s?.status || "Active"}]`);
     });
   }
 
   if (extra?.farms && extra.farms.length > 0) {
     lines.push(``, `*Farms List:*`);
     extra.farms.forEach((f, idx) => {
-      lines.push(`  ${idx + 1}. ${f.name} - ${[f.city, f.state].filter(Boolean).join(", ") || "Nigeria"}`);
+      lines.push(`  ${idx + 1}. ${f?.name || "Farm"} - ${[f?.city, f?.state].filter(Boolean).join(", ") || "Nigeria"}`);
+    });
+  }
+
+  if (extra?.ponds && extra.ponds.length > 0) {
+    lines.push(``, `*Ponds Configured:*`);
+    extra.ponds.forEach((p, idx) => {
+      lines.push(`  ${idx + 1}. ${p?.name || `Pond #${idx + 1}`}${p?.size_m2 ? ` (${p.size_m2} m²)` : ""}`);
     });
   }
 
@@ -298,7 +306,7 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
   const [userExtra, setUserExtra] = useState<{
     loading: boolean;
     farms: { id: string; name: string; city?: string; state?: string }[];
-    ponds: { id: string; name?: string; size?: string; farm_id?: string }[];
+    ponds: { id: string; name?: string; size_m2?: number; farm_id?: string }[];
     staff: { id: string; name: string; email: string; role: string; status: string }[];
   }>({ loading: false, farms: [], ponds: [], staff: [] });
 
@@ -311,7 +319,7 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
     setUserExtra(prev => ({ ...prev, loading: true }));
     Promise.all([
       supabase.from("farms").select("id, name, city, state").eq("user_id", viewUser.id),
-      supabase.from("ponds").select("id, name, size, farm_id").eq("user_id", viewUser.id),
+      supabase.from("ponds").select("id, name, size_m2, farm_id").eq("user_id", viewUser.id),
       supabase.from("staff_members").select("id, name, email, role, status").eq("user_id", viewUser.id),
     ]).then(([farmsRes, pondsRes, staffRes]) => {
       if (!isSubscribed) return;
@@ -866,15 +874,15 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
             <div className="px-5 py-4 border-b border-slate-100 flex items-start justify-between gap-3 bg-gradient-to-r from-slate-50 to-emerald-50/40 shrink-0">
               <div className="flex items-center gap-3.5 min-w-0">
                 <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-emerald-500 to-green-600 text-white flex items-center justify-center font-bold text-lg shadow-md shadow-emerald-500/20 shrink-0">
-                  {viewUser.name.charAt(0).toUpperCase()}
+                  {(viewUser.name || "Farmer").charAt(0).toUpperCase()}
                 </div>
                 <div className="min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <h2 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] leading-tight truncate">
-                      {viewUser.name}
+                      {viewUser.name || "Farmer Account"}
                     </h2>
-                    <Bdg label={viewUser.accountStatus} color={viewUser.accountStatus === "Active" ? "green" : "gray"} />
-                    <Bdg label={viewUser.subscriptionStatus} color={STATUS_COLOR[viewUser.subscriptionStatus] || "gray"} />
+                    <Bdg label={viewUser.accountStatus || "Active"} color={viewUser.accountStatus === "Active" ? "green" : "gray"} />
+                    <Bdg label={viewUser.subscriptionStatus || "Trial"} color={STATUS_COLOR[viewUser.subscriptionStatus] || "gray"} />
                     {viewUser.freeAccess && (
                       <span className="text-[10px] bg-green-100 text-green-700 font-bold px-2 py-0.5 rounded-full">
                         Free VIP ✦
@@ -882,7 +890,7 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                     )}
                   </div>
                   <p className="text-xs text-slate-500 mt-0.5 truncate">
-                    {viewUser.email} • {viewUser.role || "Farm Owner"} • Registered {fmtDate(viewUser.createdAt)}
+                    {viewUser.email || "No email"} • {viewUser.role || "Farm Owner"} • Registered {fmtDate(viewUser.createdAt)}
                   </p>
                 </div>
               </div>
@@ -917,13 +925,15 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                   </span>
                 )}
 
-                <a
-                  href={`mailto:${viewUser.email}?subject=${encodeURIComponent("Pondtora Farm Management Support")}`}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs transition-colors"
-                  title={`Send an email to ${viewUser.email}`}
-                >
-                  <Mail size={14} /> Send Email
-                </a>
+                {viewUser.email && (
+                  <a
+                    href={`mailto:${viewUser.email}?subject=${encodeURIComponent("Pondtora Farm Management Support")}`}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-xl shadow-xs transition-colors"
+                    title={`Send an email to ${viewUser.email}`}
+                  >
+                    <Mail size={14} /> Send Email
+                  </a>
+                )}
 
                 {viewUser.phone && (
                   <a
@@ -956,8 +966,8 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                   <div className="bg-slate-50/80 border border-slate-200/70 p-2.5 rounded-xl">
                     <p className="text-[10px] uppercase font-bold text-slate-400">Full Name</p>
                     <div className="flex items-center justify-between mt-0.5">
-                      <p className="font-bold text-slate-800 text-xs truncate">{viewUser.name}</p>
-                      <button onClick={() => copyToClipboard(viewUser.name, "Name")} className="text-slate-400 hover:text-slate-600 p-0.5" title="Copy name">
+                      <p className="font-bold text-slate-800 text-xs truncate">{viewUser.name || "—"}</p>
+                      <button onClick={() => copyToClipboard(viewUser.name || "", "Name")} className="text-slate-400 hover:text-slate-600 p-0.5" title="Copy name">
                         <Copy size={11} />
                       </button>
                     </div>
@@ -966,8 +976,8 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                   <div className="bg-slate-50/80 border border-slate-200/70 p-2.5 rounded-xl">
                     <p className="text-[10px] uppercase font-bold text-slate-400">Email Address</p>
                     <div className="flex items-center justify-between mt-0.5">
-                      <p className="font-semibold text-slate-800 text-xs truncate" title={viewUser.email}>{viewUser.email}</p>
-                      <button onClick={() => copyToClipboard(viewUser.email, "Email")} className="text-slate-400 hover:text-slate-600 p-0.5" title="Copy email">
+                      <p className="font-semibold text-slate-800 text-xs truncate" title={viewUser.email}>{viewUser.email || "—"}</p>
+                      <button onClick={() => copyToClipboard(viewUser.email || "", "Email")} className="text-slate-400 hover:text-slate-600 p-0.5" title="Copy email">
                         <Copy size={11} />
                       </button>
                     </div>
@@ -1002,7 +1012,7 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                 </div>
               </div>
 
-              {/* 2. Operations & Staff Added (The exact request: "the number of, email that they have added") */}
+              {/* 2. Operations & Staff Added */}
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
@@ -1019,35 +1029,35 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                   <div className="bg-slate-50 border border-slate-200 p-3 rounded-xl text-center">
                     <p className="text-[10px] uppercase font-bold text-slate-400">Total Farms</p>
                     <p className="text-xl font-extrabold text-slate-800 font-['Barlow_Condensed',sans-serif] mt-0.5">
-                      {userExtra.farms.length || viewUser.farmCount || 1}
+                      {userExtra.farms?.length || viewUser.farmCount || 1}
                     </p>
                   </div>
                   <div className="bg-blue-50/50 border border-blue-200/70 p-3 rounded-xl text-center">
                     <p className="text-[10px] uppercase font-bold text-blue-500">Ponds Configured</p>
                     <p className="text-xl font-extrabold text-blue-700 font-['Barlow_Condensed',sans-serif] mt-0.5">
-                      {userExtra.ponds.length || viewUser.pondCount || 0}
+                      {userExtra.ponds?.length || viewUser.pondCount || 0}
                     </p>
                   </div>
                   <div className="bg-emerald-50/50 border border-emerald-200/70 p-3 rounded-xl text-center">
                     <p className="text-[10px] uppercase font-bold text-emerald-600">Staff Members</p>
                     <p className="text-xl font-extrabold text-emerald-800 font-['Barlow_Condensed',sans-serif] mt-0.5">
-                      {userExtra.staff.length || viewUser.staffCount || 0}
+                      {userExtra.staff?.length || viewUser.staffCount || 0}
                     </p>
                   </div>
                 </div>
 
                 {/* Staff Members List with Emails */}
-                <div className="border border-slate-200 rounded-xl overflow-hidden">
+                <div className="border border-slate-200 rounded-xl overflow-hidden mb-2.5">
                   <div className="bg-slate-100/70 px-3 py-2 border-b border-slate-200 flex items-center justify-between">
                     <span className="font-bold text-slate-700 text-xs flex items-center gap-1.5">
                       <UsersIcon size={12} className="text-slate-500" />
-                      Staff Accounts Added ({userExtra.staff.length})
+                      Staff Accounts Added ({userExtra.staff?.length || 0})
                     </span>
                     <span className="text-[10px] text-slate-400">Invited by this farmer</span>
                   </div>
 
-                  {userExtra.staff.length === 0 ? (
-                    <div className="p-4 text-center text-slate-400">
+                  {!userExtra.staff || userExtra.staff.length === 0 ? (
+                    <div className="p-3.5 text-center text-slate-400">
                       <p className="text-xs">No staff members added yet by this farmer.</p>
                     </div>
                   ) : (
@@ -1055,21 +1065,23 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                       {userExtra.staff.map((st) => (
                         <div key={st.id} className="p-2.5 flex items-center justify-between gap-2 hover:bg-slate-50 transition-colors">
                           <div className="min-w-0">
-                            <p className="font-bold text-slate-800 text-xs truncate">{st.name}</p>
-                            <p className="text-[11px] text-slate-500 font-mono truncate">{st.email}</p>
+                            <p className="font-bold text-slate-800 text-xs truncate">{st?.name || "Staff Member"}</p>
+                            <p className="text-[11px] text-slate-500 font-mono truncate">{st?.email || ""}</p>
                           </div>
                           <div className="flex items-center gap-1.5 shrink-0">
                             <span className="text-[10px] bg-slate-100 text-slate-700 px-2 py-0.5 rounded font-medium">
-                              {st.role}
+                              {st?.role || "Staff"}
                             </span>
-                            <Bdg label={st.status || "Active"} color={st.status === "Pending" ? "amber" : "green"} />
-                            <button
-                              onClick={() => copyToClipboard(st.email, `Staff email (${st.email})`)}
-                              className="p-1 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded transition-colors"
-                              title="Copy staff email"
-                            >
-                              <Copy size={11} />
-                            </button>
+                            <Bdg label={st?.status || "Active"} color={st?.status === "Pending" ? "amber" : "green"} />
+                            {st?.email && (
+                              <button
+                                onClick={() => copyToClipboard(st.email, `Staff email (${st.email})`)}
+                                className="p-1 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded transition-colors"
+                                title="Copy staff email"
+                              >
+                                <Copy size={11} />
+                              </button>
+                            )}
                           </div>
                         </div>
                       ))}
@@ -1077,27 +1089,64 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                   )}
                 </div>
 
-                {/* Farms List */}
-                {userExtra.farms.length > 0 && (
-                  <div className="border border-slate-200 rounded-xl overflow-hidden mt-2.5">
+                {/* Farms & Ponds Lists */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  {/* Farms */}
+                  <div className="border border-slate-200 rounded-xl overflow-hidden">
                     <div className="bg-slate-100/70 px-3 py-2 border-b border-slate-200 flex items-center justify-between">
                       <span className="font-bold text-slate-700 text-xs flex items-center gap-1.5">
                         <Building size={12} className="text-slate-500" />
-                        Farms Registered ({userExtra.farms.length})
+                        Farms ({userExtra.farms?.length || 1})
                       </span>
                     </div>
                     <div className="divide-y divide-slate-100 max-h-32 overflow-y-auto">
-                      {userExtra.farms.map((f) => (
-                        <div key={f.id} className="p-2.5 flex items-center justify-between gap-2 text-xs">
-                          <span className="font-bold text-slate-800">{f.name}</span>
-                          <span className="text-slate-500 text-[11px]">
-                            {[f.city, f.state].filter(Boolean).join(", ") || "Nigeria"}
-                          </span>
+                      {userExtra.farms?.length > 0 ? (
+                        userExtra.farms.map((f) => (
+                          <div key={f.id} className="p-2.5 flex items-center justify-between gap-2 text-xs">
+                            <span className="font-bold text-slate-800 truncate">{f?.name || "Farm"}</span>
+                            <span className="text-slate-500 text-[11px] shrink-0">
+                              {[f?.city, f?.state].filter(Boolean).join(", ") || "Nigeria"}
+                            </span>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="p-2.5 text-xs text-slate-600 font-medium truncate">
+                          {viewUser.farmName || "Primary Farm"}
                         </div>
-                      ))}
+                      )}
                     </div>
                   </div>
-                )}
+
+                  {/* Ponds */}
+                  <div className="border border-slate-200 rounded-xl overflow-hidden">
+                    <div className="bg-slate-100/70 px-3 py-2 border-b border-slate-200 flex items-center justify-between">
+                      <span className="font-bold text-slate-700 text-xs flex items-center gap-1.5">
+                        <Droplets size={12} className="text-blue-500" />
+                        Ponds ({userExtra.ponds?.length || viewUser.pondCount || 0})
+                      </span>
+                    </div>
+                    <div className="divide-y divide-slate-100 max-h-32 overflow-y-auto">
+                      {userExtra.ponds?.length > 0 ? (
+                        userExtra.ponds.map((p, idx) => (
+                          <div key={p.id} className="p-2.5 flex items-center justify-between gap-2 text-xs">
+                            <span className="font-bold text-slate-800 truncate">{p?.name || `Pond #${idx + 1}`}</span>
+                            {p?.size_m2 ? (
+                              <span className="text-blue-600 text-[11px] shrink-0 font-mono font-semibold">
+                                {p.size_m2} m²
+                              </span>
+                            ) : (
+                              <span className="text-slate-400 text-[11px] shrink-0">Configured</span>
+                            )}
+                          </div>
+                        ))
+                      ) : (
+                        <div className="p-2.5 text-xs text-slate-400 italic">
+                          {viewUser.pondCount ? `${viewUser.pondCount} ponds registered` : "No ponds created yet"}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
               </div>
 
               {/* 3. Subscription & Billing Overview */}

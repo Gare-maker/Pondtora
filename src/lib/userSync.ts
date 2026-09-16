@@ -102,9 +102,13 @@ export async function fetchLiveAdminUsers(): Promise<{
         return;
       }
 
+      const local = existingLocal.find(
+        x => x.id === p.id || (x.email && x.email.toLowerCase() === pEmail)
+      );
+
       const userFarms = rawFarms.filter((f: any) => f.user_id === p.id);
       const farmCount = userFarms.length > 0 ? userFarms.length : (p.farm_name ? 1 : (local?.farmCount || 1));
-      const farmName = p.farm_name || userFarms[0]?.name || "Primary Farm";
+      const farmName = p.farm_name || userFarms[0]?.name || local?.farmName || "Primary Farm";
 
       const userFarmIds = new Set(userFarms.map((f: any) => f.id));
       const userPonds = rawPonds.filter((pd: any) => pd.user_id === p.id || (pd.farm_id && userFarmIds.has(pd.farm_id)));
@@ -112,10 +116,6 @@ export async function fetchLiveAdminUsers(): Promise<{
 
       const userStaff = rawStaff.filter((s: any) => s.user_id === p.id);
       const staffCount = userStaff.length || local?.staffCount || 0;
-
-      const local = existingLocal.find(
-        x => x.id === p.id || (x.email && x.email.toLowerCase() === pEmail)
-      );
 
       const hasPaid = Boolean(
         local?.hasPaid ||
