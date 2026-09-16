@@ -1124,45 +1124,64 @@ DROP POLICY IF EXISTS "own_profile" ON user_profiles;
 CREATE POLICY "own_profile" ON user_profiles
   USING (auth.uid() = id OR is_admin()) WITH CHECK (auth.uid() = id OR is_admin());
 
--- farms: owner full access OR admin access
+-- farms: owner full access OR admin access OR assigned staff access
 DROP POLICY IF EXISTS "owner_farms" ON farms;
 CREATE POLICY "owner_farms" ON farms
-  USING (auth.uid() = user_id OR is_admin()) WITH CHECK (auth.uid() = user_id OR is_admin());
+  FOR ALL USING (auth.uid() = user_id OR user_can_access_farm(id) OR is_admin())
+  WITH CHECK (auth.uid() = user_id OR is_admin());
 
--- staff_members: owner manages, staff sees self
+-- staff_members: owner manages, staff sees self / colleagues on farm
 DROP POLICY IF EXISTS "owner_staff" ON staff_members;
 CREATE POLICY "owner_staff" ON staff_members
-  FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+  FOR ALL USING (
+    auth.uid() = user_id 
+    OR auth.uid() = staff_auth_id 
+    OR LOWER(email) = LOWER(COALESCE(auth.jwt()->>'email', '')) 
+    OR is_admin()
+  ) WITH CHECK (
+    auth.uid() = user_id 
+    OR auth.uid() = staff_auth_id 
+    OR is_admin()
+  );
 DROP POLICY IF EXISTS "staff_view_self" ON staff_members;
 CREATE POLICY "staff_view_self" ON staff_members
-  FOR SELECT USING (auth.uid() = staff_auth_id);
+  FOR SELECT USING (
+    auth.uid() = staff_auth_id 
+    OR LOWER(email) = LOWER(COALESCE(auth.jwt()->>'email', ''))
+    OR auth.uid() = user_id
+    OR is_admin()
+  );
 
 -- staff_invitations
 DROP POLICY IF EXISTS "inviter_invitations" ON staff_invitations;
 CREATE POLICY "inviter_invitations" ON staff_invitations
-  FOR ALL USING (auth.uid() = invited_by) WITH CHECK (auth.uid() = invited_by);
+  FOR ALL USING (auth.uid() = invited_by OR is_admin()) WITH CHECK (auth.uid() = invited_by OR is_admin());
 
 -- staff_farm_assignments
 DROP POLICY IF EXISTS "owner_assignments" ON staff_farm_assignments;
 CREATE POLICY "owner_assignments" ON staff_farm_assignments
   FOR ALL USING (
-    EXISTS (SELECT 1 FROM farms f WHERE f.id = staff_farm_assignments.farm_id AND f.user_id = auth.uid())
+    is_admin() OR
+    EXISTS (SELECT 1 FROM farms f WHERE f.id = staff_farm_assignments.farm_id AND (f.user_id = auth.uid() OR user_can_access_farm(f.id)))
   ) WITH CHECK (
-    EXISTS (SELECT 1 FROM farms f WHERE f.id = staff_farm_assignments.farm_id AND f.user_id = auth.uid())
+    is_admin() OR
+    EXISTS (SELECT 1 FROM farms f WHERE f.id = staff_farm_assignments.farm_id AND (f.user_id = auth.uid() OR user_can_access_farm(f.id)))
   );
 
 -- staff_permissions
 DROP POLICY IF EXISTS "owner_permissions" ON staff_permissions;
 CREATE POLICY "owner_permissions" ON staff_permissions
   FOR ALL USING (
-    EXISTS (SELECT 1 FROM staff_members sm WHERE sm.id = staff_permissions.staff_id AND sm.user_id = auth.uid())
+    is_admin() OR
+    EXISTS (SELECT 1 FROM staff_members sm WHERE sm.id = staff_permissions.staff_id AND (sm.user_id = auth.uid() OR sm.staff_auth_id = auth.uid()))
   ) WITH CHECK (
-    EXISTS (SELECT 1 FROM staff_members sm WHERE sm.id = staff_permissions.staff_id AND sm.user_id = auth.uid())
+    is_admin() OR
+    EXISTS (SELECT 1 FROM staff_members sm WHERE sm.id = staff_permissions.staff_id AND (sm.user_id = auth.uid() OR sm.staff_auth_id = auth.uid()))
   );
 
--- All user-scoped data tables: owner + assigned staff
+-- Helper function: check if user can access a specific farm
 CREATE OR REPLACE FUNCTION user_can_access_farm(p_farm_id UUID)
-RETURNS BOOLEAN LANGUAGE sql SECURITY DEFINER AS $$
+RETURNS BOOLEAN LANGUAGE sql SECURITY DEFINER STABLE AS $$
   -- 1. Farm Owner
   SELECT EXISTS (SELECT 1 FROM farms f WHERE f.id = p_farm_id AND f.user_id = auth.uid())
   -- 2. Assigned staff member (by auth UID or by email)
@@ -1180,6 +1199,7 @@ RETURNS BOOLEAN LANGUAGE sql SECURITY DEFINER AS $$
           AND NOT EXISTS (SELECT 1 FROM staff_farm_assignments sfa WHERE sfa.staff_id = sm.id)
           AND EXISTS (SELECT 1 FROM farms f WHERE f.id = p_farm_id AND f.user_id = sm.user_id)
         )
+        OR EXISTS (SELECT 1 FROM farms f WHERE f.id = p_farm_id AND f.user_id = sm.user_id)
       )
   )
   -- 3. Superadmin
@@ -1191,94 +1211,117 @@ RETURNS BOOLEAN LANGUAGE sql SECURITY DEFINER AS $$
   );
 $$;
 
+-- Helper function: check if user can access data scoped to owner/farm
+CREATE OR REPLACE FUNCTION user_can_access_owner_data(p_user_id UUID, p_farm_id UUID DEFAULT NULL)
+RETURNS BOOLEAN LANGUAGE sql SECURITY DEFINER STABLE AS $$
+  -- 1. Direct match or admin
+  SELECT (auth.uid() = p_user_id)
+  OR is_admin()
+  -- 2. Accessible farm ID
+  OR (p_farm_id IS NOT NULL AND user_can_access_farm(p_farm_id))
+  -- 3. Caller is staff member of the record's owner
+  OR EXISTS (
+    SELECT 1 FROM staff_members sm
+    WHERE (sm.staff_auth_id = auth.uid() OR LOWER(sm.email) = LOWER(COALESCE(auth.jwt()->>'email', '')))
+      AND (sm.user_id = p_user_id OR (p_farm_id IS NOT NULL AND user_can_access_farm(p_farm_id)))
+  )
+  -- 4. Caller is farm owner and record was created by their staff member
+  OR EXISTS (
+    SELECT 1 FROM staff_members sm
+    WHERE sm.user_id = auth.uid()
+      AND (sm.staff_auth_id = p_user_id OR sm.id = p_user_id)
+  );
+$$;
+
 -- Ponds
 DROP POLICY IF EXISTS "farm_ponds" ON ponds;
 CREATE POLICY "farm_ponds" ON ponds
-  USING (auth.uid() = user_id OR (farm_id IS NOT NULL AND user_can_access_farm(farm_id)) OR is_admin())
-  WITH CHECK (auth.uid() = user_id OR (farm_id IS NOT NULL AND user_can_access_farm(farm_id)) OR is_admin());
+  FOR ALL USING (user_can_access_owner_data(user_id, farm_id))
+  WITH CHECK (user_can_access_owner_data(user_id, farm_id));
 
 -- Stock events
 DROP POLICY IF EXISTS "farm_stock" ON stock_events;
 CREATE POLICY "farm_stock" ON stock_events
-  USING (auth.uid() = user_id OR (farm_id IS NOT NULL AND user_can_access_farm(farm_id)) OR is_admin())
-  WITH CHECK (auth.uid() = user_id OR (farm_id IS NOT NULL AND user_can_access_farm(farm_id)) OR is_admin());
+  FOR ALL USING (user_can_access_owner_data(user_id, farm_id))
+  WITH CHECK (user_can_access_owner_data(user_id, farm_id));
 
 -- Feed inventory
 DROP POLICY IF EXISTS "farm_feed_inv" ON feed_inventory;
 CREATE POLICY "farm_feed_inv" ON feed_inventory
-  USING (auth.uid() = user_id OR (farm_id IS NOT NULL AND user_can_access_farm(farm_id)) OR is_admin())
-  WITH CHECK (auth.uid() = user_id OR (farm_id IS NOT NULL AND user_can_access_farm(farm_id)) OR is_admin());
+  FOR ALL USING (user_can_access_owner_data(user_id, farm_id))
+  WITH CHECK (user_can_access_owner_data(user_id, farm_id));
 
 -- Feeding records
 DROP POLICY IF EXISTS "farm_feeding" ON feeding_records;
 CREATE POLICY "farm_feeding" ON feeding_records
-  USING (auth.uid() = user_id OR (farm_id IS NOT NULL AND user_can_access_farm(farm_id)) OR is_admin())
-  WITH CHECK (auth.uid() = user_id OR (farm_id IS NOT NULL AND user_can_access_farm(farm_id)) OR is_admin());
+  FOR ALL USING (user_can_access_owner_data(user_id, farm_id))
+  WITH CHECK (user_can_access_owner_data(user_id, farm_id));
 
 -- Bag open logs
 DROP POLICY IF EXISTS "farm_bags" ON bag_open_logs;
 CREATE POLICY "farm_bags" ON bag_open_logs
-  USING (auth.uid() = user_id OR (farm_id IS NOT NULL AND user_can_access_farm(farm_id)) OR is_admin())
-  WITH CHECK (auth.uid() = user_id OR (farm_id IS NOT NULL AND user_can_access_farm(farm_id)) OR is_admin());
+  FOR ALL USING (user_can_access_owner_data(user_id, farm_id))
+  WITH CHECK (user_can_access_owner_data(user_id, farm_id));
 
 -- Feed remaining logs
 DROP POLICY IF EXISTS "farm_remain" ON feed_remaining_logs;
 CREATE POLICY "farm_remain" ON feed_remaining_logs
-  USING (auth.uid() = user_id OR (farm_id IS NOT NULL AND user_can_access_farm(farm_id)) OR is_admin())
-  WITH CHECK (auth.uid() = user_id OR (farm_id IS NOT NULL AND user_can_access_farm(farm_id)) OR is_admin());
+  FOR ALL USING (user_can_access_owner_data(user_id, farm_id))
+  WITH CHECK (user_can_access_owner_data(user_id, farm_id));
 
 -- Expenses
 DROP POLICY IF EXISTS "farm_expenses" ON expenses;
 CREATE POLICY "farm_expenses" ON expenses
-  USING (auth.uid() = user_id OR (farm_id IS NOT NULL AND user_can_access_farm(farm_id)) OR is_admin())
-  WITH CHECK (auth.uid() = user_id OR (farm_id IS NOT NULL AND user_can_access_farm(farm_id)) OR is_admin());
+  FOR ALL USING (user_can_access_owner_data(user_id, farm_id))
+  WITH CHECK (user_can_access_owner_data(user_id, farm_id));
 
 -- Revenues
 DROP POLICY IF EXISTS "farm_revenues" ON revenues;
 CREATE POLICY "farm_revenues" ON revenues
-  USING (auth.uid() = user_id OR (farm_id IS NOT NULL AND user_can_access_farm(farm_id)) OR is_admin())
-  WITH CHECK (auth.uid() = user_id OR (farm_id IS NOT NULL AND user_can_access_farm(farm_id)) OR is_admin());
+  FOR ALL USING (user_can_access_owner_data(user_id, farm_id))
+  WITH CHECK (user_can_access_owner_data(user_id, farm_id));
 
 -- Mortality
 DROP POLICY IF EXISTS "farm_mortality" ON mortality_entries;
 CREATE POLICY "farm_mortality" ON mortality_entries
-  USING (auth.uid() = user_id OR (farm_id IS NOT NULL AND user_can_access_farm(farm_id)) OR is_admin())
-  WITH CHECK (auth.uid() = user_id OR (farm_id IS NOT NULL AND user_can_access_farm(farm_id)) OR is_admin());
+  FOR ALL USING (user_can_access_owner_data(user_id, farm_id))
+  WITH CHECK (user_can_access_owner_data(user_id, farm_id));
 
 -- Treatments
 DROP POLICY IF EXISTS "farm_treatment" ON treatment_records;
 CREATE POLICY "farm_treatment" ON treatment_records
-  USING (auth.uid() = user_id OR (farm_id IS NOT NULL AND user_can_access_farm(farm_id)) OR is_admin())
-  WITH CHECK (auth.uid() = user_id OR (farm_id IS NOT NULL AND user_can_access_farm(farm_id)) OR is_admin());
+  FOR ALL USING (user_can_access_owner_data(user_id, farm_id))
+  WITH CHECK (user_can_access_owner_data(user_id, farm_id));
 
 -- Reports
 DROP POLICY IF EXISTS "farm_reports" ON reports;
 CREATE POLICY "farm_reports" ON reports
-  USING (auth.uid() = user_id OR (farm_id IS NOT NULL AND user_can_access_farm(farm_id)) OR is_admin())
-  WITH CHECK (auth.uid() = user_id OR (farm_id IS NOT NULL AND user_can_access_farm(farm_id)) OR is_admin());
+  FOR ALL USING (user_can_access_owner_data(user_id, farm_id))
+  WITH CHECK (user_can_access_owner_data(user_id, farm_id));
 
 -- Customers
 DROP POLICY IF EXISTS "farm_customers" ON customers;
 CREATE POLICY "farm_customers" ON customers
-  USING (auth.uid() = user_id OR (farm_id IS NOT NULL AND user_can_access_farm(farm_id)) OR is_admin())
-  WITH CHECK (auth.uid() = user_id OR (farm_id IS NOT NULL AND user_can_access_farm(farm_id)) OR is_admin());
+  FOR ALL USING (user_can_access_owner_data(user_id, farm_id))
+  WITH CHECK (user_can_access_owner_data(user_id, farm_id));
 
 -- Price groups
 DROP POLICY IF EXISTS "farm_prices" ON price_groups;
 CREATE POLICY "farm_prices" ON price_groups
-  USING (auth.uid() = user_id OR (farm_id IS NOT NULL AND user_can_access_farm(farm_id)) OR is_admin())
-  WITH CHECK (auth.uid() = user_id OR (farm_id IS NOT NULL AND user_can_access_farm(farm_id)) OR is_admin());
+  FOR ALL USING (user_can_access_owner_data(user_id, farm_id))
+  WITH CHECK (user_can_access_owner_data(user_id, farm_id));
 
 -- Invoices
 DROP POLICY IF EXISTS "farm_invoices" ON invoices;
 CREATE POLICY "farm_invoices" ON invoices
-  USING (auth.uid() = user_id OR (farm_id IS NOT NULL AND user_can_access_farm(farm_id)) OR is_admin())
-  WITH CHECK (auth.uid() = user_id OR (farm_id IS NOT NULL AND user_can_access_farm(farm_id)) OR is_admin());
+  FOR ALL USING (user_can_access_owner_data(user_id, farm_id))
+  WITH CHECK (user_can_access_owner_data(user_id, farm_id));
 
 -- Invoice settings
 DROP POLICY IF EXISTS "own_inv_settings" ON invoice_settings;
 CREATE POLICY "own_inv_settings" ON invoice_settings
-  USING (auth.uid() = user_id OR is_admin()) WITH CHECK (auth.uid() = user_id OR is_admin());
+  FOR ALL USING (user_can_access_owner_data(user_id, NULL))
+  WITH CHECK (user_can_access_owner_data(user_id, NULL));
 
 -- Knowledge / compatibility
 DROP POLICY IF EXISTS "own_kq" ON knowledge_questions;

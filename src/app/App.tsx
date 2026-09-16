@@ -4861,8 +4861,8 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       toast.error("Invoice deleted locally — sync error");
     }
   };
-  const addCustomer=(c:Customer)=>{const nc={...c,id:isUuid(c.id)?c.id:crypto.randomUUID(),farmId:activeFarmId};setCustomers(prev=>[...prev,nc]);api.customers.create(nc).catch(console.warn);};
-  const addPriceGroup=(g:PriceGroup)=>{const ng={...g,id:isUuid(g.id)?g.id:crypto.randomUUID(),farmId:activeFarmId};setPriceGroups(prev=>[...prev,ng]);api.priceGroups.create(ng).catch(console.warn);};
+  const addCustomer=(c:Customer)=>{const fid=c.farmId||activeFarmId||farms[0]?.id||"";const nc={...c,id:isUuid(c.id)?c.id:crypto.randomUUID(),farmId:fid};setCustomers(prev=>[...prev,nc]);api.customers.create(nc).catch(console.warn);};
+  const addPriceGroup=(g:PriceGroup)=>{const fid=g.farmId||activeFarmId||farms[0]?.id||"";const ng={...g,id:isUuid(g.id)?g.id:crypto.randomUUID(),farmId:fid};setPriceGroups(prev=>[...prev,ng]);api.priceGroups.create(ng).catch(console.warn);};
   const editPriceGroup=(g:PriceGroup)=>{setPriceGroups(prev=>prev.map(x=>x.id===g.id?g:x));api.priceGroups.update(g).catch(console.warn);};
   const delPriceGroup=(id:string)=>{setPriceGroups(prev=>prev.filter(g=>g.id!==id));api.priceGroups.remove(id).catch(console.warn);};
   /* ── Permission derivation & farm scoping ── */

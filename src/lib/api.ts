@@ -153,7 +153,7 @@ const TABLE_ALLOWED_COLUMNS: Record<string, Set<string>> = {
     "status", "notes", "created_at", "updated_at"
   ]),
   investment_payments: new Set([
-    "id", "user_id", "investment_id", "due_date", "payment_date", "payment_period",
+    "id", "user_id", "farm_id", "investment_id", "due_date", "payment_date", "payment_period",
     "amount_due", "amount_paid", "payment_method", "status", "notes", "recorded_by",
     "created_at", "updated_at"
   ]),
@@ -441,7 +441,7 @@ export const auth = {
 
 // ── Generic Table Operations ──────────────────────────────────────────────────
 
-async function getUserId(): Promise<string> {
+export async function getUserId(): Promise<string> {
   const uid = await getAuthUserId();
   if (uid && isUuid(uid)) return uid;
   try {
@@ -462,18 +462,101 @@ async function getUserId(): Promise<string> {
   return "";
 }
 
+export async function getOwnerUserId(): Promise<string> {
+  const currentUid = await getUserId();
+  if (!currentUid) return "";
+
+  // 1. Check if user profile has an ownerId or role
+  try {
+    const raw = localStorage.getItem(`pondtora_${currentUid}_user_profile`) || localStorage.getItem("pondtora_user_profile");
+    if (raw) {
+      const p = JSON.parse(raw);
+      if (p?.ownerId && isUuid(p.ownerId)) return p.ownerId;
+      if (p?.owner_id && isUuid(p.owner_id)) return p.owner_id;
+    }
+  } catch {}
+
+  // 2. Check auth metadata
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user?.user_metadata?.owner_id && isUuid(user.user_metadata.owner_id)) {
+      return user.user_metadata.owner_id;
+    }
+  } catch {}
+
+  // 3. Query staff_members table to see if current auth user is a staff of an owner
+  try {
+    let email = "";
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      email = (session?.user?.email || "").toLowerCase().trim();
+    } catch {}
+
+    let q = supabase.from("staff_members").select("user_id, staff_auth_id");
+    if (email) {
+      q = q.or(`staff_auth_id.eq.${currentUid},email.ilike.${email}`);
+    } else {
+      q = q.eq("staff_auth_id", currentUid);
+    }
+    const { data: staffRow } = await q.maybeSingle();
+
+    if (staffRow?.user_id && isUuid(staffRow.user_id)) {
+      return staffRow.user_id;
+    }
+  } catch {}
+
+  return currentUid;
+}
+
+export async function getEffectiveFarmId(suggestedFarmId?: string): Promise<string | undefined> {
+  if (suggestedFarmId && isUuid(suggestedFarmId) && suggestedFarmId !== "default" && suggestedFarmId !== "—") {
+    return suggestedFarmId;
+  }
+  const currentUid = await getUserId();
+  if (currentUid) {
+    try {
+      const activeStored = localStorage.getItem(`pondtora_${currentUid}_active_farm_id`);
+      if (activeStored && isUuid(activeStored)) return activeStored;
+    } catch {}
+  }
+  const ownerId = await getOwnerUserId();
+  if (ownerId && ownerId !== currentUid) {
+    try {
+      const activeStored = localStorage.getItem(`pondtora_${ownerId}_active_farm_id`);
+      if (activeStored && isUuid(activeStored)) return activeStored;
+    } catch {}
+  }
+  // Try querying farms
+  try {
+    const targetUserId = ownerId || currentUid;
+    const { data: farmRows } = await supabase
+      .from("farms")
+      .select("id")
+      .eq("user_id", targetUserId)
+      .order("created_at", { ascending: true })
+      .limit(1);
+    if (farmRows && farmRows.length > 0 && farmRows[0].id) {
+      return farmRows[0].id;
+    }
+  } catch {}
+
+  return undefined;
+}
+
 async function dbList<T>(table: string, cacheKey?: string): Promise<T[]> {
   const userId = await getUserId();
+  const ownerId = await getOwnerUserId();
   try {
     const { data, error } = await supabase.from(table).select("*");
     if (error) throw error;
     const items = (data || []).map(r => objToCamel<T>(r));
     if (cacheKey && userId) saveLocalCache({ [cacheKey]: items }, userId);
+    if (cacheKey && ownerId && ownerId !== userId) saveLocalCache({ [cacheKey]: items }, ownerId);
     return items;
   } catch (err) {
     console.warn(`Error fetching ${table}:`, err);
-    if (cacheKey && userId) {
-      const cached = getLocalCache(userId);
+    if (cacheKey && (userId || ownerId)) {
+      const cached = getLocalCache(userId) || (ownerId ? getLocalCache(ownerId) : null);
       if (cached && cached[cacheKey]) return cached[cacheKey];
     }
     return [];
@@ -481,15 +564,40 @@ async function dbList<T>(table: string, cacheKey?: string): Promise<T[]> {
 }
 
 async function dbInsert<T extends { id?: string }>(table: string, item: T, cacheKey?: string): Promise<T> {
-  const userId = await getUserId();
-  const snake = objToSnake(item as any, userId, table);
+  const authUid = await getUserId();
+  const ownerUid = await getOwnerUserId();
+  const effectiveUserId = ownerUid || authUid;
+
+  // Ensure farm_id is always assigned if table expects farm_id
+  let itemToSave: any = { ...item };
+  if (TABLE_ALLOWED_COLUMNS[table]?.has("farm_id") && (!itemToSave.farmId || !isUuid(itemToSave.farmId))) {
+    const effFarmId = await getEffectiveFarmId(itemToSave.farmId);
+    if (effFarmId) {
+      itemToSave.farmId = effFarmId;
+    }
+  }
+
+  // Set user_id to effective owner ID so all farm staff share the same data namespace
+  const snake = objToSnake(itemToSave as any, effectiveUserId, table);
   if (!snake.id) snake.id = crypto.randomUUID();
 
-  // Optimistically update local cache scoped to current user
-  if (cacheKey && userId) {
-    const cached = getLocalCache(userId) || {};
-    const list = cached[cacheKey] || [];
-    saveLocalCache({ [cacheKey]: [item, ...list.filter((x: any) => x.id !== item.id)] }, userId);
+  // If table tracks creator (e.g. created_by_id) and not provided, preserve current auth UID
+  if (TABLE_ALLOWED_COLUMNS[table]?.has("created_by_id") && !snake.created_by_id && authUid) {
+    snake.created_by_id = authUid;
+  }
+
+  // Optimistically update local cache scoped to both auth user and owner
+  if (cacheKey) {
+    if (authUid) {
+      const cached = getLocalCache(authUid) || {};
+      const list = cached[cacheKey] || [];
+      saveLocalCache({ [cacheKey]: [itemToSave, ...list.filter((x: any) => x.id !== itemToSave.id)] }, authUid);
+    }
+    if (ownerUid && ownerUid !== authUid) {
+      const cachedOwner = getLocalCache(ownerUid) || {};
+      const listOwner = cachedOwner[cacheKey] || [];
+      saveLocalCache({ [cacheKey]: [itemToSave, ...listOwner.filter((x: any) => x.id !== itemToSave.id)] }, ownerUid);
+    }
   }
 
   try {
@@ -513,7 +621,7 @@ async function dbInsert<T extends { id?: string }>(table: string, item: T, cache
       console.error(`Supabase upsert into ${table} failed:`, error.message);
       throw error;
     }
-    return data ? objToCamel<T>(data) : item;
+    return data ? objToCamel<T>(data) : itemToSave;
   } catch (e) {
     console.error(`Failed to insert into ${table}:`, e);
     throw e;
@@ -521,16 +629,34 @@ async function dbInsert<T extends { id?: string }>(table: string, item: T, cache
 }
 
 async function dbUpdate<T extends { id?: string }>(table: string, item: T, cacheKey?: string): Promise<T> {
-  const userId = await getUserId();
-  const snake = objToSnake(item as any, userId, table);
+  const authUid = await getUserId();
+  const ownerUid = await getOwnerUserId();
+  const effectiveUserId = ownerUid || authUid;
+
+  let itemToSave: any = { ...item };
+  if (TABLE_ALLOWED_COLUMNS[table]?.has("farm_id") && (!itemToSave.farmId || !isUuid(itemToSave.farmId))) {
+    const effFarmId = await getEffectiveFarmId(itemToSave.farmId);
+    if (effFarmId) {
+      itemToSave.farmId = effFarmId;
+    }
+  }
+
+  const snake = objToSnake(itemToSave as any, effectiveUserId, table);
   const targetId = (item.id && isUuid(item.id)) ? item.id : (snake.id || (item.id ? toUuid(item.id) : undefined));
   delete snake.id; // Strip primary key column so Postgres doesn't reject updating PK in SET clause
 
-  // Update local cache scoped to current user
-  if (cacheKey && userId) {
-    const cached = getLocalCache(userId) || {};
-    const list = cached[cacheKey] || [];
-    saveLocalCache({ [cacheKey]: list.map((x: any) => (x.id === item.id || x.id === targetId ? { ...x, ...item } : x)) }, userId);
+  // Update local cache scoped to current user and owner
+  if (cacheKey) {
+    if (authUid) {
+      const cached = getLocalCache(authUid) || {};
+      const list = cached[cacheKey] || [];
+      saveLocalCache({ [cacheKey]: list.map((x: any) => (x.id === item.id || x.id === targetId ? { ...x, ...itemToSave } : x)) }, authUid);
+    }
+    if (ownerUid && ownerUid !== authUid) {
+      const cachedOwner = getLocalCache(ownerUid) || {};
+      const listOwner = cachedOwner[cacheKey] || [];
+      saveLocalCache({ [cacheKey]: listOwner.map((x: any) => (x.id === item.id || x.id === targetId ? { ...x, ...itemToSave } : x)) }, ownerUid);
+    }
   }
 
   try {
@@ -560,9 +686,9 @@ async function dbUpdate<T extends { id?: string }>(table: string, item: T, cache
         console.error(`Supabase update in ${table} failed:`, error.message);
         throw error;
       }
-      return data ? objToCamel<T>(data) : item;
+      return data ? objToCamel<T>(data) : itemToSave;
     }
-    return item;
+    return itemToSave;
   } catch (e) {
     console.error(`Failed to update ${table}:`, e);
     throw e;
@@ -571,17 +697,18 @@ async function dbUpdate<T extends { id?: string }>(table: string, item: T, cache
 
 async function dbDelete(table: string, id: string, cacheKey?: string): Promise<{ success: boolean }> {
   const userId = await getUserId();
+  const ownerId = await getOwnerUserId();
   const targetId = isUuid(id) ? id : (idMap.get(id) || toUuid(id));
 
-  // Update local cache scoped to current user immediately
-  if (userId) {
+  // Update local cache scoped to current user and owner immediately
+  const updateCacheForUid = (uid: string) => {
     if (cacheKey) {
-      const cached = getLocalCache(userId) || {};
+      const cached = getLocalCache(uid) || {};
       const list = cached[cacheKey] || [];
-      saveLocalCache({ [cacheKey]: list.filter((x: any) => x.id !== id && x.id !== targetId) }, userId);
+      saveLocalCache({ [cacheKey]: list.filter((x: any) => x.id !== id && x.id !== targetId) }, uid);
     }
     try {
-      const directKey = `pondtora_${userId}_${table}`;
+      const directKey = `pondtora_${uid}_${table}`;
       const direct = localStorage.getItem(directKey);
       if (direct) {
         const parsed = JSON.parse(direct);
@@ -590,7 +717,10 @@ async function dbDelete(table: string, id: string, cacheKey?: string): Promise<{
         }
       }
     } catch {}
-  }
+  };
+
+  if (userId) updateCacheForUid(userId);
+  if (ownerId && ownerId !== userId) updateCacheForUid(ownerId);
 
   try {
     const { error } = await supabase.from(table).delete().eq("id", targetId);
@@ -716,7 +846,7 @@ export const api = {
         safeQuery(supabase.from("customers").select("*")),
         safeQuery(supabase.from("price_groups").select("*")),
         safeQuery(supabase.from("invoices").select("*")),
-        safeQuery(supabase.from("invoice_settings").select("*").eq("user_id", userId).maybeSingle()),
+        safeQuery(supabase.from("invoice_settings").select("*")),
         safeQuery(supabase.from("knowledge_questions").select("*")),
         safeQuery(supabase.from("compatibility_questions").select("*")),
         safeQuery(supabase.from("knowledge_results").select("*")),
@@ -836,6 +966,33 @@ export const api = {
         ? staffList
         : (cachedStaff.length > 0 ? cachedStaff : []);
 
+      // Resolve invoice settings: match current user or owner
+      let resolvedInvSettings: InvSettings | null = null;
+      if (setRes && Array.isArray(setRes.data) && setRes.data.length > 0) {
+        const ownerUid = staffMember?.userId || userId;
+        const matching = setRes.data.find((s: any) => s.user_id === ownerUid) || setRes.data.find((s: any) => s.user_id === userId) || setRes.data[0];
+        if (matching) resolvedInvSettings = objToCamel<InvSettings>(matching);
+      } else if (setRes?.data && !Array.isArray(setRes.data)) {
+        resolvedInvSettings = objToCamel<InvSettings>(setRes.data);
+      }
+      if (!resolvedInvSettings && cached?.invoiceSettings) {
+        resolvedInvSettings = cached.invoiceSettings;
+      }
+
+      // Auto-heal in background: assign primary farmId to any existing unlinked rows
+      const primaryFarm = farms[0];
+      if (primaryFarm?.id && isUuid(primaryFarm.id)) {
+        const pFid = primaryFarm.id;
+        const tablesToHeal = [
+          "ponds", "stock_events", "feed_inventory", "feeding_records", "bag_open_logs",
+          "feed_remaining_logs", "expenses", "revenues", "mortality_entries", "treatment_records",
+          "reports", "customers", "price_groups", "invoices", "investors", "investments", "pond_reports"
+        ];
+        Promise.all(tablesToHeal.map(tbl =>
+          supabase.from(tbl).update({ farm_id: pFid }).is("farm_id", null).then()
+        )).catch(() => {});
+      }
+
       const result = {
         needsSetup: false,
         farms,
@@ -855,7 +1012,7 @@ export const api = {
         customers: extract<Customer>(custRes, "customers", (r: any) => objToCamel<Customer>(r)),
         priceGroups: extract<PriceGroup>(pgRes, "priceGroups", (r: any) => objToCamel<PriceGroup>(r)),
         invoices: extract<Invoice>(invsRes, "invoices", (r: any) => objToCamel<Invoice>(r)),
-        invoiceSettings: setRes.data ? objToCamel<InvSettings>(setRes.data) : (cached?.invoiceSettings || null),
+        invoiceSettings: resolvedInvSettings,
         knowledgeQuestions: extract(kqRes, "knowledgeQuestions", (r: any) => objToCamel(r)),
         compatibilityQuestions: extract(cqRes, "compatibilityQuestions", (r: any) => objToCamel(r)),
         knowledgeResults: extract(krRes, "knowledgeResults", (r: any) => objToCamel(r)),
@@ -868,8 +1025,11 @@ export const api = {
         isStaff: !!staffMember,
       };
 
-      // Save to user-scoped cache as backup
+      // Save to user-scoped cache and owner cache as backup
       saveLocalCache(result, userId);
+      if (staffMember?.userId && staffMember.userId !== userId) {
+        saveLocalCache(result, staffMember.userId);
+      }
       return result;
     } catch (err) {
       console.warn("Direct Supabase loadAll failed, returning cache if available:", err);
@@ -1618,7 +1778,8 @@ export const api = {
   invSettings: {
     get: async () => {
       try {
-        const userId = await getUserId();
+        const ownerId = await getOwnerUserId();
+        const userId = ownerId || await getUserId();
         if (!userId) return null;
         const { data } = await supabase.from("invoice_settings").select("*").eq("user_id", userId).maybeSingle();
         return data ? objToCamel<InvSettings>(data) : null;
@@ -1628,7 +1789,8 @@ export const api = {
       }
     },
     update: async (s: Partial<InvSettings>) => {
-      const userId = await getUserId();
+      const ownerId = await getOwnerUserId();
+      const userId = ownerId || await getUserId();
       const snake = objToSnake(s as any, userId, "invoice_settings");
       if (userId) snake.user_id = userId;
       delete snake.id;

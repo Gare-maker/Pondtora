@@ -144,40 +144,40 @@ ALTER TABLE pond_reports ENABLE ROW LEVEL SECURITY;
 
 -- ── RLS Policies ──────────────────────────────────────────────────────────────
 
--- Investors: Owner full access OR staff assigned to farm OR platform admin
+-- Investors: Unified owner, assigned staff, and platform admin access
 DROP POLICY IF EXISTS "farm_investors" ON investors;
 CREATE POLICY "farm_investors" ON investors
-  USING (auth.uid() = user_id OR user_can_access_farm(farm_id) OR is_admin())
-  WITH CHECK (auth.uid() = user_id OR user_can_access_farm(farm_id) OR is_admin());
+  FOR ALL USING (user_can_access_owner_data(user_id, farm_id))
+  WITH CHECK (user_can_access_owner_data(user_id, farm_id));
 
--- Investments: Owner full access OR staff assigned to farm OR platform admin
+-- Investments: Unified owner, assigned staff, and platform admin access
 DROP POLICY IF EXISTS "farm_investments" ON investments;
 CREATE POLICY "farm_investments" ON investments
-  USING (auth.uid() = user_id OR user_can_access_farm(farm_id) OR is_admin())
-  WITH CHECK (auth.uid() = user_id OR user_can_access_farm(farm_id) OR is_admin());
+  FOR ALL USING (user_can_access_owner_data(user_id, farm_id))
+  WITH CHECK (user_can_access_owner_data(user_id, farm_id));
 
--- Investment Payments: Owner full access OR staff access via investment farm OR admin
+-- Investment Payments: Unified owner, assigned staff, and platform admin access
 DROP POLICY IF EXISTS "farm_investment_payments" ON investment_payments;
 CREATE POLICY "farm_investment_payments" ON investment_payments
-  USING (
-    auth.uid() = user_id OR is_admin() OR
+  FOR ALL USING (
+    user_can_access_owner_data(user_id, NULL) OR
     EXISTS (
       SELECT 1 FROM investments i
       WHERE i.id = investment_payments.investment_id
-        AND (i.user_id = auth.uid() OR user_can_access_farm(i.farm_id))
+        AND user_can_access_owner_data(i.user_id, i.farm_id)
     )
   )
   WITH CHECK (
-    auth.uid() = user_id OR is_admin() OR
+    user_can_access_owner_data(user_id, NULL) OR
     EXISTS (
       SELECT 1 FROM investments i
       WHERE i.id = investment_payments.investment_id
-        AND (i.user_id = auth.uid() OR user_can_access_farm(i.farm_id))
+        AND user_can_access_owner_data(i.user_id, i.farm_id)
     )
   );
 
--- Pond Reports: Owner full access OR staff assigned to farm OR platform admin
+-- Pond Reports: Unified owner, assigned staff, and platform admin access
 DROP POLICY IF EXISTS "farm_pond_reports" ON pond_reports;
 CREATE POLICY "farm_pond_reports" ON pond_reports
-  USING (auth.uid() = user_id OR user_can_access_farm(farm_id) OR is_admin())
-  WITH CHECK (auth.uid() = user_id OR user_can_access_farm(farm_id) OR is_admin());
+  FOR ALL USING (user_can_access_owner_data(user_id, farm_id))
+  WITH CHECK (user_can_access_owner_data(user_id, farm_id));
