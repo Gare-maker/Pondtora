@@ -1167,44 +1167,50 @@ export const api = {
       let emailSent = false;
       let emailError: string | null = null;
 
-      // 1. First attempt: Reset password link (delivers instant email to /create-password for any user state)
+      // 1. Primary path: Resend email confirmation link (type: "signup")
       try {
-        const { error: resetErr } = await authStaffCreator.auth.resetPasswordForEmail(cleanEmail, {
-          redirectTo: `${loginUrl}/create-password`,
+        const { error: resendErr } = await authStaffCreator.auth.resend({
+          type: "signup",
+          email: cleanEmail,
+          options: {
+            emailRedirectTo: `${loginUrl}/create-password`,
+          },
         });
-        if (!resetErr) {
+
+        if (!resendErr) {
           emailSent = true;
         } else {
-          // 2. Fallback: Signup confirmation resend
-          const { error: resendErr } = await authStaffCreator.auth.resend({
-            type: "signup",
+          // 2. Secondary path: Resend invite confirmation link (type: "invite")
+          const { error: inviteResendErr } = await authStaffCreator.auth.resend({
+            type: "invite",
             email: cleanEmail,
             options: {
               emailRedirectTo: `${loginUrl}/create-password`,
             },
           });
-          if (!resendErr) {
+
+          if (!inviteResendErr) {
             emailSent = true;
           } else {
-            emailError = resetErr.message || resendErr.message;
+            emailError = resendErr.message || inviteResendErr.message;
           }
         }
       } catch (err: any) {
         try {
-          const { error: resendErr } = await authStaffCreator.auth.resend({
-            type: "signup",
+          const { error: inviteResendErr } = await authStaffCreator.auth.resend({
+            type: "invite",
             email: cleanEmail,
             options: {
               emailRedirectTo: `${loginUrl}/create-password`,
             },
           });
-          if (!resendErr) {
+          if (!inviteResendErr) {
             emailSent = true;
           } else {
-            emailError = err?.message || resendErr?.message || "Could not send verification email";
+            emailError = err?.message || inviteResendErr?.message || "Could not send confirmation email";
           }
         } catch (e: any) {
-          emailError = e?.message || err?.message || "Could not send verification email";
+          emailError = e?.message || err?.message || "Could not send confirmation email";
         }
       }
 

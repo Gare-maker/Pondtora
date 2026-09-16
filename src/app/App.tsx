@@ -955,7 +955,7 @@ function StaffPage({
 
   const resendInvite = async (s: StaffMember) => {
     setResendingStaffId(s.id);
-    toast.info(`Sending invitation & verification email to ${s.email}…`);
+    toast.info(`Sending confirmation email to ${s.email}…`);
     try {
       const res = await api.staff.resendInvite({
         id: s.id,
@@ -967,19 +967,19 @@ function StaffPage({
         appUrl: getAppUrl(),
       });
       if (res.emailSent) {
-        toast.success(`Verification link sent to ${s.email}! They will be marked as Active once they open the link.`);
+        toast.success(`Confirmation link sent to ${s.email}! They can click the link in their email to confirm their email and set their password.`);
       } else if (res.emailError) {
         const lower = res.emailError.toLowerCase();
         if (lower.includes("security") || lower.includes("rate") || lower.includes("once every") || lower.includes("wait")) {
-          toast.info(`Email cooldown active: A link was sent recently. Please wait a moment before sending another, or copy login info directly.`);
+          toast.info(`Email rate limit: A confirmation email was sent recently. Please wait a moment before sending another, or copy login info directly.`);
         } else {
           toast.error(`Email notice: ${res.emailError}. You can copy login details directly.`);
         }
       } else {
-        toast.success("Verification email dispatched! They can click the link to verify.");
+        toast.success(`Confirmation email sent to ${s.email}!`);
       }
     } catch (err: any) {
-      toast.error(err?.message || "Could not send invite email. Please copy login details instead.");
+      toast.error(err?.message || "Could not send confirmation email. Please copy login details instead.");
     } finally {
       setResendingStaffId(null);
     }
