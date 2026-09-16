@@ -810,6 +810,7 @@ function StaffPage({
   const [showEditPassword, setShowEditPassword] = useState(false);
   const [editPassword, setEditPassword] = useState("");
   const [recentCreds, setRecentCreds] = useState<{ email: string; password?: string; name: string } | null>(null);
+  const [resendingStaffId, setResendingStaffId] = useState<string | null>(null);
 
   const generateStaffPassword = () => {
     const specials = ["@", "#", "!", "$"];
@@ -953,6 +954,7 @@ function StaffPage({
   };
 
   const resendInvite = async (s: StaffMember) => {
+    setResendingStaffId(s.id);
     toast.info(`Sending invitation & verification email to ${s.email}…`);
     try {
       const res = await api.staff.resendInvite({
@@ -965,19 +967,21 @@ function StaffPage({
         appUrl: getAppUrl(),
       });
       if (res.emailSent) {
-        toast.success(`Verification link sent to ${s.email}! They can click the link in their email to access their account.`);
+        toast.success(`Verification link sent to ${s.email}! They will be marked as Active once they open the link.`);
       } else if (res.emailError) {
         const lower = res.emailError.toLowerCase();
-        if (lower.includes("security") || lower.includes("rate") || lower.includes("once every")) {
-          toast.error(`Email cooldown active: Please wait a moment before resending, or click "Copy Login Info" to send details directly.`);
+        if (lower.includes("security") || lower.includes("rate") || lower.includes("once every") || lower.includes("wait")) {
+          toast.info(`Email cooldown active: A link was sent recently. Please wait a moment before sending another, or copy login info directly.`);
         } else {
           toast.error(`Email notice: ${res.emailError}. You can copy login details directly.`);
         }
       } else {
-        toast.success("Verification email dispatched! You can also copy login details to share directly.");
+        toast.success("Verification email dispatched! They can click the link to verify.");
       }
     } catch (err: any) {
       toast.error(err?.message || "Could not send invite email. Please copy login details instead.");
+    } finally {
+      setResendingStaffId(null);
     }
   };
   const togglePerm = (perm: string, perms: string[], setter: (p: string[]) => void) => { setter(perms.includes(perm) ? perms.filter(x => x !== perm) : [...perms, perm]); };
@@ -1057,7 +1061,18 @@ function StaffPage({
                         </div>
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">
-                        <Bdg label={s.status} color={s.status==="Active"?"green":"amber"}/>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const nextStatus = s.status === "Active" ? "Pending" : "Active";
+                            onEdit({ ...s, status: nextStatus as "Active" | "Pending" });
+                            toast.success(`${s.name} status updated to ${nextStatus}`);
+                          }}
+                          className="cursor-pointer hover:opacity-80 transition-opacity flex items-center gap-1 group"
+                          title="Click to toggle status (Active / Pending)"
+                        >
+                          <Bdg label={s.status} color={s.status==="Active"?"green":"amber"}/>
+                        </button>
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">
                         <Bdg label={s.role} color={s.role==="Director"?"purple":s.role==="Admin"?"teal":"blue"}/>
@@ -1112,10 +1127,15 @@ function StaffPage({
                           </button>
                           <button
                             onClick={()=>resendInvite(s)}
-                            className="text-xs font-semibold text-purple-600 hover:text-purple-800 bg-purple-50 hover:bg-purple-100 border border-purple-200 px-2 py-1 rounded-lg transition-colors flex items-center gap-1"
+                            disabled={resendingStaffId === s.id}
+                            className="text-xs font-semibold text-purple-600 hover:text-purple-800 bg-purple-50 hover:bg-purple-100 border border-purple-200 px-2 py-1 rounded-lg transition-colors flex items-center gap-1 disabled:opacity-50"
                             title="Resend invitation notification"
                           >
-                            <Mail size={11}/> Resend
+                            {resendingStaffId === s.id ? (
+                              <><Loader2 size={11} className="animate-spin" /> Sending...</>
+                            ) : (
+                              <><Mail size={11} /> Resend</>
+                            )}
                           </button>
                           <button
                             onClick={()=>setEditMember({...s})}

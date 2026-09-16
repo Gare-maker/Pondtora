@@ -1167,39 +1167,41 @@ export const api = {
       let emailSent = false;
       let emailError: string | null = null;
 
-      // 1. First attempt: Resend signup verification email via GoTrue
+      // 1. First attempt: Reset password link (delivers instant email to /create-password for any user state)
       try {
-        const { error: resendErr } = await authStaffCreator.auth.resend({
-          type: "signup",
-          email: cleanEmail,
-          options: {
-            emailRedirectTo: `${loginUrl}/create-password`,
-          },
+        const { error: resetErr } = await authStaffCreator.auth.resetPasswordForEmail(cleanEmail, {
+          redirectTo: `${loginUrl}/create-password`,
         });
-
-        if (!resendErr) {
+        if (!resetErr) {
           emailSent = true;
         } else {
-          // 2. If signup resend fails (e.g. user already confirmed or registered),
-          // send password recovery link which always delivers an immediate email to /create-password:
-          const { error: resetErr } = await authStaffCreator.auth.resetPasswordForEmail(cleanEmail, {
-            redirectTo: `${loginUrl}/create-password`,
+          // 2. Fallback: Signup confirmation resend
+          const { error: resendErr } = await authStaffCreator.auth.resend({
+            type: "signup",
+            email: cleanEmail,
+            options: {
+              emailRedirectTo: `${loginUrl}/create-password`,
+            },
           });
-          if (!resetErr) {
+          if (!resendErr) {
             emailSent = true;
           } else {
-            emailError = resendErr.message || resetErr.message;
+            emailError = resetErr.message || resendErr.message;
           }
         }
       } catch (err: any) {
         try {
-          const { error: resetErr } = await authStaffCreator.auth.resetPasswordForEmail(cleanEmail, {
-            redirectTo: `${loginUrl}/create-password`,
+          const { error: resendErr } = await authStaffCreator.auth.resend({
+            type: "signup",
+            email: cleanEmail,
+            options: {
+              emailRedirectTo: `${loginUrl}/create-password`,
+            },
           });
-          if (!resetErr) {
+          if (!resendErr) {
             emailSent = true;
           } else {
-            emailError = resetErr.message || err?.message || "Could not send verification email";
+            emailError = err?.message || resendErr?.message || "Could not send verification email";
           }
         } catch (e: any) {
           emailError = e?.message || err?.message || "Could not send verification email";

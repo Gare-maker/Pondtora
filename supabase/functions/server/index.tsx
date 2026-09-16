@@ -347,18 +347,13 @@ app.post(`${P}/staff-members/invite`, async (c) => {
 
     if (ie) {
       if (ie.message.includes("already registered") || ie.message.includes("already exists")) {
-        // User already exists — find them and resend a magic link so they can verify
+        // User already exists — find them and send a recovery email so they receive the email with the link
         const { data: listData } = await svc.auth.admin.listUsers();
         const existing = (listData?.users || []).find((u: any) => u.email?.toLowerCase() === email.toLowerCase());
         if (existing) {
           staffAuthId = existing.id;
-          // Send a new magic link so they receive a verification email
-          await svc.auth.admin.generateLink({
-            type: "magiclink",
-            email,
-            options: { redirectTo },
-          }).catch(() => {});
         }
+        await svc.auth.resetPasswordForEmail(email, { redirectTo }).catch(() => {});
       } else {
         inviteError = ie.message;
       }
@@ -467,6 +462,54 @@ app.post(`${P}/staff-members/invite`, async (c) => {
     staffMember: { ...objToCamel(sm), farms, permissions, ...(staffAuthId ? { staffAuthId } : {}) },
     inviteError,
   }, 201);
+});
+
+// Resend staff invitation email
+app.post(`${P}/staff-members/resend-invite`, async (c) => {
+  const userId = c.get("userId") as string;
+  const { email, appUrl, staffId } = await c.req.json();
+  if (!email) return c.json({ error: "Email is required" }, 400);
+  const svc = adminDb();
+  const cleanEmail = email.trim().toLowerCase();
+  const baseAppUrl = (appUrl || "https://pondtora.site").replace(/\/+$/, "");
+  const redirectTo = `${baseAppUrl}/create-password`;
+
+  let emailSent = false;
+  let emailError: string | null = null;
+
+  try {
+    const { error: resetErr } = await svc.auth.resetPasswordForEmail(cleanEmail, {
+      redirectTo,
+    });
+    if (!resetErr) {
+      emailSent = true;
+    } else {
+      const { data: inviteData, error: ie } = await svc.auth.admin.inviteUserByEmail(cleanEmail, {
+        redirectTo,
+      });
+      if (!ie && inviteData?.user) {
+        emailSent = true;
+      } else {
+        emailError = resetErr.message || ie?.message || null;
+      }
+    }
+  } catch (err: any) {
+    emailError = err?.message || String(err);
+  }
+
+  try {
+    if (staffId) {
+      await svc.from("staff_invitations").upsert({
+        staff_id: staffId,
+        email: cleanEmail,
+        invited_by: userId || null,
+        status: "pending",
+        expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+      }, { onConflict: "staff_id" });
+    }
+  } catch {}
+
+  return c.json({ success: emailSent, emailSent, emailError });
 });
 
 // Update staff password

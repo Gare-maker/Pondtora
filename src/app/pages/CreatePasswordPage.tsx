@@ -51,6 +51,35 @@ export default function CreatePasswordPage({ onSuccess, onGoToLogin }: CreatePas
       }
     }
 
+    const activateStaff = async (u: any) => {
+      const email = (u?.email || "").trim().toLowerCase();
+      if (!email) return;
+      try {
+        await supabase
+          .from("staff_members")
+          .update({
+            status: "Active",
+            staff_auth_id: u.id,
+          })
+          .or(`staff_auth_id.eq.${u.id},email.ilike.${email}`);
+      } catch {}
+      try {
+        await supabase.from("staff_invitations").update({
+          status: "accepted",
+          accepted_at: new Date().toISOString(),
+        }).ilike("email", email);
+      } catch {}
+      try {
+        await supabase.from("user_profiles").upsert({
+          id: u.id,
+          email,
+          name: u.user_metadata?.name || email.split("@")[0],
+          role: "staff",
+          status: "Active",
+        });
+      } catch {}
+    };
+
     // 3. Inspect active Supabase session
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session?.user) {
@@ -61,6 +90,7 @@ export default function CreatePasswordPage({ onSuccess, onGoToLogin }: CreatePas
         else if (u.email && !name) setName(u.email.split("@")[0]);
         if (meta.farm_name) setFarmName(meta.farm_name);
         if (meta.role) setRole(meta.role);
+        activateStaff(u);
       }
     });
 
@@ -75,6 +105,7 @@ export default function CreatePasswordPage({ onSuccess, onGoToLogin }: CreatePas
         if (meta.role) setRole(meta.role);
         setIsExpired(false);
         setErrorMessage(null);
+        activateStaff(u);
       }
     });
 
