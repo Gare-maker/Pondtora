@@ -5108,11 +5108,11 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   const editPriceGroup=(g:PriceGroup)=>{setPriceGroups(prev=>prev.map(x=>x.id===g.id?g:x));api.priceGroups.update(g).catch(console.warn);};
   const delPriceGroup=(id:string)=>{setPriceGroups(prev=>prev.filter(g=>g.id!==id));api.priceGroups.remove(id).catch(console.warn);};
   /* ── Permission derivation & farm scoping ── */
-  const currentStaff = staff.find(s => s.email?.trim().toLowerCase() === userProfile?.email?.trim().toLowerCase());
+  const currentStaff = staff.find(s => (s.staffAuthId && userProfile?.id && s.staffAuthId === userProfile.id) || (s.email && userProfile?.email && s.email.trim().toLowerCase() === userProfile.email.trim().toLowerCase()));
   const isStaff = userProfile?.role === "staff" || Boolean((userProfile as any)?.ownerId) || (Boolean(currentStaff) && currentStaff?.role !== "Admin" && currentStaff?.role !== "Director" && userProfile?.role !== "owner");
   const isOwner = !isStaff;
 
-  const hasPerm = (p: string) => {
+  const hasPerm = useCallback((p: string) => {
     if (isOwner) return true;
     const perms = (currentStaff?.permissions && currentStaff.permissions.length > 0)
       ? currentStaff.permissions
@@ -5124,7 +5124,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     if (p === "Staff Assessments" && (perms.includes("Staff Assessment") || perms.includes("Staff Assessments"))) return true;
     if (p === "Pond Details" && perms.includes("Pond Management")) return true;
     return false;
-  };
+  }, [isOwner, currentStaff?.permissions, userProfile?.permissions]);
 
   // Action-level permission helpers (canCreate/canEdit/canDelete per feature).
   // For owners these always return true. For staff they check the action-level
@@ -5134,9 +5134,9 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       ? staffOwnPermissions
       : (currentStaff?.staffPermissions || {});
 
-  const canCreate = (feature: string): boolean => isOwner || (staffPermsMap[feature]?.canCreate ?? false);
-  const canEdit   = (feature: string): boolean => isOwner || (staffPermsMap[feature]?.canEdit   ?? false);
-  const canDelete = (feature: string): boolean => isOwner || (staffPermsMap[feature]?.canDelete ?? false);
+  const canCreate = (feature: string): boolean => isOwner || (hasPerm(feature) && (staffPermsMap[feature]?.canCreate ?? false));
+  const canEdit   = (feature: string): boolean => isOwner || (hasPerm(feature) && (staffPermsMap[feature]?.canEdit   ?? false));
+  const canDelete = (feature: string): boolean => isOwner || (hasPerm(feature) && (staffPermsMap[feature]?.canDelete ?? false));
 
   const assignedStaffFarms = farms.filter(f => currentStaff?.farms?.includes(f.id) || (userProfile as any)?.farms?.includes(f.id));
   // FIXED: staff with no farm assignments see NO farms (not all farms).
@@ -5157,7 +5157,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
         setActive_(firstAllowed.id);
       }
     }
-  }, [isStaff, active, currentStaff?.permissions, userProfile?.permissions]);
+  }, [isStaff, active, currentStaff?.permissions, userProfile?.permissions, hasPerm]);
 
   // Ensure staff's activeFarmId is an accessible farm
   useEffect(() => {
@@ -5313,23 +5313,30 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
         setActive_(allowedViews[0]);
       }
     }
-  },[isOwner,currentStaff,userProfile?.permissions,active]);
+  },[isOwner,currentStaff,userProfile?.permissions,active,hasPerm]);
   const notifications=useMemo(()=>{
+    const notifs:AppNotification[]=[];
+    const farm=farms.find(f=>f.id===activeFarmId)||farms[0];
+
+    const canSeeFeeding = hasPerm("Feeding Records") || hasPerm("Pond Management");
+    const canSeeInventory = hasPerm("Feed Stock");
+    const canSeeInvestors = hasPerm("Investors");
+    const canSeeInvoices = hasPerm("Invoices");
+    const canSeeReports = hasPerm("Reports");
+
     const fedToday=new Set(
       farmFeeding
         .filter(r=>r&&isSameDate(r.date,TODAY)&&((Number(r.total)||0)>0||(Number(r.morning)||0)>0||(Number(r.evening)||0)>0))
         .map(r=>r.pond)
     );
     const bagsToday=farmBagLogs.some(b=>b&&isSameDate(b.date,TODAY)&&(Number(b.bagsOpened)||0)>0);
-    const farm=farms.find(f=>f.id===activeFarmId)||farms[0];
-    const notifs:AppNotification[]=[];
 
     // Guards: only alert for feeding and opening bags if feed is added and active ponds exist
     const hasFeedCreated = farmInventory.length > 0 && farmInventory.some(i => (Number(i.bags) || 0) > 0);
     const activePonds = farmPonds.filter(p => p.status === "Active");
     const hasActivePonds = activePonds.length > 0;
 
-    if (hasActivePonds && hasFeedCreated) {
+    if (canSeeFeeding && hasActivePonds && hasFeedCreated) {
       activePonds.filter(p => !fedToday.has(p.name)).forEach(p => {
         const nid = `notif-feed-${p.id}`;
         if (!dismissedNotifIds.has(nid)) {
@@ -5337,7 +5344,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
         }
       });
 
-      if (!bagsToday) {
+      if (canSeeInventory && !bagsToday) {
         const nid = `notif-bags-${activeFarmId}`;
         if (!dismissedNotifIds.has(nid)) {
           notifs.push({ id: nid, type: "bags", farmId: activeFarmId, farmName: farm?.name || "", date: TODAY, read: readNotifIds.has(nid) });
@@ -5346,7 +5353,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     }
 
     // Feed inventory low-stock alerts (≤3 bags remaining) - only if feed inventory exists
-    if (farmInventory.length > 0) {
+    if (canSeeInventory && farmInventory.length > 0) {
       const openedByKey=bagLogs.reduce<Record<string,number>>((acc,b)=>{const k=`${b.brand}|${b.size}`;acc[k]=(acc[k]||0)+b.bagsOpened;return acc;},{});
       const invByKey=farmInventory.reduce<Record<string,number>>((acc,i)=>{const k=`${i.brand}|${i.size}`;acc[k]=(acc[k]||0)+i.bags;return acc;},{});
       Object.entries(invByKey).forEach(([k,total])=>{
@@ -5362,23 +5369,54 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     }
 
     // Investor payment due reminders (7 days advance) & overdue alerts
-    farmInvestments.forEach(inv => {
-      if (inv.status === "Completed") return;
-      const investor = investors.find(i => i.id === inv.investorId);
-      const investorName = investor?.fullName || "Investor";
-      const invPayments = farmPayments.filter(p => p.investmentId === inv.id);
-      const totalPaid = invPayments.filter(p => p.status === "Paid").reduce((s, p) => s + (Number(p.amount) || 0), 0);
-      const totalExpected = Number(inv.expectedReturnAmount) || 0;
-      const remaining = Math.max(0, totalExpected - totalPaid);
-      if (remaining <= 0) return;
+    if (canSeeInvestors) {
+      farmInvestments.forEach(inv => {
+        if (inv.status === "Completed") return;
+        const investor = investors.find(i => i.id === inv.investorId);
+        const investorName = investor?.fullName || "Investor";
+        const invPayments = farmPayments.filter(p => p.investmentId === inv.id);
+        const totalPaid = invPayments.filter(p => p.status === "Paid").reduce((s, p) => s + (Number(p.amount) || 0), 0);
+        const totalExpected = Number(inv.expectedReturnAmount) || 0;
+        const remaining = Math.max(0, totalExpected - totalPaid);
+        if (remaining <= 0) return;
 
-      const pending = invPayments.filter(p => p.status === "Pending");
-      if (pending.length > 0) {
-        pending.forEach(p => {
-          if (!p.dueDate) return;
-          const diffDays = Math.ceil((new Date(p.dueDate).getTime() - new Date(TODAY).getTime()) / (1000 * 60 * 60 * 24));
+        const pending = invPayments.filter(p => p.status === "Pending");
+        if (pending.length > 0) {
+          pending.forEach(p => {
+            if (!p.dueDate) return;
+            const diffDays = Math.ceil((new Date(p.dueDate).getTime() - new Date(TODAY).getTime()) / (1000 * 60 * 60 * 24));
+            if (diffDays < 0) {
+              const nid = `inv-overdue-${p.id}`;
+              if (!dismissedNotifIds.has(nid)) {
+                notifs.push({
+                  id: nid,
+                  type: "investor",
+                  farmId: activeFarmId,
+                  farmName: farm?.name || "",
+                  date: TODAY,
+                  read: readNotifIds.has(nid),
+                  message: `Overdue Investor Payment: ${investorName} — ₦${p.amount.toLocaleString()} was due on ${p.dueDate}`,
+                });
+              }
+            } else if (diffDays <= 7) {
+              const nid = `inv-due-${p.id}`;
+              if (!dismissedNotifIds.has(nid)) {
+                notifs.push({
+                  id: nid,
+                  type: "investor",
+                  farmId: activeFarmId,
+                  farmName: farm?.name || "",
+                  date: TODAY,
+                  read: readNotifIds.has(nid),
+                  message: `Upcoming Investor Payment: ${investorName} — ₦${p.amount.toLocaleString()} due in ${diffDays} day${diffDays === 1 ? "" : "s"} (${p.dueDate})`,
+                });
+              }
+            }
+          });
+        } else if (inv.payoutDueDate) {
+          const diffDays = Math.ceil((new Date(inv.payoutDueDate).getTime() - new Date(TODAY).getTime()) / (1000 * 60 * 60 * 24));
           if (diffDays < 0) {
-            const nid = `inv-overdue-${p.id}`;
+            const nid = `inv-overdue-${inv.id}`;
             if (!dismissedNotifIds.has(nid)) {
               notifs.push({
                 id: nid,
@@ -5387,11 +5425,11 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
                 farmName: farm?.name || "",
                 date: TODAY,
                 read: readNotifIds.has(nid),
-                message: `Overdue Investor Payment: ${investorName} — ₦${p.amount.toLocaleString()} was due on ${p.dueDate}`,
+                message: `Overdue Investor Payment: ${investorName} — ₦${remaining.toLocaleString()} was due on ${inv.payoutDueDate}`,
               });
             }
           } else if (diffDays <= 7) {
-            const nid = `inv-due-${p.id}`;
+            const nid = `inv-due-${inv.id}`;
             if (!dismissedNotifIds.has(nid)) {
               notifs.push({
                 id: nid,
@@ -5400,48 +5438,25 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
                 farmName: farm?.name || "",
                 date: TODAY,
                 read: readNotifIds.has(nid),
-                message: `Upcoming Investor Payment: ${investorName} — ₦${p.amount.toLocaleString()} due in ${diffDays} day${diffDays === 1 ? "" : "s"} (${p.dueDate})`,
+                message: `Upcoming Investor Payment: ${investorName} — ₦${remaining.toLocaleString()} due in ${diffDays} day${diffDays === 1 ? "" : "s"} (${inv.payoutDueDate})`,
               });
             }
           }
-        });
-      } else if (inv.payoutDueDate) {
-        const diffDays = Math.ceil((new Date(inv.payoutDueDate).getTime() - new Date(TODAY).getTime()) / (1000 * 60 * 60 * 24));
-        if (diffDays < 0) {
-          const nid = `inv-overdue-${inv.id}`;
-          if (!dismissedNotifIds.has(nid)) {
-            notifs.push({
-              id: nid,
-              type: "investor",
-              farmId: activeFarmId,
-              farmName: farm?.name || "",
-              date: TODAY,
-              read: readNotifIds.has(nid),
-              message: `Overdue Investor Payment: ${investorName} — ₦${remaining.toLocaleString()} was due on ${inv.payoutDueDate}`,
-            });
-          }
-        } else if (diffDays <= 7) {
-          const nid = `inv-due-${inv.id}`;
-          if (!dismissedNotifIds.has(nid)) {
-            notifs.push({
-              id: nid,
-              type: "investor",
-              farmId: activeFarmId,
-              farmName: farm?.name || "",
-              date: TODAY,
-              read: readNotifIds.has(nid),
-              message: `Upcoming Investor Payment: ${investorName} — ₦${remaining.toLocaleString()} due in ${diffDays} day${diffDays === 1 ? "" : "s"} (${inv.payoutDueDate})`,
-            });
-          }
         }
-      }
-    });
+      });
+    }
 
     const farmExtraNotifs=extraNotifs
       .filter(n=>n.farmId===activeFarmId&&!dismissedNotifIds.has(n.id)&&n.reconStatus!=="matched")
+      .filter(n=>{
+        if (n.type === "report") return canSeeReports;
+        if (n.type === "invoice") return canSeeInvoices;
+        if (n.type === "reconciliation") return canSeeFeeding || canSeeInventory;
+        return true;
+      })
       .map(n=>({...n,read:n.read||readNotifIds.has(n.id)}));
     return [...notifs,...farmExtraNotifs];
-  },[farmPonds,farmFeeding,farmBagLogs,bagLogs,farmInventory,activeFarmId,farms,readNotifIds,dismissedNotifIds,extraNotifs,farmInvestments,farmPayments,investors]);
+  },[farmPonds,farmFeeding,farmBagLogs,bagLogs,farmInventory,activeFarmId,farms,readNotifIds,dismissedNotifIds,extraNotifs,farmInvestments,farmPayments,investors,hasPerm]);
   const unreadCount=notifications.filter(n=>!n.read).length;
   const markRead=(id:string)=>{setReadNotifIds(prev=>new Set([...prev,id]));setExtraNotifs(prev=>prev.map(n=>n.id===id?{...n,read:true}:n));};
   const markAllRead=()=>{setReadNotifIds(prev=>new Set([...prev,...notifications.map(n=>n.id)]));setExtraNotifs(prev=>prev.map(n=>({...n,read:true})));};

@@ -159,7 +159,8 @@ const TABLE_ALLOWED_COLUMNS: Record<string, Set<string>> = {
   ]),
   pond_reports: new Set([
     "id", "user_id", "farm_id", "pond_id", "fish_stock_id", "report_type",
-    "report_date", "issue", "description", "action_taken", "notes", "treatment_id",
+    "report_date", "issue", "description", "medicine", "cause", "treatment_details",
+    "action_taken", "remarks", "notes", "treatment_id", "recorded_by",
     "created_by", "created_at", "updated_at"
   ]),
   feeding_records: new Set([
@@ -169,7 +170,7 @@ const TABLE_ALLOWED_COLUMNS: Record<string, Set<string>> = {
   ]),
   staff_members: new Set([
     "id", "user_id", "staff_auth_id", "name", "email", "phone", "role", "status",
-    "joined_date", "permissions", "farms", "created_at", "updated_at"
+    "joined_date", "permissions", "farms", "staff_permissions", "created_at", "updated_at"
   ]),
   ponds: new Set([
     "id", "user_id", "farm_id", "name", "type", "species", "size_m2", "initial_stock",
@@ -196,7 +197,7 @@ const TABLE_ALLOWED_COLUMNS: Record<string, Set<string>> = {
     "kg_per_bag", "bags_opened", "total_kg", "fish_stock", "created_at"
   ]),
   feed_remaining_logs: new Set([
-    "id", "user_id", "farm_id", "brand", "size", "fish_stock", "remaining_kg", "date", "created_at"
+    "id", "user_id", "farm_id", "brand", "size", "fish_stock", "remaining_kg", "date", "month", "year", "created_at"
   ]),
   stock_events: new Set([
     "id", "user_id", "pond_id", "farm_id", "pond_name", "date", "species",
@@ -206,7 +207,7 @@ const TABLE_ALLOWED_COLUMNS: Record<string, Set<string>> = {
     "id", "user_id", "pond_id", "farm_id", "date", "count", "cause", "notes", "created_at"
   ]),
   treatment_records: new Set([
-    "id", "user_id", "pond_id", "farm_id", "date", "cause", "medicine", "remarks", "created_at"
+    "id", "user_id", "pond_id", "farm_id", "date", "cause", "medicine", "details", "action_taken", "remarks", "fish_stock", "recorded_by", "created_at"
   ]),
   farms: new Set([
     "id", "user_id", "name", "city", "state", "country", "created_at", "updated_at"
