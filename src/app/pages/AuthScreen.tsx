@@ -8,6 +8,7 @@ import { SearchableCountrySelect } from "../shared";
 import { supabase, getAppUrl } from "../../lib/supabase";
 import { auth, api } from "../../lib/api";
 import { useDynamicPlans, yearlyPrice, EVERY_PLAN_INCLUDES } from "../pricingData";
+import { syncUserProfileToAdmin } from "../../lib/userSync";
 
 const AIC = "w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg bg-white text-slate-900 placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-green-300 transition";
 const LBL = "block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1";
@@ -400,6 +401,7 @@ function AuthScreen({
         ownerId: staffOwnerId,
         farms: staffFarms,
       };
+      syncUserProfileToAdmin(profile, meta.active_plan, 1);
       onLogin(profile);
     } catch (err: any) {
       const msg = err?.message ?? "Login failed.";
@@ -511,23 +513,59 @@ function AuthScreen({
         }
       }
 
+      const createdUserId = data?.user?.id;
+      const profile: UserProfile = {
+        id: createdUserId || "",
+        name: cName.trim(),
+        farmName: cFarm.trim(),
+        city: cCity.trim(),
+        state: cState.trim(),
+        country: cCountry,
+        email: data?.user?.email ?? cleanEmail,
+        phone: phoneStr,
+        currencySymbol: cur.symbol,
+        currencyCode: cur.code,
+        activePlan: planName,
+        trialStartDate: new Date().toISOString(),
+        role: "owner",
+        status: "Active",
+      };
+
+      // Ensure user profile & primary farm are immediately in the backend database
+      if (createdUserId) {
+        try {
+          await supabase.from("user_profiles").upsert({
+            id: createdUserId,
+            name: cName.trim(),
+            farm_name: cFarm.trim(),
+            city: cCity.trim(),
+            state: cState.trim(),
+            country: cCountry,
+            email: cleanEmail,
+            phone: phoneStr,
+            currency_symbol: cur.symbol,
+            currency_code: cur.code,
+            active_plan: planName,
+            trial_start_date: new Date().toISOString(),
+            role: "owner",
+            status: "Active",
+            updated_at: new Date().toISOString(),
+          });
+          await supabase.from("farms").insert({
+            user_id: createdUserId,
+            name: cFarm.trim(),
+            city: cCity.trim(),
+            state: cState.trim(),
+            country: cCountry,
+          });
+        } catch {}
+      }
+
+      // Sync into admin local state / logs immediately
+      syncUserProfileToAdmin(profile, planName, 1);
+
       // Strict enforcement: only auto-login if email is confirmed
       if (data.session && data.user?.email_confirmed_at) {
-        const user = data.user!;
-        const profile: UserProfile = {
-          id: user.id,
-          name: cName.trim(),
-          farmName: cFarm.trim(),
-          city: cCity.trim(),
-          state: cState.trim(),
-          country: cCountry,
-          email: user.email ?? cleanEmail,
-          phone: phoneStr,
-          currencySymbol: cur.symbol,
-          currencyCode: cur.code,
-          activePlan: planName,
-          trialStartDate: new Date().toISOString(),
-        };
         onSignup(profile);
       } else {
         // Sign out any session created before confirmation so unverified user cannot enter dashboard

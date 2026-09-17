@@ -6,30 +6,6 @@ import { supabase } from "./supabase";
 const USERS_STORAGE_KEY = "pondtora_admin_users";
 const LOGS_STORAGE_KEY = "pondtora_admin_logs";
 
-export const DUMMY_USER_IDS = new Set(["1", "2", "3", "4", "5", "6", "7", "8", "9"]);
-export const DUMMY_USER_EMAILS = new Set([
-  "adebayo@example.com",
-  "ngozi@freshpond.ng",
-  "emeka@catfish.com",
-  "fatima@aquafarm.ng",
-  "tunde@pondfresh.com",
-  "chidinma@tilapia.ng",
-  "segun@riverfish.com",
-  "amaka@pondfarm.ng",
-  "yusuf@northfish.ng",
-]);
-
-export function isDummyUser(u: AdminUser | { id?: string; email?: string } | null | undefined): boolean {
-  if (!u) return false;
-  // If user has a real UUID or long ID, they are definitely NOT a dummy user
-  if (u.id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(u.id)) {
-    return false;
-  }
-  if (u.id && DUMMY_USER_IDS.has(String(u.id))) return true;
-  if (u.email && DUMMY_USER_EMAILS.has(u.email.toLowerCase().trim()) && (!u.id || u.id.length < 10)) return true;
-  return false;
-}
-
 export function loadAllAdminUsers(): AdminUser[] {
   try {
     const raw = localStorage.getItem(USERS_STORAGE_KEY);
@@ -37,11 +13,7 @@ export function loadAllAdminUsers(): AdminUser[] {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed) && parsed.length > 0) {
         return parsed
-          .filter(u => {
-            if (!u || typeof u !== "object" || typeof u.id !== "string") return false;
-            const r = (u.role || "").toLowerCase();
-            return r !== "staff" && r !== "staff member";
-          })
+          .filter(u => u && typeof u === "object" && typeof u.id === "string")
           .map(u => ({
             ...u,
             subscriptionStatus: computeSubscriptionStatus(u),
@@ -61,7 +33,7 @@ export function saveAllAdminUsers(users: AdminUser[]) {
 
 /**
  * Fetches all real registered users, staff members, and farms directly from Supabase,
- * merges with existing administrative overrides and cached user profiles,
+ * merges with administrative overrides and cached user profiles,
  * and updates the admin users local cache.
  */
 export async function fetchLiveAdminUsers(): Promise<{
@@ -72,11 +44,69 @@ export async function fetchLiveAdminUsers(): Promise<{
   try {
     const existingLocal = loadAllAdminUsers();
 
-    // Query Supabase directly for user profiles, staff members, farms, and ponds
+    // 1. First attempt: Use high-speed SECURITY DEFINER RPC get_all_users_for_admin
+    try {
+      const { data: rpcUsers, error: rpcErr } = await supabase.rpc("get_all_users_for_admin");
+      if (!rpcErr && Array.isArray(rpcUsers)) {
+        const dbUsers: AdminUser[] = rpcUsers.map((p: any) => {
+          const pEmail = (p.email || "").toLowerCase().trim();
+          const local = existingLocal.find(
+            x => x.id === p.id || (x.email && x.email.toLowerCase().trim() === pEmail)
+          );
+
+          const hasPaid = Boolean(
+            local?.hasPaid ||
+            local?.paystackReference ||
+            local?.lastPaymentDate ||
+            p.paystack_reference ||
+            p.last_payment_date
+          );
+
+          const roleStr = (p.role || local?.role || "owner").toLowerCase().trim();
+
+          const u: AdminUser = {
+            id: p.id,
+            name: p.name || (p.email ? p.email.split("@")[0] : "Farmer"),
+            email: p.email || "",
+            farmName: p.farm_name || local?.farmName || "Primary Farm",
+            phone: p.phone || local?.phone || "",
+            city: p.city || local?.city || "Lagos",
+            state: p.state || local?.state || "Lagos",
+            country: p.country || local?.country || "Nigeria",
+            role: roleStr,
+            activePlan: p.active_plan || local?.activePlan || "Starter",
+            trialStartDate: p.trial_start_date ? String(p.trial_start_date).slice(0, 10) : (local?.trialStartDate || (p.created_at ? String(p.created_at).slice(0, 10) : new Date().toISOString().slice(0, 10))),
+            billingFrequency: local?.billingFrequency || "monthly",
+            subscriptionAmount: typeof local?.subscriptionAmount === "number" ? local.subscriptionAmount : null,
+            hasPaid: hasPaid,
+            subscriptionStatus: "Trial",
+            subscriptionStart: hasPaid ? (local?.subscriptionStart || null) : null,
+            subscriptionExpiry: hasPaid ? (local?.subscriptionExpiry || null) : null,
+            accountStatus: (p.status === "Suspended" || local?.accountStatus === "Suspended") ? "Suspended" : "Active",
+            freeAccess: Boolean(local?.freeAccess),
+            farmCount: Number(p.farm_count) || (roleStr === "staff" ? 0 : 1),
+            pondCount: Number(p.pond_count) || 0,
+            staffCount: Number(p.staff_count) || 0,
+            paystackReference: local?.paystackReference || p.paystack_reference,
+            lastPaymentDate: local?.lastPaymentDate || p.last_payment_date,
+            createdAt: p.created_at ? String(p.created_at).slice(0, 10) : (local?.createdAt || new Date().toISOString().slice(0, 10)),
+          };
+          u.subscriptionStatus = computeSubscriptionStatus(u);
+          return u;
+        });
+
+        saveAllAdminUsers(dbUsers);
+        return { users: dbUsers, isLiveFromDb: true, count: dbUsers.length };
+      }
+    } catch (rpcEx) {
+      console.warn("RPC get_all_users_for_admin fallback to direct table query:", rExMessage(rpcEx));
+    }
+
+    // 2. Direct table fallback: query Supabase directly for user profiles, staff members, farms, and ponds
     const [profilesRes, staffRes, farmsRes, pondsRes] = await Promise.all([
       supabase.from("user_profiles").select("*").order("created_at", { ascending: false }),
       supabase.from("staff_members").select("*").order("created_at", { ascending: false }),
-      supabase.from("farms").select("id, user_id, name"),
+      supabase.from("farms").select("id, user_id, name, city, state, country"),
       supabase.from("ponds").select("id, user_id, farm_id"),
     ]);
 
@@ -85,36 +115,20 @@ export async function fetchLiveAdminUsers(): Promise<{
     const rawFarms = farmsRes.data || [];
     const rawPonds = pondsRes.data || [];
 
-    // Collect all staff emails to strictly exclude invited staff from the Business Admin users list
-    const staffEmails = new Set(
-      rawStaff
-        .map((s: any) => (s.email || "").toLowerCase().trim())
-        .filter(Boolean)
-    );
-
     const dbUsers: AdminUser[] = [];
 
-    // 1. Process user profiles (customer farm owners only - excluding staff and system admins)
+    // Process all registered user profiles
     rawProfiles.forEach((p: any) => {
       const pEmail = (p.email || "").toLowerCase().trim();
-      const pRole = (p.role || "").toLowerCase().trim();
-      if (
-        pRole === "staff" ||
-        pRole === "staff member" ||
-        pRole === "admin" ||
-        pRole === "superadmin" ||
-        staffEmails.has(pEmail)
-      ) {
-        return;
-      }
+      const pRole = (p.role || "owner").toLowerCase().trim();
 
       const local = existingLocal.find(
-        x => x.id === p.id || (x.email && x.email.toLowerCase() === pEmail)
+        x => x.id === p.id || (x.email && x.email.toLowerCase().trim() === pEmail)
       );
 
       const userFarms = rawFarms.filter((f: any) => f.user_id === p.id);
-      const farmCount = userFarms.length > 0 ? userFarms.length : (p.farm_name ? 1 : (local?.farmCount || 1));
-      const farmName = p.farm_name || userFarms[0]?.name || local?.farmName || "Primary Farm";
+      const farmCount = userFarms.length > 0 ? userFarms.length : (pRole === "staff" ? 0 : (p.farm_name ? 1 : (local?.farmCount || 1)));
+      const farmName = p.farm_name || userFarms[0]?.name || local?.farmName || (pRole === "staff" ? "Assigned Farm" : "Primary Farm");
 
       const userFarmIds = new Set(userFarms.map((f: any) => f.id));
       const userPonds = rawPonds.filter((pd: any) => pd.user_id === p.id || (pd.farm_id && userFarmIds.has(pd.farm_id)));
@@ -140,9 +154,9 @@ export async function fetchLiveAdminUsers(): Promise<{
         city: p.city || local?.city || "Lagos",
         state: p.state || local?.state || "Lagos",
         country: p.country || local?.country || "Nigeria",
-        role: p.role || local?.role || "owner",
+        role: pRole,
         activePlan: p.active_plan || local?.activePlan || "Starter",
-        trialStartDate: p.trial_start_date ? p.trial_start_date.slice(0, 10) : (local?.trialStartDate || (p.created_at ? p.created_at.slice(0, 10) : new Date().toISOString().slice(0, 10))),
+        trialStartDate: p.trial_start_date ? String(p.trial_start_date).slice(0, 10) : (local?.trialStartDate || (p.created_at ? String(p.created_at).slice(0, 10) : new Date().toISOString().slice(0, 10))),
         billingFrequency: local?.billingFrequency || "monthly",
         subscriptionAmount: typeof local?.subscriptionAmount === "number" ? local.subscriptionAmount : null,
         hasPaid: hasPaid,
@@ -156,7 +170,7 @@ export async function fetchLiveAdminUsers(): Promise<{
         staffCount: staffCount,
         paystackReference: local?.paystackReference || p.paystack_reference,
         lastPaymentDate: local?.lastPaymentDate || p.last_payment_date,
-        createdAt: p.created_at ? p.created_at.slice(0, 10) : (local?.createdAt || new Date().toISOString().slice(0, 10)),
+        createdAt: p.created_at ? String(p.created_at).slice(0, 10) : (local?.createdAt || new Date().toISOString().slice(0, 10)),
       };
       u.subscriptionStatus = computeSubscriptionStatus(u);
       dbUsers.push(u);
@@ -172,12 +186,17 @@ export async function fetchLiveAdminUsers(): Promise<{
   }
 }
 
+function rExMessage(err: any): string {
+  if (!err) return "";
+  return err.message || String(err);
+}
+
 /**
- * Persists an admin user modification to Supabase user_profiles and staff_members
+ * Persists an admin user modification to Supabase user_profiles, farms, and staff_members
  */
 export async function updateAdminUserInDb(u: AdminUser): Promise<boolean> {
   try {
-    const { error } = await supabase
+    const { error: profError } = await supabase
       .from("user_profiles")
       .update({
         name: u.name,
@@ -189,8 +208,22 @@ export async function updateAdminUserInDb(u: AdminUser): Promise<boolean> {
         active_plan: u.activePlan,
         status: u.accountStatus,
         role: u.role || "owner",
+        updated_at: new Date().toISOString(),
       })
       .eq("id", u.id);
+
+    if (u.farmName) {
+      await supabase
+        .from("farms")
+        .update({
+          name: u.farmName,
+          city: u.city,
+          state: u.state,
+          country: u.country,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("user_id", u.id);
+    }
 
     if (u.role && u.role !== "owner") {
       await supabase
@@ -199,11 +232,14 @@ export async function updateAdminUserInDb(u: AdminUser): Promise<boolean> {
           name: u.name,
           role: u.role,
           status: u.accountStatus === "Suspended" ? "Inactive" : "Active",
+          updated_at: new Date().toISOString(),
         })
-        .or(`id.eq.${u.id},email.eq.${u.email}`);
+        .or(`id.eq.${u.id},staff_auth_id.eq.${u.id},email.ilike.${u.email}`);
     }
-    return !error;
-  } catch {
+
+    return !profError;
+  } catch (e) {
+    console.warn("updateAdminUserInDb error:", e);
     return false;
   }
 }
@@ -399,7 +435,7 @@ export function logActivity(
 }
 
 /**
- * Synchronizes the logged-in user profile from the Main App into the Admin's registered users list
+ * Synchronizes a user profile from the Main App into the database and Admin's registered users list
  */
 export function syncUserProfileToAdmin(
   profile: UserProfile | null,
@@ -407,8 +443,6 @@ export function syncUserProfileToAdmin(
   farmCount: number = 1
 ): AdminUser | null {
   if (!profile || !profile.email) return null;
-  const profRole = (profile.role || "").toLowerCase().trim();
-  if (profRole === "staff" || profRole === "staff member") return null;
 
   const targetEmail = (profile.email || "").trim().toLowerCase();
   if (!targetEmail) return null;
@@ -429,6 +463,7 @@ export function syncUserProfileToAdmin(
       city: profile.city || current.city || "Lagos",
       state: profile.state || current.state || "Lagos",
       country: profile.country || current.country || "Nigeria",
+      role: profile.role || current.role || "owner",
       activePlan: activePlan || profile.activePlan || current.activePlan || "Starter",
       hasPaid: hasPaid,
       trialStartDate: hasPaid ? null : (profile.trialStartDate || current.trialStartDate || new Date().toISOString().slice(0, 10)),
@@ -440,7 +475,7 @@ export function syncUserProfileToAdmin(
     users[existingIdx] = userObj;
   } else {
     userObj = {
-      id: Math.random().toString(36).slice(2, 10),
+      id: profile.id || Math.random().toString(36).slice(2, 10),
       name: profile.name || targetEmail.split("@")[0],
       email: targetEmail,
       farmName: profile.farmName || "Primary Farm",
@@ -448,6 +483,7 @@ export function syncUserProfileToAdmin(
       city: profile.city || "Lagos",
       state: profile.state || "Lagos",
       country: profile.country || "Nigeria",
+      role: profile.role || "owner",
       activePlan: activePlan || profile.activePlan || "Starter",
       trialStartDate: profile.trialStartDate || new Date().toISOString().slice(0, 10),
       billingFrequency: "monthly",
@@ -473,6 +509,25 @@ export function syncUserProfileToAdmin(
   }
 
   saveAllAdminUsers(users);
+
+  // Self-heal profile directly to Supabase user_profiles table if user.id is available
+  if (profile.id) {
+    supabase.from("user_profiles").upsert({
+      id: profile.id,
+      name: userObj.name,
+      farm_name: userObj.farmName,
+      phone: userObj.phone,
+      city: userObj.city,
+      state: userObj.state,
+      country: userObj.country,
+      email: userObj.email,
+      role: userObj.role || "owner",
+      active_plan: userObj.activePlan,
+      status: userObj.accountStatus,
+      updated_at: new Date().toISOString(),
+    }).then(() => {}).catch(() => {});
+  }
+
   return userObj;
 }
 
@@ -586,5 +641,3 @@ export function recordSuccessfulPayment(params: {
 
   return userObj;
 }
-
-

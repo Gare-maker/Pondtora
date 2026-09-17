@@ -365,10 +365,67 @@ CREATE OR REPLACE FUNCTION is_admin()
 RETURNS BOOLEAN LANGUAGE sql SECURITY DEFINER STABLE AS $$
   SELECT EXISTS (
     SELECT 1 FROM user_profiles
-    WHERE id = auth.uid() AND (role = 'admin' OR role = 'superadmin' OR email = 'edafejesugarec@gmail.com')
+    WHERE id = auth.uid() AND (
+      LOWER(TRIM(COALESCE(role, ''))) IN ('admin', 'superadmin')
+      OR LOWER(TRIM(COALESCE(email, ''))) = 'edafejesugarec@gmail.com'
+    )
   ) OR (
-    auth.jwt() ->> 'email' = 'edafejesugarec@gmail.com'
+    LOWER(TRIM(COALESCE(auth.jwt() ->> 'email', ''))) = 'edafejesugarec@gmail.com'
+  ) OR (
+    LOWER(TRIM(COALESCE(auth.jwt() -> 'user_metadata' ->> 'role', ''))) IN ('admin', 'superadmin')
   );
+$$;
+
+-- Secure RPC to retrieve all registered users with operational stats for the Admin Panel
+CREATE OR REPLACE FUNCTION get_all_users_for_admin()
+RETURNS TABLE (
+  id UUID,
+  name TEXT,
+  email TEXT,
+  phone TEXT,
+  farm_name TEXT,
+  city TEXT,
+  state TEXT,
+  country TEXT,
+  role TEXT,
+  active_plan TEXT,
+  trial_start_date TIMESTAMPTZ,
+  status TEXT,
+  created_at TIMESTAMPTZ,
+  updated_at TIMESTAMPTZ,
+  paystack_reference TEXT,
+  last_payment_date TEXT,
+  subscription_status TEXT,
+  farm_count BIGINT,
+  pond_count BIGINT,
+  staff_count BIGINT
+) LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+BEGIN
+  RETURN QUERY
+  SELECT
+    p.id,
+    COALESCE(p.name, split_part(p.email, '@', 1)) AS name,
+    p.email,
+    COALESCE(p.phone, '') AS phone,
+    COALESCE(p.farm_name, (SELECT f.name FROM farms f WHERE f.user_id = p.id ORDER BY f.created_at ASC LIMIT 1), 'Primary Farm') AS farm_name,
+    COALESCE(p.city, 'Lagos') AS city,
+    COALESCE(p.state, 'Lagos') AS state,
+    COALESCE(p.country, 'Nigeria') AS country,
+    COALESCE(p.role, 'owner') AS role,
+    COALESCE(p.active_plan, 'Starter') AS active_plan,
+    p.trial_start_date,
+    COALESCE(p.status, 'Active') AS status,
+    p.created_at,
+    p.updated_at,
+    p.paystack_reference,
+    p.last_payment_date,
+    p.subscription_status,
+    (SELECT COUNT(*) FROM farms f WHERE f.user_id = p.id)::BIGINT AS farm_count,
+    (SELECT COUNT(*) FROM ponds pd WHERE pd.user_id = p.id)::BIGINT AS pond_count,
+    (SELECT COUNT(*) FROM staff_members sm WHERE sm.user_id = p.id)::BIGINT AS staff_count
+  FROM user_profiles p
+  ORDER BY p.created_at DESC;
+END;
 $$;
 
 CREATE OR REPLACE FUNCTION user_can_access_farm(p_farm_id UUID)

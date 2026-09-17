@@ -4742,16 +4742,32 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
 
         const meta=session.user.user_metadata??{};
 
-        // Self-heal profile for staff member if not present in user_profiles
-        if (!prof && isStaffUser) {
+        // Self-heal profile for user if not present in user_profiles
+        if (!prof) {
           try {
             await supabase.from("user_profiles").upsert({
               id: session.user.id,
-              name: meta.name || session.user.email?.split("@")[0] || "Staff",
+              name: meta.name || session.user.email?.split("@")[0] || (isStaffUser ? "Staff" : "Farmer"),
+              farm_name: meta.farm_name || "My Farm",
               email: session.user.email || "",
-              role: "staff",
+              city: meta.city || "",
+              state: meta.state || "",
+              country: meta.country || "Nigeria",
+              role: isStaffUser ? "staff" : (meta.role || "owner"),
+              active_plan: meta.active_plan || "Starter",
+              trial_start_date: meta.trial_start_date || new Date().toISOString(),
               status: "Active",
+              updated_at: new Date().toISOString(),
             });
+            if (!isStaffUser) {
+              await supabase.from("farms").insert({
+                user_id: session.user.id,
+                name: meta.farm_name || "My Farm",
+                city: meta.city || "",
+                state: meta.state || "",
+                country: meta.country || "Nigeria",
+              });
+            }
           } catch {}
         }
 
@@ -4781,24 +4797,33 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
           } catch {}
         }
 
+        const activePlanStr = meta.active_plan || prof?.active_plan || "Starter";
+        const newProfile: UserProfile = {
+          id:session.user.id,
+          name:meta.name||prof?.name||session.user.email?.split("@")[0]||"User",
+          farmName:meta.farm_name||prof?.farm_name||"My Fish Farm",
+          city:meta.city||prof?.city||"",
+          state:meta.state||prof?.state||"",
+          country,
+          email:session.user.email||"",
+          phone:meta.phone||prof?.phone||"",
+          currencySymbol:meta.currency_symbol||cc.symbol,
+          currencyCode:meta.currency_code||cc.code,
+          role:staffRole,
+          permissions:staffPerms,
+          ownerId:staffOwnerId,
+          farms:staffFarms,
+          activePlan:activePlanStr,
+          trialStartDate:meta.trial_start_date||prof?.trial_start_date||new Date().toISOString(),
+        };
+
         setUserProfile(prev=>{
           if(prev?.id && prev.id !== session.user.id){
             resetAllState();
           }
-          return {
-            id:session.user.id,
-            name:meta.name||session.user.email?.split("@")[0]||"User",
-            farmName:meta.farm_name||"My Fish Farm",
-            city:meta.city||"",state:meta.state||"",country,
-            email:session.user.email||"",phone:meta.phone||"",
-            currencySymbol:meta.currency_symbol||cc.symbol,
-            currencyCode:meta.currency_code||cc.code,
-            role:staffRole,
-            permissions:staffPerms,
-            ownerId:staffOwnerId,
-            farms:staffFarms,
-          };
+          return newProfile;
         });
+        syncUserProfileToAdmin(newProfile, activePlanStr, 1);
         if(meta.active_farm_id){
           setActiveFarmId(meta.active_farm_id);
         }

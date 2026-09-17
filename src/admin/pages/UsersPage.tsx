@@ -293,6 +293,7 @@ interface ActiveMenu {
 export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onExportCSV, onRefresh, isRefreshing }: Props) {
   const [q, setQ] = useState("");
   const [filterStatus, setFilterStatus] = useState("All");
+  const [filterRole, setFilterRole] = useState("All");
   const [page, setPage] = useState(1);
   const [sortKey, setSortKey] = useState<SortKey>("createdAt");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
@@ -319,9 +320,9 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
     let isSubscribed = true;
     setUserExtra(prev => ({ ...prev, loading: true }));
     Promise.all([
-      supabase.from("farms").select("id, name, city, state").eq("user_id", viewUser.id),
-      supabase.from("ponds").select("id, name, size_m2, farm_id").eq("user_id", viewUser.id),
-      supabase.from("staff_members").select("id, name, email, role, status").eq("user_id", viewUser.id),
+      supabase.from("farms").select("id, name, city, state").or(`user_id.eq.${viewUser.id}${viewUser.farmId ? `,id.eq.${viewUser.farmId}` : ""}`),
+      supabase.from("ponds").select("id, name, size_m2, farm_id").or(`user_id.eq.${viewUser.id}${viewUser.farmId ? `,farm_id.eq.${viewUser.farmId}` : ""}`),
+      supabase.from("staff_members").select("id, name, email, role, status").or(`user_id.eq.${viewUser.id}${viewUser.farmId ? `,farm_id.eq.${viewUser.farmId}` : ""}`),
     ]).then(([farmsRes, pondsRes, staffRes]) => {
       if (!isSubscribed) return;
       setUserExtra({
@@ -336,7 +337,7 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
       setUserExtra(prev => ({ ...prev, loading: false }));
     });
     return () => { isSubscribed = false; };
-  }, [viewUser?.id]);
+  }, [viewUser?.id, viewUser?.farmId]);
 
   useEffect(() => {
     const handleClose = () => setMenu(null);
@@ -361,13 +362,27 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
       list = list.filter(u => u.subscriptionStatus === filterStatus || (filterStatus === "Suspended" && u.accountStatus === "Suspended"));
     }
 
+    if (filterRole !== "All") {
+      list = list.filter(u => {
+        const r = (u.role || "owner").toLowerCase().trim();
+        if (filterRole === "owner") return r === "owner" || r === "farm owner";
+        if (filterRole === "staff") return r === "staff" || r === "staff member";
+        if (filterRole === "admin") return r === "admin" || r === "superadmin";
+        return true;
+      });
+    }
+
     if (q.trim()) {
       const lq = q.toLowerCase();
       list = list.filter(
         u =>
           (u?.name || "").toLowerCase().includes(lq) ||
           (u?.email || "").toLowerCase().includes(lq) ||
+          (u?.phone || "").toLowerCase().includes(lq) ||
           (u?.farmName || "").toLowerCase().includes(lq) ||
+          (u?.city || "").toLowerCase().includes(lq) ||
+          (u?.state || "").toLowerCase().includes(lq) ||
+          (u?.role || "").toLowerCase().includes(lq) ||
           (u?.activePlan || "").toLowerCase().includes(lq)
       );
     }
@@ -379,7 +394,7 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
     });
 
     return list;
-  }, [users, q, filterStatus, sortKey, sortDir]);
+  }, [users, q, filterStatus, filterRole, sortKey, sortDir]);
 
   const paged = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE);
 
@@ -601,23 +616,50 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
             />
           </div>
 
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
-            {["All", "Active", "Trial", "Expired", "Suspended"].map(st => (
-              <button
-                key={st}
-                onClick={() => {
-                  setFilterStatus(st);
-                  setPage(1);
-                }}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap ${
-                  filterStatus === st
-                    ? "bg-green-600 text-white shadow-sm"
-                    : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
-                }`}
-              >
-                {st}
-              </button>
-            ))}
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Role Filter Selector */}
+            <div className="flex items-center gap-1 bg-slate-100/90 p-0.5 rounded-lg border border-slate-200/80">
+              {[
+                { id: "All", label: "All Roles" },
+                { id: "owner", label: "Owners" },
+                { id: "staff", label: "Staff" },
+              ].map(r => (
+                <button
+                  key={r.id}
+                  onClick={() => {
+                    setFilterRole(r.id);
+                    setPage(1);
+                  }}
+                  className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-all ${
+                    filterRole === r.id
+                      ? "bg-white text-emerald-800 shadow-xs"
+                      : "text-slate-600 hover:text-slate-900"
+                  }`}
+                >
+                  {r.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Status Filter Selector */}
+            <div className="flex items-center gap-1 overflow-x-auto pb-1 sm:pb-0">
+              {["All", "Active", "Trial", "Expired", "Suspended"].map(st => (
+                <button
+                  key={st}
+                  onClick={() => {
+                    setFilterStatus(st);
+                    setPage(1);
+                  }}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap ${
+                    filterStatus === st
+                      ? "bg-green-600 text-white shadow-sm"
+                      : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
+                  }`}
+                >
+                  {st}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
@@ -639,8 +681,28 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
             <tbody className="divide-y divide-slate-50">
               {paged.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="text-center py-12 text-slate-400 text-xs">
-                    No matching users found.
+                  <td colSpan={9} className="text-center py-16 text-slate-400 text-xs">
+                    <div className="max-w-md mx-auto space-y-2">
+                      <AlertCircle className="mx-auto text-slate-300" size={32} />
+                      <p className="font-semibold text-slate-600">
+                        {users.length === 0 ? "No registered users found in the database yet." : "No matching users found."}
+                      </p>
+                      <p className="text-[11px] text-slate-400">
+                        {users.length === 0
+                          ? "Users who sign up or are created in Supabase will automatically appear here."
+                          : "Try adjusting your search terms or filter criteria."}
+                      </p>
+                      {onRefresh && users.length === 0 && (
+                        <button
+                          onClick={onRefresh}
+                          disabled={isRefreshing}
+                          className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-colors shadow-xs"
+                        >
+                          <RotateCw size={12} className={isRefreshing ? "animate-spin" : ""} />
+                          {isRefreshing ? "Syncing…" : "Sync from Database"}
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               )}
@@ -652,15 +714,30 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                   title="Click to view full user details and reach out"
                 >
                   {/* 1. User / Contact */}
-                  <td className="px-4 py-3 max-w-[210px]">
+                  <td className="px-4 py-3 max-w-[220px]">
                     <div className="flex items-center gap-2.5">
                       <div className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-500 to-green-600 text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-xs">
                         {u.name.charAt(0).toUpperCase()}
                       </div>
                       <div className="min-w-0">
-                        <p className="font-bold text-slate-800 truncate group-hover:text-emerald-700 transition-colors">
-                          {u.name}
-                        </p>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <p className="font-bold text-slate-800 truncate group-hover:text-emerald-700 transition-colors">
+                            {u.name}
+                          </p>
+                          {u.role === "staff" || u.role === "staff member" ? (
+                            <span className="text-[9px] font-bold bg-blue-100 text-blue-800 px-1.5 py-0.2 rounded">
+                              Staff
+                            </span>
+                          ) : u.role === "admin" || u.role === "superadmin" ? (
+                            <span className="text-[9px] font-bold bg-purple-100 text-purple-800 px-1.5 py-0.2 rounded">
+                              Admin
+                            </span>
+                          ) : (
+                            <span className="text-[9px] font-bold bg-emerald-100 text-emerald-800 px-1.5 py-0.2 rounded">
+                              Owner
+                            </span>
+                          )}
+                        </div>
                         <p className="text-slate-400 text-[11px] truncate">{u.email}</p>
                         {u.phone ? (
                           <p className="text-[10.5px] font-semibold text-emerald-700 flex items-center gap-1 mt-0.5 truncate">
@@ -961,7 +1038,7 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
               {/* 1. Contact & Location Details */}
               <div>
                 <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                  <Building size={13} className="text-emerald-600" /> Contact & Location Details
+                  <Building size={13} className="text-emerald-600" /> Account, Contact & Location Details
                 </h3>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
                   <div className="bg-slate-50/80 border border-slate-200/70 p-2.5 rounded-xl">
@@ -999,13 +1076,34 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                   </div>
 
                   <div className="bg-slate-50/80 border border-slate-200/70 p-2.5 rounded-xl">
-                    <p className="text-[10px] uppercase font-bold text-slate-400">Farm Name</p>
-                    <p className="font-bold text-slate-800 text-xs mt-0.5 truncate">{viewUser.farmName || "Primary Farm"}</p>
+                    <p className="text-[10px] uppercase font-bold text-slate-400">User ID (Auth/DB)</p>
+                    <div className="flex items-center justify-between mt-0.5">
+                      <p className="font-mono text-[11px] text-slate-700 truncate" title={viewUser.id}>
+                        {viewUser.id.slice(0, 12)}…
+                      </p>
+                      <button onClick={() => copyToClipboard(viewUser.id, "User ID")} className="text-slate-400 hover:text-slate-600 p-0.5" title="Copy User ID">
+                        <Copy size={11} />
+                      </button>
+                    </div>
                   </div>
 
-                  <div className="bg-slate-50/80 border border-slate-200/70 p-2.5 rounded-xl sm:col-span-2">
+                  <div className="bg-slate-50/80 border border-slate-200/70 p-2.5 rounded-xl">
+                    <p className="text-[10px] uppercase font-bold text-slate-400">Farm Name & ID</p>
+                    <div className="flex items-center justify-between mt-0.5">
+                      <p className="font-bold text-slate-800 text-xs truncate" title={viewUser.farmName || "Primary Farm"}>
+                        {viewUser.farmName || "Primary Farm"}
+                      </p>
+                      {viewUser.farmId && (
+                        <button onClick={() => copyToClipboard(viewUser.farmId!, "Farm ID")} className="text-slate-400 hover:text-slate-600 p-0.5" title="Copy Farm ID">
+                          <Copy size={11} />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="bg-slate-50/80 border border-slate-200/70 p-2.5 rounded-xl">
                     <p className="text-[10px] uppercase font-bold text-slate-400">Full Location</p>
-                    <p className="font-semibold text-slate-800 text-xs mt-0.5 flex items-center gap-1">
+                    <p className="font-semibold text-slate-800 text-xs mt-0.5 flex items-center gap-1 truncate">
                       <MapPin size={12} className="text-emerald-600 shrink-0" />
                       {[viewUser.city, viewUser.state, viewUser.country].filter(Boolean).join(", ") || "Nigeria"}
                     </p>
