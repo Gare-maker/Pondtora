@@ -1,16 +1,6 @@
 -- ==============================================================================
 -- PONDTORA: COMPLETE DATABASE PURGE SCRIPT (ONLY ADMIN REMAINS)
 -- ==============================================================================
--- Purpose:
---   Wipes all test accounts, farm owners, farms, ponds, feeding records, stock,
---   staff members, invitations, finances, reports, invoices, and investors.
---   Preserves ONLY the active platform administrator (edafejesugarec@gmail.com)
---   and system platform settings / subscription pricing tiers.
---
--- How to run:
---   1. Open your Supabase Dashboard: https://supabase.com/dashboard/project/_/sql
---   2. Click "New Query", paste this entire script, and click "Run" (or Ctrl+Enter).
--- ==============================================================================
 
 BEGIN;
 
@@ -56,23 +46,21 @@ END $$;
 DELETE FROM user_profiles
 WHERE LOWER(email) NOT IN ('edafejesugarec@gmail.com');
 
--- 5. Ensure the administrator profile is strictly configured as superadmin
+-- 5. Set the administrator profile strictly as superadmin with a valid non-null farm_name
 UPDATE user_profiles
 SET
   role = 'superadmin',
   status = 'Active',
-  farm_name = NULL
+  farm_name = 'Pondtora HQ'
 WHERE LOWER(email) = 'edafejesugarec@gmail.com';
 
 -- 6. Delete all non-admin users from Supabase Auth (auth.users)
--- This completely frees up edafejesugare44@gmail.com, edafejesugare3@gmail.com,
--- and all other test emails so they can be registered anew without conflict.
 DELETE FROM auth.users
 WHERE LOWER(email) NOT IN ('edafejesugarec@gmail.com');
 
 COMMIT;
 
--- 7. Display remaining database state verification
+-- 7. Verification results check
 SELECT
   (SELECT COUNT(*) FROM auth.users) AS remaining_auth_users,
   (SELECT COUNT(*) FROM user_profiles) AS remaining_user_profiles,
