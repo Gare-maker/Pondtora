@@ -8,7 +8,7 @@ import react from '@vitejs/plugin-react'
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
-function figmaAssetResolver() {
+function figmaAssetResolver(): Plugin {
   return {
     name: 'figma-asset-resolver',
     resolveId(id: string) {
@@ -29,6 +29,7 @@ function figmaAssetResolver() {
 function supabasePortForwarder(): Plugin {
   return {
     name: 'supabase-port-forwarder',
+    apply: 'serve',
     configureServer(server) {
       const forwarder = http.createServer((req, res) => {
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
@@ -52,7 +53,6 @@ function supabasePortForwarder(): Plugin {
       })
 
       forwarder.on('error', (err: any) => {
-        // Port 3000 already in use or cannot bind - ignore silently
         if (err.code !== 'EADDRINUSE') {
           console.warn('[supabase-forwarder] Notice:', err.message)
         }
@@ -82,12 +82,6 @@ export default defineConfig({
     port: 5173,
     strictPort: false,
   },
-  root: '.',
-  build: {
-    rollupOptions: {
-      input: path.resolve(__dirname, 'index.html'),
-    },
-  },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
@@ -95,4 +89,3 @@ export default defineConfig({
   },
   assetsInclude: ['**/*.svg', '**/*.csv'],
 })
-
