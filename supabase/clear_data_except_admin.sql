@@ -1,15 +1,20 @@
 -- ==============================================================================
--- PONDTORA: DATABASE RESET SCRIPT (PRESERVE ADMIN & PLATFORM SETTINGS)
+-- PONDTORA: COMPLETE DATABASE PURGE SCRIPT (ONLY ADMIN REMAINS)
 -- ==============================================================================
--- This script completely wipes all farm data, staff members, logs, financials,
--- and regular user accounts so emails can be reused for fresh testing.
--- The Admin Dashboard account (edafejesugarec@gmail.com / admin roles) and
--- platform settings are safely preserved.
+-- Purpose:
+--   Wipes all test accounts, farm owners, farms, ponds, feeding records, stock,
+--   staff members, invitations, finances, reports, invoices, and investors.
+--   Preserves ONLY the active platform administrator (edafejesugarec@gmail.com)
+--   and system platform settings / subscription pricing tiers.
+--
+-- How to run:
+--   1. Open your Supabase Dashboard: https://supabase.com/dashboard/project/_/sql
+--   2. Click "New Query", paste this entire script, and click "Run" (or Ctrl+Enter).
 -- ==============================================================================
 
 BEGIN;
 
--- 1. Clear all operational farm and investor records
+-- 1. Wipe all operational farm records, logs, financials, reports, invoices & investors
 TRUNCATE TABLE pond_reports CASCADE;
 TRUNCATE TABLE investment_payments CASCADE;
 TRUNCATE TABLE investments CASCADE;
@@ -31,14 +36,15 @@ TRUNCATE TABLE feed_inventory CASCADE;
 TRUNCATE TABLE stock_events CASCADE;
 TRUNCATE TABLE ponds CASCADE;
 
--- 2. Clear all staff and farm assignments
+-- 2. Wipe all staff permissions, farm assignments, invitations, staff members & farms
 TRUNCATE TABLE staff_permissions CASCADE;
 TRUNCATE TABLE staff_farm_assignments CASCADE;
 TRUNCATE TABLE staff_invitations CASCADE;
 TRUNCATE TABLE staff_members CASCADE;
 TRUNCATE TABLE farms CASCADE;
+TRUNCATE TABLE invoice_settings CASCADE;
 
--- 3. Clear key-value store if present
+-- 3. Wipe KV store if table exists
 DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'kv_store_1da59a07') THEN
@@ -46,31 +52,30 @@ BEGIN
   END IF;
 END $$;
 
--- 4. Clear invoice settings for non-admin accounts
-DELETE FROM invoice_settings
-WHERE user_id NOT IN (
-  SELECT id FROM auth.users WHERE LOWER(email) = 'edafejesugarec@gmail.com'
-  UNION
-  SELECT id FROM user_profiles WHERE role IN ('admin', 'superadmin')
-);
-
--- 5. Delete all regular user profiles (preserve admin)
+-- 4. Delete all non-admin user profiles
 DELETE FROM user_profiles
-WHERE LOWER(email) != 'edafejesugarec@gmail.com'
-  AND (role IS NULL OR role NOT IN ('admin', 'superadmin'));
+WHERE LOWER(email) NOT IN ('edafejesugarec@gmail.com');
 
--- 6. Delete all regular users from Supabase Auth (auth.users)
--- This frees up their emails so they can be registered anew
+-- 5. Ensure the administrator profile is strictly configured as superadmin
+UPDATE user_profiles
+SET
+  role = 'superadmin',
+  status = 'Active',
+  farm_name = NULL
+WHERE LOWER(email) = 'edafejesugarec@gmail.com';
+
+-- 6. Delete all non-admin users from Supabase Auth (auth.users)
+-- This completely frees up edafejesugare44@gmail.com, edafejesugare3@gmail.com,
+-- and all other test emails so they can be registered anew without conflict.
 DELETE FROM auth.users
-WHERE LOWER(email) != 'edafejesugarec@gmail.com'
-  AND id NOT IN (SELECT id FROM user_profiles WHERE role IN ('admin', 'superadmin'));
+WHERE LOWER(email) NOT IN ('edafejesugarec@gmail.com');
 
 COMMIT;
 
--- Verification query
+-- 7. Display remaining database state verification
 SELECT
   (SELECT COUNT(*) FROM auth.users) AS remaining_auth_users,
-  (SELECT COUNT(*) FROM user_profiles) AS remaining_profiles,
+  (SELECT COUNT(*) FROM user_profiles) AS remaining_user_profiles,
   (SELECT COUNT(*) FROM farms) AS remaining_farms,
-  (SELECT COUNT(*) FROM staff_members) AS remaining_staff,
+  (SELECT COUNT(*) FROM staff_members) AS remaining_staff_members,
   (SELECT COUNT(*) FROM ponds) AS remaining_ponds;

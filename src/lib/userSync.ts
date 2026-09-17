@@ -94,11 +94,17 @@ export async function fetchLiveAdminUsers(): Promise<{
 
     const dbUsers: AdminUser[] = [];
 
-    // 1. Process user profiles (farm owners only - excluding staff)
+    // 1. Process user profiles (customer farm owners only - excluding staff and system admins)
     rawProfiles.forEach((p: any) => {
       const pEmail = (p.email || "").toLowerCase().trim();
       const pRole = (p.role || "").toLowerCase().trim();
-      if (pRole === "staff" || pRole === "staff member" || staffEmails.has(pEmail)) {
+      if (
+        pRole === "staff" ||
+        pRole === "staff member" ||
+        pRole === "admin" ||
+        pRole === "superadmin" ||
+        staffEmails.has(pEmail)
+      ) {
         return;
       }
 
@@ -156,44 +162,9 @@ export async function fetchLiveAdminUsers(): Promise<{
       dbUsers.push(u);
     });
 
-    const existingEmails = new Set(dbUsers.map(u => (u.email || "").toLowerCase().trim()));
-
-    // 2. Scan localStorage for any cached profiles (farm owners only)
-    try {
-      Object.keys(localStorage).forEach(key => {
-        if (key.endsWith("_user_profile") || key === "pondtora_user_profile") {
-          try {
-            const raw = localStorage.getItem(key);
-            if (raw) {
-              const prof = JSON.parse(raw);
-              const profRole = (prof?.role || "").toLowerCase().trim();
-              if (prof?.email && profRole !== "staff" && profRole !== "staff member") {
-                const em = prof.email.toLowerCase().trim();
-                if (!existingEmails.has(em) && !staffEmails.has(em)) {
-                  existingEmails.add(em);
-                  const uObj = syncUserProfileToAdmin(prof);
-                  if (uObj) dbUsers.push(uObj);
-                }
-              }
-            }
-          } catch {}
-        }
-      });
-    } catch {}
-
-    const dbIds = new Set(dbUsers.map(u => u.id));
-    const extraLocal = existingLocal.filter(
-      u => !isDummyUser(u) &&
-           !dbIds.has(u.id) &&
-           !existingEmails.has((u.email || "").toLowerCase().trim()) &&
-           (u.role || "").toLowerCase() !== "staff" &&
-           (u.role || "").toLowerCase() !== "staff member" &&
-           !staffEmails.has((u.email || "").toLowerCase().trim())
-    );
-
-    const finalUsers = [...dbUsers, ...extraLocal];
+    const finalUsers = dbUsers;
     saveAllAdminUsers(finalUsers);
-    return { users: finalUsers, isLiveFromDb: rawProfiles.length > 0, count: finalUsers.length };
+    return { users: finalUsers, isLiveFromDb: true, count: finalUsers.length };
   } catch (err) {
     console.warn("fetchLiveAdminUsers error:", err);
     const cleanLocal = loadAllAdminUsers();
