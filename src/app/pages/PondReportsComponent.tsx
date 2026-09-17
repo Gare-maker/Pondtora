@@ -19,6 +19,9 @@ interface PondReportsProps {
   fixedPondId?: string;
   currentUser?: { name: string; email: string };
   canManage?: boolean;
+  canCreate?: boolean;
+  canEdit?: boolean;
+  canDelete?: boolean;
   onAddPondReport: (r: PondReport) => Promise<void>;
   onAddTreatment?: (t: TreatmentRecord) => Promise<void>;
   onDeletePondReport?: (id: string) => Promise<void>;
@@ -35,6 +38,9 @@ export default function PondReportsComponent({
   fixedPondId,
   currentUser,
   canManage = true,
+  canCreate = true,
+  canEdit = true,
+  canDelete = true,
   onAddPondReport,
   onAddTreatment,
   onDeletePondReport,
@@ -530,7 +536,7 @@ export default function PondReportsComponent({
             />
           </div>
 
-          {canManage && (
+          {canCreate && (
             <button
               onClick={openAddModal}
               className="flex items-center gap-1.5 px-3.5 py-1.5 bg-[#00BB58] hover:bg-[#009e4a] text-white text-xs font-bold rounded-xl shadow-xs transition-colors"
@@ -890,7 +896,22 @@ export default function PondReportsComponent({
               )}
             </div>
 
-            <div className="pt-3 border-t border-slate-100 flex justify-end">
+            <div className="pt-3 border-t border-slate-100 flex justify-between items-center">
+              {canDelete && onDeletePondReport ? (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (confirm("Delete this pond report?")) {
+                      await onDeletePondReport(viewingReport.id);
+                      setViewingReport(null);
+                      toast.success("Report deleted");
+                    }
+                  }}
+                  className="px-3 py-1.5 text-red-600 hover:bg-red-50 rounded-xl text-xs font-semibold transition-colors"
+                >
+                  Delete Report
+                </button>
+              ) : <div/>}
               <button
                 type="button"
                 onClick={() => setViewingReport(null)}

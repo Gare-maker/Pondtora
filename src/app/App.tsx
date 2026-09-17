@@ -214,7 +214,41 @@ function AccessDenied(){
 }
 
 /* ─── 1. Financial Dashboard ────────────────────────────────── */
-function FinancialDashboard({expenses,revenues,onAddExpense,onAddRevenue,onEditExpense,onEditRevenue,onDeleteExpense,onDeleteRevenue,stockEvents,ponds,inventory,currency="₦",currentUser}:{expenses:Expense[];revenues:Revenue[];onAddExpense:(e:Expense)=>void;onAddRevenue:(r:Revenue)=>void;onEditExpense:(e:Expense)=>void;onEditRevenue:(r:Revenue)=>void;onDeleteExpense?:(id:string)=>void;onDeleteRevenue?:(id:string)=>void;stockEvents?:StockEvent[];ponds?:Pond[];inventory?:FeedItem[];currency?:string;currentUser?:{name:string;email:string};}){
+function FinancialDashboard({
+  expenses,
+  revenues,
+  onAddExpense,
+  onAddRevenue,
+  onEditExpense,
+  onEditRevenue,
+  onDeleteExpense,
+  onDeleteRevenue,
+  stockEvents,
+  ponds,
+  inventory,
+  currency = "₦",
+  currentUser,
+  canCreate = true,
+  canEdit = true,
+  canDelete = true,
+}: {
+  expenses: Expense[];
+  revenues: Revenue[];
+  onAddExpense: (e: Expense) => void;
+  onAddRevenue: (r: Revenue) => void;
+  onEditExpense: (e: Expense) => void;
+  onEditRevenue: (r: Revenue) => void;
+  onDeleteExpense?: (id: string) => void;
+  onDeleteRevenue?: (id: string) => void;
+  stockEvents?: StockEvent[];
+  ponds?: Pond[];
+  inventory?: FeedItem[];
+  currency?: string;
+  currentUser?: { name: string; email: string };
+  canCreate?: boolean;
+  canEdit?: boolean;
+  canDelete?: boolean;
+}) {
   const cs=currency;
   const [selYear,setSelYear]=useState(new Date().getFullYear());
   const [dashFilterYear,setDashFilterYear]=useState(new Date().getFullYear());
@@ -352,17 +386,21 @@ function FinancialDashboard({expenses,revenues,onAddExpense,onAddRevenue,onEditE
             {/* Desktop: full buttons */}
             <button onClick={()=>{const label=customApplied?`${customStart}-to-${customEnd}`:`${dashFilterMonth==="All"?"all":dashFilterMonth}-${dashFilterYear}`;downloadCSV(`expenses-${label}.csv`,["Date","Category",`Amount (${cs})`,`Pond`,"Description"],filtExp.map(e=>[e.date,e.category,e.amount,e.pond||"",e.desc]));}} className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 text-xs font-semibold hover:border-green-400 hover:text-green-600 transition-colors"><Download size={12}/> Export CSV</button>
             <button onClick={()=>{const label=customApplied?`${customStart} to ${customEnd}`:`${dashFilterMonth==="All"?"All Months":dashFilterMonth} ${dashFilterYear}`;openPrintWindow(`Financial Statement — ${label}`,["Date","Category","Amount","Pond","Description"],filtExp.map(e=>[e.date,e.category,fmt(e.amount),e.pond||"",e.desc]));}} className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 text-xs font-semibold hover:border-green-400 hover:text-green-600 transition-colors"><FileText size={12}/> PDF</button>
-            <div className="hidden lg:flex gap-2">
-              <PBtn onClick={()=>setShowExp(true)} sm><Plus size={13}/> Add Expense</PBtn>
-              <PBtn onClick={()=>setShowRev(true)} sm><ArrowUpRight size={13}/> Add Revenue</PBtn>
-            </div>
+            {canCreate && (
+              <div className="hidden lg:flex gap-2">
+                <PBtn onClick={()=>setShowExp(true)} sm><Plus size={13}/> Add Expense</PBtn>
+                <PBtn onClick={()=>setShowRev(true)} sm><ArrowUpRight size={13}/> Add Revenue</PBtn>
+              </div>
+            )}
           </div>
         </div>
         {/* Mobile: add buttons row below header */}
-        <div className="flex gap-2 lg:hidden">
-          <PBtn onClick={()=>setShowExp(true)} sm><Plus size={13}/> Add Expense</PBtn>
-          <PBtn onClick={()=>setShowRev(true)} sm><ArrowUpRight size={13}/> Add Revenue</PBtn>
-        </div>
+        {canCreate && (
+          <div className="flex gap-2 lg:hidden">
+            <PBtn onClick={()=>setShowExp(true)} sm><Plus size={13}/> Add Expense</PBtn>
+            <PBtn onClick={()=>setShowRev(true)} sm><ArrowUpRight size={13}/> Add Revenue</PBtn>
+          </div>
+        )}
       </div>
       <div className="flex flex-wrap gap-2 items-start">
         {/* Year select */}
@@ -536,8 +574,9 @@ function FinancialDashboard({expenses,revenues,onAddExpense,onAddRevenue,onEditE
                 <td className="px-4 py-3 text-slate-600">{e.originalDesc??e.desc}</td>
                 <td className="px-4 py-3 text-center" onClick={ev=>ev.stopPropagation()}>
                   <div className="flex items-center justify-center gap-1">
-                    <button onClick={()=>openEditExp(e)} title="Edit Expense" className="p-1.5 rounded-lg text-slate-300 hover:text-green-600 hover:bg-green-50 transition-colors"><Pencil size={13}/></button>
-                    {onDeleteExpense&&<button onClick={()=>{if(confirm("Are you sure you want to delete this expense?"))onDeleteExpense(e.id);}} title="Delete Expense" className="p-1.5 rounded-lg text-slate-300 hover:text-red-600 hover:bg-red-50 transition-colors"><Trash2 size={13}/></button>}
+                    {canEdit && <button onClick={()=>openEditExp(e)} title="Edit Expense" className="p-1.5 rounded-lg text-slate-300 hover:text-green-600 hover:bg-green-50 transition-colors"><Pencil size={13}/></button>}
+                    {canDelete && onDeleteExpense && <button onClick={()=>{if(confirm("Are you sure you want to delete this expense?"))onDeleteExpense(e.id);}} title="Delete Expense" className="p-1.5 rounded-lg text-slate-300 hover:text-red-600 hover:bg-red-50 transition-colors"><Trash2 size={13}/></button>}
+                    {!canEdit && !canDelete && <span className="text-slate-300 text-xs">—</span>}
                   </div>
                 </td>
               </tr>
@@ -577,8 +616,9 @@ function FinancialDashboard({expenses,revenues,onAddExpense,onAddRevenue,onEditE
                 <td className="px-4 py-3 text-slate-500 text-xs">{r.originalNotes??r.notes}</td>
                 <td className="px-4 py-3 text-center" onClick={ev=>ev.stopPropagation()}>
                   <div className="flex items-center justify-center gap-1">
-                    <button onClick={()=>openEditRev(r)} title="Edit Revenue" className="p-1.5 rounded-lg text-slate-300 hover:text-green-600 hover:bg-green-50 transition-colors"><Pencil size={13}/></button>
-                    {onDeleteRevenue&&<button onClick={()=>{if(confirm("Are you sure you want to delete this revenue entry?"))onDeleteRevenue(r.id);}} title="Delete Revenue" className="p-1.5 rounded-lg text-slate-300 hover:text-red-600 hover:bg-red-50 transition-colors"><Trash2 size={13}/></button>}
+                    {canEdit && <button onClick={()=>openEditRev(r)} title="Edit Revenue" className="p-1.5 rounded-lg text-slate-300 hover:text-green-600 hover:bg-green-50 transition-colors"><Pencil size={13}/></button>}
+                    {canDelete && onDeleteRevenue && <button onClick={()=>{if(confirm("Are you sure you want to delete this revenue entry?"))onDeleteRevenue(r.id);}} title="Delete Revenue" className="p-1.5 rounded-lg text-slate-300 hover:text-red-600 hover:bg-red-50 transition-colors"><Trash2 size={13}/></button>}
+                    {!canEdit && !canDelete && <span className="text-slate-300 text-xs">—</span>}
                   </div>
                 </td>
               </tr>
@@ -819,6 +859,17 @@ function StaffPage({
     return `Pond#${randNum}${randSpecial}`;
   };
 
+  const DEFAULT_STAFF_ACTION_PERMS: Record<string, { canView: boolean; canCreate: boolean; canEdit: boolean; canDelete: boolean }> = {
+    "Feeding Records": { canView: true, canCreate: true, canEdit: true, canDelete: false },
+    "Feed Stock": { canView: true, canCreate: true, canEdit: true, canDelete: false },
+    "Pond Management": { canView: false, canCreate: false, canEdit: false, canDelete: false },
+    "Financial Dashboard": { canView: false, canCreate: false, canEdit: false, canDelete: false },
+    "Reports": { canView: false, canCreate: false, canEdit: false, canDelete: false },
+    "Invoices": { canView: false, canCreate: false, canEdit: false, canDelete: false },
+    "Investors": { canView: false, canCreate: false, canEdit: false, canDelete: false },
+    "Staff Assessments": { canView: false, canCreate: false, canEdit: false, canDelete: false },
+  };
+
   const [form, setForm] = useState({
     name: "",
     email: "",
@@ -826,6 +877,7 @@ function StaffPage({
     password: "",
     role: "Feeding Staff",
     permissions: ["Feeding Records", "Feed Stock"] as string[],
+    staffPermissions: { ...DEFAULT_STAFF_ACTION_PERMS } as Record<string, { canView: boolean; canCreate: boolean; canEdit: boolean; canDelete: boolean }>,
     farms: (farms && farms.length === 1) ? [farms[0].id] : [] as string[],
   });
   const [inviteErr, setInviteErr] = useState<Record<string, string>>({});
@@ -843,11 +895,33 @@ function StaffPage({
       password: autoPass,
       role: "Feeding Staff",
       permissions: ["Feeding Records", "Feed Stock"],
+      staffPermissions: { ...DEFAULT_STAFF_ACTION_PERMS },
       farms: defaultFarms,
     });
     setInviteErr({});
     setShowPassword(false);
     setShowInvite(true);
+  };
+
+  const openEditModal = (s: StaffMember) => {
+    const existing = s.staffPermissions || {};
+    const permsMap: Record<string, { canView: boolean; canCreate: boolean; canEdit: boolean; canDelete: boolean }> = {};
+    STAFF_PERMISSIONS.forEach(p => {
+      const hasView = (s.permissions || []).includes(p);
+      permsMap[p] = {
+        canView: hasView,
+        canCreate: existing[p]?.canCreate ?? hasView,
+        canEdit: existing[p]?.canEdit ?? hasView,
+        canDelete: existing[p]?.canDelete ?? false,
+      };
+    });
+    setEditMember({
+      ...s,
+      staffPermissions: permsMap,
+      farms: s.farms || [],
+    });
+    setEditPassword("");
+    setShowEditPassword(false);
   };
 
   const handleInvite = async () => {
@@ -914,6 +988,7 @@ function StaffPage({
     }
 
     setInviteErr({});
+    const enabledPerms = STAFF_PERMISSIONS.filter(p => form.staffPermissions?.[p]?.canView);
     onAdd({
       id: uid(),
       name,
@@ -922,7 +997,8 @@ function StaffPage({
       role: form.role,
       status: "Pending",
       joinedDate: TODAY,
-      permissions: form.permissions,
+      permissions: enabledPerms.length > 0 ? enabledPerms : form.permissions,
+      staffPermissions: form.staffPermissions,
       farms: assignedFarms,
     }, password);
     setRecentCreds({ email, password, name });
@@ -933,6 +1009,7 @@ function StaffPage({
       password: "",
       role: "Feeding Staff",
       permissions: ["Feeding Records", "Feed Stock"],
+      staffPermissions: { ...DEFAULT_STAFF_ACTION_PERMS },
       farms: (farms && farms.length === 1) ? [farms[0].id] : [],
     });
     setShowInvite(false);
@@ -988,7 +1065,11 @@ function StaffPage({
   const toggleFarm = (fid: string, fids: string[], setter: (f: string[]) => void) => { setter(fids.includes(fid) ? fids.filter(x => x !== fid) : [...fids, fid]); };
   const handleSaveEdit = () => {
     if (!editMember) return;
-    onEdit(editMember, editPassword.trim() || undefined);
+    const enabledPerms = STAFF_PERMISSIONS.filter(p => editMember.staffPermissions?.[p]?.canView);
+    onEdit({
+      ...editMember,
+      permissions: enabledPerms,
+    }, editPassword.trim() || undefined);
     setEditMember(null);
     setEditPassword("");
   };
@@ -1096,7 +1177,7 @@ function StaffPage({
                               </span>
                             ))
                           ):(
-                            <span className="text-[10px] text-slate-400 italic">All farms</span>
+                            <span className="text-[10px] text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded italic">No farm assigned</span>
                           )}
                         </div>
                       </td>
@@ -1104,9 +1185,16 @@ function StaffPage({
                         <div className="flex gap-1 flex-wrap max-w-xs">
                           {s.permissions&&s.permissions.length>0?(
                             <>
-                              {s.permissions.slice(0,2).map(p=>(
-                                <Bdg key={p} label={p} color="gray"/>
-                              ))}
+                              {s.permissions.slice(0,2).map(p=>{
+                                const sp = s.staffPermissions?.[p];
+                                const acts = [sp?.canCreate?"C":"",sp?.canEdit?"E":"",sp?.canDelete?"D":""].filter(Boolean).join("");
+                                return (
+                                  <span key={p} className="inline-flex items-center gap-1 text-[10px] bg-slate-100 text-slate-700 font-medium px-1.5 py-0.5 rounded border border-slate-200">
+                                    {p}
+                                    {acts && <span className="text-[9px] text-emerald-700 font-bold bg-emerald-50 px-1 rounded">[{acts}]</span>}
+                                  </span>
+                                );
+                              })}
                               {s.permissions.length>2&&(
                                 <span className="text-[10px] text-slate-400">+{s.permissions.length-2} more</span>
                               )}
@@ -1140,7 +1228,7 @@ function StaffPage({
                             </button>
                           )}
                           <button
-                            onClick={()=>setEditMember({...s})}
+                            onClick={()=>openEditModal(s)}
                             className="p-1.5 rounded-lg text-slate-400 hover:text-green-600 hover:bg-green-50 transition-colors"
                             title="Edit"
                           >
@@ -1303,18 +1391,70 @@ function StaffPage({
           {inviteErr.farms && <p className="text-xs text-red-500 mt-1">{inviteErr.farms}</p>}
         </F>
 
-        {/* 2. Page Permissions — comes AFTER farm assignment */}
-        <F label="2. Page Permissions">
+        {/* 2. Page & Action Permissions */}
+        <F label="2. Page & Action Permissions">
           <p className="text-[11px] text-slate-400 mb-1.5">
-            Select the pages this staff member is allowed to view and manage:
+            Select the pages and permitted actions (View, Create, Edit, Delete) for this staff member:
           </p>
-          <div className="border border-slate-200 rounded-xl p-3 max-h-44 overflow-y-auto space-y-1.5">
-            {STAFF_PERMISSIONS.map(perm=>(
-              <label key={perm} className="flex items-center gap-2 cursor-pointer hover:bg-slate-50 p-1 rounded-lg transition-colors">
-                <input type="checkbox" checked={form.permissions.includes(perm)} onChange={()=>togglePerm(perm,form.permissions,p=>setForm(prev=>({...prev,permissions:p})))} className="custom-check w-4 h-4 appearance-none border border-slate-300 rounded bg-white checked:bg-green-600 checked:border-green-600 transition-colors cursor-pointer"/>
-                <span className="text-xs text-slate-700 font-medium">{perm}</span>
-              </label>
-            ))}
+          <div className="border border-slate-200 rounded-xl p-2.5 max-h-56 overflow-y-auto space-y-2">
+            {STAFF_PERMISSIONS.map(perm => {
+              const pState = form.staffPermissions?.[perm] || { canView: false, canCreate: false, canEdit: false, canDelete: false };
+              const isEnabled = pState.canView;
+              return (
+                <div key={perm} className={`p-2.5 rounded-xl border transition-all ${isEnabled ? "border-green-200 bg-green-50/40" : "border-slate-200/80 bg-slate-50/60"}`}>
+                  <div className="flex items-center justify-between">
+                    <label className="flex items-center gap-2 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={isEnabled}
+                        onChange={() => {
+                          const nextState = isEnabled
+                            ? { canView: false, canCreate: false, canEdit: false, canDelete: false }
+                            : { canView: true, canCreate: true, canEdit: true, canDelete: false };
+                          setForm(prev => {
+                            const nextPerms = { ...(prev.staffPermissions || {}), [perm]: nextState };
+                            return { ...prev, staffPermissions: nextPerms, permissions: STAFF_PERMISSIONS.filter(p => nextPerms[p]?.canView) };
+                          });
+                        }}
+                        className="custom-check w-4 h-4 appearance-none border border-slate-300 rounded bg-white checked:bg-green-600 checked:border-green-600 transition-colors cursor-pointer"
+                      />
+                      <span className={`text-xs font-semibold ${isEnabled ? "text-slate-900" : "text-slate-500"}`}>{perm}</span>
+                    </label>
+                    <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${isEnabled ? "bg-green-100 text-green-700 font-bold" : "bg-slate-100 text-slate-400"}`}>
+                      {isEnabled ? "Enabled" : "Disabled"}
+                    </span>
+                  </div>
+                  {isEnabled && (
+                    <div className="mt-2 pt-2 border-t border-green-100/80 flex items-center gap-3 pl-6 flex-wrap">
+                      <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mr-1">Actions:</span>
+                      {(["canCreate", "canEdit", "canDelete"] as const).map(act => {
+                        const label = act === "canCreate" ? "Create" : act === "canEdit" ? "Edit" : "Delete";
+                        const isChecked = pState[act] ?? false;
+                        return (
+                          <label key={act} className="flex items-center gap-1.5 cursor-pointer text-xs select-none">
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={(e) => {
+                                const nextState = { ...pState, [act]: e.target.checked };
+                                setForm(prev => {
+                                  const nextPerms = { ...(prev.staffPermissions || {}), [perm]: nextState };
+                                  return { ...prev, staffPermissions: nextPerms, permissions: STAFF_PERMISSIONS.filter(p => nextPerms[p]?.canView) };
+                                });
+                              }}
+                              className="custom-check w-3.5 h-3.5 appearance-none border border-slate-300 rounded bg-white checked:bg-green-600 checked:border-green-600 transition-colors cursor-pointer"
+                            />
+                            <span className={`text-[11px] font-medium ${isChecked ? (act === "canDelete" ? "text-red-600 font-bold" : "text-slate-800 font-semibold") : "text-slate-400"}`}>
+                              {label}
+                            </span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </F>
 
@@ -1352,15 +1492,69 @@ function StaffPage({
           </div>
         </F>}
 
-        {/* 2. Page Permissions — comes AFTER farm assignment */}
-        <F label="2. Page Permissions">
-          <div className="border border-slate-200 rounded-xl p-3 max-h-44 overflow-y-auto space-y-1.5">
-            {STAFF_PERMISSIONS.map(perm=>(
-              <label key={perm} className="flex items-center gap-2 cursor-pointer hover:bg-slate-50 p-1 rounded-lg transition-colors">
-                <input type="checkbox" checked={(editMember.permissions||[]).includes(perm)} onChange={()=>{const perms=(editMember.permissions||[]);setEditMember(p=>p?{...p,permissions:perms.includes(perm)?perms.filter(x=>x!==perm):[...perms,perm]}:p);}} className="custom-check w-4 h-4 appearance-none border border-slate-300 rounded bg-white checked:bg-green-600 checked:border-green-600 transition-colors cursor-pointer"/>
-                <span className="text-xs text-slate-700 font-medium">{perm}</span>
-              </label>
-            ))}
+        {/* 2. Page & Action Permissions */}
+        <F label="2. Page & Action Permissions">
+          <div className="border border-slate-200 rounded-xl p-2.5 max-h-56 overflow-y-auto space-y-2">
+            {STAFF_PERMISSIONS.map(perm => {
+              const pState = editMember.staffPermissions?.[perm] || { canView: false, canCreate: false, canEdit: false, canDelete: false };
+              const isEnabled = pState.canView;
+              return (
+                <div key={perm} className={`p-2.5 rounded-xl border transition-all ${isEnabled ? "border-green-200 bg-green-50/40" : "border-slate-200/80 bg-slate-50/60"}`}>
+                  <div className="flex items-center justify-between">
+                    <label className="flex items-center gap-2 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={isEnabled}
+                        onChange={() => {
+                          const nextState = isEnabled
+                            ? { canView: false, canCreate: false, canEdit: false, canDelete: false }
+                            : { canView: true, canCreate: true, canEdit: true, canDelete: false };
+                          setEditMember(prev => {
+                            if (!prev) return null;
+                            const nextPerms = { ...(prev.staffPermissions || {}), [perm]: nextState };
+                            return { ...prev, staffPermissions: nextPerms, permissions: STAFF_PERMISSIONS.filter(p => nextPerms[p]?.canView) };
+                          });
+                        }}
+                        className="custom-check w-4 h-4 appearance-none border border-slate-300 rounded bg-white checked:bg-green-600 checked:border-green-600 transition-colors cursor-pointer"
+                      />
+                      <span className={`text-xs font-semibold ${isEnabled ? "text-slate-900" : "text-slate-500"}`}>{perm}</span>
+                    </label>
+                    <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${isEnabled ? "bg-green-100 text-green-700 font-bold" : "bg-slate-100 text-slate-400"}`}>
+                      {isEnabled ? "Enabled" : "Disabled"}
+                    </span>
+                  </div>
+                  {isEnabled && (
+                    <div className="mt-2 pt-2 border-t border-green-100/80 flex items-center gap-3 pl-6 flex-wrap">
+                      <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mr-1">Actions:</span>
+                      {(["canCreate", "canEdit", "canDelete"] as const).map(act => {
+                        const label = act === "canCreate" ? "Create" : act === "canEdit" ? "Edit" : "Delete";
+                        const isChecked = pState[act] ?? false;
+                        return (
+                          <label key={act} className="flex items-center gap-1.5 cursor-pointer text-xs select-none">
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={(e) => {
+                                const nextState = { ...pState, [act]: e.target.checked };
+                                setEditMember(prev => {
+                                  if (!prev) return null;
+                                  const nextPerms = { ...(prev.staffPermissions || {}), [perm]: nextState };
+                                  return { ...prev, staffPermissions: nextPerms, permissions: STAFF_PERMISSIONS.filter(p => nextPerms[p]?.canView) };
+                                });
+                              }}
+                              className="custom-check w-3.5 h-3.5 appearance-none border border-slate-300 rounded bg-white checked:bg-green-600 checked:border-green-600 transition-colors cursor-pointer"
+                            />
+                            <span className={`text-[11px] font-medium ${isChecked ? (act === "canDelete" ? "text-red-600 font-bold" : "text-slate-800 font-semibold") : "text-slate-400"}`}>
+                              {label}
+                            </span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </F>
 
@@ -1405,6 +1599,9 @@ function ReportsPage({
   stockEvents = [],
   onAddPondReport,
   activeFarmId = "",
+  canCreate = true,
+  canEdit = true,
+  canDelete = true,
 }: {
   reports: Report[];
   staff: StaffMember[];
@@ -1417,6 +1614,9 @@ function ReportsPage({
   stockEvents?: StockEvent[];
   onAddPondReport?: (r: PondReport) => Promise<void>;
   activeFarmId?: string;
+  canCreate?: boolean;
+  canEdit?: boolean;
+  canDelete?: boolean;
 }) {
   const [typeFilter, setTypeFilter] = useState<"All" | "Daily" | "Weekly" | "Monthly" | "Pond-Based">("All");
   const [dateSearch, setDateSearch] = useState("");
@@ -1598,20 +1798,19 @@ function ReportsPage({
       if (fPumpsOff === "Yes" && !fPumpsOffConfirm) { setSubmitError("Please confirm whether pumping machines and electrical devices were turned off."); return; }
       if (fEquipStored === "Yes" && !fEquipConfirm) { setSubmitError("Please confirm whether equipment is properly stored."); return; }
       const parts: string[] = [];
-      if (fFedFish) { parts.push(`Fed fish today: ${fFedFish}`); if (fFedFish === "Yes" && fFeedSession) parts.push(`Feeding session: ${fFeedSession}`); }
-      if (fOutletLocked) { const effectiveOutlet = fOutletLocked === "Yes" && fOutletConfirm === "No" ? "No" : fOutletLocked; parts.push(`Locked all pond outlets/inlets: ${effectiveOutlet}`); if (fOutletLocked === "Yes" && fOutletConfirm) parts.push(`Outlet lock confirmed: ${fOutletConfirm}`); }
-      if (fWaterFlow) { parts.push(`Pond flush/water flow-through: ${fWaterFlow}`); if (fWaterFlow === "Yes" && fWaterSession) parts.push(`Water flow session: ${fWaterSession}`); }
-      if (fPumpsOff) { const effectivePumps = fPumpsOff === "Yes" && fPumpsOffConfirm === "No" ? "No" : fPumpsOff; parts.push(`Pumping machines & electrical devices off: ${effectivePumps}`); if (fPumpsOff === "Yes" && fPumpsOffConfirm) parts.push(`Pumps off confirmed: ${fPumpsOffConfirm}`); }
-      if (fEquipStored) { const effectiveEquip = fEquipStored === "Yes" && fEquipConfirm === "No" ? "No" : fEquipStored; parts.push(`Equipment properly stored: ${effectiveEquip}`); if (fEquipStored === "Yes" && fEquipConfirm) parts.push(`Equipment storage confirmed: ${fEquipConfirm}`); }
+      if (fFedFish) parts.push(`Fed fish today: ${fFedFish}${fFedFish === "Yes" && fFeedSession ? ` (${fFeedSession})` : ""}${fFedFish === "Yes" && fFedFishConfirm ? ` [Confirmed: ${fFedFishConfirm}]` : ""}`);
+      if (fOutletLocked) parts.push(`Locked all pond outlets/inlets: ${fOutletLocked}${fOutletLocked === "Yes" && fOutletConfirm ? ` [Confirmed: ${fOutletConfirm}]` : ""}`);
+      if (fWaterFlow) parts.push(`Pond flush/water flow-through: ${fWaterFlow}${fWaterFlow === "Yes" && fWaterSession ? ` (${fWaterSession})` : ""}${fWaterFlow === "Yes" && fWaterFlowConfirm ? ` [Confirmed: ${fWaterFlowConfirm}]` : ""}`);
+      if (fPumpsOff) parts.push(`Pumping machines & electrical devices off: ${fPumpsOff}${fPumpsOff === "Yes" && fPumpsOffConfirm ? ` [Confirmed: ${fPumpsOffConfirm}]` : ""}`);
+      if (fEquipStored) parts.push(`Equipment properly stored: ${fEquipStored}${fEquipStored === "Yes" && fEquipConfirm ? ` [Confirmed: ${fEquipConfirm}]` : ""}`);
       if (fNotes.trim()) parts.push(`Additional notes: ${fNotes.trim()}`);
-      content = parts.join(" | ") || content || "Daily report submitted.";
+      content = parts.join(" | ");
     }
-    if (!content) return;
-    setIsSubmitting(true);
     try {
+      setIsSubmitting(true);
       if (editReport) {
-        onEdit({ ...editReport, title: fTitle.trim(), content, type: fType as any, author: fAuthor.trim() || "Admin" });
-        setEditReport(null);
+        onEdit({ ...editReport, title: fTitle.trim(), content, type: fType as any, author: fAuthor.trim() || editReport.author });
+        toast.success("Report updated");
       } else {
         onAdd({ id: uid(), title: fTitle.trim(), content, type: fType as any, author: fAuthor.trim() || "Admin", date: TODAY, status: "Open", tags: [], timestamp: new Date().toISOString() });
       }
@@ -1640,7 +1839,9 @@ function ReportsPage({
             Farm operational and pond-based incident, treatment, and inspection reports
           </p>
         </div>
-        <PBtn onClick={() => { setFType("Daily"); setShowModal(true); }} sm><Plus size={13} /> Submit Report</PBtn>
+        {canCreate && (
+          <PBtn onClick={() => { setFType("Daily"); setShowModal(true); }} sm><Plus size={13} /> Submit Report</PBtn>
+        )}
       </div>
 
       <Card className="p-3">
@@ -1680,6 +1881,8 @@ function ReportsPage({
           stockEvents={stockEvents}
           onAddPondReport={onAddPondReport || (async () => {})}
           activeFarmId={activeFarmId}
+          canCreate={canCreate}
+          canDelete={canDelete}
         />
       ) : (
         <>
@@ -1733,7 +1936,7 @@ function ReportsPage({
                         <h3 className="text-sm font-bold text-slate-900 mt-1">{r.title}</h3>
                         <p className="text-xs text-slate-400">By {r.author}</p>
                       </div>
-                      {isWithin6h(r) && (
+                      {canEdit && isWithin6h(r) && (
                         <button onClick={() => openEditReport(r)} className="p-1.5 rounded-lg text-slate-300 hover:text-green-600 hover:bg-green-50 transition-colors shrink-0" title="Edit within 6 hours">
                           <Pencil size={13} />
                         </button>
@@ -3982,6 +4185,8 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   const [setupRunning,setSetupRunning]=useState(false);
   const [setupError,setSetupError]=useState<string|null>(null);
   const [sqlCopied,setSqlCopied]=useState(false);
+  // Action-level permissions for the current staff user (populated from backend staffInfo)
+  const [staffOwnPermissions,setStaffOwnPermissions]=useState<Record<string,{canView:boolean;canCreate:boolean;canEdit:boolean;canDelete:boolean}>>({});
 
   /* ── Apply backend authoritative data to state ── */
   const applyBackendData=useCallback((d:any)=>{
@@ -4083,12 +4288,16 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
         }).catch(console.warn);
       }
     }
+    if (d.staffInfo?.staffPermissions) {
+      setStaffOwnPermissions(d.staffInfo.staffPermissions);
+    }
 
     if (d.userProfiles?.length > 0) {
       const up = d.userProfiles[0];
       if (up.activePlan) setActivePlan(up.activePlan);
       if (up.trialStartDate) setTrialStartDate(up.trialStartDate);
     }
+
 
     // Helper to normalize farmId on records so nothing is orphaned or hidden
     const normFid = (fid?: string) => {
@@ -4917,8 +5126,22 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     return false;
   };
 
+  // Action-level permission helpers (canCreate/canEdit/canDelete per feature).
+  // For owners these always return true. For staff they check the action-level
+  // permissions loaded from the backend (staffOwnPermissions or currentStaff.staffPermissions).
+  const staffPermsMap: Record<string,{canView:boolean;canCreate:boolean;canEdit:boolean;canDelete:boolean}> =
+    (isStaff && Object.keys(staffOwnPermissions).length > 0)
+      ? staffOwnPermissions
+      : (currentStaff?.staffPermissions || {});
+
+  const canCreate = (feature: string): boolean => isOwner || (staffPermsMap[feature]?.canCreate ?? false);
+  const canEdit   = (feature: string): boolean => isOwner || (staffPermsMap[feature]?.canEdit   ?? false);
+  const canDelete = (feature: string): boolean => isOwner || (staffPermsMap[feature]?.canDelete ?? false);
+
   const assignedStaffFarms = farms.filter(f => currentStaff?.farms?.includes(f.id) || (userProfile as any)?.farms?.includes(f.id));
-  const accessibleFarms = isOwner ? farms : (assignedStaffFarms.length > 0 ? assignedStaffFarms : farms);
+  // FIXED: staff with no farm assignments see NO farms (not all farms).
+  // Previously the fallback `farms` let staff see all owner farms by default.
+  const accessibleFarms = isOwner ? farms : assignedStaffFarms;
 
   // Auto-redirect staff to their first permitted page if their current view is not permitted
   useEffect(() => {
@@ -5411,14 +5634,14 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
         </div>
         <main ref={mainRef} className="flex-1 overflow-y-auto bg-[#f5f7fa]">
           <AppErrorBoundary key={active}>
-            {active==="financial"     &&(hasPerm("Financial Dashboard")?<FinancialDashboard expenses={farmExpenses} revenues={farmRevenues} onAddExpense={addExp} onAddRevenue={addRev} onEditExpense={editExp} onEditRevenue={editRev} onDeleteExpense={deleteExp} onDeleteRevenue={deleteRev} stockEvents={stockEvents} ponds={farmPonds} inventory={farmInventory} currency={cs} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}}/>:<AccessDenied/>)}
-            {active==="ponds"         &&(hasPerm("Pond Management")?<PondManagementPage ponds={farmPonds} onAddPond={addPond} onClosePond={closePond} onRestockPond={restockPond} onTransfer={transferStock} onNurseryTransfer={nurseryTransfer} mortality={farmMortality} onAddMortality={addMort} onAddCost={addExp} feedingRecords={farmFeeding} stockEvents={stockEvents} treatments={farmTreatments} onAddTreatment={addTreatment} activeFarmId={activeFarmId} onDeletePond={deletePond} onEditFish={editFish} onSetMaxKg={setPondMaxKg} onEditPond={handleEditPond} onScrollTop={()=>mainRef.current?.scrollTo({top:0,behavior:"instant"})} currency={cs} inventory={farmInventory} farms={farms} pondReports={farmPondReports} onAddPondReport={handleAddPondReport}/>:<AccessDenied/>)}
-            {active==="inventory"     &&(hasPerm("Feed Stock")?<FeedInventoryPage inventory={farmInventory} onAdd={addInv} onDelete={delInv} feedingRecords={farmFeeding} bagLogs={farmBagLogs} remainLogs={farmRemainLogs} ponds={farmPonds} onEditBagLog={editBagLog} onEditInv={editInv} currency={cs} canEditLocked={isOwner||currentStaff?.role==="Farm Manager"}/>:<AccessDenied/>)}
-            {active==="documentation" &&(hasPerm("Feeding Records")?<FeedDocumentationPage feedingRecords={farmFeeding} onAddRecord={addFeed} onEditFeedRecord={editFeedRecord} onDeleteRecord={deleteFeedRecord} ponds={farmPonds} inventory={farmInventory} bagLogs={farmBagLogs} onAddBagLog={addBagLog} onEditBagLog={editBagLog} onEditInv={editInv} remainLogs={farmRemainLogs} onAddRemainLog={addRemainLog} onEditRemainLog={editRemainLog} onReconMismatches={onReconMismatches} reconFocus={reconFocus} canEditLocked={isOwner||currentStaff?.role==="Farm Manager"} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}}/>:<AccessDenied/>)}
-            {active==="invoices"      &&(hasPerm("Invoices")?<InvoicesPage ponds={farmPonds} invoices={farmInvoices} customers={farmCustomers} priceGroups={farmPriceGroups} settings={invSettings} onAddInvoice={addInvoice} onEditInvoice={editInvoice} onDeleteInvoice={deleteInvoice} onAddCustomer={addCustomer} onAddPriceGroup={addPriceGroup} onEditPriceGroup={editPriceGroup} onDeletePriceGroup={delPriceGroup} onUpdateSettings={(s)=>{setInvSettings(s);api.invSettings.update(s).catch(console.warn);}} currentUser={userProfile?.name} currency={cs}/>:<AccessDenied/>)}
+            {active==="financial"     &&(hasPerm("Financial Dashboard")?<FinancialDashboard expenses={farmExpenses} revenues={farmRevenues} onAddExpense={addExp} onAddRevenue={addRev} onEditExpense={editExp} onEditRevenue={editRev} onDeleteExpense={deleteExp} onDeleteRevenue={deleteRev} stockEvents={stockEvents} ponds={farmPonds} inventory={farmInventory} currency={cs} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}} canCreate={canCreate("Financial Dashboard")} canEdit={canEdit("Financial Dashboard")} canDelete={canDelete("Financial Dashboard")}/>:<AccessDenied/>)}
+            {active==="ponds"         &&(hasPerm("Pond Management")?<PondManagementPage ponds={farmPonds} onAddPond={addPond} onClosePond={closePond} onRestockPond={restockPond} onTransfer={transferStock} onNurseryTransfer={nurseryTransfer} mortality={farmMortality} onAddMortality={addMort} onAddCost={addExp} feedingRecords={farmFeeding} stockEvents={stockEvents} treatments={farmTreatments} onAddTreatment={addTreatment} activeFarmId={activeFarmId} onDeletePond={deletePond} onEditFish={editFish} onSetMaxKg={setPondMaxKg} onEditPond={handleEditPond} onScrollTop={()=>mainRef.current?.scrollTo({top:0,behavior:"instant"})} currency={cs} inventory={farmInventory} farms={farms} pondReports={farmPondReports} onAddPondReport={handleAddPondReport} canCreate={canCreate("Pond Management")} canEdit={canEdit("Pond Management")} canDelete={canDelete("Pond Management")}/>:<AccessDenied/>)}
+            {active==="inventory"     &&(hasPerm("Feed Stock")?<FeedInventoryPage inventory={farmInventory} onAdd={addInv} onDelete={delInv} feedingRecords={farmFeeding} bagLogs={farmBagLogs} remainLogs={farmRemainLogs} ponds={farmPonds} onEditBagLog={editBagLog} onEditInv={editInv} currency={cs} canEditLocked={isOwner||currentStaff?.role==="Farm Manager"} canCreate={canCreate("Feed Stock")} canEdit={canEdit("Feed Stock")} canDelete={canDelete("Feed Stock")}/>:<AccessDenied/>)}
+            {active==="documentation" &&(hasPerm("Feeding Records")?<FeedDocumentationPage feedingRecords={farmFeeding} onAddRecord={addFeed} onEditFeedRecord={editFeedRecord} onDeleteRecord={deleteFeedRecord} ponds={farmPonds} inventory={farmInventory} bagLogs={farmBagLogs} onAddBagLog={addBagLog} onEditBagLog={editBagLog} onEditInv={editInv} remainLogs={farmRemainLogs} onAddRemainLog={addRemainLog} onEditRemainLog={editRemainLog} onReconMismatches={onReconMismatches} reconFocus={reconFocus} canEditLocked={isOwner||currentStaff?.role==="Farm Manager"} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}} canCreate={canCreate("Feeding Records")} canEdit={canEdit("Feeding Records")} canDelete={canDelete("Feeding Records")}/>:<AccessDenied/>)}
+            {active==="invoices"      &&(hasPerm("Invoices")?<InvoicesPage ponds={farmPonds} invoices={farmInvoices} customers={farmCustomers} priceGroups={farmPriceGroups} settings={invSettings} onAddInvoice={addInvoice} onEditInvoice={editInvoice} onDeleteInvoice={deleteInvoice} onAddCustomer={addCustomer} onAddPriceGroup={addPriceGroup} onEditPriceGroup={editPriceGroup} onDeletePriceGroup={delPriceGroup} onUpdateSettings={(s)=>{setInvSettings(s);api.invSettings.update(s).catch(console.warn);}} currentUser={userProfile?.name} currency={cs} canCreate={canCreate("Invoices")} canEdit={canEdit("Invoices")} canDelete={canDelete("Invoices")}/>:<AccessDenied/>)}
             {active==="staff"         &&(isOwner?<StaffPage staff={staff} onAdd={addStaff} onEdit={editStaff} onDelete={delStaff} farms={farms} activeFarmId={activeFarmId} ownerEmail={userProfile?.email}/>:<AccessDenied/>)}
-            {active==="investors"     &&(hasPerm("Investors")?<InvestorsPage investors={farmInvestors} investments={farmInvestments} payments={farmPayments} farms={farms} ponds={farmPonds} stockEvents={stockEvents} activeFarmId={activeFarmId} currency={cs} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}} isOwner={isOwner} canManage={isOwner||hasPerm("Investors")} onAddInvestor={handleAddInvestor} onEditInvestor={handleEditInvestor} onEditInvestment={handleEditInvestment} onDeleteInvestor={handleDeleteInvestor} onRecordPayment={handleRecordPayment} onMarkPaymentPaid={handleMarkPaymentPaid}/>:<AccessDenied/>)}
-            {active==="reports"       &&(hasPerm("Reports")?<ReportsPage reports={farmReports} staff={staff} onAdd={addReport} onEdit={editReportFn} pondReports={farmPondReports} treatments={farmTreatments} farms={farms} ponds={farmPonds} stockEvents={stockEvents} onAddPondReport={handleAddPondReport} activeFarmId={activeFarmId}/>:<AccessDenied/>)}
+            {active==="investors"     &&(hasPerm("Investors")?<InvestorsPage investors={farmInvestors} investments={farmInvestments} payments={farmPayments} farms={farms} ponds={farmPonds} stockEvents={stockEvents} activeFarmId={activeFarmId} currency={cs} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}} isOwner={isOwner} canManage={isOwner||hasPerm("Investors")} onAddInvestor={handleAddInvestor} onEditInvestor={handleEditInvestor} onEditInvestment={handleEditInvestment} onDeleteInvestor={handleDeleteInvestor} onRecordPayment={handleRecordPayment} onMarkPaymentPaid={handleMarkPaymentPaid} canCreate={canCreate("Investors")} canEdit={canEdit("Investors")} canDelete={canDelete("Investors")}/>:<AccessDenied/>)}
+            {active==="reports"       &&(hasPerm("Reports")?<ReportsPage reports={farmReports} staff={staff} onAdd={addReport} onEdit={editReportFn} pondReports={farmPondReports} treatments={farmTreatments} farms={farms} ponds={farmPonds} stockEvents={stockEvents} onAddPondReport={handleAddPondReport} activeFarmId={activeFarmId} canCreate={canCreate("Reports")} canEdit={canEdit("Reports")} canDelete={canDelete("Reports")}/>:<AccessDenied/>)}
             {active==="assessments"   &&(hasPerm("Staff Assessments")?<EmployeeAssessmentsPage kQuestions={kQuestions} cQuestions={cQuestions} kResults={kResults} cResults={cResults} onSaveKQuestions={saveKQuestions} onSaveCQuestions={saveCQuestions} onAddKResult={addKResult} onAddCResult={addCResult} ownerId={userProfile?.id??""}/>:<AccessDenied/>)}
             {active==="pricing"       &&(isOwner?<SubscriptionPage farmCount={farms.length} activePlan={activePlan} setActivePlan={setActivePlan} trialStartDate={trialStartDate} setTrialStartDate={setTrialStartDate} currency={cs} convertPrice={cvt} userProfile={userProfile} activeFarmName={farms.find(f=>f.id===activeFarmId)?.name||userProfile?.farmName}/>:<AccessDenied/>)}
             {active==="settings"      &&<SettingsPage farms={isOwner?farms:accessibleFarms} onAddFarm={handleAddFarmDirect} onEditFarm={handleEditFarm} onDeleteFarm={handleDeleteFarm} userProfile={userProfile} onUpdateProfile={handleUpdateProfile} isOwner={isOwner} ponds={ponds} activePlan={activePlan}/>}

@@ -23,6 +23,9 @@ interface InvestorsPageProps {
   currentUser?: { name: string; email: string };
   isOwner?: boolean;
   canManage?: boolean;
+  canCreate?: boolean;
+  canEdit?: boolean;
+  canDelete?: boolean;
   onAddInvestor: (investor: Investor, investment: Investment, payments: InvestmentPayment[]) => Promise<void>;
   onEditInvestor: (investor: Investor) => Promise<void>;
   onEditInvestment: (investment: Investment) => Promise<void>;
@@ -43,6 +46,9 @@ export default function InvestorsPage({
   currentUser,
   isOwner = true,
   canManage = true,
+  canCreate = true,
+  canEdit = true,
+  canDelete = true,
   onAddInvestor,
   onEditInvestor,
   onEditInvestment,
@@ -627,7 +633,7 @@ export default function InvestorsPage({
         </div>
 
         <div className="flex items-center gap-2">
-          {canManage && (
+          {canCreate && (
             <PBtn sm onClick={() => setShowAddModal(true)}>
               <Plus size={14} /> Add Investor
             </PBtn>
@@ -1015,12 +1021,25 @@ export default function InvestorsPage({
             </div>
 
             <div className="flex items-center gap-2">
-              <PBtn sm onClick={() => openRecordPayment()}>
-                <Receipt size={14} /> Record Payment
-              </PBtn>
-              {canManage && (
+              {canCreate && (
+                <PBtn sm onClick={() => openRecordPayment()}>
+                  <Receipt size={14} /> Record Payment
+                </PBtn>
+              )}
+              {canEdit && (
                 <PBtn sm outline onClick={openEditInvestmentModal}>
                   <Edit3 size={14} /> Edit Investment
+                </PBtn>
+              )}
+              {canDelete && onDeleteInvestor && (
+                <PBtn sm danger onClick={async () => {
+                  if (confirm(`Delete investor "${selectedInvestor?.fullName}"?`)) {
+                    await onDeleteInvestor(selectedInvestor!.id);
+                    setSelectedInvestorId(null);
+                    toast.success("Investor deleted");
+                  }
+                }}>
+                  <Trash2 size={14} /> Delete
                 </PBtn>
               )}
             </div>
@@ -1127,9 +1146,11 @@ export default function InvestorsPage({
                   Historical record of all payout obligations and completed payments
                 </p>
               </div>
-              <PBtn sm outline onClick={() => openRecordPayment()}>
-                <Plus size={14} /> Add Payment
-              </PBtn>
+              {canCreate && (
+                <PBtn sm outline onClick={() => openRecordPayment()}>
+                  <Plus size={14} /> Add Payment
+                </PBtn>
+              )}
             </div>
 
             <div className="overflow-x-auto">
@@ -1189,19 +1210,23 @@ export default function InvestorsPage({
                           <td className="px-4 py-3 text-right space-x-1.5 whitespace-nowrap">
                             {!isPaid && (
                               <>
-                                <button
-                                  onClick={() => handleQuickMarkPaid(p)}
-                                  className="px-2.5 py-1 text-[11px] bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-semibold rounded-lg border border-emerald-200 transition-colors"
-                                  title="Mark period as fully paid"
-                                >
-                                  Mark as Paid
-                                </button>
-                                <button
-                                  onClick={() => openRecordPayment(p)}
-                                  className="px-2.5 py-1 text-[11px] bg-white hover:bg-slate-50 text-slate-700 font-semibold rounded-lg border border-slate-200 transition-colors"
-                                >
-                                  Record
-                                </button>
+                                {canEdit && (
+                                  <button
+                                    onClick={() => handleQuickMarkPaid(p)}
+                                    className="px-2.5 py-1 text-[11px] bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-semibold rounded-lg border border-emerald-200 transition-colors"
+                                    title="Mark period as fully paid"
+                                  >
+                                    Mark as Paid
+                                  </button>
+                                )}
+                                {canCreate && (
+                                  <button
+                                    onClick={() => openRecordPayment(p)}
+                                    className="px-2.5 py-1 text-[11px] bg-white hover:bg-slate-50 text-slate-700 font-semibold rounded-lg border border-slate-200 transition-colors"
+                                  >
+                                    Record
+                                  </button>
+                                )}
                               </>
                             )}
                             {isPaid && (

@@ -511,20 +511,41 @@ export async function getEffectiveFarmId(suggestedFarmId?: string): Promise<stri
     return suggestedFarmId;
   }
   const currentUid = await getUserId();
+  const ownerId = await getOwnerUserId();
+  const isStaffCaller = ownerId && ownerId !== currentUid;
+
+  // 1. If staff caller, check their assigned farms first
+  if (isStaffCaller && currentUid) {
+    try {
+      const { data: sfaRows } = await supabase
+        .from("staff_farm_assignments")
+        .select("farm_id")
+        .eq("staff_id", currentUid);
+      if (sfaRows && sfaRows.length > 0 && sfaRows[0].farm_id && isUuid(sfaRows[0].farm_id)) {
+        const activeStored = localStorage.getItem(`pondtora_${currentUid}_active_farm_id`);
+        if (activeStored && sfaRows.some(r => r.farm_id === activeStored)) {
+          return activeStored;
+        }
+        return sfaRows[0].farm_id;
+      }
+    } catch {}
+  }
+
+  // 2. Check local storage for active farm
   if (currentUid) {
     try {
       const activeStored = localStorage.getItem(`pondtora_${currentUid}_active_farm_id`);
       if (activeStored && isUuid(activeStored)) return activeStored;
     } catch {}
   }
-  const ownerId = await getOwnerUserId();
   if (ownerId && ownerId !== currentUid) {
     try {
       const activeStored = localStorage.getItem(`pondtora_${ownerId}_active_farm_id`);
       if (activeStored && isUuid(activeStored)) return activeStored;
     } catch {}
   }
-  // Try querying farms
+
+  // 3. Try querying farms
   try {
     const targetUserId = ownerId || currentUid;
     const { data: farmRows } = await supabase
@@ -756,7 +777,7 @@ export const api = {
     let farms = (farmsRes.data || []).map(f => objToCamel<Farm>(f));
     const isStaff = !!staffRes.data || profile?.role === "staff";
 
-    // If staff member, resolve all assigned or owner farms
+    // If staff member, resolve only explicitly assigned farms
     if (isStaff && staffRes.data) {
       const staffData = staffRes.data;
       const targetFarmIds = new Set<string>();
@@ -770,14 +791,9 @@ export const api = {
 
       if (targetFarmIds.size > 0) {
         const { data: assignedFarms } = await supabase.from("farms").select("*").in("id", Array.from(targetFarmIds));
-        (assignedFarms || []).forEach((f: any) => {
-          if (!farms.some(x => x.id === f.id)) farms.push(objToCamel<Farm>(f));
-        });
-      } else if (staffData.user_id && farms.length === 0) {
-        const { data: ownerFarms } = await supabase.from("farms").select("*").eq("user_id", staffData.user_id);
-        (ownerFarms || []).forEach((f: any) => {
-          if (!farms.some(x => x.id === f.id)) farms.push(objToCamel<Farm>(f));
-        });
+        farms = (assignedFarms || []).map(f => objToCamel<Farm>(f));
+      } else {
+        farms = [];
       }
 
       // Unconditionally ensure staff_auth_id and Active status are synced for logged-in staff member
@@ -883,13 +899,24 @@ export const api = {
 
       const staffList: StaffMember[] = combinedStaffRaw.map((s: any) => {
         const sFarms = (farmAssignRes?.data || []).filter((a: any) => a.staff_id === s.id).map((a: any) => a.farm_id);
-        const sPerms = (staffPermRes?.data || []).filter((p: any) => p.staff_id === s.id && (p.can_view ?? true)).map((p: any) => p.feature);
+        const sPermRows = (staffPermRes?.data || []).filter((p: any) => p.staff_id === s.id);
+        const sPerms = sPermRows.filter((p: any) => p.can_view ?? true).map((p: any) => p.feature);
+        const sStaffPerms: Record<string, { canView: boolean; canCreate: boolean; canEdit: boolean; canDelete: boolean }> = {};
+        sPermRows.forEach((p: any) => {
+          sStaffPerms[p.feature] = {
+            canView: p.can_view ?? true,
+            canCreate: p.can_create ?? true,
+            canEdit: p.can_edit ?? true,
+            canDelete: p.can_delete ?? false,
+          };
+        });
         const cachedStaffItem = cachedStaff.find((c: any) => c.id === s.id);
         return {
           ...s,
           status: s.status || "Pending",
           farms: (s.farms && s.farms.length > 0) ? s.farms : (sFarms.length > 0 ? sFarms : (cachedStaffItem?.farms || [])),
           permissions: (s.permissions && s.permissions.length > 0) ? s.permissions : (sPerms.length > 0 ? sPerms : (cachedStaffItem?.permissions || [])),
+          staffPermissions: (s.staffPermissions && Object.keys(s.staffPermissions).length > 0) ? s.staffPermissions : (Object.keys(sStaffPerms).length > 0 ? sStaffPerms : (cachedStaffItem?.staffPermissions || {})),
         };
       });
 
@@ -934,31 +961,12 @@ export const api = {
         });
 
         if (targetFarmIds.size > 0) {
-          const missingFarmIds = Array.from(targetFarmIds).filter(fid => !farms.some(f => f.id === fid));
-          if (missingFarmIds.length > 0) {
-            const { data: assignedFarms } = await safeQuery(
-              supabase.from("farms").select("*").in("id", missingFarmIds)
-            );
-            if (assignedFarms) {
-              for (const af of assignedFarms) {
-                if (!farms.some(f => f.id === af.id)) {
-                  farms.push(objToCamel<Farm>(af));
-                }
-              }
-            }
-          }
-        } else if (staffMember.userId) {
-          // If no specific farm assignment restriction, grant access to all owner's farms
-          const { data: ownerFarms } = await safeQuery(
-            supabase.from("farms").select("*").eq("user_id", staffMember.userId)
+          const { data: assignedFarms } = await safeQuery(
+            supabase.from("farms").select("*").in("id", Array.from(targetFarmIds))
           );
-          if (ownerFarms) {
-            for (const of of ownerFarms) {
-              if (!farms.some(f => f.id === of.id)) {
-                farms.push(objToCamel<Farm>(of));
-              }
-            }
-          }
+          farms = (assignedFarms || []).map(f => objToCamel<Farm>(f));
+        } else {
+          farms = [];
         }
       }
 
@@ -1256,6 +1264,7 @@ export const api = {
       role?: string;
       farms?: string[];
       permissions?: string[];
+      staffPermissions?: Record<string, { canView: boolean; canCreate: boolean; canEdit: boolean; canDelete: boolean }>;
       farmName?: string;
       appUrl?: string;
     }) => {
@@ -1302,8 +1311,6 @@ export const api = {
 
         if (!signUpErr && signUpData?.user) {
           staffAuthId = signUpData.user.id;
-          // If the user already existed in Supabase, Gotrue returns identities: [] and does not send email.
-          // In that case, explicitly trigger resend / password reset email:
           if (signUpData.user.identities && signUpData.user.identities.length === 0) {
             const { error: resendErr } = await authStaffCreator.auth.resend({
               type: "signup",
@@ -1330,8 +1337,6 @@ export const api = {
         } else if (signUpErr) {
           const errMsg = (signUpErr.message || "").toLowerCase();
           if (errMsg.includes("already registered") || errMsg.includes("already exists") || errMsg.includes("user already")) {
-            // User already exists in Supabase Auth.
-            // First attempt: Resend verification email
             const { error: resendErr } = await authStaffCreator.auth.resend({
               type: "signup",
               email: cleanEmail,
@@ -1343,8 +1348,6 @@ export const api = {
             if (!resendErr) {
               emailSent = true;
             } else {
-              // If resend failed (e.g. email was already confirmed or rate limit),
-              // send password recovery email which provides an immediate secure link to /create-password:
               const { error: resetErr } = await authStaffCreator.auth.resetPasswordForEmail(cleanEmail, {
                 redirectTo: `${loginUrl}/create-password`,
               });
@@ -1389,7 +1392,6 @@ export const api = {
           });
           if (!rpcErr && rpcUid) {
             staffAuthId = rpcUid;
-            // Attempt to send a recovery link so they still receive an email verification
             try {
               const { error: resetErr } = await authStaffCreator.auth.resetPasswordForEmail(cleanEmail, {
                 redirectTo: `${loginUrl}/create-password`,
@@ -1410,6 +1412,7 @@ export const api = {
         joinedDate: new Date().toISOString(),
         permissions: opts.permissions || [],
         farms: opts.farms || [],
+        staffPermissions: opts.staffPermissions || {},
         ...(staffAuthId ? { staffAuthId } : {}),
       };
 
@@ -1450,14 +1453,17 @@ export const api = {
       if (opts.permissions && opts.permissions.length > 0) {
         try {
           await supabase.from("staff_permissions").delete().eq("staff_id", staffMember.id);
-          const permRows = opts.permissions.map(feat => ({
-            staff_id: staffMember.id,
-            feature: feat,
-            can_view: true,
-            can_create: true,
-            can_edit: true,
-            can_delete: false,
-          }));
+          const permRows = opts.permissions.map(feat => {
+            const custom = opts.staffPermissions?.[feat];
+            return {
+              staff_id: staffMember.id,
+              feature: feat,
+              can_view: custom?.canView ?? true,
+              can_create: custom?.canCreate ?? true,
+              can_edit: custom?.canEdit ?? true,
+              can_delete: custom?.canDelete ?? false,
+            };
+          });
           await supabase.from("staff_permissions").insert(permRows);
         } catch (e) {
           console.warn("Could not insert staff_permissions:", e);
@@ -1511,14 +1517,17 @@ export const api = {
           await supabase.from("staff_permissions").delete().eq("staff_id", targetId);
           if (s.permissions.length > 0) {
             await supabase.from("staff_permissions").insert(
-              s.permissions.map(feat => ({
-                staff_id: targetId,
-                feature: feat,
-                can_view: true,
-                can_create: true,
-                can_edit: true,
-                can_delete: false,
-              }))
+              s.permissions.map(feat => {
+                const custom = s.staffPermissions?.[feat];
+                return {
+                  staff_id: targetId,
+                  feature: feat,
+                  can_view: custom?.canView ?? true,
+                  can_create: custom?.canCreate ?? true,
+                  can_edit: custom?.canEdit ?? true,
+                  can_delete: custom?.canDelete ?? false,
+                };
+              })
             );
           }
         } catch {}

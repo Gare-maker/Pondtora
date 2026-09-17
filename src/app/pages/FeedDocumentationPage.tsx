@@ -51,7 +51,10 @@ function FeedDocumentation({
   onReconMismatches,
   reconFocus,
   canEditLocked,
-  currentUser
+  currentUser,
+  canCreate = true,
+  canEdit = true,
+  canDelete = true,
 }:{
   feedingRecords:FeedingRecord[];
   onAddRecord:(r:FeedingRecord)=>void|Promise<void>;
@@ -70,6 +73,9 @@ function FeedDocumentation({
   reconFocus?:{date:string;key:string}|null;
   canEditLocked?:boolean;
   currentUser?:{name:string;email:string};
+  canCreate?:boolean;
+  canEdit?:boolean;
+  canDelete?:boolean;
 }) {
   const realTodayLabel=(()=>{const n=new Date();return `${MON_NAMES[n.getMonth()]} ${n.getDate()}`;})();
   const isRecordEditable=(dateLabel?:string|null)=>canEditLocked||(dateLabel?isSameDate(dateLabel,TODAY)||isSameDate(dateLabel,realTodayLabel):false);
@@ -601,11 +607,13 @@ function FeedDocumentation({
               </div>
             </>)}
           </div>
-          <div className="flex flex-wrap gap-2">
-            <PBtn onClick={openLog} sm><Plus size={13}/> Log Feeding</PBtn>
-            <PBtn onClick={openBagsModal} sm outline><Package size={13}/> Log Opened Bags</PBtn>
-            <PBtn onClick={openRemainModal} sm outline><Droplets size={13}/> Log Remaining Feed</PBtn>
-          </div>
+          {canCreate&&(
+            <div className="flex flex-wrap gap-2">
+              <PBtn onClick={openLog} sm><Plus size={13}/> Log Feeding</PBtn>
+              <PBtn onClick={openBagsModal} sm outline><Package size={13}/> Log Opened Bags</PBtn>
+              <PBtn onClick={openRemainModal} sm outline><Droplets size={13}/> Log Remaining Feed</PBtn>
+            </div>
+          )}
         </div>
       </div>
 
@@ -742,8 +750,8 @@ function FeedDocumentation({
                         <div className="flex items-center gap-1">
                           {rec&&(isRecordEditable(rec.date)?(
                             <>
-                              <button onClick={()=>openEditRec(rec)} className="p-1.5 rounded-lg text-slate-300 hover:text-green-600 hover:bg-green-50 transition-colors" title="Edit record"><Pencil size={13}/></button>
-                              {onDeleteRecord&&<button onClick={()=>setDeleteRecId(rec.id)} className="p-1.5 rounded-lg text-slate-300 hover:text-red-600 hover:bg-red-50 transition-colors" title="Delete record"><Trash2 size={13}/></button>}
+                              {canEdit&&<button onClick={()=>openEditRec(rec)} className="p-1.5 rounded-lg text-slate-300 hover:text-green-600 hover:bg-green-50 transition-colors" title="Edit record"><Pencil size={13}/></button>}
+                              {canDelete&&onDeleteRecord&&<button onClick={()=>setDeleteRecId(rec.id)} className="p-1.5 rounded-lg text-slate-300 hover:text-red-600 hover:bg-red-50 transition-colors" title="Delete record"><Trash2 size={13}/></button>}
                             </>
                           ):<button onClick={()=>alert("This record can only be edited by an Administrator or Manager after 24 hours.")} className="p-1.5 rounded-lg text-slate-200 cursor-not-allowed" title="Locked after 24 hours"><Lock size={13}/></button>)}
                         </div>
@@ -801,7 +809,7 @@ function FeedDocumentation({
                     <td className="px-4 py-3 text-slate-600 text-xs">{row.fishStock}</td>
                     <td className="px-4 py-3 font-bold text-slate-900">{row.bagsOpened>0?row.bagsOpened:<span className="text-slate-300">—</span>}</td>
                     <td className="px-4 py-3">{row.remainingKg>0?<span className="font-semibold text-amber-600">{row.remainingKg} kg</span>:<span className="text-slate-300 text-xs">—</span>}</td>
-                    <td className="px-4 py-3">{row.lastBagLog&&(isRecordEditable(row.lastBagLog.date)?<button onClick={()=>openEditDocBag(row.lastBagLog!)} className="p-1 rounded text-slate-300 hover:text-green-600 hover:bg-green-50 transition-colors" title="Edit"><Pencil size={13}/></button>:<button onClick={()=>alert("This record can only be edited by an Administrator or Manager after 24 hours.")} className="p-1 rounded text-slate-200 cursor-not-allowed" title="Locked"><Lock size={13}/></button>)}</td>
+                    <td className="px-4 py-3">{canEdit&&row.lastBagLog&&(isRecordEditable(row.lastBagLog.date)?<button onClick={()=>openEditDocBag(row.lastBagLog!)} className="p-1 rounded text-slate-300 hover:text-green-600 hover:bg-green-50 transition-colors" title="Edit"><Pencil size={13}/></button>:<button onClick={()=>alert("This record can only be edited by an Administrator or Manager after 24 hours.")} className="p-1 rounded text-slate-200 cursor-not-allowed" title="Locked"><Lock size={13}/></button>)}</td>
                   </tr>
                 ))}
               </tbody>

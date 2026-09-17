@@ -2,55 +2,72 @@
 -- PONDTORA: UNIFIED FARM & STAFF DATA MIGRATION
 -- Ensures that all staff members, farm managers, and owners access and modify
 -- the exact same shared data on every page across the entire platform.
+--
+-- KEY DESIGN:
+--   • Staff can ONLY access farms explicitly assigned to them via staff_farm_assignments
+--   • Staff records are stored under the OWNER's user_id, not the staff's user_id
+--   • Page/module access is enforced at the API layer (server/index.tsx)
+--   • RLS enforces farm-level isolation; API enforces page-level isolation
 -- ==============================================================================
 
 -- 1. Helper function: check if user can access a specific farm
+--    STRICT: staff must be explicitly assigned via staff_farm_assignments.
+--    No fallback to "all owner farms" — avoids data leakage between farms.
 CREATE OR REPLACE FUNCTION user_can_access_farm(p_farm_id UUID)
 RETURNS BOOLEAN LANGUAGE sql SECURITY DEFINER STABLE AS $$
-  -- 1. Farm Owner
-  SELECT EXISTS (SELECT 1 FROM farms f WHERE f.id = p_farm_id AND f.user_id = auth.uid())
-  -- 2. Assigned staff member (by auth UID or by email)
-  OR EXISTS (
-    SELECT 1 FROM staff_members sm
-    WHERE (sm.staff_auth_id = auth.uid() OR LOWER(sm.email) = LOWER(COALESCE(auth.jwt()->>'email', '')))
-      AND (
-        (sm.farms IS NOT NULL AND sm.farms::text LIKE '%' || p_farm_id::text || '%')
-        OR EXISTS (
-          SELECT 1 FROM staff_farm_assignments sfa
-          WHERE sfa.staff_id = sm.id AND sfa.farm_id = p_farm_id
-        )
-        OR (
-          (sm.farms IS NULL OR sm.farms::text = '[]' OR sm.farms::text = '""')
-          AND NOT EXISTS (SELECT 1 FROM staff_farm_assignments sfa WHERE sfa.staff_id = sm.id)
-          AND EXISTS (SELECT 1 FROM farms f WHERE f.id = p_farm_id AND f.user_id = sm.user_id)
-        )
-        OR EXISTS (SELECT 1 FROM farms f WHERE f.id = p_farm_id AND f.user_id = sm.user_id)
-      )
+  -- 1. Farm Owner: owns this farm directly
+  SELECT EXISTS (
+    SELECT 1 FROM farms f
+    WHERE f.id = p_farm_id AND f.user_id = auth.uid()
   )
-  -- 3. Superadmin
+  -- 2. Explicitly assigned staff member
+  --    Staff must appear in staff_farm_assignments for this specific farm.
+  --    No fallback to "all owner farms" — farm assignments are mandatory.
+  OR EXISTS (
+    SELECT 1
+    FROM staff_members sm
+    JOIN staff_farm_assignments sfa ON sfa.staff_id = sm.id AND sfa.farm_id = p_farm_id
+    WHERE (
+      sm.staff_auth_id = auth.uid()
+      OR LOWER(sm.email) = LOWER(COALESCE(auth.jwt()->>'email', ''))
+    )
+  )
+  -- 3. Platform admin / superadmin
   OR EXISTS (
     SELECT 1 FROM user_profiles
-    WHERE id = auth.uid() AND (role = 'admin' OR role = 'superadmin' OR email = 'edafejesugarec@gmail.com')
-  ) OR (
-    auth.jwt() ->> 'email' = 'edafejesugarec@gmail.com'
-  );
+    WHERE id = auth.uid()
+      AND (role = 'admin' OR role = 'superadmin' OR email = 'edafejesugarec@gmail.com')
+  )
+  OR (auth.jwt() ->> 'email' = 'edafejesugarec@gmail.com');
 $$;
 
 -- 2. Helper function: check if user can access data scoped to owner/farm
+--    Used by RLS policies on all farm data tables.
 CREATE OR REPLACE FUNCTION user_can_access_owner_data(p_user_id UUID, p_farm_id UUID DEFAULT NULL)
 RETURNS BOOLEAN LANGUAGE sql SECURITY DEFINER STABLE AS $$
-  -- 1. Direct match or admin
+  -- Direct owner match or platform admin
   SELECT (auth.uid() = p_user_id)
   OR is_admin()
-  -- 2. Accessible farm ID
+  -- Farm-level access check (covers both owners and explicitly-assigned staff)
   OR (p_farm_id IS NOT NULL AND user_can_access_farm(p_farm_id))
-  -- 3. Caller is staff member of the record's owner
+  -- Caller is staff member belonging to the record owner (no farm_id provided)
   OR EXISTS (
     SELECT 1 FROM staff_members sm
-    WHERE (sm.staff_auth_id = auth.uid() OR LOWER(sm.email) = LOWER(COALESCE(auth.jwt()->>'email', '')))
-      AND (sm.user_id = p_user_id OR (p_farm_id IS NOT NULL AND user_can_access_farm(p_farm_id)))
+    WHERE (
+      sm.staff_auth_id = auth.uid()
+      OR LOWER(sm.email) = LOWER(COALESCE(auth.jwt()->>'email', ''))
+    )
+    AND sm.user_id = p_user_id
+    AND (
+      -- Staff must be assigned to at least one farm for this owner
+      p_farm_id IS NULL
+      OR EXISTS (
+        SELECT 1 FROM staff_farm_assignments sfa
+        WHERE sfa.staff_id = sm.id AND sfa.farm_id = p_farm_id
+      )
+    )
   )
-  -- 4. Caller is farm owner and record was created by their staff member
+  -- Caller is farm owner and the user_id in the record belongs to their staff member
   OR EXISTS (
     SELECT 1 FROM staff_members sm
     WHERE sm.user_id = auth.uid()
@@ -334,3 +351,87 @@ BEGIN
     END IF;
   END LOOP;
 END $$;
+
+-- 6. Trigger: prevent staff signup from creating independent farms
+CREATE OR REPLACE FUNCTION handle_new_user()
+RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE
+  v_role TEXT;
+  v_owner_id UUID;
+  v_staff_id UUID;
+BEGIN
+  IF (NEW.raw_user_meta_data->>'role') = 'staff' THEN
+    v_role := 'staff';
+    v_owner_id := (NEW.raw_user_meta_data->>'owner_id')::UUID;
+  ELSE
+    SELECT user_id, id INTO v_owner_id, v_staff_id
+    FROM staff_members
+    WHERE LOWER(email) = LOWER(NEW.email)
+    ORDER BY created_at DESC
+    LIMIT 1;
+
+    IF v_owner_id IS NOT NULL THEN
+      v_role := 'staff';
+    ELSE
+      v_role := COALESCE(NEW.raw_user_meta_data->>'role', 'owner');
+    END IF;
+  END IF;
+
+  INSERT INTO user_profiles (
+    id, name, farm_name, city, state, country,
+    email, phone, currency_symbol, currency_code,
+    active_plan, trial_start_date, role, status
+  ) VALUES (
+    NEW.id,
+    COALESCE(NEW.raw_user_meta_data->>'name', split_part(NEW.email, '@', 1)),
+    COALESCE(NEW.raw_user_meta_data->>'farm_name', 'My Farm'),
+    COALESCE(NEW.raw_user_meta_data->>'city', ''),
+    COALESCE(NEW.raw_user_meta_data->>'state', ''),
+    COALESCE(NEW.raw_user_meta_data->>'country', 'Nigeria'),
+    COALESCE(NEW.email, ''),
+    COALESCE(NEW.raw_user_meta_data->>'phone', ''),
+    COALESCE(NEW.raw_user_meta_data->>'currency_symbol', '₦'),
+    COALESCE(NEW.raw_user_meta_data->>'currency_code', 'NGN'),
+    NEW.raw_user_meta_data->>'active_plan',
+    CASE WHEN (NEW.raw_user_meta_data->>'trial_start_date') IS NOT NULL
+         THEN (NEW.raw_user_meta_data->>'trial_start_date')::TIMESTAMPTZ
+         ELSE NOW() END,
+    v_role,
+    'Active'
+  ) ON CONFLICT (id) DO UPDATE SET
+    role = EXCLUDED.role,
+    status = 'Active',
+    updated_at = NOW();
+
+  IF v_role = 'owner' THEN
+    INSERT INTO farms (user_id, name, city, state, country) VALUES (
+      NEW.id,
+      COALESCE(NEW.raw_user_meta_data->>'farm_name', 'My Farm'),
+      COALESCE(NEW.raw_user_meta_data->>'city', ''),
+      COALESCE(NEW.raw_user_meta_data->>'state', ''),
+      COALESCE(NEW.raw_user_meta_data->>'country', 'Nigeria')
+    );
+  END IF;
+
+  IF v_role = 'staff' THEN
+    IF v_owner_id IS NOT NULL THEN
+      UPDATE staff_members SET staff_auth_id = NEW.id, status = 'Active', updated_at = NOW()
+        WHERE LOWER(email) = LOWER(NEW.email) AND user_id = v_owner_id;
+      UPDATE staff_invitations SET status = 'accepted', accepted_at = NOW()
+        WHERE LOWER(email) = LOWER(NEW.email) AND invited_by = v_owner_id AND status = 'pending';
+    ELSE
+      UPDATE staff_members SET staff_auth_id = NEW.id, status = 'Active', updated_at = NOW()
+        WHERE LOWER(email) = LOWER(NEW.email);
+      UPDATE staff_invitations SET status = 'accepted', accepted_at = NOW()
+        WHERE LOWER(email) = LOWER(NEW.email) AND status = 'pending';
+    END IF;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION handle_new_user();

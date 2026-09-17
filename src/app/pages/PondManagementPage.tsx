@@ -10,8 +10,59 @@ import { EXPENSE_CATS, POND_TYPES, POND_SPECIES, MORT_CAUSES, TODAY, fmt, uid, t
 import { Card, Bdg, PBtn, Pagination, PER_PAGE, StatCard, Modal, F, IC, SC, SH, useSort, DateFilter, NumInput } from "../shared";
 import PondReportsComponent from "./PondReportsComponent";
 
-/* ─── Pond Detail (separate component so hooks are unconditional) */
-function PondDetail({pond,mortality,onAddMortality,onAddCost,feedingRecords,onBack,onClosePond,onRestockPond,ponds,stockEvents,onTransfer,onNurseryTransfer,treatments,onAddTreatment,onEditFish,onSetMaxKg,inventory=[],onEditThisPond,currency="₦",farms=[],pondReports=[],onAddPondReport}:{pond:Pond;mortality:MortalityEntry[];onAddMortality:(m:MortalityEntry,pondId:string)=>void;onAddCost:(e:Expense)=>void;feedingRecords:FeedingRecord[];onBack:()=>void;onClosePond:(id:string)=>void;onRestockPond:(id:string,data:{species:string;initialStock:number;stockingDate:string;stockMonth:string;supplier?:string})=>void;ponds:Pond[];stockEvents:StockEvent[];onTransfer:(fromId:string,toId:string,date:string)=>void;onNurseryTransfer:(fromId:string,toId:string,count:number,pct:number,date:string)=>void;treatments:TreatmentRecord[];onAddTreatment:(t:TreatmentRecord)=>void;onEditFish?:(pondId:string,u:{species:string;currentCount:number;stockingDate:string})=>void;onSetMaxKg:(pondId:string,size:string,maxKg:number)=>void;inventory?:FeedItem[];onEditThisPond?:(p:Pond)=>void;currency?:string;farms?:Farm[];pondReports?:PondReport[];onAddPondReport?:(r:PondReport)=>Promise<void>;}){
+function PondDetail({
+  pond,
+  mortality,
+  onAddMortality,
+  onAddCost,
+  feedingRecords,
+  onBack,
+  onClosePond,
+  onRestockPond,
+  ponds,
+  stockEvents,
+  onTransfer,
+  onNurseryTransfer,
+  treatments,
+  onAddTreatment,
+  onEditFish,
+  onSetMaxKg,
+  inventory=[],
+  onEditThisPond,
+  currency="₦",
+  farms=[],
+  pondReports=[],
+  onAddPondReport,
+  canCreate = true,
+  canEdit = true,
+  canDelete = true,
+}:{
+  pond:Pond;
+  mortality:MortalityEntry[];
+  onAddMortality:(m:MortalityEntry,pondId:string)=>void;
+  onAddCost:(e:Expense)=>void;
+  feedingRecords:FeedingRecord[];
+  onBack:()=>void;
+  onClosePond:(id:string)=>void;
+  onRestockPond:(id:string,data:{species:string;initialStock:number;stockingDate:string;stockMonth:string;supplier?:string})=>void;
+  ponds:Pond[];
+  stockEvents:StockEvent[];
+  onTransfer:(fromId:string,toId:string,date:string)=>void;
+  onNurseryTransfer:(fromId:string,toId:string,count:number,pct:number,date:string)=>void;
+  treatments:TreatmentRecord[];
+  onAddTreatment:(t:TreatmentRecord)=>void;
+  onEditFish?:(pondId:string,u:{species:string;currentCount:number;stockingDate:string})=>void;
+  onSetMaxKg:(pondId:string,size:string,maxKg:number)=>void;
+  inventory?:FeedItem[];
+  onEditThisPond?:(p:Pond)=>void;
+  currency?:string;
+  farms?:Farm[];
+  pondReports?:PondReport[];
+  onAddPondReport?:(r:PondReport)=>Promise<void>;
+  canCreate?:boolean;
+  canEdit?:boolean;
+  canDelete?:boolean;
+}){
   const cs=currency;
   const invBrands=[...new Set(inventory.map(f=>f.brand))];
   const invSizesForBrand=(brand:string)=>[...new Set(inventory.filter(f=>f.brand===brand).map(f=>f.size))];
@@ -313,31 +364,31 @@ function PondDetail({pond,mortality,onAddMortality,onAddCost,feedingRecords,onBa
               <button onClick={()=>setShowPondMenu(p=>!p)} className="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 hover:border-green-400 hover:text-green-600 transition-colors"><MoreVertical size={17}/></button>
               {showPondMenu&&(
                 <div className="absolute right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl z-50 overflow-hidden min-w-[180px]">
-                  <button onClick={()=>{onEditThisPond?.(pond);setShowPondMenu(false);}} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-2"><Pencil size={13}/> Edit Pond</button>
+                  {canEdit&&<button onClick={()=>{onEditThisPond?.(pond);setShowPondMenu(false);}} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-2"><Pencil size={13}/> Edit Pond</button>}
                   {pond.status==="Active"&&<>
-                    <button onClick={()=>{setShowMort(true);setShowPondMenu(false);}} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-2"><Plus size={13}/> Log Mortality</button>
-                    <button onClick={()=>{setShowTreat(true);setShowPondMenu(false);}} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-2"><Plus size={13}/> Log Treatment</button>
-                    <button onClick={()=>{setShowUpdateQty(true);setShowPondMenu(false);}} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-2"><Plus size={13}/> Update Quantity</button>
-                    <button onClick={()=>{pond.category==="Nursery"?setShowNurseryTransfer(true):setShowTransfer(true);setShowPondMenu(false);}} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-2"><ArrowRightLeft size={13}/> Transfer Fish Stock</button>
-                    {pond.category!=="Nursery"&&<button onClick={()=>{setShowMaxKg(true);setShowPondMenu(false);}} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-2"><Layers size={13}/> Set Max kg per Pallet</button>}
-                    <button onClick={()=>{setShowClose(true);setShowPondMenu(false);}} className="w-full text-left px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"><X size={13}/> Clear Fish Stock</button>
+                    {canCreate&&<button onClick={()=>{setShowMort(true);setShowPondMenu(false);}} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-2"><Plus size={13}/> Log Mortality</button>}
+                    {canCreate&&<button onClick={()=>{setShowTreat(true);setShowPondMenu(false);}} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-2"><Plus size={13}/> Log Treatment</button>}
+                    {canEdit&&<button onClick={()=>{setShowUpdateQty(true);setShowPondMenu(false);}} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-2"><Plus size={13}/> Update Quantity</button>}
+                    {canCreate&&<button onClick={()=>{pond.category==="Nursery"?setShowNurseryTransfer(true):setShowTransfer(true);setShowPondMenu(false);}} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-2"><ArrowRightLeft size={13}/> Transfer Fish Stock</button>}
+                    {canEdit&&pond.category!=="Nursery"&&<button onClick={()=>{setShowMaxKg(true);setShowPondMenu(false);}} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-2"><Layers size={13}/> Set Max kg per Pallet</button>}
+                    {canDelete&&<button onClick={()=>{setShowClose(true);setShowPondMenu(false);}} className="w-full text-left px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"><X size={13}/> Clear Fish Stock</button>}
                   </>}
-                  {pond.status==="Empty"&&<button onClick={()=>{setShowRestock(true);setShowPondMenu(false);}} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-2"><Plus size={13}/> Add Fish Stock</button>}
+                  {canCreate&&pond.status==="Empty"&&<button onClick={()=>{setShowRestock(true);setShowPondMenu(false);}} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-2"><Plus size={13}/> Add Fish Stock</button>}
                 </div>
               )}
             </div>
             {/* Desktop: full button row */}
             <div className="hidden lg:flex flex-wrap gap-2 items-center">
-              <PBtn sm outline onClick={()=>onEditThisPond?.(pond)}><Pencil size={12}/> Edit Pond</PBtn>
+              {canEdit&&<PBtn sm outline onClick={()=>onEditThisPond?.(pond)}><Pencil size={12}/> Edit Pond</PBtn>}
               {pond.status==="Active"&&<>
-                <PBtn sm onClick={()=>setShowMort(true)}><Plus size={12}/> Log Mortality</PBtn>
-                <PBtn sm onClick={()=>setShowTreat(true)}><Plus size={12}/> Log Treatment</PBtn>
-                <PBtn sm outline onClick={()=>setShowUpdateQty(true)}>Update Qty</PBtn>
-                <PBtn sm outline onClick={()=>pond.category==="Nursery"?setShowNurseryTransfer(true):setShowTransfer(true)}><ArrowRightLeft size={12}/> Transfer Fish Stock</PBtn>
-                {pond.category!=="Nursery"&&<PBtn sm outline onClick={()=>setShowMaxKg(true)}>Max kg / Pallet</PBtn>}
-                <PBtn sm danger onClick={()=>setShowClose(true)}>Clear Fish Stock</PBtn>
+                {canCreate&&<PBtn sm onClick={()=>setShowMort(true)}><Plus size={12}/> Log Mortality</PBtn>}
+                {canCreate&&<PBtn sm onClick={()=>setShowTreat(true)}><Plus size={12}/> Log Treatment</PBtn>}
+                {canEdit&&<PBtn sm outline onClick={()=>setShowUpdateQty(true)}>Update Qty</PBtn>}
+                {canCreate&&<PBtn sm outline onClick={()=>pond.category==="Nursery"?setShowNurseryTransfer(true):setShowTransfer(true)}><ArrowRightLeft size={12}/> Transfer Fish Stock</PBtn>}
+                {canEdit&&pond.category!=="Nursery"&&<PBtn sm outline onClick={()=>setShowMaxKg(true)}>Max kg / Pallet</PBtn>}
+                {canDelete&&<PBtn sm danger onClick={()=>setShowClose(true)}>Clear Fish Stock</PBtn>}
               </>}
-              {pond.status==="Empty"&&<PBtn sm onClick={()=>setShowRestock(true)}><Plus size={12}/> Add Fish Stock</PBtn>}
+              {canCreate&&pond.status==="Empty"&&<PBtn sm onClick={()=>setShowRestock(true)}><Plus size={12}/> Add Fish Stock</PBtn>}
               <Bdg label={pond.status==="Active"?"Active":"Inactive"} color={pond.status==="Active"?"green":"gray"}/>
             </div>
           </div>
@@ -349,14 +400,14 @@ function PondDetail({pond,mortality,onAddMortality,onAddCost,feedingRecords,onBa
             <Fish size={36} className="text-slate-200 mb-3"/>
             <p className="text-base font-semibold text-slate-500 mb-1">No fish stock in this pond</p>
             <p className="text-xs text-slate-400 mb-5">This pond is empty. Add a fish stock record to activate it and begin tracking feeding, mortality, and treatment data.</p>
-            <PBtn onClick={()=>setShowRestock(true)}><Plus size={14}/> Add Fish Stock</PBtn>
+            {canCreate&&<PBtn onClick={()=>setShowRestock(true)}><Plus size={14}/> Add Fish Stock</PBtn>}
           </div>
         </Card>
       ):(
       <Card className="p-5">
         <div className="flex items-center justify-between mb-4">
           <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Fish Information</p>
-          {pond.status==="Active"&&<button onClick={()=>{setEditFishF({species:pond.species==="—"?"Catfish":pond.species,count:String(pond.currentCount),stockingDate:pond.stockingDate});setShowEditFish(true);}} className="flex items-center gap-1 text-xs text-slate-400 hover:text-green-600 border border-slate-200 hover:border-green-300 rounded-lg px-2 py-1 transition-colors"><Pencil size={11}/> Edit</button>}
+          {canEdit&&pond.status==="Active"&&<button onClick={()=>{setEditFishF({species:pond.species==="—"?"Catfish":pond.species,count:String(pond.currentCount),stockingDate:pond.stockingDate});setShowEditFish(true);}} className="flex items-center gap-1 text-xs text-slate-400 hover:text-green-600 border border-slate-200 hover:border-green-300 rounded-lg px-2 py-1 transition-colors"><Pencil size={11}/> Edit</button>}
         </div>
         {pond.transferNote&&(
           <div className="mb-4 flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-50 border border-blue-200 text-xs text-blue-700">
@@ -494,7 +545,7 @@ function PondDetail({pond,mortality,onAddMortality,onAddCost,feedingRecords,onBa
                   <td className="px-4 py-3 text-slate-400 text-xs font-mono">{r.eveningTime||"—"}</td>
                   <td className="px-4 py-3 font-bold text-green-700">{r.total}kg</td>
                   <td className="px-4 py-3 text-slate-400">{r.recordedBy}</td>
-                  <td className="px-4 py-3"><button onClick={()=>setEditFeedRec({...r})} className="p-1.5 rounded-lg text-slate-300 hover:text-green-600 hover:bg-green-50 transition-colors"><Pencil size={13}/></button></td>
+                  <td className="px-4 py-3">{canEdit&&<button onClick={()=>setEditFeedRec({...r})} className="p-1.5 rounded-lg text-slate-300 hover:text-green-600 hover:bg-green-50 transition-colors"><Pencil size={13}/></button>}</td>
                 </tr>
               ))}
             </tbody>
@@ -507,7 +558,7 @@ function PondDetail({pond,mortality,onAddMortality,onAddCost,feedingRecords,onBa
               <div className="text-xs text-slate-500 font-medium">
                 Total Treatments Logged: <strong className="text-slate-800">{unifiedTreatments.length}</strong>
               </div>
-              {pond.status==="Active"&&(
+              {canCreate&&pond.status==="Active"&&(
                 <PBtn sm onClick={()=>setShowTreat(true)}>
                   <Plus size={12}/> Log Treatment
                 </PBtn>
@@ -539,7 +590,7 @@ function PondDetail({pond,mortality,onAddMortality,onAddCost,feedingRecords,onBa
                     <td className="px-4 py-3 text-slate-400 text-xs max-w-[180px]">{t.remarks}</td>
                     <td className="px-4 py-3 text-slate-500 text-xs whitespace-nowrap">{t.recordedBy}</td>
                     <td className="px-4 py-3">
-                      {t.rawTreatment&&(
+                      {canEdit&&t.rawTreatment&&(
                         <button onClick={()=>setEditTreatRec({...t.rawTreatment!})} className="p-1.5 rounded-lg text-slate-300 hover:text-green-600 hover:bg-green-50 transition-colors" title="Edit Treatment">
                           <Pencil size={13}/>
                         </button>
@@ -558,7 +609,7 @@ function PondDetail({pond,mortality,onAddMortality,onAddCost,feedingRecords,onBa
               <div className="text-xs text-slate-500 font-medium">
                 Total Other Issues: <strong className="text-slate-800">{otherIssues.length}</strong>
               </div>
-              {pond.status==="Active"&&(
+              {canCreate&&pond.status==="Active"&&(
                 <PBtn sm onClick={()=>setShowAddIssue(true)}>
                   <Plus size={12}/> Log Issue
                 </PBtn>
@@ -612,9 +663,9 @@ function PondDetail({pond,mortality,onAddMortality,onAddCost,feedingRecords,onBa
                 <span className="text-slate-600 font-medium">{size}</span>
                 <div className="flex items-center gap-2">
                   <span className="font-bold text-slate-800">{kg}kg max</span>
-                  <button type="button" onClick={()=>onSetMaxKg(pond.id,size,0)} title="Remove limit" className="p-1 text-slate-400 hover:text-red-500 rounded transition-colors">
+                  {canEdit&&<button type="button" onClick={()=>onSetMaxKg(pond.id,size,0)} title="Remove limit" className="p-1 text-slate-400 hover:text-red-500 rounded transition-colors">
                     <Trash2 size={12}/>
-                  </button>
+                  </button>}
                 </div>
               </div>
             ))}
@@ -651,7 +702,7 @@ function PondDetail({pond,mortality,onAddMortality,onAddCost,feedingRecords,onBa
                       <td className="px-3 py-2.5 font-semibold text-red-700">{m.count.toLocaleString()}</td>
                       <td className="px-3 py-2.5 text-slate-600">{m.cause}</td>
                       <td className="px-3 py-2.5 text-slate-500 max-w-[200px] truncate">{m.notes||"—"}</td>
-                      <td className="px-3 py-2.5"><button onClick={()=>setEditMortEntry({...m})} className="flex items-center gap-1 text-xs text-green-600 hover:text-green-800 font-semibold"><Pencil size={11}/> Edit</button></td>
+                      <td className="px-3 py-2.5">{canEdit&&<button onClick={()=>setEditMortEntry({...m})} className="flex items-center gap-1 text-xs text-green-600 hover:text-green-800 font-semibold"><Pencil size={11}/> Edit</button>}</td>
                     </tr>
                   ))}</tbody>
                 </table>
@@ -859,7 +910,7 @@ export function getNextPondFigure(ponds: Pond[]): string {
 }
 
 /* ─── 2. Pond Management ────────────────────────────────────── */
-export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPond,onTransfer,onNurseryTransfer,mortality,onAddMortality,onAddCost,feedingRecords,stockEvents,treatments,onAddTreatment,activeFarmId,onDeletePond,onEditFish,onSetMaxKg,onEditPond,onScrollTop,currency="₦",inventory=[],farms=[],pondReports=[],onAddPondReport}:{ponds:Pond[];onAddPond:(p:Pond)=>void;onClosePond:(id:string)=>void;onRestockPond:(id:string,data:{species:string;initialStock:number;stockingDate:string;stockMonth:string;supplier?:string})=>void;onTransfer:(fromId:string,toId:string,date:string)=>void;onNurseryTransfer:(fromId:string,toId:string,count:number,pct:number,date:string)=>void;mortality:MortalityEntry[];onAddMortality:(m:MortalityEntry,pondId:string)=>void;onAddCost:(e:Expense)=>void;feedingRecords:FeedingRecord[];stockEvents:StockEvent[];treatments:TreatmentRecord[];onAddTreatment:(t:TreatmentRecord)=>void;activeFarmId:string;onDeletePond?:(id:string)=>void;onEditFish?:(pondId:string,u:{species:string;currentCount:number;stockingDate:string})=>void;onSetMaxKg:(pondId:string,size:string,maxKg:number)=>void;onEditPond?:(id:string,u:Partial<Pond>)=>void;onScrollTop?:()=>void;currency?:string;inventory?:FeedItem[];farms?:Farm[];pondReports?:PondReport[];onAddPondReport?:(r:PondReport)=>Promise<void>;}){
+export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPond,onTransfer,onNurseryTransfer,mortality,onAddMortality,onAddCost,feedingRecords,stockEvents,treatments,onAddTreatment,activeFarmId,onDeletePond,onEditFish,onSetMaxKg,onEditPond,onScrollTop,currency="₦",inventory=[],farms=[],pondReports=[],onAddPondReport,canCreate=true,canEdit=true,canDelete=true}:{ponds:Pond[];onAddPond:(p:Pond)=>void;onClosePond:(id:string)=>void;onRestockPond:(id:string,data:{species:string;initialStock:number;stockingDate:string;stockMonth:string;supplier?:string})=>void;onTransfer:(fromId:string,toId:string,date:string)=>void;onNurseryTransfer:(fromId:string,toId:string,count:number,pct:number,date:string)=>void;mortality:MortalityEntry[];onAddMortality:(m:MortalityEntry,pondId:string)=>void;onAddCost:(e:Expense)=>void;feedingRecords:FeedingRecord[];stockEvents:StockEvent[];treatments:TreatmentRecord[];onAddTreatment:(t:TreatmentRecord)=>void;activeFarmId:string;onDeletePond?:(id:string)=>void;onEditFish?:(pondId:string,u:{species:string;currentCount:number;stockingDate:string})=>void;onSetMaxKg:(pondId:string,size:string,maxKg:number)=>void;onEditPond?:(id:string,u:Partial<Pond>)=>void;onScrollTop?:()=>void;currency?:string;inventory?:FeedItem[];farms?:Farm[];pondReports?:PondReport[];onAddPondReport?:(r:PondReport)=>Promise<void>;canCreate?:boolean;canEdit?:boolean;canDelete?:boolean;}){
   const cs=currency;
   const [detailId,setDetailId]=useState<string|null>(null);
   const [showAdd,setShowAdd]=useState(false);
@@ -1041,7 +1092,7 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
 
   if(pond) return (
     <>
-      <PondDetail pond={pond} mortality={mortality} onAddMortality={onAddMortality} onAddCost={onAddCost} feedingRecords={feedingRecords} onBack={()=>setDetailId(null)} onClosePond={onClosePond} onRestockPond={(id,data)=>{setFStatus("All");onRestockPond(id,data);}} ponds={ponds} stockEvents={stockEvents} onTransfer={onTransfer} onNurseryTransfer={onNurseryTransfer} treatments={treatments} onAddTreatment={onAddTreatment} onEditFish={onEditFish} onSetMaxKg={onSetMaxKg} inventory={inventory} onEditThisPond={openEditPond} currency={currency} farms={farms} pondReports={pondReports} onAddPondReport={onAddPondReport}/>
+      <PondDetail pond={pond} mortality={mortality} onAddMortality={onAddMortality} onAddCost={onAddCost} feedingRecords={feedingRecords} onBack={()=>setDetailId(null)} onClosePond={onClosePond} onRestockPond={(id,data)=>{setFStatus("All");onRestockPond(id,data);}} ponds={ponds} stockEvents={stockEvents} onTransfer={onTransfer} onNurseryTransfer={onNurseryTransfer} treatments={treatments} onAddTreatment={onAddTreatment} onEditFish={onEditFish} onSetMaxKg={onSetMaxKg} inventory={inventory} onEditThisPond={openEditPond} currency={currency} farms={farms} pondReports={pondReports} onAddPondReport={onAddPondReport} canCreate={canCreate} canEdit={canEdit} canDelete={canDelete}/>
       {editPondModal}
     </>
   );
@@ -1055,7 +1106,7 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
         </div>
         <div className="flex gap-2 flex-wrap">
           <PBtn onClick={()=>setShowStockHist(true)} sm outline><History size={13}/> Fish Stock History</PBtn>
-          <PBtn onClick={()=>{setAddF({name:"",lengthFt:"",widthFt:"",type:"Earthen",notes:"",category:"Production"});setAddErr({});setShowAdd(true);}} sm><Plus size={13}/> Add Pond</PBtn>
+          {canCreate&&<PBtn onClick={()=>{setAddF({name:"",lengthFt:"",widthFt:"",type:"Earthen",notes:"",category:"Production"});setAddErr({});setShowAdd(true);}} sm><Plus size={13}/> Add Pond</PBtn>}
         </div>
       </div>
       <div className="grid grid-cols-3 gap-3">
@@ -1103,8 +1154,8 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
                   <td className="px-4 py-3.5">
                     <div className="flex items-center gap-1">
                       <button onClick={()=>setDetailId(p.id)} className="flex items-center gap-1 text-xs font-semibold text-green-600 hover:text-green-800 transition-colors"><Eye size={13}/> View</button>
-                      <button onClick={()=>openEditPond(p)} className="p-1.5 rounded-lg text-slate-300 hover:text-green-600 hover:bg-green-50 transition-colors" title="Edit pond"><Pencil size={13}/></button>
-                      <button onClick={()=>{if(p.status!=="Empty"||p.currentCount>0)return;setDeletePondId(p.id);}} disabled={p.status==="Active"||p.currentCount>0} className={`p-1.5 rounded-lg transition-colors ${p.status==="Empty"&&p.currentCount===0?"text-slate-300 hover:text-red-500 hover:bg-red-50":"text-slate-200 cursor-not-allowed"}`}><Trash2 size={13}/></button>
+                      {canEdit&&<button onClick={()=>openEditPond(p)} className="p-1.5 rounded-lg text-slate-300 hover:text-green-600 hover:bg-green-50 transition-colors" title="Edit pond"><Pencil size={13}/></button>}
+                      {canDelete&&<button onClick={()=>{if(p.status!=="Empty"||p.currentCount>0)return;setDeletePondId(p.id);}} disabled={p.status==="Active"||p.currentCount>0} className={`p-1.5 rounded-lg transition-colors ${p.status==="Empty"&&p.currentCount===0?"text-slate-300 hover:text-red-500 hover:bg-red-50":"text-slate-200 cursor-not-allowed"}`}><Trash2 size={13}/></button>}
                     </div>
                   </td>
                 </tr>
@@ -1145,14 +1196,14 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
                 {pondMobileMenu===p.id&&(
                   <div ref={pondMenuRef} className={`absolute right-0 z-50 bg-white border border-slate-200 rounded-xl shadow-2xl overflow-hidden min-w-[160px] ${isNearBottom?"bottom-0":"top-0"}`} onClick={e=>e.stopPropagation()}>
                     <button onClick={()=>{setDetailId(p.id);setPondMobileMenu(null);}} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-2"><Eye size={14}/> View Details</button>
-                    <button onClick={()=>{openEditPond(p);setPondMobileMenu(null);}} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-2"><Pencil size={14}/> Edit</button>
-                    <button
+                    {canEdit&&<button onClick={()=>{openEditPond(p);setPondMobileMenu(null);}} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-2"><Pencil size={14}/> Edit</button>}
+                    {canDelete&&<button
                       onClick={()=>{
                         if(p.currentCount>0){alert(`Cannot delete ${p.name}: pond still has ${p.currentCount.toLocaleString()} fish. Remove all fish stock first.`);setPondMobileMenu(null);return;}
                         setDeletePondId(p.id);setPondMobileMenu(null);
                       }}
                       className={`w-full text-left px-4 py-2.5 text-sm flex items-center gap-2 ${p.currentCount>0?"text-slate-300 cursor-not-allowed":"text-red-500 hover:bg-red-50"}`}
-                    ><Trash2 size={14}/> Delete Pond{p.currentCount>0&&<span className="text-[10px] text-slate-300 ml-auto">Not empty</span>}</button>
+                    ><Trash2 size={14}/> Delete Pond{p.currentCount>0&&<span className="text-[10px] text-slate-300 ml-auto">Not empty</span>}</button>}
                   </div>
                 )}
               </div>

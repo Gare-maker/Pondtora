@@ -4,7 +4,7 @@ import type { Pond, Invoice, InvoiceLineItem, Customer, PriceGroup, InvSettings,
 import { fmt, uid, TODAY, PAYMENT_METHODS, INV_STATUSES } from "../data";
 import { Card, Bdg, PBtn, Pagination, StatCard, Modal, F, IC, SC, SearchableSelect, SelDrop, DateFilter, DMONTHS_S, SH, PER_PAGE } from "../shared";
 
-export default function InvoicesPage({ponds,invoices,customers,priceGroups,settings,onAddInvoice,onEditInvoice,onDeleteInvoice,onAddCustomer,onAddPriceGroup,onEditPriceGroup,onDeletePriceGroup,onUpdateSettings,currentUser,currency="₦"}:{ponds:Pond[];invoices:Invoice[];customers:Customer[];priceGroups:PriceGroup[];settings:InvSettings;onAddInvoice:(i:Invoice)=>void;onEditInvoice:(i:Invoice)=>void;onDeleteInvoice?:(id:string)=>void;onAddCustomer:(c:Customer)=>void;onAddPriceGroup:(g:PriceGroup)=>void;onEditPriceGroup:(g:PriceGroup)=>void;onDeletePriceGroup:(id:string)=>void;onUpdateSettings:(s:InvSettings)=>void;currentUser?:string;currency?:string;}){
+export default function InvoicesPage({ponds,invoices,customers,priceGroups,settings,onAddInvoice,onEditInvoice,onDeleteInvoice,onAddCustomer,onAddPriceGroup,onEditPriceGroup,onDeletePriceGroup,onUpdateSettings,currentUser,currency="₦",canCreate=true,canEdit=true,canDelete=true}:{ponds:Pond[];invoices:Invoice[];customers:Customer[];priceGroups:PriceGroup[];settings:InvSettings;onAddInvoice:(i:Invoice)=>void;onEditInvoice:(i:Invoice)=>void;onDeleteInvoice?:(id:string)=>void;onAddCustomer:(c:Customer)=>void;onAddPriceGroup:(g:PriceGroup)=>void;onEditPriceGroup:(g:PriceGroup)=>void;onDeletePriceGroup:(id:string)=>void;onUpdateSettings:(s:InvSettings)=>void;currentUser?:string;currency?:string;canCreate?:boolean;canEdit?:boolean;canDelete?:boolean;}){
   const cs=currency;
   /* ── filter / sort state ── */
   const [search,setSearch]=useState(""); const [fPond,setFPond]=useState("All"); const [fStatus,setFStatus]=useState("All"); const [fMethod,setFMethod]=useState("All"); const [sortDir,setSortDir]=useState<SortDir>("desc");
@@ -189,9 +189,9 @@ export default function InvoicesPage({ponds,invoices,customers,priceGroups,setti
       <div className="sticky top-0 z-10 bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 flex flex-wrap items-center justify-between gap-3">
         <div><h1 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Invoices</h1><p className="text-xs text-slate-400 mt-0.5">Manage customer invoices, configure pricing groups, generate professional invoices, and track payment status.</p></div>
         <div className="flex flex-wrap gap-2">
-          <PBtn sm outline onClick={()=>{setSettingsF({...settings});setShowSettings(true);}}><Filter size={13}/> Invoice Settings</PBtn>
+          {canEdit&&<PBtn sm outline onClick={()=>{setSettingsF({...settings});setShowSettings(true);}}><Filter size={13}/> Invoice Settings</PBtn>}
           <PBtn sm outline onClick={()=>{setShowGroupsPanel(true);setGroupFormMode(false);setEditGroup(null);}}><Tag size={13}/> Price Groups</PBtn>
-          <PBtn sm onClick={()=>{setShowCreate(true);resetWizard();}}><Plus size={13}/> Create Invoice</PBtn>
+          {canCreate&&<PBtn sm onClick={()=>{setShowCreate(true);resetWizard();}}><Plus size={13}/> Create Invoice</PBtn>}
         </div>
       </div>
 
@@ -256,14 +256,14 @@ export default function InvoicesPage({ponds,invoices,customers,priceGroups,setti
                   <div className="flex items-center gap-1">
                     <button onClick={()=>setViewInv(inv)} title="View" className="p-1.5 rounded-lg text-slate-300 hover:text-green-600 hover:bg-green-50 transition-colors"><Eye size={13}/></button>
                     <button onClick={()=>printInvoice(inv)} title="Print" className="p-1.5 rounded-lg text-slate-300 hover:text-green-600 hover:bg-green-50 transition-colors"><FileText size={13}/></button>
-                    {inv.status!=="Paid"&&inv.status!=="Error"&&(
+                    {canEdit&&inv.status!=="Paid"&&inv.status!=="Error"&&(
                       <button onClick={()=>markInvoiceAsPaid(inv)} title="Mark as Paid in Full" className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-bold bg-green-50 text-green-700 hover:bg-green-100 hover:text-green-800 transition-colors border border-green-200 shadow-xs">
                         <CheckCircle size={12}/> Mark Paid
                       </button>
                     )}
-                    {inv.status!=="Error"&&<button onClick={()=>openPaymentModal(inv)} title="Update Custom Payment" className="p-1.5 rounded-lg text-slate-300 hover:text-green-600 hover:bg-green-50 transition-colors"><Layers size={13}/></button>}
-                    {inv.status!=="Error"&&<button onClick={()=>onEditInvoice({...inv,status:"Error"})} title="Mark as Error" className="p-1.5 rounded-lg text-slate-300 hover:text-red-600 hover:bg-red-50 transition-colors"><AlertCircle size={13}/></button>}
-                    {onDeleteInvoice&&<button onClick={()=>setDeleteInvId(inv.id)} title="Delete Invoice" className="p-1.5 rounded-lg text-slate-300 hover:text-red-600 hover:bg-red-50 transition-colors"><Trash2 size={13}/></button>}
+                    {canEdit&&inv.status!=="Error"&&<button onClick={()=>openPaymentModal(inv)} title="Update Custom Payment" className="p-1.5 rounded-lg text-slate-300 hover:text-green-600 hover:bg-green-50 transition-colors"><Layers size={13}/></button>}
+                    {canEdit&&inv.status!=="Error"&&<button onClick={()=>onEditInvoice({...inv,status:"Error"})} title="Mark as Error" className="p-1.5 rounded-lg text-slate-300 hover:text-red-600 hover:bg-red-50 transition-colors"><AlertCircle size={13}/></button>}
+                    {canDelete&&onDeleteInvoice&&<button onClick={()=>setDeleteInvId(inv.id)} title="Delete Invoice" className="p-1.5 rounded-lg text-slate-300 hover:text-red-600 hover:bg-red-50 transition-colors"><Trash2 size={13}/></button>}
                   </div>
                 </td>
               </tr>
@@ -560,7 +560,7 @@ export default function InvoicesPage({ponds,invoices,customers,priceGroups,setti
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 shrink-0">
               <div><h2 className="text-base font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">{groupFormMode?"Price Group Form":"Price Groups"}</h2><p className="text-xs text-slate-400 mt-0.5">Configure fish pricing — prices apply to future invoices only</p></div>
               <div className="flex items-center gap-2">
-                {!groupFormMode&&<PBtn sm onClick={()=>{setGroupFormMode(true);setEditGroup(null);setGroupF({group:"",displayName:"",description:"",pricePerKg:"",status:"Active"});}}><Plus size={12}/> Add Group</PBtn>}
+                {canCreate&&!groupFormMode&&<PBtn sm onClick={()=>{setGroupFormMode(true);setEditGroup(null);setGroupF({group:"",displayName:"",description:"",pricePerKg:"",status:"Active"});}}><Plus size={12}/> Add Group</PBtn>}
                 <button onClick={()=>{setShowGroupsPanel(false);setGroupFormMode(false);setEditGroup(null);}} className="text-slate-400 hover:text-slate-700 p-1"><X size={18}/></button>
               </div>
             </div>
@@ -586,8 +586,8 @@ export default function InvoicesPage({ponds,invoices,customers,priceGroups,setti
                             <td className="px-4 py-3"><Bdg label={g.status} color={g.status==="Active"?"green":"gray"}/></td>
                             <td className="px-4 py-3">
                               <div className="flex gap-1">
-                                <button onClick={()=>{setEditGroup(g);setGroupF({group:g.group,displayName:g.displayName,description:g.description,pricePerKg:String(g.pricePerKg),status:g.status});setGroupFormMode(true);}} className="p-1.5 rounded-lg text-slate-300 hover:text-green-600 hover:bg-green-50 transition-colors"><Pencil size={13}/></button>
-                                <button onClick={()=>{if(confirm(`Delete "${g.group} – ${g.displayName}"?`))onDeletePriceGroup(g.id);}} className="p-1.5 rounded-lg text-slate-300 hover:text-red-500 hover:bg-red-50 transition-colors"><Trash2 size={13}/></button>
+                                {canEdit&&<button onClick={()=>{setEditGroup(g);setGroupF({group:g.group,displayName:g.displayName,description:g.description,pricePerKg:String(g.pricePerKg),status:g.status});setGroupFormMode(true);}} className="p-1.5 rounded-lg text-slate-300 hover:text-green-600 hover:bg-green-50 transition-colors"><Pencil size={13}/></button>}
+                                {canDelete&&<button onClick={()=>{if(confirm(`Delete "${g.group} – ${g.displayName}"?`))onDeletePriceGroup(g.id);}} className="p-1.5 rounded-lg text-slate-300 hover:text-red-500 hover:bg-red-50 transition-colors"><Trash2 size={13}/></button>}
                               </div>
                             </td>
                           </tr>

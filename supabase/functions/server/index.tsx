@@ -36,6 +36,29 @@ function userDb(token: string) {
   });
 }
 
+// ── Resolve effective user_id for staff members ───────────────────────────────
+// When a staff member calls an API, records must be created/read under the
+// Farm Owner's user_id (not the staff's own user_id). This function resolves
+// the effective owner user_id and the staff's assigned farm IDs.
+async function getEffectiveUserId(userId: string): Promise<{
+  effectiveUserId: string;
+  staffFarmIds: string[];
+  isStaffCaller: boolean;
+}> {
+  try {
+    const { data: sm } = await adminDb()
+      .from("staff_members")
+      .select("user_id, staff_farm_assignments(farm_id)")
+      .eq("staff_auth_id", userId)
+      .maybeSingle();
+    if (sm?.user_id && sm.user_id !== userId) {
+      const farmIds = (sm.staff_farm_assignments || []).map((a: any) => a.farm_id);
+      return { effectiveUserId: sm.user_id, staffFarmIds: farmIds, isStaffCaller: true };
+    }
+  } catch { /* owner, fall through */ }
+  return { effectiveUserId: userId, staffFarmIds: [], isStaffCaller: false };
+}
+
 // ── camelCase ↔ snake_case ────────────────────────────────────────────────────
 const toSnake = (s: string) => s.replace(/([A-Z])/g, "_$1").toLowerCase();
 const toCamel = (s: string) => s.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
@@ -137,23 +160,33 @@ app.post(`${P}/auto-setup`, async (c) => {
   return c.json({ success: true, errors: errors.length ? errors : undefined });
 });
 
-// ── Generic CRUD factory — uses userDb(token) so RLS enforces access ──────────
+// ── Generic CRUD factory ─────────────────────────────────────────────────────
+// All farm-data tables are SHARED: owner and staff see the same records.
+//
+// KEY BEHAVIOURS:
+//   LIST   – filters by OWNER's user_id (staff resolves to owner via getEffectiveUserId)
+//   CREATE – injects OWNER's user_id so records are always attributed to the owner
+//   UPDATE – no user_id filter; RLS (user_can_access_owner_data) enforces access
+//   DELETE – no user_id filter; RLS enforces access
+//
+// This ensures staff-created records are visible to the owner and vice-versa.
 function makeCrud(app: Hono, table: string) {
   const route = `${P}/${table.replace(/_/g, "-")}`;
 
-  // LIST — filtered by user_id via RLS
+  // LIST — use OWNER's user_id so staff see the same records as the owner
   app.get(route, async (c) => {
-    const token = c.get("token") as string;
+    const token  = c.get("token") as string;
     const userId = c.get("userId") as string;
-    const db = userDb(token);
+    const db     = userDb(token);
+    const { effectiveUserId } = await getEffectiveUserId(userId);
     const { data, error } = await db
-      .from(table).select("*").eq("user_id", userId)
+      .from(table).select("*").eq("user_id", effectiveUserId)
       .order("created_at", { ascending: false });
     if (error) return dbErr(c, error);
     return c.json((data || []).map(objToCamel));
   });
 
-  // GET ONE
+  // GET ONE — no user_id filter; RLS enforces farm-level access
   app.get(`${route}/:id`, async (c) => {
     const token = c.get("token") as string;
     const { data, error } = await userDb(token)
@@ -163,13 +196,19 @@ function makeCrud(app: Hono, table: string) {
     return c.json(objToCamel(data));
   });
 
-  // CREATE — user_id injected server-side, RLS WITH CHECK enforces ownership
+  // CREATE — inject OWNER's user_id so the record belongs to the farm owner
   app.post(route, async (c) => {
     const token  = c.get("token") as string;
     const userId = c.get("userId") as string;
     const body   = await c.req.json();
     const row    = objToSnake(body);
-    row.user_id  = userId;
+    // Resolve to owner's user_id (staff → owner, owner → self)
+    const { effectiveUserId, staffFarmIds } = await getEffectiveUserId(userId);
+    row.user_id = effectiveUserId;
+    // If staff is creating and no farm_id provided, default to their first assigned farm
+    if (staffFarmIds.length > 0 && !row.farm_id) {
+      row.farm_id = staffFarmIds[0];
+    }
     delete row.id; // let DB generate UUID
     const { data, error } = await userDb(token)
       .from(table).insert(row).select().single();
@@ -177,26 +216,26 @@ function makeCrud(app: Hono, table: string) {
     return c.json(objToCamel(data), 201);
   });
 
-  // UPDATE — scoped by user_id + RLS
+  // UPDATE — no user_id filter; RLS (user_can_access_owner_data) enforces access.
+  //          Do NOT re-inject user_id; preserve the existing owner's user_id.
   app.put(`${route}/:id`, async (c) => {
-    const token  = c.get("token") as string;
-    const userId = c.get("userId") as string;
-    const body   = await c.req.json();
-    const row    = objToSnake(body);
+    const token = c.get("token") as string;
+    const body  = await c.req.json();
+    const row   = objToSnake(body);
+    // Never let clients change ownership or created_at
     delete row.id; delete row.created_at; delete row.user_id;
     const { data, error } = await userDb(token)
-      .from(table).update(row).eq("id", c.req.param("id")).eq("user_id", userId)
+      .from(table).update(row).eq("id", c.req.param("id"))
       .select().single();
     if (error) return dbErr(c, error);
     return c.json(objToCamel(data));
   });
 
-  // DELETE — scoped by user_id + RLS
+  // DELETE — no user_id filter; RLS enforces access
   app.delete(`${route}/:id`, async (c) => {
-    const token  = c.get("token") as string;
-    const userId = c.get("userId") as string;
+    const token = c.get("token") as string;
     const { error } = await userDb(token)
-      .from(table).delete().eq("id", c.req.param("id")).eq("user_id", userId);
+      .from(table).delete().eq("id", c.req.param("id"));
     if (error) return dbErr(c, error);
     return c.json({ success: true });
   });
@@ -215,13 +254,23 @@ app.get(`${P}/me`, async (c) => {
   let staffInfo = null;
   if (!profile || profile.role === "staff") {
     const { data: sm } = await adminDb().from("staff_members")
-      .select("*, staff_farm_assignments(farm_id), staff_permissions(feature,can_view)")
+      .select("*, staff_farm_assignments(farm_id), staff_permissions(feature,can_view,can_create,can_edit,can_delete)")
       .eq("staff_auth_id", userId).maybeSingle();
     if (sm) {
       const farmIds = (sm.staff_farm_assignments || []).map((a: any) => a.farm_id);
       const perms   = (sm.staff_permissions || []).filter((p: any) => p.can_view).map((p: any) => p.feature);
+      // Build action-level permissions object: { [feature]: { canView, canCreate, canEdit, canDelete } }
+      const staffPermissions: Record<string, any> = {};
+      (sm.staff_permissions || []).forEach((p: any) => {
+        staffPermissions[p.feature] = {
+          canView: !!p.can_view,
+          canCreate: !!p.can_create,
+          canEdit: !!p.can_edit,
+          canDelete: !!p.can_delete,
+        };
+      });
       const { data: assignedFarms } = await adminDb().from("farms").select("*").in("id", farmIds);
-      staffInfo = { ...objToCamel(sm), farmIds, permissions: perms,
+      staffInfo = { ...objToCamel(sm), farmIds, permissions: perms, staffPermissions,
         assignedFarms: (assignedFarms || []).map(objToCamel), ownerId: sm.user_id };
     }
   }
@@ -311,19 +360,40 @@ app.get(`${P}/staff-members`, async (c) => {
     .select("*, staff_farm_assignments(farm_id), staff_permissions(feature,can_view,can_create,can_edit,can_delete)")
     .eq("user_id", userId).order("created_at", { ascending: false });
   if (error) return dbErr(c, error);
-  return c.json((data || []).map(s => ({
-    ...objToCamel(s),
-    farms: (s.staff_farm_assignments || []).map((a: any) => a.farm_id),
-    permissions: (s.staff_permissions || []).filter((p: any) => p.can_view).map((p: any) => p.feature),
-  })));
+  return c.json((data || []).map(s => {
+    const farmIds = (s.staff_farm_assignments || []).map((a: any) => a.farm_id);
+    const permissions = (s.staff_permissions || []).filter((p: any) => p.can_view).map((p: any) => p.feature);
+    const staffPermissions: Record<string, any> = {};
+    (s.staff_permissions || []).forEach((p: any) => {
+      staffPermissions[p.feature] = {
+        canView: !!p.can_view,
+        canCreate: !!p.can_create,
+        canEdit: !!p.can_edit,
+        canDelete: !!p.can_delete,
+      };
+    });
+    return { ...objToCamel(s), farms: farmIds, permissions, staffPermissions };
+  }));
 });
 
 // Invite or add staff
 app.post(`${P}/staff-members/invite`, async (c) => {
   const userId = c.get("userId") as string;
-  const { email, password, name, phone, role, farms = [], permissions = [], appUrl, farmName } = await c.req.json();
+  const { email, password, name, phone, role, farms: rawFarms = [], permissions = [], appUrl, farmName } = await c.req.json();
   if (!email) return c.json({ error: "Email is required" }, 400);
   const svc = adminDb();
+
+  // Ensure staff always has at least one farm assignment.
+  // If caller didn't provide farms, default to the owner's primary (first) farm.
+  let farms: string[] = Array.isArray(rawFarms) && rawFarms.length > 0 ? rawFarms : [];
+  if (farms.length === 0) {
+    try {
+      const { data: ownerFarms } = await svc.from("farms").select("id").eq("user_id", userId).order("created_at").limit(1);
+      if (ownerFarms && ownerFarms.length > 0) {
+        farms = [ownerFarms[0].id];
+      }
+    } catch { /* ignore, proceed without default farm */ }
+  }
 
   let staffAuthId: string | null = null;
   let inviteError = null;
@@ -447,13 +517,21 @@ app.post(`${P}/staff-members/invite`, async (c) => {
   }
 
   // Permissions
+  const staffPermsInput = (await c.req.json().catch(() => ({})))?.staffPermissions;
   if (permissions.length > 0) {
     await svc.from("staff_permissions").delete().eq("staff_id", sm.id);
     await svc.from("staff_permissions").insert(
-      permissions.map((feat: string) => ({
-        staff_id: sm.id, feature: feat,
-        can_view: true, can_create: true, can_edit: true, can_delete: false,
-      }))
+      permissions.map((feat: string) => {
+        const custom = staffPermsInput?.[feat];
+        return {
+          staff_id: sm.id,
+          feature: feat,
+          can_view: custom?.canView ?? true,
+          can_create: custom?.canCreate ?? true,
+          can_edit: custom?.canEdit ?? true,
+          can_delete: custom?.canDelete ?? false,
+        };
+      })
     );
   }
 
@@ -529,7 +607,7 @@ app.post(`${P}/staff-members/:id/password`, async (c) => {
 
 app.put(`${P}/staff-members/:id`, async (c) => {
   const userId = c.get("userId") as string;
-  const { farms, permissions, ...rest } = await c.req.json();
+  const { farms, permissions, staffPermissions, ...rest } = await c.req.json();
   const row = objToSnake(rest);
   delete row.id; delete row.user_id; delete row.created_at;
   const svc = adminDb();
@@ -545,9 +623,17 @@ app.put(`${P}/staff-members/:id`, async (c) => {
   if (permissions !== undefined) {
     await svc.from("staff_permissions").delete().eq("staff_id", data.id);
     if (permissions.length > 0) await svc.from("staff_permissions").insert(
-      permissions.map((feat: string) => ({
-        staff_id: data.id, feature: feat, can_view: true, can_create: true, can_edit: true, can_delete: false,
-      }))
+      permissions.map((feat: string) => {
+        const custom = staffPermissions?.[feat];
+        return {
+          staff_id: data.id,
+          feature: feat,
+          can_view: custom?.canView ?? true,
+          can_create: custom?.canCreate ?? true,
+          can_edit: custom?.canEdit ?? true,
+          can_delete: custom?.canDelete ?? false,
+        };
+      })
     );
   }
   return c.json({ ...objToCamel(data), farms: farms ?? [], permissions: permissions ?? [] });
@@ -648,14 +734,24 @@ app.get(`${P}/all`, async (c) => {
   if (profile?.role === "staff") {
     const { data: sm } = await svc
       .from("staff_members")
-      .select("*, staff_farm_assignments(farm_id), staff_permissions(feature,can_view)")
+      .select("*, staff_farm_assignments(farm_id), staff_permissions(feature,can_view,can_create,can_edit,can_delete)")
       .eq("staff_auth_id", userId).maybeSingle();
     if (sm) {
       ownerUserId  = sm.user_id;
       staffFarmIds = (sm.staff_farm_assignments || []).map((a: any) => a.farm_id);
       const perms  = (sm.staff_permissions || []).filter((p: any) => p.can_view).map((p: any) => p.feature);
+      // Build action-level permissions map
+      const staffPermissions: Record<string, any> = {};
+      (sm.staff_permissions || []).forEach((p: any) => {
+        staffPermissions[p.feature] = {
+          canView: !!p.can_view,
+          canCreate: !!p.can_create,
+          canEdit: !!p.can_edit,
+          canDelete: !!p.can_delete,
+        };
+      });
       staffInfo = { id: sm.id, name: sm.name, email: sm.email, role: sm.role,
-        farms: staffFarmIds, permissions: perms, ownerId: ownerUserId };
+        farms: staffFarmIds, permissions: perms, staffPermissions, ownerId: ownerUserId };
     }
   }
 
@@ -674,6 +770,7 @@ app.get(`${P}/all`, async (c) => {
     feeding, bags, remain, expenses, revenues,
     mortality, treatment, staffList, reports,
     customers, prices, invoices, kQ, cQ, kR, cR,
+    investors, investments, investmentPayments, pondReports,
   ] = await Promise.all([
     fetch("farms"),
     fetch("user_profiles"),
@@ -696,18 +793,32 @@ app.get(`${P}/all`, async (c) => {
     fetch("compatibility_questions"),
     fetch("knowledge_results"),
     fetch("compatibility_results"),
+    fetch("investors"),
+    fetch("investments", "farm_id"),
+    fetch("investment_payments", "farm_id"),
+    fetch("pond_reports", "farm_id"),
   ]);
 
   const { data: invSettings } = await svc.from("invoice_settings").select("*").eq("user_id", ownerUserId).maybeSingle();
 
-  // Enrich staff with their assignments + permissions
+  // Enrich staff members with farm assignments + full action-level permissions.
+  // FIX: use a.farm_id (snake_case from Supabase) not a.farmId (camelCase bug).
   const staffWithDetails = await Promise.all(
     (staffList as any[]).map(async (s: any) => {
       const [{ data: fa }, { data: fp }] = await Promise.all([
         svc.from("staff_farm_assignments").select("farm_id").eq("staff_id", s.id),
-        svc.from("staff_permissions").select("feature").eq("staff_id", s.id).eq("can_view", true),
+        svc.from("staff_permissions").select("feature,can_view,can_create,can_edit,can_delete").eq("staff_id", s.id),
       ]);
-      return { ...s, farms: (fa || []).map((a: any) => a.farmId), permissions: (fp || []).map((p: any) => p.feature) };
+      const farmIds = (fa || []).map((a: any) => a.farm_id);  // FIX: was a.farmId
+      const perms   = (fp || []).filter((p: any) => p.can_view).map((p: any) => p.feature);
+      const staffPermissions: Record<string, any> = {};
+      (fp || []).forEach((p: any) => {
+        staffPermissions[p.feature] = {
+          canView: !!p.can_view, canCreate: !!p.can_create,
+          canEdit: !!p.can_edit, canDelete: !!p.can_delete,
+        };
+      });
+      return { ...s, farms: farmIds, permissions: perms, staffPermissions };
     })
   );
 
@@ -725,6 +836,7 @@ app.get(`${P}/all`, async (c) => {
     knowledgeQuestions: kQ, compatibilityQuestions: cQ,
     knowledgeResults: kR, compatibilityResults: cR,
     invoiceSettings: invSettings ? objToCamel(invSettings) : null,
+    investors, investments, investmentPayments, pondReports,
     staffInfo, isStaff: !!staffInfo,
   });
 });

@@ -19,7 +19,7 @@ const DEFAULT_CALC_STANDARDS:{[size:string]:{bagsPerK:number;kgPerBag:number}}={
 };
 
 /* ─── 3. Feed Inventory ─────────────────────────────────────── */
-export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,bagLogs,remainLogs=[],ponds=[],onEditBagLog,onEditInv,currency="₦",canEditLocked}:{inventory:FeedItem[];onAdd:(f:FeedItem)=>void;onDelete:(id:string)=>void;feedingRecords:any[];bagLogs:BagOpenLog[];remainLogs?:FeedRemainingLog[];ponds?:Pond[];onEditBagLog:(b:BagOpenLog)=>void;onEditInv?:(f:FeedItem)=>void;currency?:string;canEditLocked?:boolean;}){
+export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,bagLogs,remainLogs=[],ponds=[],onEditBagLog,onEditInv,currency="₦",canEditLocked,canCreate=true,canEdit=true,canDelete=true}:{inventory:FeedItem[];onAdd:(f:FeedItem)=>void;onDelete:(id:string)=>void;feedingRecords:any[];bagLogs:BagOpenLog[];remainLogs?:FeedRemainingLog[];ponds?:Pond[];onEditBagLog:(b:BagOpenLog)=>void;onEditInv?:(f:FeedItem)=>void;currency?:string;canEditLocked?:boolean;canCreate?:boolean;canEdit?:boolean;canDelete?:boolean;}){
   const realTodayFmt=(()=>{const n=new Date();const day=n.getDate();const mon=n.toLocaleString("en-US",{month:"long"});const yr=n.getFullYear();return`${day} ${mon}, ${yr}`;})();
   const isPurchaseEditable=(purchaseDate:string)=>canEditLocked||purchaseDate===realTodayFmt;
   const cs=currency;
@@ -218,7 +218,7 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <button onClick={()=>{setShowCalc(true);setCalcStep("input");setShowCustomize(false);}} className="px-3 py-1.5 text-xs font-semibold text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 hover:border-slate-300 transition-colors flex items-center gap-1.5 bg-white"><Layers size={12}/> Feed Requirement Calculator</button>
-          <PBtn onClick={()=>setShowBuy(true)} sm><Plus size={13}/> Add Purchased Feed</PBtn>
+          {canCreate&&<PBtn onClick={()=>setShowBuy(true)} sm><Plus size={13}/> Add Purchased Feed</PBtn>}
         </div>
       </div>
       <div className="grid grid-cols-2 gap-3">
@@ -519,7 +519,7 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
                   <td className="px-4 py-3.5 text-slate-500">{fmt(row.costPerBag)}</td>
                   <td className="px-4 py-3.5 font-bold text-green-700 font-['Barlow_Condensed',sans-serif]">{fmt(row.bags*row.costPerBag)}</td>
                   <td className="px-4 py-3.5 text-slate-400 text-xs">{row.supplier||"—"}</td>
-                  <td className="px-4 py-3.5">{isPurchaseEditable(row.purchaseDate)?<button onClick={()=>setEditPurchase({...row})} className="p-1.5 rounded-lg text-slate-300 hover:text-green-600 hover:bg-green-50 transition-colors" title="Edit"><Pencil size={13}/></button>:<button onClick={()=>alert("This record can only be edited by an Administrator or Manager after 24 hours.")} className="p-1.5 rounded-lg text-slate-200 cursor-not-allowed" title="Locked after 24 hours"><Lock size={13}/></button>}</td>
+                  <td className="px-4 py-3.5">{canEdit&&(isPurchaseEditable(row.purchaseDate)?<button onClick={()=>setEditPurchase({...row})} className="p-1.5 rounded-lg text-slate-300 hover:text-green-600 hover:bg-green-50 transition-colors" title="Edit"><Pencil size={13}/></button>:<button onClick={()=>alert("This record can only be edited by an Administrator or Manager after 24 hours.")} className="p-1.5 rounded-lg text-slate-200 cursor-not-allowed" title="Locked after 24 hours"><Lock size={13}/></button>)}</td>
                 </tr>
               ))}
             </tbody>
