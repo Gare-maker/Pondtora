@@ -393,7 +393,7 @@ app.post(`${P}/staff-members/invite`, async (c) => {
       email,
       phone: phone || "",
       role: role || "General Staff",
-      status: "Active",
+      status: "Pending",
       joined_date: new Date().toISOString(),
       ...(staffAuthId ? { staff_auth_id: staffAuthId } : {}),
     }, { onConflict: "user_id,email" })
@@ -425,7 +425,7 @@ app.post(`${P}/staff-members/invite`, async (c) => {
         email,
         phone: phone || "",
         role: "staff",
-        status: "Active",
+        status: "Pending",
       });
     } catch {}
   }

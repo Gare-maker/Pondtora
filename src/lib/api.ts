@@ -887,23 +887,11 @@ export const api = {
         const cachedStaffItem = cachedStaff.find((c: any) => c.id === s.id);
         return {
           ...s,
-          status: s.status || "Active",
+          status: s.status || "Pending",
           farms: (s.farms && s.farms.length > 0) ? s.farms : (sFarms.length > 0 ? sFarms : (cachedStaffItem?.farms || [])),
           permissions: (s.permissions && s.permissions.length > 0) ? s.permissions : (sPerms.length > 0 ? sPerms : (cachedStaffItem?.permissions || [])),
         };
       });
-
-      // Auto-detect and sync Active status for staff members who have auth accounts or profiles
-      const activeStaffIdsToUpdate: string[] = [];
-      staffList.forEach(s => {
-        if (s.staffAuthId && s.status !== "Active") {
-          s.status = "Active";
-          activeStaffIdsToUpdate.push(s.id);
-        }
-      });
-      if (activeStaffIdsToUpdate.length > 0) {
-        supabase.from("staff_members").update({ status: "Active" }).in("id", activeStaffIdsToUpdate).then();
-      }
 
       // If user is staff with assigned farms, resolve all their accessible farms
       const userProfilesList = (profilesRes?.data || []).map((r: any) => objToCamel<UserProfile>(r));
@@ -1167,54 +1155,84 @@ export const api = {
       let emailSent = false;
       let emailError: string | null = null;
 
-      // 1. Primary path: Resend email confirmation link (type: "signup")
+      // 1. Try backend edge function (runs with SUPABASE_SERVICE_ROLE_KEY)
       try {
-        const { error: resendErr } = await authStaffCreator.auth.resend({
-          type: "signup",
-          email: cleanEmail,
-          options: {
-            emailRedirectTo: `${loginUrl}/create-password`,
+        const edgeUrl = `${import.meta.env.VITE_SUPABASE_URL || "https://fegtvgfkxueorybefthj.supabase.co"}/functions/v1/make-server-1da59a07/staff-members/resend-invite`;
+        const edgeRes = await fetch(edgeUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY || ""}`,
           },
-        });
-
-        if (!resendErr) {
-          emailSent = true;
-        } else {
-          // 2. Secondary path: Resend invite confirmation link (type: "invite")
-          const { error: inviteResendErr } = await authStaffCreator.auth.resend({
-            type: "invite",
+          body: JSON.stringify({
             email: cleanEmail,
-            options: {
-              emailRedirectTo: `${loginUrl}/create-password`,
-            },
-          });
-
-          if (!inviteResendErr) {
+            appUrl: loginUrl,
+            staffId: s.id,
+          }),
+        });
+        if (edgeRes.ok) {
+          const edgeData = await edgeRes.json();
+          if (edgeData.emailSent || edgeData.success) {
             emailSent = true;
-          } else {
-            emailError = resendErr.message || inviteResendErr.message;
           }
         }
-      } catch (err: any) {
+      } catch (edgeErr) {
+        console.warn("Edge function resend-invite failed, falling back to auth client:", edgeErr);
+      }
+
+      // 2. Primary fallback: Resend email confirmation link (type: "signup")
+      if (!emailSent) {
         try {
-          const { error: inviteResendErr } = await authStaffCreator.auth.resend({
-            type: "invite",
+          const { error: resendErr } = await authStaffCreator.auth.resend({
+            type: "signup",
             email: cleanEmail,
             options: {
               emailRedirectTo: `${loginUrl}/create-password`,
             },
           });
-          if (!inviteResendErr) {
+
+          if (!resendErr) {
             emailSent = true;
           } else {
-            emailError = err?.message || inviteResendErr?.message || "Could not send confirmation email";
+            // 3. Secondary fallback: Password reset / create link
+            const { error: resetErr } = await authStaffCreator.auth.resetPasswordForEmail(cleanEmail, {
+              redirectTo: `${loginUrl}/create-password`,
+            });
+            if (!resetErr) {
+              emailSent = true;
+            } else {
+              // 4. Invite resend
+              const { error: inviteResendErr } = await authStaffCreator.auth.resend({
+                type: "invite",
+                email: cleanEmail,
+                options: {
+                  emailRedirectTo: `${loginUrl}/create-password`,
+                },
+              });
+              if (!inviteResendErr) {
+                emailSent = true;
+              } else {
+                emailError = resendErr.message || resetErr.message || inviteResendErr.message;
+              }
+            }
           }
-        } catch (e: any) {
-          emailError = e?.message || err?.message || "Could not send confirmation email";
+        } catch (err: any) {
+          try {
+            const { error: resetErr } = await authStaffCreator.auth.resetPasswordForEmail(cleanEmail, {
+              redirectTo: `${loginUrl}/create-password`,
+            });
+            if (!resetErr) {
+              emailSent = true;
+            } else {
+              emailError = err?.message || resetErr?.message || "Could not send verification email";
+            }
+          } catch (e: any) {
+            emailError = e?.message || err?.message || "Could not send verification email";
+          }
         }
       }
 
-      // 3. Renew staff_invitations record
+      // 5. Renew staff_invitations record
       try {
         if (s.id) {
           await supabase.from("staff_invitations").upsert({

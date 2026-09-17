@@ -920,7 +920,7 @@ function StaffPage({
       email,
       phone: form.phone,
       role: form.role,
-      status: "Active",
+      status: "Pending",
       joinedDate: TODAY,
       permissions: form.permissions,
       farms: assignedFarms,
@@ -955,7 +955,7 @@ function StaffPage({
 
   const resendInvite = async (s: StaffMember) => {
     setResendingStaffId(s.id);
-    toast.info(`Sending confirmation email to ${s.email}…`);
+    toast.info(`Sending verification link to ${s.email}…`);
     try {
       const res = await api.staff.resendInvite({
         id: s.id,
@@ -966,20 +966,20 @@ function StaffPage({
         permissions: s.permissions,
         appUrl: getAppUrl(),
       });
-      if (res.emailSent) {
-        toast.success(`Confirmation link sent to ${s.email}! They can click the link in their email to confirm their email and set their password.`);
+      if (res.emailSent || res.success) {
+        toast.success(`Verification link sent to ${s.email}! They can click the link in their email to verify their account and set their password.`);
       } else if (res.emailError) {
         const lower = res.emailError.toLowerCase();
         if (lower.includes("security") || lower.includes("rate") || lower.includes("once every") || lower.includes("wait")) {
-          toast.info(`Email rate limit: A confirmation email was sent recently. Please wait a moment before sending another, or copy login info directly.`);
+          toast.info(`Email rate limit: A verification email was sent recently. Please wait a moment before sending another, or copy login info directly.`);
         } else {
           toast.error(`Email notice: ${res.emailError}. You can copy login details directly.`);
         }
       } else {
-        toast.success(`Confirmation email sent to ${s.email}!`);
+        toast.success(`Verification email sent to ${s.email}!`);
       }
     } catch (err: any) {
-      toast.error(err?.message || "Could not send confirmation email. Please copy login details instead.");
+      toast.error(err?.message || "Could not send verification email. Please copy login details instead.");
     } finally {
       setResendingStaffId(null);
     }
@@ -994,7 +994,7 @@ function StaffPage({
   };
 
   const active = staff.filter(s => s.status === "Active").length;
-  const pending = staff.filter(s => s.status === "Pending").length;
+  const pending = staff.filter(s => s.status !== "Active").length;
 
   return (
     <div className="p-4 sm:p-6 space-y-5 w-full">
@@ -1125,18 +1125,20 @@ function StaffPage({
                           >
                             <Copy size={11}/> Copy Login Info
                           </button>
-                          <button
-                            onClick={()=>resendInvite(s)}
-                            disabled={resendingStaffId === s.id}
-                            className="text-xs font-semibold text-purple-600 hover:text-purple-800 bg-purple-50 hover:bg-purple-100 border border-purple-200 px-2 py-1 rounded-lg transition-colors flex items-center gap-1 disabled:opacity-50"
-                            title="Resend invitation notification"
-                          >
-                            {resendingStaffId === s.id ? (
-                              <><Loader2 size={11} className="animate-spin" /> Sending...</>
-                            ) : (
-                              <><Mail size={11} /> Resend</>
-                            )}
-                          </button>
+                          {s.status !== "Active" && (
+                            <button
+                              onClick={()=>resendInvite(s)}
+                              disabled={resendingStaffId === s.id}
+                              className="text-xs font-semibold text-purple-600 hover:text-purple-800 bg-purple-50 hover:bg-purple-100 border border-purple-200 px-2 py-1 rounded-lg transition-colors flex items-center gap-1 disabled:opacity-50"
+                              title="Resend email verification link"
+                            >
+                              {resendingStaffId === s.id ? (
+                                <><Loader2 size={11} className="animate-spin" /> Sending...</>
+                              ) : (
+                                <><Mail size={11} /> Resend</>
+                              )}
+                            </button>
+                          )}
                           <button
                             onClick={()=>setEditMember({...s})}
                             className="p-1.5 rounded-lg text-slate-400 hover:text-green-600 hover:bg-green-50 transition-colors"

@@ -219,6 +219,11 @@ export default function CreatePasswordPage({ onSuccess, onGoToLogin }: CreatePas
             .eq("id", staffRow.id);
         }
 
+        await supabase.from("staff_invitations").update({
+          status: "accepted",
+          accepted_at: new Date().toISOString(),
+        }).ilike("email", cleanEmail);
+
         await supabase.from("user_profiles").upsert({
           id: user.id,
           name: name.trim() || meta.name || cleanEmail.split("@")[0],
