@@ -34,6 +34,7 @@ import { DEFAULT_PLANS } from "./types";
 import { projectId } from "../../utils/supabase/info";
 import { loadPaystackConfig, savePaystackConfig, fetchRemotePaystackConfig, PaystackConfig } from "../lib/paystack";
 import {
+  loadAllAdminUsers,
   fetchLiveAdminUsers,
   updateAdminUserInDb,
   deleteAdminUserInDb,
