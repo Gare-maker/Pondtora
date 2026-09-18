@@ -1,9 +1,10 @@
-import React, { lazy, Suspense, useState, Component, ErrorInfo, ReactNode } from "react";
+import React, { useState, Component, ErrorInfo, ReactNode } from "react";
 import ReactDOM from "react-dom/client";
 import "./styles/index.css";
 import App from "./app/App";
+import AdminApp from "./admin/AdminApp";
 
-// Listen for Vite chunk preload errors (e.g. after a new build is deployed) and automatically reload to fetch fresh assets
+// Listen for Vite chunk preload errors and automatically reload to fetch fresh assets
 if (typeof window !== "undefined") {
   window.addEventListener("vite:preloadError", (event) => {
     event.preventDefault();
@@ -11,34 +12,6 @@ if (typeof window !== "undefined") {
     window.location.reload();
   });
 }
-
-function lazyWithRetry<T extends React.ComponentType<any>>(
-  factory: () => Promise<{ default: T }>
-) {
-  return lazy(async () => {
-    const retryKey = "pondtora_admin_chunk_retried";
-    try {
-      const module = await factory();
-      try {
-        sessionStorage.removeItem(retryKey);
-      } catch {}
-      return module;
-    } catch (error: any) {
-      // If dynamic import failed (hash mismatch after new deployment or network glitch), force one clean reload
-      const alreadyRetried = sessionStorage.getItem(retryKey);
-      if (!alreadyRetried) {
-        try {
-          sessionStorage.setItem(retryKey, "true");
-        } catch {}
-        window.location.reload();
-        return new Promise<{ default: T }>(() => {});
-      }
-      throw error;
-    }
-  });
-}
-
-const AdminApp = lazyWithRetry(() => import("./admin/AdminApp"));
 
 const ADMIN_STORAGE_KEY = "pondtora_admin_mode";
 
@@ -234,15 +207,7 @@ function Root() {
   }
 
   if (isAdmin) {
-    return (
-      <Suspense fallback={
-        <div className="min-h-screen bg-slate-950 flex items-center justify-center">
-          <div className="w-6 h-6 border-2 border-green-500 border-t-transparent rounded-full animate-spin" />
-        </div>
-      }>
-        <AdminApp onExit={exitAdmin} />
-      </Suspense>
-    );
+    return <AdminApp onExit={exitAdmin} />;
   }
 
   return <App onAdmin={enterAdmin} />;

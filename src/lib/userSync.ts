@@ -75,8 +75,8 @@ export function loadCachedPlatformStats(): PlatformOperationalStats {
     const raw = localStorage.getItem(STATS_STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (parsed && typeof parsed.totalUsers === "number") {
-        return parsed;
+      if (parsed && typeof parsed === "object") {
+        return { ...DEFAULT_PLATFORM_STATS, ...parsed };
       }
     }
   } catch {}
