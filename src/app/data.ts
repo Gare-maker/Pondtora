@@ -274,32 +274,53 @@ export function fmtDate(d:string):string{
 export function isSameDate(d1?: string | null, d2?: string | null): boolean {
   if (!d1 || !d2) return false;
   if (d1 === d2) return true;
-  const s1 = d1.trim();
-  const s2 = d2.trim();
+  const s1 = String(d1).trim();
+  const s2 = String(d2).trim();
   if (s1 === s2) return true;
 
   const normalize = (val: string): string => {
-    const isoMatch = val.match(/^(\d{4})-(\d{2})-(\d{2})/);
-    if (isoMatch) return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`;
+    const isoMatch = val.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+    if (isoMatch) return `${isoMatch[1]}-${String(parseInt(isoMatch[2], 10)).padStart(2, "0")}-${String(parseInt(isoMatch[3], 10)).padStart(2, "0")}`;
+    
+    const dmyMatch = val.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+    if (dmyMatch) return `${dmyMatch[3]}-${String(parseInt(dmyMatch[2], 10)).padStart(2, "0")}-${String(parseInt(dmyMatch[1], 10)).padStart(2, "0")}`;
+
     const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-    const clean = val.replace(/,/g, "").trim();
-    const parts = clean.split(/\s+/);
+    const clean = val.replace(/(st|nd|rd|th),?/gi, "").replace(/,/g, " ").replace(/\s+/g, " ").trim();
+    const parts = clean.split(" ");
     if (parts.length >= 2) {
-      const mIdx = months.findIndex(m => m.toLowerCase() === parts[0].toLowerCase());
-      const day = parseInt(parts[1], 10);
-      if (mIdx !== -1 && !isNaN(day)) {
-        const year = parts[2] && /^\d{4}$/.test(parts[2]) ? parseInt(parts[2], 10) : new Date().getFullYear();
-        return `${year}-${String(mIdx + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+      // Month first: "Sep 18 2026" or "Sep 18"
+      const mIdxFirst = months.findIndex(m => m.toLowerCase() === parts[0].toLowerCase().slice(0, 3));
+      const daySecond = parseInt(parts[1], 10);
+      const yearThird = parts[2] && /^\d{4}$/.test(parts[2]) ? parseInt(parts[2], 10) : new Date().getFullYear();
+      if (mIdxFirst !== -1 && !isNaN(daySecond) && daySecond >= 1 && daySecond <= 31) {
+        return `${yearThird}-${String(mIdxFirst + 1).padStart(2, "0")}-${String(daySecond).padStart(2, "0")}`;
+      }
+
+      // Day first: "18 Sep 2026" or "18 Sep" or "18 September 2026"
+      const dayFirst = parseInt(parts[0], 10);
+      const mIdxSecond = months.findIndex(m => m.toLowerCase() === parts[1].toLowerCase().slice(0, 3));
+      const yearThird2 = parts[2] && /^\d{4}$/.test(parts[2]) ? parseInt(parts[2], 10) : new Date().getFullYear();
+      if (!isNaN(dayFirst) && dayFirst >= 1 && dayFirst <= 31 && mIdxSecond !== -1) {
+        return `${yearThird2}-${String(mIdxSecond + 1).padStart(2, "0")}-${String(dayFirst).padStart(2, "0")}`;
       }
     }
-    const d = new Date(val);
+
+    const d = new Date(clean);
     if (!isNaN(d.getTime())) {
       return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
     }
     return val;
   };
 
-  return normalize(s1) === normalize(s2);
+  const n1 = normalize(s1);
+  const n2 = normalize(s2);
+  if (n1 === n2) return true;
+
+  // Compare month-day part if one side omits year
+  const sub1 = n1.replace(/^\d{4}-/, "");
+  const sub2 = n2.replace(/^\d{4}-/, "");
+  return sub1 === sub2;
 }
 
 export const PAYMENT_METHODS=["Cash","Bank Transfer","POS","Cheque","Other"];

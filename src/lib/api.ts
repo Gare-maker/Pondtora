@@ -82,21 +82,67 @@ export function remapId(oldId: string, newId: string): void {
 }
 
 export function toValidDbDate(d: any, defaultYear = new Date().getFullYear()): string | null {
-  if (!d || d === "—" || typeof d !== "string" || d.trim() === "") return null;
-  const str = d.trim();
+  if (!d || d === "—" || (typeof d !== "string" && !(d instanceof Date))) return null;
+  if (d instanceof Date) {
+    if (isNaN(d.getTime())) return null;
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  }
+  const str = String(d).trim();
+  if (!str || str === "—") return null;
   if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
+
+  // Extract from parentheses if any (e.g. "Catfish (2026-08-18)")
+  const inner = str.match(/\(([^)]+)\)/);
+  const toParse = inner ? inner[1].trim() : str;
+
+  // Check ISO format YYYY-MM-DD
+  const iso = toParse.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (iso) {
+    const y = iso[1];
+    const m = String(parseInt(iso[2], 10)).padStart(2, "0");
+    const day = String(parseInt(iso[3], 10)).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  }
+
+  // Check DD/MM/YYYY or DD-MM-YYYY
+  const dmy = toParse.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+  if (dmy) {
+    const day = String(parseInt(dmy[1], 10)).padStart(2, "0");
+    const m = String(parseInt(dmy[2], 10)).padStart(2, "0");
+    const y = dmy[3];
+    return `${y}-${m}-${day}`;
+  }
+
+  // Strip ordinal suffixes and commas
   const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-  const parts = str.split(" ");
-  if (parts.length === 2) {
-    const mIdx = monthNames.findIndex(m => m.toLowerCase() === parts[0].toLowerCase());
-    const day = parseInt(parts[1], 10);
-    if (mIdx !== -1 && !isNaN(day) && day >= 1 && day <= 31) {
-      const mm = String(mIdx + 1).padStart(2, "0");
-      const dd = String(day).padStart(2, "0");
-      return `${defaultYear}-${mm}-${dd}`;
+  const clean = toParse.replace(/(st|nd|rd|th),?/gi, "").replace(/,/g, " ").replace(/\s+/g, " ").trim();
+  const parts = clean.split(" ");
+  if (parts.length >= 2) {
+    // Check if parts[0] is month name: "Sep 18" or "September 18 2026"
+    const mIdxFirst = monthNames.findIndex(m => m.toLowerCase() === parts[0].toLowerCase().slice(0, 3));
+    const daySecond = parseInt(parts[1], 10);
+    const yearThird = parts[2] && /^\d{4}$/.test(parts[2]) ? parseInt(parts[2], 10) : defaultYear;
+    if (mIdxFirst !== -1 && !isNaN(daySecond) && daySecond >= 1 && daySecond <= 31) {
+      const mm = String(mIdxFirst + 1).padStart(2, "0");
+      const dd = String(daySecond).padStart(2, "0");
+      return `${yearThird}-${mm}-${dd}`;
+    }
+
+    // Check if parts[0] is day number: "18 Sep" or "18 September 2026"
+    const dayFirst = parseInt(parts[0], 10);
+    const mIdxSecond = monthNames.findIndex(m => m.toLowerCase() === parts[1].toLowerCase().slice(0, 3));
+    const yearThird2 = parts[2] && /^\d{4}$/.test(parts[2]) ? parseInt(parts[2], 10) : defaultYear;
+    if (!isNaN(dayFirst) && dayFirst >= 1 && dayFirst <= 31 && mIdxSecond !== -1) {
+      const mm = String(mIdxSecond + 1).padStart(2, "0");
+      const dd = String(dayFirst).padStart(2, "0");
+      return `${yearThird2}-${mm}-${dd}`;
     }
   }
-  const parsed = new Date(str);
+
+  const parsed = new Date(clean);
   if (!isNaN(parsed.getTime())) {
     const y = parsed.getFullYear();
     const m = String(parsed.getMonth() + 1).padStart(2, "0");
@@ -111,7 +157,10 @@ export function isSameDate(d1?: string | null, d2?: string | null): boolean {
   if (d1 === d2) return true;
   const n1 = toValidDbDate(d1) || d1;
   const n2 = toValidDbDate(d2) || d2;
-  return n1 === n2;
+  if (n1 === n2) return true;
+  const sub1 = String(n1).replace(/^\d{4}-/, "");
+  const sub2 = String(n2).replace(/^\d{4}-/, "");
+  return sub1 === sub2;
 }
 
 export function formatDisplayDate(d: any): string {
