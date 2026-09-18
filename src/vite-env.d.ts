@@ -15,6 +15,31 @@ declare module "*.jpg" {
   export default content;
 }
 
+declare module "*.jpeg" {
+  const content: string;
+  export default content;
+}
+
+declare module "*.webp" {
+  const content: string;
+  export default content;
+}
+
+declare module "*.jfif" {
+  const content: string;
+  export default content;
+}
+
+declare module "*.gif" {
+  const content: string;
+  export default content;
+}
+
+declare module "*.ico" {
+  const content: string;
+  export default content;
+}
+
 declare module "canvas-confetti" {
   const confetti: any;
   export default confetti;
