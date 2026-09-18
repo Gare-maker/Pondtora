@@ -5,6 +5,45 @@ import { supabase } from "./supabase";
 
 const USERS_STORAGE_KEY = "pondtora_admin_users";
 const LOGS_STORAGE_KEY = "pondtora_admin_logs";
+const STATS_STORAGE_KEY = "pondtora_admin_platform_stats";
+
+export interface PlatformOperationalStats {
+  totalUsers: number;
+  totalFarms: number;
+  totalPonds: number;
+  totalFishStocked: number;
+  totalFeedConsumedKg: number;
+  totalBagsInStock: number;
+  totalPlatformRevenue: number;
+  totalPlatformExpenses: number;
+  netPlatformProfit: number;
+  totalInvoicesValue: number;
+  paidInvoicesValue: number;
+  totalInvoicesCount: number;
+  totalStaffMembers: number;
+}
+
+export const DEFAULT_PLATFORM_STATS: PlatformOperationalStats = {
+  totalUsers: 0,
+  totalFarms: 0,
+  totalPonds: 0,
+  totalFishStocked: 0,
+  totalFeedConsumedKg: 0,
+  totalBagsInStock: 0,
+  totalPlatformRevenue: 0,
+  totalPlatformExpenses: 0,
+  netPlatformProfit: 0,
+  totalInvoicesValue: 0,
+  paidInvoicesValue: 0,
+  totalInvoicesCount: 0,
+  totalStaffMembers: 0,
+};
+
+export function isDummyUser(u: any): boolean {
+  if (!u) return false;
+  const email = (u.email || "").toLowerCase();
+  return email.includes("dummy") || email.includes("test@") || email.includes("example.com");
+}
 
 export function loadAllAdminUsers(): AdminUser[] {
   try {
@@ -31,24 +70,131 @@ export function saveAllAdminUsers(users: AdminUser[]) {
   } catch {}
 }
 
+export function loadCachedPlatformStats(): PlatformOperationalStats {
+  try {
+    const raw = localStorage.getItem(STATS_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed.totalUsers === "number") {
+        return parsed;
+      }
+    }
+  } catch {}
+  return DEFAULT_PLATFORM_STATS;
+}
+
+export function savePlatformStats(stats: PlatformOperationalStats) {
+  try {
+    localStorage.setItem(STATS_STORAGE_KEY, JSON.stringify(stats));
+    window.dispatchEvent(new CustomEvent("pondtora:platform_updated", { detail: stats }));
+  } catch {}
+}
+
 /**
- * Fetches all real registered users, staff members, and farms directly from Supabase,
- * merges with administrative overrides and cached user profiles,
- * and updates the admin users local cache.
+ * Fetches all real registered users, staff members, farms, and operational statistics.
+ * Tries:
+ * 1. Edge function /admin/overview with service-role access (RLS bypass)
+ * 2. Postgres RPC get_all_users_for_admin
+ * 3. Direct Supabase tables query
+ * 4. Non-destructive merge with cached users (guarantees zero data loss)
  */
 export async function fetchLiveAdminUsers(): Promise<{
   users: AdminUser[];
+  stats: PlatformOperationalStats;
   isLiveFromDb: boolean;
   count: number;
 }> {
-  try {
-    const existingLocal = loadAllAdminUsers();
+  const existingLocal = loadAllAdminUsers();
+  let dbUsers: AdminUser[] = [];
+  let fetchedStats: PlatformOperationalStats | null = null;
+  let isLive = false;
 
-    // 1. First attempt: Use high-speed SECURITY DEFINER RPC get_all_users_for_admin
+  const edgeBaseUrl = (import.meta.env.VITE_SUPABASE_URL || "https://make-server-1da59a07.supabase.co").replace(/\/+$/, "");
+  const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
+
+  // ── 1. Priority 1: Edge Function /admin/overview (Service-Role DB query) ──
+  try {
+    const edgeUrl = `${edgeBaseUrl}/functions/v1/make-server-1da59a07/admin/overview`;
+    const res = await fetch(edgeUrl, {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${anonKey}`,
+      },
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      if (data?.success && Array.isArray(data.users)) {
+        dbUsers = data.users.map((p: any) => {
+          const pEmail = (p.email || "").toLowerCase().trim();
+          const local = existingLocal.find(
+            x => x.id === p.id || (x.email && x.email.toLowerCase().trim() === pEmail)
+          );
+
+          const hasPaid = Boolean(
+            local?.hasPaid ||
+            local?.paystackReference ||
+            local?.lastPaymentDate ||
+            p.hasPaid ||
+            p.paystackReference ||
+            p.lastPaymentDate
+          );
+
+          const roleStr = (p.role || local?.role || "owner").toLowerCase().trim();
+
+          const u: AdminUser = {
+            id: p.id,
+            name: p.name || (p.email ? p.email.split("@")[0] : "Farmer"),
+            email: p.email || "",
+            farmName: p.farmName || local?.farmName || "Primary Farm",
+            phone: p.phone || local?.phone || "",
+            city: p.city || local?.city || "Lagos",
+            state: p.state || local?.state || "Lagos",
+            country: p.country || local?.country || "Nigeria",
+            role: roleStr,
+            activePlan: p.activePlan || local?.activePlan || "Starter",
+            trialStartDate: p.trialStartDate || local?.trialStartDate || new Date().toISOString().slice(0, 10),
+            billingFrequency: local?.billingFrequency || p.billingFrequency || "monthly",
+            subscriptionAmount: typeof local?.subscriptionAmount === "number" ? local.subscriptionAmount : (p.subscriptionAmount ?? null),
+            hasPaid: hasPaid,
+            subscriptionStatus: "Trial",
+            subscriptionStart: hasPaid ? (local?.subscriptionStart || p.subscriptionStart || null) : null,
+            subscriptionExpiry: hasPaid ? (local?.subscriptionExpiry || p.subscriptionExpiry || null) : null,
+            accountStatus: (p.accountStatus === "Suspended" || local?.accountStatus === "Suspended") ? "Suspended" : "Active",
+            freeAccess: Boolean(local?.freeAccess || p.freeAccess),
+            farmCount: Math.max(Number(p.farmCount) || 1, local?.farmCount || 1),
+            pondCount: Number(p.pondCount) || local?.pondCount || 0,
+            staffCount: Number(p.staffCount) || local?.staffCount || 0,
+            totalFishStocked: Number(p.totalFishStocked) || 0,
+            totalRevenue: Number(p.totalRevenue) || 0,
+            totalExpenses: Number(p.totalExpenses) || 0,
+            invoicesCount: Number(p.invoicesCount) || 0,
+            paystackReference: local?.paystackReference || p.paystackReference,
+            lastPaymentDate: local?.lastPaymentDate || p.lastPaymentDate,
+            createdAt: p.createdAt ? String(p.createdAt).slice(0, 10) : (local?.createdAt || new Date().toISOString().slice(0, 10)),
+          };
+          u.subscriptionStatus = computeSubscriptionStatus(u);
+          return u;
+        });
+
+        if (data.stats) {
+          fetchedStats = data.stats;
+          savePlatformStats(data.stats);
+        }
+        isLive = true;
+      }
+    }
+  } catch (edgeErr) {
+    console.warn("Edge function /admin/overview fallback:", edgeErr);
+  }
+
+  // ── 2. Priority 2: Postgres RPC get_all_users_for_admin ──
+  if (dbUsers.length === 0) {
     try {
       const { data: rpcUsers, error: rpcErr } = await supabase.rpc("get_all_users_for_admin");
-      if (!rpcErr && Array.isArray(rpcUsers)) {
-        const dbUsers: AdminUser[] = rpcUsers.map((p: any) => {
+      if (!rpcErr && Array.isArray(rpcUsers) && rpcUsers.length > 0) {
+        dbUsers = rpcUsers.map((p: any) => {
           const pEmail = (p.email || "").toLowerCase().trim();
           const local = existingLocal.find(
             x => x.id === p.id || (x.email && x.email.toLowerCase().trim() === pEmail)
@@ -94,101 +240,201 @@ export async function fetchLiveAdminUsers(): Promise<{
           u.subscriptionStatus = computeSubscriptionStatus(u);
           return u;
         });
-
-        saveAllAdminUsers(dbUsers);
-        return { users: dbUsers, isLiveFromDb: true, count: dbUsers.length };
+        isLive = true;
       }
     } catch (rpcEx) {
-      console.warn("RPC get_all_users_for_admin fallback to direct table query:", rExMessage(rpcEx));
+      console.warn("RPC get_all_users_for_admin fallback:", rpcEx);
     }
+  }
 
-    // 2. Direct table fallback: query Supabase directly for user profiles, staff members, farms, and ponds
-    const [profilesRes, staffRes, farmsRes, pondsRes] = await Promise.all([
-      supabase.from("user_profiles").select("*").order("created_at", { ascending: false }),
-      supabase.from("staff_members").select("*").order("created_at", { ascending: false }),
-      supabase.from("farms").select("id, user_id, name, city, state, country"),
-      supabase.from("ponds").select("id, user_id, farm_id"),
-    ]);
+  // ── 3. Priority 3: Direct table fallback ──
+  if (dbUsers.length === 0) {
+    try {
+      const [profilesRes, staffRes, farmsRes, pondsRes] = await Promise.all([
+        supabase.from("user_profiles").select("*").order("created_at", { ascending: false }),
+        supabase.from("staff_members").select("*").order("created_at", { ascending: false }),
+        supabase.from("farms").select("id, user_id, name, city, state, country"),
+        supabase.from("ponds").select("id, user_id, farm_id, current_count, initial_stock"),
+      ]);
 
-    const rawProfiles = profilesRes.data || [];
-    const rawStaff = staffRes.data || [];
-    const rawFarms = farmsRes.data || [];
-    const rawPonds = pondsRes.data || [];
+      const rawProfiles = profilesRes.data || [];
+      const rawStaff = staffRes.data || [];
+      const rawFarms = farmsRes.data || [];
+      const rawPonds = pondsRes.data || [];
 
-    const dbUsers: AdminUser[] = [];
+      if (rawProfiles.length > 0) {
+        rawProfiles.forEach((p: any) => {
+          const pEmail = (p.email || "").toLowerCase().trim();
+          const pRole = (p.role || "owner").toLowerCase().trim();
 
-    // Process all registered user profiles
-    rawProfiles.forEach((p: any) => {
-      const pEmail = (p.email || "").toLowerCase().trim();
-      const pRole = (p.role || "owner").toLowerCase().trim();
+          const local = existingLocal.find(
+            x => x.id === p.id || (x.email && x.email.toLowerCase().trim() === pEmail)
+          );
 
-      const local = existingLocal.find(
-        x => x.id === p.id || (x.email && x.email.toLowerCase().trim() === pEmail)
-      );
+          const userFarms = rawFarms.filter((f: any) => f.user_id === p.id);
+          const farmCount = userFarms.length > 0 ? userFarms.length : (pRole === "staff" ? 0 : (p.farm_name ? 1 : (local?.farmCount || 1)));
+          const farmName = p.farm_name || userFarms[0]?.name || local?.farmName || (pRole === "staff" ? "Assigned Farm" : "Primary Farm");
 
-      const userFarms = rawFarms.filter((f: any) => f.user_id === p.id);
-      const farmCount = userFarms.length > 0 ? userFarms.length : (pRole === "staff" ? 0 : (p.farm_name ? 1 : (local?.farmCount || 1)));
-      const farmName = p.farm_name || userFarms[0]?.name || local?.farmName || (pRole === "staff" ? "Assigned Farm" : "Primary Farm");
+          const userFarmIds = new Set(userFarms.map((f: any) => f.id));
+          const userPonds = rawPonds.filter((pd: any) => pd.user_id === p.id || (pd.farm_id && userFarmIds.has(pd.farm_id)));
+          const pondCount = userPonds.length || local?.pondCount || 0;
 
-      const userFarmIds = new Set(userFarms.map((f: any) => f.id));
-      const userPonds = rawPonds.filter((pd: any) => pd.user_id === p.id || (pd.farm_id && userFarmIds.has(pd.farm_id)));
-      const pondCount = userPonds.length || local?.pondCount || 0;
+          const userStaff = rawStaff.filter((s: any) => s.user_id === p.id);
+          const staffCount = userStaff.length || local?.staffCount || 0;
 
-      const userStaff = rawStaff.filter((s: any) => s.user_id === p.id);
-      const staffCount = userStaff.length || local?.staffCount || 0;
+          const hasPaid = Boolean(
+            local?.hasPaid ||
+            local?.paystackReference ||
+            local?.lastPaymentDate ||
+            p.paystack_reference ||
+            p.last_payment_date
+          );
 
-      const hasPaid = Boolean(
-        local?.hasPaid ||
-        local?.paystackReference ||
-        local?.lastPaymentDate ||
-        p.paystack_reference ||
-        p.last_payment_date
-      );
+          const u: AdminUser = {
+            id: p.id,
+            name: p.name || (p.email ? p.email.split("@")[0] : "Farmer"),
+            email: p.email || "",
+            farmName: farmName,
+            phone: p.phone || local?.phone || "",
+            city: p.city || local?.city || "Lagos",
+            state: p.state || local?.state || "Lagos",
+            country: p.country || local?.country || "Nigeria",
+            role: pRole,
+            activePlan: p.active_plan || local?.activePlan || "Starter",
+            trialStartDate: p.trial_start_date ? String(p.trial_start_date).slice(0, 10) : (local?.trialStartDate || (p.created_at ? String(p.created_at).slice(0, 10) : new Date().toISOString().slice(0, 10))),
+            billingFrequency: local?.billingFrequency || "monthly",
+            subscriptionAmount: typeof local?.subscriptionAmount === "number" ? local.subscriptionAmount : null,
+            hasPaid: hasPaid,
+            subscriptionStatus: "Trial",
+            subscriptionStart: hasPaid ? (local?.subscriptionStart || null) : null,
+            subscriptionExpiry: hasPaid ? (local?.subscriptionExpiry || null) : null,
+            accountStatus: (p.status === "Suspended" || local?.accountStatus === "Suspended") ? "Suspended" : "Active",
+            freeAccess: Boolean(local?.freeAccess),
+            farmCount: farmCount,
+            pondCount: pondCount,
+            staffCount: staffCount,
+            totalFishStocked: userPonds.reduce((s: number, pd: any) => s + (Number(pd.current_count ?? pd.initial_stock) || 0), 0),
+            paystackReference: local?.paystackReference || p.paystack_reference,
+            lastPaymentDate: local?.lastPaymentDate || p.last_payment_date,
+            createdAt: p.created_at ? String(p.created_at).slice(0, 10) : (local?.createdAt || new Date().toISOString().slice(0, 10)),
+          };
+          u.subscriptionStatus = computeSubscriptionStatus(u);
+          dbUsers.push(u);
+        });
+        isLive = true;
+      }
+    } catch (tblErr) {
+      console.warn("Direct table fallback error:", tblErr);
+    }
+  }
 
-      const u: AdminUser = {
-        id: p.id,
-        name: p.name || (p.email ? p.email.split("@")[0] : "Farmer"),
-        email: p.email || "",
-        farmName: farmName,
-        phone: p.phone || local?.phone || "",
-        city: p.city || local?.city || "Lagos",
-        state: p.state || local?.state || "Lagos",
-        country: p.country || local?.country || "Nigeria",
-        role: pRole,
-        activePlan: p.active_plan || local?.activePlan || "Starter",
-        trialStartDate: p.trial_start_date ? String(p.trial_start_date).slice(0, 10) : (local?.trialStartDate || (p.created_at ? String(p.created_at).slice(0, 10) : new Date().toISOString().slice(0, 10))),
-        billingFrequency: local?.billingFrequency || "monthly",
-        subscriptionAmount: typeof local?.subscriptionAmount === "number" ? local.subscriptionAmount : null,
-        hasPaid: hasPaid,
-        subscriptionStatus: "Trial",
-        subscriptionStart: hasPaid ? (local?.subscriptionStart || null) : null,
-        subscriptionExpiry: hasPaid ? (local?.subscriptionExpiry || null) : null,
-        accountStatus: (p.status === "Suspended" || local?.accountStatus === "Suspended") ? "Suspended" : "Active",
-        freeAccess: Boolean(local?.freeAccess),
-        farmCount: farmCount,
-        pondCount: pondCount,
-        staffCount: staffCount,
-        paystackReference: local?.paystackReference || p.paystack_reference,
-        lastPaymentDate: local?.lastPaymentDate || p.last_payment_date,
-        createdAt: p.created_at ? String(p.created_at).slice(0, 10) : (local?.createdAt || new Date().toISOString().slice(0, 10)),
-      };
-      u.subscriptionStatus = computeSubscriptionStatus(u);
-      dbUsers.push(u);
-    });
+  // ── 4. Intelligent Non-Destructive Merge (Zero Data Loss) ──
+  const userMap = new Map<string, AdminUser>();
 
-    const finalUsers = dbUsers;
-    saveAllAdminUsers(finalUsers);
-    return { users: finalUsers, isLiveFromDb: true, count: finalUsers.length };
-  } catch (err) {
-    console.warn("fetchLiveAdminUsers error:", err);
-    const cleanLocal = loadAllAdminUsers();
-    return { users: cleanLocal, isLiveFromDb: false, count: cleanLocal.length };
+  // Start with existing cached users
+  existingLocal.forEach(u => {
+    if (u && u.id) userMap.set(u.id, u);
+  });
+
+  // Merge in newly fetched db users (updating or inserting)
+  dbUsers.forEach(u => {
+    if (u && u.id) {
+      const existing = userMap.get(u.id);
+      userMap.set(u.id, {
+        ...existing,
+        ...u,
+        subscriptionStatus: computeSubscriptionStatus({ ...existing, ...u }),
+      });
+    }
+  });
+
+  const finalUsers = Array.from(userMap.values());
+  saveAllAdminUsers(finalUsers);
+
+  // Compute platform operational stats if not already fetched
+  const finalStats = fetchedStats || calculateAggregatedStats(finalUsers);
+  savePlatformStats(finalStats);
+
+  return {
+    users: finalUsers,
+    stats: finalStats,
+    isLiveFromDb: isLive,
+    count: finalUsers.length,
+  };
+}
+
+function calculateAggregatedStats(users: AdminUser[]): PlatformOperationalStats {
+  const cached = loadCachedPlatformStats();
+  const totalUsers = users.length;
+  const totalFarms = users.reduce((s, u) => s + (u.farmCount || 1), 0);
+  const totalPonds = users.reduce((s, u) => s + (u.pondCount || 0), 0);
+  const totalFish = users.reduce((s, u) => s + (u.totalFishStocked || 0), 0);
+  const totalStaff = users.reduce((s, u) => s + (u.staffCount || 0), 0);
+  const totalRev = users.reduce((s, u) => s + (u.totalRevenue || 0), 0);
+  const totalExp = users.reduce((s, u) => s + (u.totalExpenses || 0), 0);
+
+  return {
+    ...cached,
+    totalUsers,
+    totalFarms,
+    totalPonds,
+    totalFishStocked: totalFish || cached.totalFishStocked,
+    totalStaffMembers: totalStaff || cached.totalStaffMembers,
+    totalPlatformRevenue: totalRev || cached.totalPlatformRevenue,
+    totalPlatformExpenses: totalExp || cached.totalPlatformExpenses,
+    netPlatformProfit: (totalRev || cached.totalPlatformRevenue) - (totalExp || cached.totalPlatformExpenses),
+  };
+}
+
+/**
+ * Fetches platform-wide operational stats from database
+ */
+export async function fetchPlatformOperationalStats(): Promise<PlatformOperationalStats> {
+  try {
+    const res = await fetchLiveAdminUsers();
+    return res.stats;
+  } catch {
+    return loadCachedPlatformStats();
   }
 }
 
-function rExMessage(err: any): string {
-  if (!err) return "";
-  return err.message || String(err);
+/**
+ * Subscribes to real-time changes in Supabase and window events
+ */
+export function subscribeToPlatformUpdates(onUpdate: () => void): () => void {
+  const handleEvent = () => {
+    onUpdate();
+  };
+
+  window.addEventListener("pondtora:users_updated", handleEvent);
+  window.addEventListener("pondtora:platform_updated", handleEvent);
+  window.addEventListener("pondtora:logs_updated", handleEvent);
+  window.addEventListener("pondtora:plans_updated", handleEvent);
+
+  let channel: any = null;
+  try {
+    channel = supabase.channel("pondtora_admin_realtime_" + Math.random().toString(36).slice(2, 8))
+      .on("postgres_changes", { event: "*", schema: "public", table: "user_profiles" }, handleEvent)
+      .on("postgres_changes", { event: "*", schema: "public", table: "farms" }, handleEvent)
+      .on("postgres_changes", { event: "*", schema: "public", table: "ponds" }, handleEvent)
+      .on("postgres_changes", { event: "*", schema: "public", table: "staff_members" }, handleEvent)
+      .on("postgres_changes", { event: "*", schema: "public", table: "invoices" }, handleEvent)
+      .on("postgres_changes", { event: "*", schema: "public", table: "revenues" }, handleEvent)
+      .on("postgres_changes", { event: "*", schema: "public", table: "expenses" }, handleEvent)
+      .subscribe();
+  } catch (e) {
+    console.warn("Supabase realtime subscription:", e);
+  }
+
+  return () => {
+    window.removeEventListener("pondtora:users_updated", handleEvent);
+    window.removeEventListener("pondtora:platform_updated", handleEvent);
+    window.removeEventListener("pondtora:logs_updated", handleEvent);
+    window.removeEventListener("pondtora:plans_updated", handleEvent);
+    if (channel) {
+      try { supabase.removeChannel(channel); } catch {}
+    }
+  };
 }
 
 /**
@@ -196,6 +442,30 @@ function rExMessage(err: any): string {
  */
 export async function updateAdminUserInDb(u: AdminUser): Promise<boolean> {
   try {
+    // 1. Try Edge function update
+    const edgeBaseUrl = (import.meta.env.VITE_SUPABASE_URL || "https://make-server-1da59a07.supabase.co").replace(/\/+$/, "");
+    try {
+      await fetch(`${edgeBaseUrl}/functions/v1/make-server-1da59a07/admin/users/${u.id}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY || ""}`,
+        },
+        body: JSON.stringify({
+          name: u.name,
+          farm_name: u.farmName,
+          phone: u.phone,
+          city: u.city,
+          state: u.state,
+          country: u.country,
+          active_plan: u.activePlan,
+          status: u.accountStatus,
+          role: u.role || "owner",
+        }),
+      });
+    } catch {}
+
+    // 2. Direct Supabase updates
     const { error: profError } = await supabase
       .from("user_profiles")
       .update({
@@ -245,11 +515,7 @@ export async function updateAdminUserInDb(u: AdminUser): Promise<boolean> {
 }
 
 /**
- * Completely and permanently deletes a user from:
- * 1. Supabase auth.users (so credentials are removed and they cannot log in again)
- * 2. Supabase user_profiles, staff_members, farms, and all related tables
- * 3. Supabase Edge Function admin endpoint with service-role privileges
- * 4. LocalStorage keys for this user
+ * Completely and permanently deletes a user
  */
 export async function deleteAdminUserInDb(id: string, email?: string): Promise<boolean> {
   const cleanEmail = (email || "").trim().toLowerCase();
@@ -266,9 +532,7 @@ export async function deleteAdminUserInDb(id: string, email?: string): Promise<b
       },
       body: JSON.stringify({ userId: id, email: cleanEmail }),
     });
-    if (res.ok) {
-      anySuccess = true;
-    }
+    if (res.ok) anySuccess = true;
   } catch (e) {
     console.warn("Edge function delete-user attempt:", e);
   }
@@ -338,8 +602,7 @@ export async function deleteAdminUserInDb(id: string, email?: string): Promise<b
 }
 
 /**
- * Deletes all non-admin users and their data from the database and local storage,
- * strictly preserving the Master Admin (edafejesugarec@gmail.com and any account with role='admin').
+ * Deletes all non-admin users and their data from the database and local storage
  */
 export async function deleteAllNonAdminUsersInDb(preserveAdminEmail = "edafejesugarec@gmail.com"): Promise<{
   deletedCount: number;
@@ -350,7 +613,6 @@ export async function deleteAllNonAdminUsersInDb(preserveAdminEmail = "edafejesu
   const preservedAdmins: string[] = [cleanAdminEmail];
 
   try {
-    // 1. Fetch all user profiles and staff members
     const [profRes, staffRes] = await Promise.all([
       supabase.from("user_profiles").select("id, email, role, name"),
       supabase.from("staff_members").select("id, email, name, user_id, staff_auth_id"),
@@ -359,7 +621,6 @@ export async function deleteAllNonAdminUsersInDb(preserveAdminEmail = "edafejesu
     const profiles = profRes.data || [];
     const staff = staffRes.data || [];
 
-    // Filter non-admin users
     const nonAdminProfiles = profiles.filter((p: any) => {
       const email = (p.email || "").trim().toLowerCase();
       const role = (p.role || "").trim().toLowerCase();
@@ -375,7 +636,6 @@ export async function deleteAllNonAdminUsersInDb(preserveAdminEmail = "edafejesu
       deletedCount++;
     }
 
-    // Also clean up any non-admin staff members
     for (const s of staff) {
       const email = (s.email || "").trim().toLowerCase();
       if (email !== cleanAdminEmail) {
@@ -389,7 +649,6 @@ export async function deleteAllNonAdminUsersInDb(preserveAdminEmail = "edafejesu
       }
     }
 
-    // Clean up local storage admin user lists except admin
     try {
       const raw = localStorage.getItem("pondtora_admin_users");
       if (raw) {
@@ -495,6 +754,8 @@ export function syncUserProfileToAdmin(
       accountStatus: "Active",
       freeAccess: false,
       farmCount: farmCount || 1,
+      pondCount: 0,
+      staffCount: 0,
       createdAt: new Date().toISOString().slice(0, 10),
     };
     userObj.subscriptionStatus = computeSubscriptionStatus(userObj);
@@ -510,8 +771,31 @@ export function syncUserProfileToAdmin(
 
   saveAllAdminUsers(users);
 
-  // Self-heal profile directly to Supabase user_profiles table if user.id is available
+  // Self-heal profile directly to Supabase user_profiles and edge function
   if (profile.id) {
+    const edgeBaseUrl = (import.meta.env.VITE_SUPABASE_URL || "https://make-server-1da59a07.supabase.co").replace(/\/+$/, "");
+    try {
+      fetch(`${edgeBaseUrl}/functions/v1/make-server-1da59a07/admin/register-profile`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY || ""}`,
+        },
+        body: JSON.stringify({
+          userId: profile.id,
+          name: userObj.name,
+          farmName: userObj.farmName,
+          city: userObj.city,
+          state: userObj.state,
+          country: userObj.country,
+          email: userObj.email,
+          phone: userObj.phone,
+          activePlan: userObj.activePlan,
+          trialStartDate: userObj.trialStartDate,
+        }),
+      }).catch(() => {});
+    } catch {}
+
     supabase.from("user_profiles").upsert({
       id: profile.id,
       name: userObj.name,
@@ -532,7 +816,7 @@ export function syncUserProfileToAdmin(
 }
 
 /**
- * Check if the active user has special admin overrides (e.g. Free VIP Access, Suspended Account)
+ * Check if the active user has special admin overrides
  */
 export function getUserAdminOverride(email: string | undefined | null): {
   isSuspended: boolean;
@@ -564,8 +848,7 @@ export function getUserAdminOverride(email: string | undefined | null): {
 }
 
 /**
- * Records a successful Paystack payment, updates the user's subscription to Active with proper expiry dates,
- * and adds an audit log entry.
+ * Records a successful Paystack payment
  */
 export function recordSuccessfulPayment(params: {
   email: string;

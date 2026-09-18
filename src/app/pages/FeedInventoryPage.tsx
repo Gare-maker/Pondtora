@@ -169,7 +169,7 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
 
   const allDailyStocks = [...new Set([
     ...dailyGroupedRows.map(r => r.fishStock),
-    ...ponds.filter(p => p.species && p.species !== "—").map(p => `${p.species}${p.stockingDate ? ` (${p.stockingDate})` : ""}`)
+    ...ponds.filter(p => p.species && p.species !== "—").map(p => `${p.species}${p.stockingDate && p.stockingDate !== "—" ? ` (${fmtStockingDate(p.stockingDate)})` : ""}`)
   ])].filter(Boolean);
   const allDailyBrands = [...new Set([
     ...dailyGroupedRows.map(r => r.brand),

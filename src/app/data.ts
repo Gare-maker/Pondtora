@@ -139,27 +139,125 @@ export const uid = (): string => {
 };
 export const toMon= (d:string) => { try{return new Date(d).toLocaleString("en",{month:"short"})}catch{return "Jun"} };
 export const toYr = (d:string) => { try{return new Date(d).getFullYear()}catch{return 2026} };
-export function fmtStockingDate(d:string):string{
-  if(!d||d==="—"||d.trim()==="")return"—";
-  let dt=new Date(d);
-  if(isNaN(dt.getTime()))dt=new Date(d.replace(",",""));
-  if(isNaN(dt.getTime()))return d;
-  const day=dt.getUTCDate();
-  const month=dt.toLocaleString("en-US",{month:"long",timeZone:"UTC"});
-  const year=dt.getUTCFullYear();
-  return`${day} ${month}, ${year}`;
+export function getOrdinalSuffix(day: number): string {
+  if (day >= 11 && day <= 13) return "th";
+  switch (day % 10) {
+    case 1: return "st";
+    case 2: return "nd";
+    case 3: return "rd";
+    default: return "th";
+  }
+}
+
+const FULL_MONTH_NAMES = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December"
+];
+
+export function formatFishStockDate(d: string | Date | null | undefined): string {
+  if (!d || d === "—" || (typeof d === "string" && !d.trim())) return "—";
+
+  if (d instanceof Date) {
+    if (isNaN(d.getTime())) return "—";
+    const day = d.getDate();
+    const month = FULL_MONTH_NAMES[d.getMonth()];
+    const year = d.getFullYear();
+    return `${day}${getOrdinalSuffix(day)} ${month} ${year}`;
+  }
+
+  const str = String(d).trim();
+  if (str === "—" || !str) return "—";
+
+  // Check if it already matches "18th August 2026" or "1st August 2026"
+  const alreadyFormatted = str.match(/^(\d{1,2})(st|nd|rd|th)\s+([A-Za-z]+)\s+(\d{4})$/i);
+  if (alreadyFormatted) {
+    const day = parseInt(alreadyFormatted[1], 10);
+    const mStr = alreadyFormatted[3].toLowerCase();
+    const year = parseInt(alreadyFormatted[4], 10);
+    const mIdx = FULL_MONTH_NAMES.findIndex(m => m.toLowerCase().startsWith(mStr.slice(0, 3)));
+    if (mIdx !== -1 && day >= 1 && day <= 31) {
+      return `${day}${getOrdinalSuffix(day)} ${FULL_MONTH_NAMES[mIdx]} ${year}`;
+    }
+  }
+
+  // Check ISO format YYYY-MM-DD
+  const isoMatch = str.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (isoMatch) {
+    const year = parseInt(isoMatch[1], 10);
+    const mIdx = parseInt(isoMatch[2], 10) - 1;
+    const day = parseInt(isoMatch[3], 10);
+    if (mIdx >= 0 && mIdx < 12 && day >= 1 && day <= 31) {
+      return `${day}${getOrdinalSuffix(day)} ${FULL_MONTH_NAMES[mIdx]} ${year}`;
+    }
+  }
+
+  // Check DD/MM/YYYY or DD-MM-YYYY
+  const dmyMatch = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+  if (dmyMatch) {
+    const day = parseInt(dmyMatch[1], 10);
+    const mIdx = parseInt(dmyMatch[2], 10) - 1;
+    const year = parseInt(dmyMatch[3], 10);
+    if (mIdx >= 0 && mIdx < 12 && day >= 1 && day <= 31) {
+      return `${day}${getOrdinalSuffix(day)} ${FULL_MONTH_NAMES[mIdx]} ${year}`;
+    }
+  }
+
+  // General date parsing (e.g. "Jan 15, 2026" or "15 Jan 2026" or "August 18, 2026")
+  const cleanStr = str.replace(/(st|nd|rd|th),?/gi, "").replace(/,/g, " ").replace(/\s+/g, " ").trim();
+  const parts = cleanStr.split(" ");
+  if (parts.length >= 2) {
+    const mIdx = FULL_MONTH_NAMES.findIndex(m => m.toLowerCase().startsWith(parts[0].toLowerCase().slice(0, 3)));
+    const day = parseInt(parts[1], 10);
+    const year = parts[2] ? parseInt(parts[2], 10) : new Date().getFullYear();
+    if (mIdx !== -1 && !isNaN(day) && day >= 1 && day <= 31) {
+      return `${day}${getOrdinalSuffix(day)} ${FULL_MONTH_NAMES[mIdx]} ${year}`;
+    }
+    // Check if day is first: e.g. "18 August 2026"
+    const dayFirst = parseInt(parts[0], 10);
+    const mIdxSecond = FULL_MONTH_NAMES.findIndex(m => m.toLowerCase().startsWith(parts[1].toLowerCase().slice(0, 3)));
+    const yearThird = parts[2] ? parseInt(parts[2], 10) : new Date().getFullYear();
+    if (!isNaN(dayFirst) && dayFirst >= 1 && dayFirst <= 31 && mIdxSecond !== -1) {
+      return `${dayFirst}${getOrdinalSuffix(dayFirst)} ${FULL_MONTH_NAMES[mIdxSecond]} ${yearThird}`;
+    }
+  }
+
+  let dt = new Date(cleanStr);
+  if (isNaN(dt.getTime())) dt = new Date(str);
+  if (!isNaN(dt.getTime())) {
+    const day = dt.getUTCDate ? dt.getUTCDate() : dt.getDate();
+    const mIdx = dt.getUTCMonth ? dt.getUTCMonth() : dt.getMonth();
+    const year = dt.getUTCFullYear ? dt.getUTCFullYear() : dt.getFullYear();
+    return `${day}${getOrdinalSuffix(day)} ${FULL_MONTH_NAMES[mIdx]} ${year}`;
+  }
+
+  return str;
+}
+
+export const fmtStockingDate = formatFishStockDate;
+
+export function formatFishStock(stock: string | null | undefined): string {
+  if (!stock || stock === "—" || !stock.trim()) return "—";
+  const trimmed = stock.trim();
+  const match = trimmed.match(/^(.*?)\s*\(([^)]+)\)$/);
+  if (match) {
+    const species = match[1].trim();
+    const rawDate = match[2].trim();
+    const formattedDate = formatFishStockDate(rawDate);
+    if (formattedDate && formattedDate !== "—") {
+      return `${species} (${formattedDate})`;
+    }
+    return species;
+  }
+  const asDate = formatFishStockDate(trimmed);
+  if (asDate !== "—" && asDate !== trimmed) {
+    return asDate;
+  }
+  return trimmed;
 }
 
 export function fmtDate(d:string):string{
   if(!d||d==="—"||d.trim()==="")return"—";
-  // Try ISO format first
-  let dt=new Date(d);
-  if(isNaN(dt.getTime()))dt=new Date(d.replace(",",""));
-  if(isNaN(dt.getTime()))return d;
-  const day=dt.getUTCDate();
-  const month=dt.toLocaleString("en-US",{month:"long",timeZone:"UTC"});
-  const year=dt.getUTCFullYear();
-  return`${day} ${month}, ${year}`;
+  return formatFishStockDate(d);
 }
 
 export function isSameDate(d1?: string | null, d2?: string | null): boolean {

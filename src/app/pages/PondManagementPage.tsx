@@ -104,7 +104,7 @@ function PondDetail({
       opts.push(`${pond.species} (${fmtStockingDate(pond.stockingDate)})`);
     }
     (stockEvents || []).filter(e => e.pondId === pond.id).forEach(e => {
-      const s = `${e.species || pond.species} (${e.date || "Past"})`;
+      const s = `${e.species || pond.species} (${e.date ? fmtStockingDate(e.date) : "Past"})`;
       if (!opts.includes(s)) opts.push(s);
     });
     if (opts.length === 0) opts.push("Current Stock");

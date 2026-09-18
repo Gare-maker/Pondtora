@@ -24,6 +24,11 @@ export interface AdminUser {
   farmCount?: number;
   pondCount?: number;
   staffCount?: number;
+  totalFishStocked?: number;
+  totalRevenue?: number;
+  totalExpenses?: number;
+  invoicesCount?: number;
+  lastActiveAt?: string;
   hasPaid?: boolean;
   paystackReference?: string;
   lastPaymentDate?: string;

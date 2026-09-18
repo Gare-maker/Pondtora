@@ -5,7 +5,7 @@ import {
   Package, BookOpen, Download, FileText, Pencil, Trash2, MoreVertical, Lock, History, Fish
 } from "lucide-react";
 import type { FeedingRecord, FeedEditEntry, Pond, FeedItem, BagOpenLog, FeedRemainingLog } from "../types";
-import { TODAY, toMon, toYr, uid, downloadCSV, openPrintWindow, fmtStockingDate, isSameDate } from "../data";
+import { TODAY, toMon, toYr, uid, downloadCSV, openPrintWindow, formatFishStockDate, formatFishStock, fmtStockingDate, isSameDate, FEED_SIZES, FEED_BRANDS } from "../data";
 import { Card, PBtn, Pagination, PER_PAGE, StatCard, F, IC, SC, SearchableSelect, Bdg, DateInput, NumInput } from "../shared";
 
 interface BulkRow { pondId:string; pondName:string; initialStock:number; currentCount:number; brand:string; size:string; morning:string; evening:string; morningTime:string; eveningTime:string; fishStock:string; }
@@ -100,16 +100,19 @@ function FeedDocumentation({
   /* ── derived ── */
   const activePonds=(ponds||[]).filter(p=>p&&p.status==="Active");
   const allBrands=[...new Set((inventory||[]).map(f=>f?.brand).filter(Boolean))];
-  /* brands/sizes with remaining stock (for dropdowns in Log Feeding & Log Bags Opened) */
-  const invByKey=(inventory||[]).reduce<Record<string,number>>((acc,f)=>{if(!f)return acc;const k=`${f.brand}|${f.size}`;acc[k]=(acc[k]||0)+(Number(f.bags)||0);return acc;},{});
-  const openedByKey=(bagLogs||[]).reduce<Record<string,number>>((acc,b)=>{if(!b)return acc;const k=`${b.brand}|${b.size}`;acc[k]=(acc[k]||0)+(Number(b.bagsOpened)||0);return acc;},{});
-  const inStockCombos=Object.entries(invByKey).filter(([k,total])=>Math.max(0,total-(openedByKey[k]||0))>0).map(([k])=>k);
-  const inStockBrands=[...new Set(inStockCombos.map(k=>k.split("|")[0]))];
-  const invBrands=inStockBrands.length>0?inStockBrands:allBrands;
+  
+  /* Brand → Pellet Size Filtering based strictly on Feed Stock (inventory) */
+  const invBrands=useMemo(()=>{
+    const brandsFromInv=[...new Set((inventory||[]).map(f=>f?.brand).filter(Boolean))];
+    return brandsFromInv.length>0?brandsFromInv:(allBrands.length>0?allBrands:FEED_BRANDS);
+  },[inventory,allBrands]);
+
   const invSizesForBrand=(brand:string)=>{
-    const fromCombos=[...new Set(inStockCombos.filter(k=>k.startsWith(brand+"|")).map(k=>k.split("|")[1]))];
-    if(fromCombos.length>0)return fromCombos;
-    return [...new Set((inventory||[]).filter(f=>f?.brand===brand).map(f=>f.size).filter(Boolean))];
+    if(!brand)return FEED_SIZES;
+    const brandItems=(inventory||[]).filter(f=>f&&f.brand===brand);
+    const sizesFromBrand=[...new Set(brandItems.map(f=>f?.size).filter(Boolean))];
+    if(sizesFromBrand.length>0)return sizesFromBrand;
+    return FEED_SIZES;
   };
 
   /* ── calendar ── */
@@ -174,14 +177,35 @@ function FeedDocumentation({
   },[selDate,curMonLabel,viewYear]);
   const isSelInView=selMonLabel===curMonLabel&&(!selYear||selYear===viewYear);
 
-  /* ── pondToStock helper ── */
-  const pondToStock=(pondName:string)=>{
+  /* ── pondToStock & normalizeFishStock helpers ── */
+  const pondToStock=(pondName:string):string=>{
     const p=(ponds||[]).find(x=>x&&x.name===pondName);
     if(!p) return pondName;
+    if(p.stockingDate && p.stockingDate !== "—"){
+      return formatFishStockDate(p.stockingDate);
+    }
     if(p.species && p.species !== "—"){
-      return `${p.species}${p.stockingDate && p.stockingDate !== "—" ? ` (${p.stockingDate})` : ""}`;
+      return p.species;
     }
     return pondName;
+  };
+
+  const normalizeFishStock=(stock?:string|null):string=>{
+    if(!stock||stock==="—"||!stock.trim())return"—";
+    const trimmed=stock.trim();
+    const matchingPond=(ponds||[]).find(p=>p&&p.name.toLowerCase()===trimmed.toLowerCase());
+    if(matchingPond){
+      return pondToStock(matchingPond.name);
+    }
+    const match=trimmed.match(/^(.*?)\s*\(([^)]+)\)$/);
+    if(match){
+      const rawDate=match[2].trim();
+      const formatted=formatFishStockDate(rawDate);
+      if(formatted&&formatted!=="—")return formatted;
+    }
+    const asDate=formatFishStockDate(trimmed);
+    if(asDate!=="—"&&asDate!==trimmed)return asDate;
+    return trimmed;
   };
 
   /* ── reconFocus effect ── */
@@ -202,34 +226,70 @@ function FeedDocumentation({
   /* ── ReconRow type ── */
   type ReconRow={fishStock:string;brand:string;size:string;ponds:string[];totalFed:number;carryover:number;netNeeded:number;bagWeight:number;expectedBags:number;recordedBags:number;expectedRemaining:number;recordedRemaining:number;status:ReconStatus;reason:string;};
 
-  /* ── reconRows (selDate only, grouped by Brand+Size+FishStock) ── */
+  /* ── reconRows (selDate only, grouped and consolidated by Fish Stock + Feed Stock) ── */
   const reconRows=useMemo(():ReconRow[]=>{
     const mIdx=MIDX_GLOBAL[selMonLabel]??viewMonth;
     const prevDt=new Date(selYear||viewYear,mIdx,(selDay||1)-1);
     const prevDate=`${MON_NAMES[prevDt.getMonth()]} ${prevDt.getDate()}`;
     const keySet=new Set<string>();
+
     (feedingRecords||[]).filter(r=>r&&isSameDate(r.date,selDate)).forEach(r=>{
       const fs=pondToStock(r.pond);
       keySet.add(`${r.brand||"—"}||${r.size||"—"}||${fs}`);
     });
     (bagLogs||[]).filter(b=>b&&isSameDate(b.date,selDate)).forEach(b=>{
-      if(b.fishStock) keySet.add(`${b.brand||"—"}||${b.size||"—"}||${b.fishStock}`);
+      const fs=normalizeFishStock(b.fishStock);
+      if(fs&&fs!=="—") keySet.add(`${b.brand||"—"}||${b.size||"—"}||${fs}`);
     });
     (remainLogs||[]).filter(r=>r&&isSameDate(r.date,selDate)).forEach(r=>{
-      if(r.fishStock) keySet.add(`${r.brand||"—"}||${r.size||"—"}||${r.fishStock}`);
+      const fs=normalizeFishStock(r.fishStock);
+      if(fs&&fs!=="—") keySet.add(`${r.brand||"—"}||${r.size||"—"}||${fs}`);
     });
 
     const rows:ReconRow[]=[];
     for(const compositeKey of Array.from(keySet)){
       const parts=compositeKey.split("||");
-      const brand=parts[0];const size=parts[1];const fishStock=parts.slice(2).join("||");
+      const brand=parts[0];
+      const size=parts[1];
+      const fishStock=parts.slice(2).join("||");
       const pondsForStock=(ponds||[]).filter(p=>p&&pondToStock(p.name)===fishStock).map(p=>p.name);
-      const fedRecords=(feedingRecords||[]).filter(r=>r&&isSameDate(r.date,selDate)&&r.brand===brand&&r.size===size&&(pondsForStock.length===0||pondsForStock.includes(r.pond))&&(Number(r.total)>0||Number(r.morning)>0||Number(r.evening)>0));
+      
+      const fedRecords=(feedingRecords||[]).filter(r=>
+        r&&isSameDate(r.date,selDate)&&
+        r.brand===brand&&
+        r.size===size&&
+        (pondsForStock.length===0||pondsForStock.includes(r.pond)||pondToStock(r.pond)===fishStock)&&
+        (Number(r.total)>0||Number(r.morning)>0||Number(r.evening)>0)
+      );
       const fedPonds=Array.from(new Set(fedRecords.map(r=>r.pond).filter(Boolean)));
-      const totalFed=(feedingRecords||[]).filter(r=>r&&isSameDate(r.date,selDate)&&r.brand===brand&&r.size===size&&(pondsForStock.length===0||pondsForStock.includes(r.pond))).reduce((s,r)=>s+(Number(r.total)||0),0);
-      const carryover=(remainLogs||[]).filter(r=>r&&isSameDate(r.date,prevDate)&&r.brand===brand&&r.size===size&&r.fishStock===fishStock).reduce((s,r)=>s+(Number(r.remainingKg)||0),0);
-      const recordedBags=(bagLogs||[]).filter(b=>b&&isSameDate(b.date,selDate)&&b.brand===brand&&b.size===size&&(!b.fishStock||b.fishStock===fishStock)).reduce((s,b)=>s+(Number(b.bagsOpened)||0),0);
-      const recordedRemaining=(remainLogs||[]).filter(r=>r&&isSameDate(r.date,selDate)&&r.brand===brand&&r.size===size&&r.fishStock===fishStock).reduce((s,r)=>s+(Number(r.remainingKg)||0),0);
+      
+      const totalFed=(feedingRecords||[]).filter(r=>
+        r&&isSameDate(r.date,selDate)&&
+        r.brand===brand&&
+        r.size===size&&
+        (pondsForStock.length===0||pondsForStock.includes(r.pond)||pondToStock(r.pond)===fishStock)
+      ).reduce((s,r)=>s+(Number(r.total)||0),0);
+
+      const carryover=(remainLogs||[]).filter(r=>
+        r&&isSameDate(r.date,prevDate)&&
+        r.brand===brand&&
+        r.size===size&&
+        normalizeFishStock(r.fishStock)===fishStock
+      ).reduce((s,r)=>s+(Number(r.remainingKg)||0),0);
+
+      const recordedBags=(bagLogs||[]).filter(b=>
+        b&&isSameDate(b.date,selDate)&&
+        b.brand===brand&&
+        b.size===size&&
+        (!b.fishStock||normalizeFishStock(b.fishStock)===fishStock)
+      ).reduce((s,b)=>s+(Number(b.bagsOpened)||0),0);
+
+      const recordedRemaining=(remainLogs||[]).filter(r=>
+        r&&isSameDate(r.date,selDate)&&
+        r.brand===brand&&
+        r.size===size&&
+        normalizeFishStock(r.fishStock)===fishStock
+      ).reduce((s,r)=>s+(Number(r.remainingKg)||0),0);
       
       // If neither feed nor bags nor remaining was logged, skip
       if(totalFed===0 && recordedBags===0 && recordedRemaining===0) continue;
@@ -248,7 +308,23 @@ function FeedDocumentation({
       else if(bagsDiff>0){status="bag_mismatch";reason=`Expected ${expectedBags} bags opened, recorded ${recordedBags}.`;}
       else if(remainDiff>=1){status="remaining_mismatch";reason=`Expected ${expectedRemaining}kg remaining, recorded ${recordedRemaining}kg.`;}
       else{status="matched";}
-      rows.push({fishStock,brand,size,ponds:fedPonds,totalFed,carryover,netNeeded,bagWeight,expectedBags,recordedBags,expectedRemaining,recordedRemaining,status,reason});
+      
+      rows.push({
+        fishStock,
+        brand,
+        size,
+        ponds:fedPonds.length>0?fedPonds:(pondsForStock.length>0?pondsForStock:[]),
+        totalFed,
+        carryover,
+        netNeeded,
+        bagWeight,
+        expectedBags,
+        recordedBags,
+        expectedRemaining,
+        recordedRemaining,
+        status,
+        reason
+      });
     }
     return rows;
   },[feedingRecords,bagLogs,inventory,remainLogs,selDate,selMonLabel,selDay,selYear,viewYear,viewMonth,ponds]);
@@ -317,18 +393,42 @@ function FeedDocumentation({
     setEditDocBag(null);
   };
 
+  /* ── activeFishStocks for dropdowns ── */
+  const activeFishStocks=useMemo(()=>{
+    const set=new Set<string>();
+    activePonds.forEach(p=>{
+      if(p.stockingDate&&p.stockingDate!=="—"){
+        set.add(formatFishStockDate(p.stockingDate));
+      }else if(p.species&&p.species!=="—"){
+        set.add(p.species);
+      }
+    });
+    return Array.from(set);
+  },[activePonds]);
+
   /* ── bags opened modal state ── */
   const [bagsDate,setBagsDate]=useState(TODAY);
   type BagRow={brand:string;size:string;kgPerBag:number;qty:string;fishStock:string};
-  const blankBagRow=():BagRow=>{const inv=(inventory||[])[0];const b=inv?.brand||invBrands[0]||allBrands[0]||"";const s=inv?.size||invSizesForBrand(b)[0]||"";return{brand:b,size:s,kgPerBag:inv?.weightPerBag||0,qty:"",fishStock:""};};
+  const blankBagRow=():BagRow=>{
+    const b=invBrands[0]||"";
+    const s=invSizesForBrand(b)[0]||"";
+    const inv=(inventory||[]).find(f=>f&&f.brand===b&&f.size===s);
+    return{brand:b,size:s,kgPerBag:inv?.weightPerBag||15,qty:"",fishStock:activeFishStocks[0]||""};
+  };
   const [bagRows,setBagRows]=useState<BagRow[]>([]);
   const openBagsModal=()=>{setBagRows([blankBagRow()]);setShowBagsModal(true);};
   const addBagRow=()=>setBagRows(prev=>[...prev,blankBagRow()]);
   const removeBagRow=(i:number)=>setBagRows(prev=>prev.filter((_,idx)=>idx!==i));
   const updateBagRow=(i:number,k:keyof BagRow,v:string)=>setBagRows(prev=>prev.map((r,idx)=>{
     if(idx!==i)return r;
+    if(k==="brand"){
+      const szs=invSizesForBrand(v);
+      const newSize=szs.includes(r.size)?r.size:(szs[0]||"");
+      const inv=(inventory||[]).find(f=>f&&f.brand===v&&f.size===newSize);
+      return {...r, brand:v, size:newSize, kgPerBag:inv?.weightPerBag||15};
+    }
     const u={...r,[k]:v};
-    if(k==="brand"||k==="size"){const inv=(inventory||[]).find(f=>f&&f.brand===(k==="brand"?v:r.brand)&&f.size===(k==="size"?v:r.size));u.kgPerBag=inv?.weightPerBag||0;}
+    if(k==="size"){const inv=(inventory||[]).find(f=>f&&f.brand===r.brand&&f.size===v);u.kgPerBag=inv?.weightPerBag||15;}
     return u;
   }));
   const filledBagRows=bagRows.filter(r=>Number(r.qty)>0);
@@ -345,7 +445,7 @@ function FeedDocumentation({
     const dateLabel=toDateLabel(bagsDate);
     filledBagRows.forEach(r=>{
       const n=Number(r.qty);
-      onAddBagLog({id:uid(),date:dateLabel,month:toMon(bagsDate),year:toYr(bagsDate),brand:r.brand,size:r.size,kgPerBag:r.kgPerBag,bagsOpened:n,totalKg:n*r.kgPerBag,fishStock:r.fishStock||undefined});
+      onAddBagLog({id:uid(),date:dateLabel,month:toMon(bagsDate),year:toYr(bagsDate),brand:r.brand,size:r.size,kgPerBag:r.kgPerBag,bagsOpened:n,totalKg:n*r.kgPerBag,fishStock:normalizeFishStock(r.fishStock)||undefined});
     });
     setSelDate(dateLabel);
     setDocTab("bags");
@@ -358,7 +458,7 @@ function FeedDocumentation({
     const dayBagLogs=(bagLogs||[]).filter(b=>b&&isSameDate(b.date,selDate));
     const map=new Map<string,MergedBagRow>();
     dayBagLogs.forEach(b=>{
-      const fs=b.fishStock||"—";
+      const fs=normalizeFishStock(b.fishStock)||"—";
       const k=`${b.brand}||${b.size}||${fs}`;
       const existing=map.get(k);
       if(existing){existing.bagsOpened+=(Number(b.bagsOpened)||0);existing.lastBagLog=b;}
@@ -366,28 +466,41 @@ function FeedDocumentation({
     });
     const dayRemainLogs=(remainLogs||[]).filter(r=>r&&isSameDate(r.date,selDate));
     dayRemainLogs.forEach(r=>{
-      const k=`${r.brand}||${r.size}||${r.fishStock}`;
+      const fs=normalizeFishStock(r.fishStock)||"—";
+      const k=`${r.brand}||${r.size}||${fs}`;
       const existing=map.get(k);
       if(existing){existing.remainingKg+=(Number(r.remainingKg)||0);}
-      else{map.set(k,{brand:r.brand,size:r.size,fishStock:r.fishStock,bagsOpened:0,remainingKg:Number(r.remainingKg)||0,lastBagLog:null});}
+      else{map.set(k,{brand:r.brand,size:r.size,fishStock:fs,bagsOpened:0,remainingKg:Number(r.remainingKg)||0,lastBagLog:null});}
     });
     return Array.from(map.values());
-  },[bagLogs,remainLogs,selDate]);
+  },[bagLogs,remainLogs,selDate,ponds]);
 
   /* ── log remaining feed state ── */
   type RemainRow={brand:string;size:string;fishStock:string;remainingKg:string};
-  const blankRemainRow=():RemainRow=>({brand:invBrands[0]||allBrands[0]||"",size:invSizesForBrand(invBrands[0]||allBrands[0]||"")[0]||"",fishStock:"",remainingKg:""});
+  const blankRemainRow=():RemainRow=>{
+    const b=invBrands[0]||"";
+    const s=invSizesForBrand(b)[0]||"";
+    return{brand:b,size:s,fishStock:activeFishStocks[0]||"",remainingKg:""};
+  };
   const [remainRows,setRemainRows]=useState<RemainRow[]>([blankRemainRow()]);
   const addRemainRow=()=>setRemainRows(prev=>[...prev,blankRemainRow()]);
   const removeRemainRow=(i:number)=>setRemainRows(prev=>prev.filter((_,idx)=>idx!==i));
-  const updateRemainRow=(i:number,k:keyof RemainRow,v:string)=>setRemainRows(prev=>prev.map((r,idx)=>idx!==i?r:{...r,[k]:v}));
+  const updateRemainRow=(i:number,k:keyof RemainRow,v:string)=>setRemainRows(prev=>prev.map((r,idx)=>{
+    if(idx!==i)return r;
+    if(k==="brand"){
+      const szs=invSizesForBrand(v);
+      const newSize=szs.includes(r.size)?r.size:(szs[0]||"");
+      return {...r, brand:v, size:newSize};
+    }
+    return {...r,[k]:v};
+  }));
   const openRemainModal=()=>{setRemainRows([blankRemainRow()]);setShowRemainModal(true);};
   const [remainValidErr,setRemainValidErr]=useState("");
   const handleSaveRemain=()=>{
     const invalid=remainRows.find(r=>!r.brand||!r.size||!r.fishStock||!(Number(r.remainingKg)>0));
     if(invalid){setRemainValidErr("All fields are required. Please complete Feed Brand, Pellet Size, Fish Stock, and Remaining Feed for every entry.");return;}
     setRemainValidErr("");
-    remainRows.forEach(r=>onAddRemainLog({id:uid(),brand:r.brand,size:r.size,fishStock:r.fishStock,remainingKg:Number(r.remainingKg),date:selDate}));
+    remainRows.forEach(r=>onAddRemainLog({id:uid(),brand:r.brand,size:r.size,fishStock:normalizeFishStock(r.fishStock),remainingKg:Number(r.remainingKg),date:selDate}));
     setShowRemainModal(false);
   };
 
@@ -407,8 +520,10 @@ function FeedDocumentation({
     const dateLabel=toDateLabel(targetDate);
     return activePonds.map(p=>{
       const existing=(feedingRecords||[]).find(r=>r&&r.pond===p.name&&(isSameDate(r.date,targetDate)||r.date===dateLabel));
-      const defBrand=existing?.brand||invBrands[0]||allBrands[0]||"";
-      const defSize=existing?.size||invSizesForBrand(defBrand)[0]||"";
+      const defBrand=existing?.brand||invBrands[0]||"";
+      const availableSizes=invSizesForBrand(defBrand);
+      const defSize=existing?.size&&(availableSizes.includes(existing.size))?existing.size:(availableSizes[0]||"");
+      const fsDate=p.stockingDate&&p.stockingDate!=="—"?formatFishStockDate(p.stockingDate):(p.species&&p.species!=="—"?p.species:"");
       return {
         pondId:p.id,
         pondName:p.name,
@@ -420,7 +535,7 @@ function FeedDocumentation({
         evening:existing?(existing.evening!=null?String(existing.evening):""):"",
         morningTime:existing?.morningTime||"",
         eveningTime:existing?.eveningTime||"",
-        fishStock:p.species&&p.species!=="—"?`${p.species}${p.stockingDate?` (${p.stockingDate})`:""}`:""
+        fishStock:fsDate
       };
     });
   };
@@ -452,7 +567,15 @@ function FeedDocumentation({
     }
   };
 
-  const updateRow=(pondId:string,field:keyof BulkRow,value:string)=>setBulkRows(prev=>prev.map(r=>r.pondId===pondId?{...r,[field]:value}:r));
+  const updateRow=(pondId:string,field:keyof BulkRow,value:string)=>setBulkRows(prev=>prev.map(r=>{
+    if(r.pondId!==pondId) return r;
+    if(field==="brand"){
+      const szs=invSizesForBrand(value);
+      const newSize=szs.includes(r.size)?r.size:(szs[0]||"");
+      return {...r, brand:value, size:newSize};
+    }
+    return {...r, [field]:value};
+  }));
   const filledCount=bulkRows.filter(r=>r.morning||r.evening).length;
   const grandTotal=bulkRows.reduce((s,r)=>{const m=Number(r.morning)||0;const e=Number(r.evening)||0;return s+m+e;},0);
 
@@ -718,23 +841,22 @@ function FeedDocumentation({
                   return(
                     <tr key={pond.id} onClick={()=>rec&&setViewFeedRec(rec)} className={`transition-colors ${hasFeed?"hover:bg-green-50/30 cursor-pointer":"opacity-40 hover:opacity-60"}`}>
                       <td className="px-4 py-3.5 text-slate-300 text-xs font-mono w-10 sticky left-0 z-10 bg-white">{i+1}</td>
-                      <td className="px-4 py-3.5 min-w-[130px] sticky left-10 z-10 bg-white border-r border-slate-100">
+                      <td className="px-4 py-3.5 min-w-[140px] sticky left-10 z-10 bg-white border-r border-slate-100">
                         <p className="font-semibold text-slate-900">{pond.name}</p>
-                        <p className="text-[11px] text-slate-400">{pond.type}</p>
+                        {pond.stockingDate && pond.stockingDate !== "—" ? (
+                          <p className="text-[11px] font-medium text-slate-500 mt-0.5">{formatFishStockDate(pond.stockingDate)}</p>
+                        ) : (
+                          <p className="text-[11px] text-slate-400">{pond.type}</p>
+                        )}
                       </td>
                       <td className="px-4 py-3.5 text-xs text-slate-600 whitespace-nowrap">
-                        {pond.species!=="—"?(()=>{
-                          const fs=pondToStock(pond.name);
-                          const parts=fs.match(/^(.*)\s\(([^)]+)\)$/);
-                          const display=parts?`${parts[1]} (${fmtStockingDate(parts[2])})`:fs;
-                          const stockBags=(bagLogs||[]).filter(b=>isSameDate(b.date,selDate)&&(b.fishStock===fs||b.fishStock===display||!b.fishStock)).reduce((s,b)=>s+(Number(b.bagsOpened)||0),0);
-                          return(
-                            <span className="flex items-center gap-1.5">
-                              <span>{display}</span>
-                              {stockBags>0&&<span className="text-[10px] font-bold text-blue-700 bg-blue-50 border border-blue-200 px-1.5 py-0.5 rounded-md" title={`${stockBags} bag${stockBags!==1?"s":""} opened for this stock today`}>📦 {stockBags} bag{stockBags!==1?"s":""}</span>}
-                            </span>
-                          );
-                        })():<span className="text-slate-300">—</span>}
+                        {pond.stockingDate && pond.stockingDate !== "—" ? (
+                          <span>{formatFishStockDate(pond.stockingDate)}</span>
+                        ) : pond.species && pond.species !== "—" ? (
+                          <span>{pond.species}</span>
+                        ) : (
+                          <span className="text-slate-300">—</span>
+                        )}
                       </td>
                       <td className="px-4 py-3.5 text-slate-500 font-['Barlow_Condensed',sans-serif] text-base">{pond.initialStock.toLocaleString()}</td>
                       <td className="px-4 py-3.5 font-semibold text-green-700 font-['Barlow_Condensed',sans-serif] text-base">{pond.currentCount.toLocaleString()}</td>
@@ -826,7 +948,7 @@ function FeedDocumentation({
             <div className="px-5 py-4 border-b border-slate-100 bg-slate-50 flex flex-wrap items-center justify-between gap-3">
               <div>
                 <h2 className="text-base font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Feed Reconciliation — {selDate}</h2>
-                <p className="text-xs text-slate-400 mt-0.5">Tap a row for the full step-by-step breakdown.</p>
+                <p className="text-xs text-slate-400 mt-0.5">Organized by Fish Stock. Tap a row for the full step-by-step breakdown.</p>
               </div>
               {issues>0&&<span className="px-2.5 py-1 rounded-full bg-red-100 text-red-600 text-xs font-bold">{issues} issue{issues!==1?"s":""}</span>}
             </div>
@@ -905,8 +1027,7 @@ function FeedDocumentation({
         const bagErr=pr.status==="bag_mismatch"||pr.status==="multiple_mismatches";
         const remErr=pr.status==="remaining_mismatch"||pr.status==="multiple_mismatches";
         const qtyErr=pr.status==="feed_qty_mismatch";
-        const pondsForRow=(feedingRecords||[]).filter(r=>r&&isSameDate(r.date,selDate)&&r.brand===pr.brand&&r.size===pr.size&&pr.ponds.includes(r.pond));
-        const expectedFeedAvail=pr.carryover+(pr.expectedBags*pr.bagWeight);
+        const pondsForRow=(feedingRecords||[]).filter(r=>r&&isSameDate(r.date,selDate)&&r.brand===pr.brand&&r.size===pr.size&&(pr.ponds.includes(r.pond)||pondToStock(r.pond)===pr.fishStock)&&(Number(r.total)>0||Number(r.morning)>0||Number(r.evening)>0));
         const ratio=pr.bagWeight>0?(pr.netNeeded/pr.bagWeight).toFixed(2):"—";
         const sc=STATUS_CFG[pr.status]||STATUS_CFG.matched;
         return(
@@ -924,18 +1045,18 @@ function FeedDocumentation({
                 <div className={`px-3 py-2.5 rounded-xl text-xs font-bold text-center ${sc.cls}`}>{sc.label}</div>
                 {/* Step 1 */}
                 <div className="bg-white border border-slate-200 rounded-xl p-4">
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2">Step 1 — Total Feed Given</p>
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2">Step 1 — Total Feed Given to Fish Stock</p>
                   <div className="space-y-1 mb-2">
                     {pondsForRow.length === 0 ? (
                       <p className="text-slate-400 italic text-xs py-1">No feeding recorded for this feed today.</p>
                     ) : (
                       pondsForRow.map(r=>(
-                        <div key={r.id} className="flex items-center justify-between"><span className="text-slate-500">{r.pond}</span><span className="font-semibold text-slate-700">{r.total} kg</span></div>
+                        <div key={r.id} className="flex items-center justify-between"><span className="text-slate-500 font-medium">{r.pond}</span><span className="font-semibold text-slate-700">{r.total} kg</span></div>
                       ))
                     )}
                   </div>
                   <div className="border-t border-slate-100 pt-2 flex items-center justify-between">
-                    <span className="font-bold text-slate-600">Total Feed Given</span>
+                    <span className="font-bold text-slate-600">Total Feed Given ({pr.fishStock})</span>
                     <span className="font-black text-slate-900 text-sm">{pr.totalFed} kg</span>
                   </div>
                 </div>
@@ -1038,26 +1159,42 @@ function FeedDocumentation({
                   {bulkRows.map((row,i)=>{
                     const m=Number(row.morning)||0;const e=Number(row.evening)||0;const total=m+e;
                     const hasFeed=m>0||e>0;
-                    const pondObj=ponds.find(p=>p.id===row.pondId);
+                    const pondObj=ponds.find(p=>p.id===row.pondId||p.name===row.pondName);
                     const rowMaxKg=pondObj?.maxKgByPallet?.[row.size];
                     const cumFed=(feedingRecords||[]).filter(r=>r&&r.pond===row.pondName&&r.size===row.size).reduce((s,r)=>s+(Number(r.total)||0),0);
                     const rowAtMax=!!rowMaxKg&&cumFed>=rowMaxKg;
+                    const fsDate=pondObj?.stockingDate&&pondObj.stockingDate!=="—"?formatFishStockDate(pondObj.stockingDate):null;
                     return(
                       <tr key={row.pondId} className={`transition-colors ${hasFeed?"bg-green-50/40":"hover:bg-slate-50"}`}>
                         <td className="px-4 py-3 text-slate-300 text-xs font-mono w-10 sticky left-0 z-10 bg-white">{i+1}</td>
-                        <td className="px-4 py-3 min-w-[130px] sticky left-10 z-10 bg-white border-r border-slate-100"><p className="font-semibold text-slate-900">{row.pondName}</p></td>
-                        <td className="px-4 py-3 text-xs text-slate-600 whitespace-nowrap min-w-[160px]">{row.fishStock?(()=>{const parts=row.fishStock.match(/^(.*)\s\(([^)]+)\)$/);return parts?`${parts[1]} (${fmtStockingDate(parts[2])})`:row.fishStock;})():<span className="text-slate-300">—</span>}</td>
+                        <td className="px-4 py-3 min-w-[140px] sticky left-10 z-10 bg-white border-r border-slate-100">
+                          <p className="font-semibold text-slate-900">{row.pondName}</p>
+                          {fsDate&&(
+                            <p className="text-[11px] font-medium text-slate-500 mt-0.5">{fsDate}</p>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-xs text-slate-600 whitespace-nowrap min-w-[160px]">
+                          {fsDate?fsDate:(row.fishStock?formatFishStock(row.fishStock):<span className="text-slate-300">—</span>)}
+                        </td>
                         <td className="px-4 py-3 text-slate-500 min-w-[110px] font-['Barlow_Condensed',sans-serif] text-base">{row.initialStock.toLocaleString()}</td>
                         <td className="px-4 py-3 min-w-[100px]"><span className="font-semibold text-green-700 font-['Barlow_Condensed',sans-serif] text-base">{row.currentCount.toLocaleString()}</span></td>
                         <td className="px-3 py-2.5 min-w-[160px]">
-                          <select value={row.brand} onChange={e=>updateRow(row.pondId,"brand",e.target.value)} className={TS}>
-                            {invBrands.length>0?invBrands.map(b=><option key={b}>{b}</option>):<option value="">No feed in stock</option>}
+                          <select
+                            value={row.brand}
+                            onChange={e=>updateRow(row.pondId,"brand",e.target.value)}
+                            className={TS}
+                          >
+                            {invBrands.map(b=><option key={b} value={b}>{b}</option>)}
                             {row.brand&&!invBrands.includes(row.brand)&&<option value={row.brand}>{row.brand}</option>}
                           </select>
                         </td>
                         <td className="px-3 py-2.5 min-w-[120px]">
-                          <select value={row.size} onChange={e=>updateRow(row.pondId,"size",e.target.value)} className={TS}>
-                            {invSizesForBrand(row.brand).length>0?invSizesForBrand(row.brand).map(s=><option key={s}>{s}</option>):<option value="">—</option>}
+                          <select
+                            value={row.size}
+                            onChange={e=>updateRow(row.pondId,"size",e.target.value)}
+                            className={TS}
+                          >
+                            {invSizesForBrand(row.brand).map(s=><option key={s} value={s}>{s}</option>)}
                             {row.size&&!invSizesForBrand(row.brand).includes(row.size)&&<option value={row.size}>{row.size}</option>}
                           </select>
                           {rowAtMax&&<p className="text-[10px] font-bold mt-0.5 text-red-600">⚠ Max weight reached</p>}
@@ -1137,7 +1274,7 @@ function FeedDocumentation({
                   <F label="Fish Stock">
                     <select value={row.fishStock} onChange={e=>updateBagRow(i,"fishStock",e.target.value)} className={SC}>
                       <option value="">Select fish stock…</option>
-                      {[...new Set(activePonds.map(p=>`${p.species} (${p.stockingDate})`))].map(fs=>{const parts=fs.match(/^(.*)\s\(([^)]+)\)$/);const display=parts?`${parts[1]} (${fmtStockingDate(parts[2])})`:fs;return<option key={fs} value={fs}>{display}</option>;})}
+                      {activeFishStocks.map(fs=><option key={fs} value={fs}>{fs}</option>)}
                     </select>
                   </F>
                   <F label="Bags Opened">
@@ -1261,7 +1398,7 @@ function FeedDocumentation({
                   <F label="Fish Stock">
                     <select value={row.fishStock} onChange={e=>updateRemainRow(i,"fishStock",e.target.value)} className={SC}>
                       <option value="">Select fish stock…</option>
-                      {[...new Set(activePonds.map(p=>`${p.species} (${p.stockingDate})`))].map(fs=>{const parts=fs.match(/^(.*)\s\(([^)]+)\)$/);const display=parts?`${parts[1]} (${fmtStockingDate(parts[2])})`:fs;return<option key={fs} value={fs}>{display}</option>;})}
+                      {activeFishStocks.map(fs=><option key={fs} value={fs}>{fs}</option>)}
                     </select>
                   </F>
                   <F label="Remaining Feed (kg)">
@@ -1353,7 +1490,13 @@ function FeedDocumentation({
               <F label="Feed Brand"><SearchableSelect value={editRemainLog.brand} onChange={v=>setEditRemainLog(p=>p?{...p,brand:v,size:invSizesForBrand(v)[0]||p?.size||""}:p)} options={invBrands} placeholder="Select brand…"/></F>
               <F label="Pellet Size"><select value={editRemainLog.size} onChange={e=>setEditRemainLog(p=>p?{...p,size:e.target.value}:p)} className={SC}>{invSizesForBrand(editRemainLog?.brand||"").map(s=><option key={s}>{s}</option>)}</select></F>
             </div>
-            <F label="Fish Stock"><input type="text" value={editRemainLog.fishStock} onChange={e=>setEditRemainLog(p=>p?{...p,fishStock:e.target.value}:p)} className={IC}/></F>
+            <F label="Fish Stock">
+              <select value={editRemainLog.fishStock} onChange={e=>setEditRemainLog(p=>p?{...p,fishStock:e.target.value}:p)} className={SC}>
+                <option value="">Select fish stock…</option>
+                {activeFishStocks.map(fs=><option key={fs} value={fs}>{fs}</option>)}
+                {editRemainLog.fishStock&&!activeFishStocks.includes(editRemainLog.fishStock)&&<option value={editRemainLog.fishStock}>{editRemainLog.fishStock}</option>}
+              </select>
+            </F>
             <F label="Remaining Feed (kg)"><NumInput value={editRemainLog.remainingKg} onChange={v=>setEditRemainLog(p=>p?{...p,remainingKg:Number(v)||0}:p)} className={IC} placeholder="e.g. 3.5"/></F>
             <div className="flex gap-2 pt-1">
               <PBtn onClick={handleSaveEditRemain}><CheckCircle size={14}/> Save Changes</PBtn>

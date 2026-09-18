@@ -40,6 +40,9 @@ import {
   deleteAllNonAdminUsersInDb,
   isDummyUser,
   saveAllAdminUsers,
+  loadCachedPlatformStats,
+  PlatformOperationalStats,
+  subscribeToPlatformUpdates,
 } from "../lib/userSync";
 import { Toaster, toast } from "sonner";
 
@@ -167,9 +170,12 @@ export default function AdminApp({ onExit }: { onExit?: () => void } = {}) {
   const [isLiveDb, setIsLiveDb] = useState(false);
   const [lastSynced, setLastSynced] = useState<Date | null>(null);
 
-  // Persistent Admin State (Live Supabase users and managed accounts)
+  // Persistent Admin State (Live Supabase users, platform stats, and managed accounts)
   const [users, setUsers] = useState<AdminUser[]>(() => {
     return loadAllAdminUsers();
+  });
+  const [platformStats, setPlatformStats] = useState<PlatformOperationalStats>(() => {
+    return loadCachedPlatformStats();
   });
   const [plans, setPlans] = useState<AdminPlan[]>(() => {
     const loaded = loadLocal("pondtora_admin_plans", []);
@@ -185,11 +191,14 @@ export default function AdminApp({ onExit }: { onExit?: () => void } = {}) {
     try {
       const res = await fetchLiveAdminUsers();
       setUsers(res.users);
+      if (res.stats) {
+        setPlatformStats(res.stats);
+      }
       setIsLiveDb(res.isLiveFromDb);
       setLastSynced(new Date());
       if (showToast) {
         if (res.isLiveFromDb) {
-          toast.success(`Synced ${res.users.length} user account${res.users.length === 1 ? "" : "s"} from database`);
+          toast.success(`Synced ${res.users.length} registered farmer account${res.users.length === 1 ? "" : "s"} and live platform data`);
         } else {
           toast.info(`Database returned ${res.count} account${res.count === 1 ? "" : "s"}`);
         }
@@ -203,10 +212,14 @@ export default function AdminApp({ onExit }: { onExit?: () => void } = {}) {
     }
   }
 
-  // Automatically fetch live registered users from Supabase upon admin authentication
+  // Automatically fetch live registered users and stats upon admin authentication
   useEffect(() => {
     if (loggedIn) {
       handleSyncLiveUsers(false);
+      const unsub = subscribeToPlatformUpdates(() => {
+        handleSyncLiveUsers(false);
+      });
+      return () => unsub();
     }
   }, [loggedIn]);
 
@@ -226,15 +239,21 @@ export default function AdminApp({ onExit }: { onExit?: () => void } = {}) {
       if (e.detail) setPlans(e.detail);
       else setPlans(loadLocal("pondtora_admin_plans", DEFAULT_PLANS));
     };
+    const onPlatformUpdate = (e: any) => {
+      if (e.detail) setPlatformStats(e.detail);
+      else setPlatformStats(loadCachedPlatformStats());
+    };
 
     window.addEventListener("pondtora:users_updated", onUsersUpdate);
     window.addEventListener("pondtora:logs_updated", onLogsUpdate);
     window.addEventListener("pondtora:plans_updated", onPlansUpdate);
+    window.addEventListener("pondtora:platform_updated", onPlatformUpdate);
 
     return () => {
       window.removeEventListener("pondtora:users_updated", onUsersUpdate);
       window.removeEventListener("pondtora:logs_updated", onLogsUpdate);
       window.removeEventListener("pondtora:plans_updated", onPlansUpdate);
+      window.removeEventListener("pondtora:platform_updated", onPlatformUpdate);
     };
   }, []);
 
@@ -502,6 +521,7 @@ export default function AdminApp({ onExit }: { onExit?: () => void } = {}) {
                 users={users}
                 plans={plans}
                 logs={logs}
+                platformStats={platformStats}
                 onNavigate={p => setPage(p as Page)}
                 onRefresh={() => handleSyncLiveUsers(true)}
                 isRefreshing={isSyncing}
