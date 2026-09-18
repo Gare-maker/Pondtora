@@ -4,7 +4,7 @@ import {
   Pencil, Package, Download, FileText, Lock, Calendar, ChevronLeft, ChevronRight, Search, Fish
 } from "lucide-react";
 import type { FeedItem, BagOpenLog, FeedRemainingLog, Pond } from "../types";
-import { FEED_SIZES, FEED_BRANDS, TODAY, fmt, uid, toMon, toYr, downloadCSV, openPrintWindow, fmtDate, fmtStockingDate } from "../data";
+import { FEED_SIZES, FEED_BRANDS, TODAY, fmt, uid, toMon, toYr, downloadCSV, openPrintWindow, fmtDate, fmtStockingDate, formatFishStock } from "../data";
 import { Card, Bdg, PBtn, Pagination, PER_PAGE, StatCard, Modal, F, IC, SC, SH, SearchableSelect, useSort, DateInput, NumInput } from "../shared";
 import { isSameDate, toValidDbDate } from "../../lib/api";
 
@@ -168,8 +168,8 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
   });
 
   const allDailyStocks = [...new Set([
-    ...dailyGroupedRows.map(r => r.fishStock),
-    ...ponds.filter(p => p.species && p.species !== "—").map(p => `${p.species}${p.stockingDate && p.stockingDate !== "—" ? ` (${fmtStockingDate(p.stockingDate)})` : ""}`)
+    ...dailyGroupedRows.map(r => formatFishStock(r.fishStock)),
+    ...ponds.filter(p => p.species && p.species !== "—").map(p => p.stockingDate && p.stockingDate !== "—" ? fmtStockingDate(p.stockingDate) : p.species)
   ])].filter(Boolean);
   const allDailyBrands = [...new Set([
     ...dailyGroupedRows.map(r => r.brand),
@@ -182,15 +182,8 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
 
   const fmtFishStock = (stock: string) => {
     if (!stock || stock === "—" || stock === "General Stock") return stock || "General Stock";
-    const match = stock.match(/^(.*?)\s*\((.*?)\)$/);
-    if (match) {
-      const species = match[1].trim();
-      const rawDate = match[2].trim();
-      const formatted = fmtStockingDate(rawDate);
-      return `${species} (${formatted !== "—" ? formatted : rawDate})`;
-    }
-    const formatted = fmtStockingDate(stock);
-    if (formatted !== "—" && formatted !== stock && !formatted.includes("NaN")) {
+    const formatted = formatFishStock(stock);
+    if (formatted && formatted !== "—") {
       return formatted;
     }
     return stock;

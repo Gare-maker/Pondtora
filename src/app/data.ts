@@ -72,10 +72,10 @@ export const INIT_INV: FeedItem[] = [
   {id:"FI-006",brand:"Coppens",         size:"3.0 mm",bags:12,weightPerBag:25,totalKg:300,costPerBag:11500,supplier:"Aqua Supplies Co",    purchaseDate:"May 15",month:"May",farmId:"FARM-001"},
 ];
 export const INIT_PONDS: Pond[] = [
-  {id:"P001",name:"Pond 1",type:"Earthen", species:"Tilapia", sizeM2:"2400",initialStock:3000,currentCount:2847,stockingDate:"Jan 15, 2026",stockMonth:"Jan",totalCost:485000,status:"Active",notes:"",farmId:"FARM-001",lengthFt:"60",widthFt:"40"},
-  {id:"P002",name:"Pond 2",type:"Concrete",species:"Catfish", sizeM2:"1800",initialStock:2000,currentCount:1923,stockingDate:"Feb 20, 2026",stockMonth:"Feb",totalCost:368000,status:"Active",notes:"",farmId:"FARM-001",lengthFt:"50",widthFt:"36"},
-  {id:"P003",name:"Pond 3",type:"Earthen", species:"Tilapia", sizeM2:"3000",initialStock:3500,currentCount:3412,stockingDate:"Apr 01, 2026",stockMonth:"Apr",totalCost:290000,status:"Active",notes:"",farmId:"FARM-001",lengthFt:"70",widthFt:"43"},
-  {id:"P004",name:"Pond 4",type:"Concrete",species:"Catfish", sizeM2:"2200",initialStock:1800,currentCount:1765,stockingDate:"Mar 10, 2026",stockMonth:"Mar",totalCost:325000,status:"Active",notes:"",farmId:"FARM-001",lengthFt:"55",widthFt:"40"},
+  {id:"P001",name:"Pond 1",type:"Earthen", species:"Tilapia", sizeM2:"2400",initialStock:3000,currentCount:2847,stockingDate:"15th January 2026",stockMonth:"Jan",totalCost:485000,status:"Active",notes:"",farmId:"FARM-001",lengthFt:"60",widthFt:"40"},
+  {id:"P002",name:"Pond 2",type:"Concrete",species:"Catfish", sizeM2:"1800",initialStock:2000,currentCount:1923,stockingDate:"20th February 2026",stockMonth:"Feb",totalCost:368000,status:"Active",notes:"",farmId:"FARM-001",lengthFt:"50",widthFt:"36"},
+  {id:"P003",name:"Pond 3",type:"Earthen", species:"Tilapia", sizeM2:"3000",initialStock:3500,currentCount:3412,stockingDate:"1st April 2026",stockMonth:"Apr",totalCost:290000,status:"Active",notes:"",farmId:"FARM-001",lengthFt:"70",widthFt:"43"},
+  {id:"P004",name:"Pond 4",type:"Concrete",species:"Catfish", sizeM2:"2200",initialStock:1800,currentCount:1765,stockingDate:"10th March 2026",stockMonth:"Mar",totalCost:325000,status:"Active",notes:"",farmId:"FARM-001",lengthFt:"55",widthFt:"40"},
   {id:"P005",name:"Pond 5",type:"Tarpaulin",species:"—",      sizeM2:"1200",initialStock:0,   currentCount:0,   stockingDate:"—",            stockMonth:"",  totalCost:0,     status:"Empty",  notes:"Ready for new stock",farmId:"FARM-001",lengthFt:"40",widthFt:"30"},
 ];
 export const INIT_EXP: Expense[] = [
@@ -168,6 +168,15 @@ export function formatFishStockDate(d: string | Date | null | undefined): string
   const str = String(d).trim();
   if (str === "—" || !str) return "—";
 
+  // Check if string contains parentheses like "Catfish (2026-08-18)" or "(18th August 2026)"
+  const innerMatch = str.match(/\(([^)]+)\)/);
+  if (innerMatch) {
+    const fromInner = formatFishStockDate(innerMatch[1]);
+    if (fromInner && fromInner !== "—") {
+      return fromInner;
+    }
+  }
+
   // Check if it already matches "18th August 2026" or "1st August 2026"
   const alreadyFormatted = str.match(/^(\d{1,2})(st|nd|rd|th)\s+([A-Za-z]+)\s+(\d{4})$/i);
   if (alreadyFormatted) {
@@ -180,7 +189,7 @@ export function formatFishStockDate(d: string | Date | null | undefined): string
     }
   }
 
-  // Check ISO format YYYY-MM-DD
+  // Check ISO format YYYY-MM-DD (e.g. 2026-08-18)
   const isoMatch = str.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
   if (isoMatch) {
     const year = parseInt(isoMatch[1], 10);
@@ -191,7 +200,7 @@ export function formatFishStockDate(d: string | Date | null | undefined): string
     }
   }
 
-  // Check DD/MM/YYYY or DD-MM-YYYY
+  // Check DD/MM/YYYY or DD-MM-YYYY (e.g. 18/08/2026 or 18-08-2026)
   const dmyMatch = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
   if (dmyMatch) {
     const day = parseInt(dmyMatch[1], 10);
@@ -202,25 +211,28 @@ export function formatFishStockDate(d: string | Date | null | undefined): string
     }
   }
 
-  // General date parsing (e.g. "Jan 15, 2026" or "15 Jan 2026" or "August 18, 2026")
+  // Check formats with month name and day, e.g. "18 September, 2026" or "18 Sep 2026" or "Sep 18, 2026"
   const cleanStr = str.replace(/(st|nd|rd|th),?/gi, "").replace(/,/g, " ").replace(/\s+/g, " ").trim();
   const parts = cleanStr.split(" ");
   if (parts.length >= 2) {
-    const mIdx = FULL_MONTH_NAMES.findIndex(m => m.toLowerCase().startsWith(parts[0].toLowerCase().slice(0, 3)));
-    const day = parseInt(parts[1], 10);
-    const year = parts[2] ? parseInt(parts[2], 10) : new Date().getFullYear();
-    if (mIdx !== -1 && !isNaN(day) && day >= 1 && day <= 31) {
-      return `${day}${getOrdinalSuffix(day)} ${FULL_MONTH_NAMES[mIdx]} ${year}`;
-    }
-    // Check if day is first: e.g. "18 August 2026"
+    // Day first: "18 September 2026" or "18 Sep 2026"
     const dayFirst = parseInt(parts[0], 10);
     const mIdxSecond = FULL_MONTH_NAMES.findIndex(m => m.toLowerCase().startsWith(parts[1].toLowerCase().slice(0, 3)));
-    const yearThird = parts[2] ? parseInt(parts[2], 10) : new Date().getFullYear();
+    const yearThird = parts[2] && /^\d{4}$/.test(parts[2]) ? parseInt(parts[2], 10) : new Date().getFullYear();
     if (!isNaN(dayFirst) && dayFirst >= 1 && dayFirst <= 31 && mIdxSecond !== -1) {
       return `${dayFirst}${getOrdinalSuffix(dayFirst)} ${FULL_MONTH_NAMES[mIdxSecond]} ${yearThird}`;
     }
+
+    // Month first: "September 18 2026" or "Sep 18 2026"
+    const mIdx = FULL_MONTH_NAMES.findIndex(m => m.toLowerCase().startsWith(parts[0].toLowerCase().slice(0, 3)));
+    const day = parseInt(parts[1], 10);
+    const year = parts[2] && /^\d{4}$/.test(parts[2]) ? parseInt(parts[2], 10) : new Date().getFullYear();
+    if (mIdx !== -1 && !isNaN(day) && day >= 1 && day <= 31) {
+      return `${day}${getOrdinalSuffix(day)} ${FULL_MONTH_NAMES[mIdx]} ${year}`;
+    }
   }
 
+  // Fallback to Date parser
   let dt = new Date(cleanStr);
   if (isNaN(dt.getTime())) dt = new Date(str);
   if (!isNaN(dt.getTime())) {
@@ -240,13 +252,12 @@ export function formatFishStock(stock: string | null | undefined): string {
   const trimmed = stock.trim();
   const match = trimmed.match(/^(.*?)\s*\(([^)]+)\)$/);
   if (match) {
-    const species = match[1].trim();
     const rawDate = match[2].trim();
     const formattedDate = formatFishStockDate(rawDate);
     if (formattedDate && formattedDate !== "—") {
-      return `${species} (${formattedDate})`;
+      return formattedDate;
     }
-    return species;
+    return match[1].trim() || trimmed;
   }
   const asDate = formatFishStockDate(trimmed);
   if (asDate !== "—" && asDate !== trimmed) {

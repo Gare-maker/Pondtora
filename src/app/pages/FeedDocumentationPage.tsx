@@ -807,7 +807,7 @@ function FeedDocumentation({
                   <span key={idx} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-white border border-blue-200 text-blue-800 shadow-2xs">
                     <span className="w-1.5 h-1.5 rounded-full bg-blue-500"/>
                     <span className="font-bold text-slate-800">{r.brand} {r.size}</span>
-                    <span className="text-slate-500 font-normal">({r.fishStock})</span>:
+                    <span className="text-slate-500 font-normal">({formatFishStock(r.fishStock)})</span>:
                     <strong className="font-bold text-blue-700">{r.bagsOpened} bag{r.bagsOpened!==1?"s":""}</strong>
                   </span>
                 ))}
@@ -844,12 +844,12 @@ function FeedDocumentation({
                       <td className="px-4 py-3.5 min-w-[140px] sticky left-10 z-10 bg-white border-r border-slate-100">
                         <p className="font-semibold text-slate-900">{pond.name}</p>
                         {pond.stockingDate && pond.stockingDate !== "—" ? (
-                          <p className="text-[11px] font-medium text-slate-500 mt-0.5">{formatFishStockDate(pond.stockingDate)}</p>
+                          <p className="text-[11px] font-bold text-slate-700 mt-0.5">{formatFishStockDate(pond.stockingDate)}</p>
                         ) : (
-                          <p className="text-[11px] text-slate-400">{pond.type}</p>
+                          <p className="text-[11px] text-slate-400">{pond.type || "—"}</p>
                         )}
                       </td>
-                      <td className="px-4 py-3.5 text-xs text-slate-600 whitespace-nowrap">
+                      <td className="px-4 py-3.5 text-xs text-slate-700 font-medium whitespace-nowrap">
                         {pond.stockingDate && pond.stockingDate !== "—" ? (
                           <span>{formatFishStockDate(pond.stockingDate)}</span>
                         ) : pond.species && pond.species !== "—" ? (
@@ -928,7 +928,7 @@ function FeedDocumentation({
                   <tr key={i} className="hover:bg-slate-50">
                     <td className="px-4 py-3 font-semibold text-slate-800">{row.brand}</td>
                     <td className="px-4 py-3"><Bdg label={row.size} color="blue"/></td>
-                    <td className="px-4 py-3 text-slate-600 text-xs">{row.fishStock}</td>
+                    <td className="px-4 py-3 text-slate-700 text-xs font-medium">{formatFishStock(row.fishStock)}</td>
                     <td className="px-4 py-3 font-bold text-slate-900">{row.bagsOpened>0?row.bagsOpened:<span className="text-slate-300">—</span>}</td>
                     <td className="px-4 py-3">{row.remainingKg>0?<span className="font-semibold text-amber-600">{row.remainingKg} kg</span>:<span className="text-slate-300 text-xs">—</span>}</td>
                     <td className="px-4 py-3">{canEdit&&row.lastBagLog&&(isRecordEditable(row.lastBagLog.date)?<button onClick={()=>openEditDocBag(row.lastBagLog!)} className="p-1 rounded text-slate-300 hover:text-green-600 hover:bg-green-50 transition-colors" title="Edit"><Pencil size={13}/></button>:<button onClick={()=>alert("This record can only be edited by an Administrator or Manager after 24 hours.")} className="p-1 rounded text-slate-200 cursor-not-allowed" title="Locked"><Lock size={13}/></button>)}</td>
@@ -985,7 +985,7 @@ function FeedDocumentation({
                           title="Click to view reconciliation detail popup"
                         >
                           <td className="px-4 py-3 sticky left-0 z-10 bg-white border-r border-slate-100 min-w-[180px]">
-                            <p className="text-xs font-semibold text-slate-800 leading-tight">{r.fishStock}</p>
+                            <p className="text-xs font-semibold text-slate-800 leading-tight">{formatFishStock(r.fishStock)}</p>
                           </td>
                           <td className="px-4 py-3"><Bdg label={r.size} color="blue"/></td>
                           <td className="px-4 py-3 font-semibold text-slate-700 whitespace-nowrap">{r.brand}</td>
@@ -1036,7 +1036,7 @@ function FeedDocumentation({
               <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 sticky top-0 bg-white z-10 shrink-0">
                 <div>
                   <h2 className="text-base font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Reconciliation Detail</h2>
-                  <p className="text-xs text-slate-400 mt-0.5">{selDate} · {pr.fishStock}</p>
+                  <p className="text-xs text-slate-400 mt-0.5">{selDate} · {formatFishStock(pr.fishStock)}</p>
                   <p className="text-xs text-slate-400">{pr.brand} · {pr.size}</p>
                 </div>
                 <button onClick={()=>setPopupRecon(null)} className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"><X size={18}/></button>
@@ -1056,7 +1056,7 @@ function FeedDocumentation({
                     )}
                   </div>
                   <div className="border-t border-slate-100 pt-2 flex items-center justify-between">
-                    <span className="font-bold text-slate-600">Total Feed Given ({pr.fishStock})</span>
+                    <span className="font-bold text-slate-600">Total Feed Given ({formatFishStock(pr.fishStock)})</span>
                     <span className="font-black text-slate-900 text-sm">{pr.totalFed} kg</span>
                   </div>
                 </div>
@@ -1163,17 +1163,19 @@ function FeedDocumentation({
                     const rowMaxKg=pondObj?.maxKgByPallet?.[row.size];
                     const cumFed=(feedingRecords||[]).filter(r=>r&&r.pond===row.pondName&&r.size===row.size).reduce((s,r)=>s+(Number(r.total)||0),0);
                     const rowAtMax=!!rowMaxKg&&cumFed>=rowMaxKg;
-                    const fsDate=pondObj?.stockingDate&&pondObj.stockingDate!=="—"?formatFishStockDate(pondObj.stockingDate):null;
+                    const fsDate=pondObj?.stockingDate&&pondObj.stockingDate!=="—"?formatFishStockDate(pondObj.stockingDate):(pondObj?.species&&pondObj.species!=="—"?pondObj.species:null);
                     return(
                       <tr key={row.pondId} className={`transition-colors ${hasFeed?"bg-green-50/40":"hover:bg-slate-50"}`}>
                         <td className="px-4 py-3 text-slate-300 text-xs font-mono w-10 sticky left-0 z-10 bg-white">{i+1}</td>
                         <td className="px-4 py-3 min-w-[140px] sticky left-10 z-10 bg-white border-r border-slate-100">
                           <p className="font-semibold text-slate-900">{row.pondName}</p>
-                          {fsDate&&(
-                            <p className="text-[11px] font-medium text-slate-500 mt-0.5">{fsDate}</p>
+                          {fsDate ? (
+                            <p className="text-[11px] font-bold text-slate-700 mt-0.5">{fsDate}</p>
+                          ) : (
+                            <p className="text-[11px] text-slate-400">—</p>
                           )}
                         </td>
-                        <td className="px-4 py-3 text-xs text-slate-600 whitespace-nowrap min-w-[160px]">
+                        <td className="px-4 py-3 text-xs text-slate-700 font-medium whitespace-nowrap min-w-[160px]">
                           {fsDate?fsDate:(row.fishStock?formatFishStock(row.fishStock):<span className="text-slate-300">—</span>)}
                         </td>
                         <td className="px-4 py-3 text-slate-500 min-w-[110px] font-['Barlow_Condensed',sans-serif] text-base">{row.initialStock.toLocaleString()}</td>

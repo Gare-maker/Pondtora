@@ -17,7 +17,7 @@ import {
   ResponsiveContainer, PieChart, Pie, Cell, Legend
 } from "recharts";
 import type { View, SortDir, MonthData, FeedItem, Pond, Expense, Revenue, FeedingRecord, FeedEditEntry, MortalityEntry, BagOpenLog, FeedRemainingLog, StaffMember, Report, UserProfile, StockEvent, PriceGroup, Customer, InvSettings, InvoiceLineItem, Invoice, Farm, TreatmentRecord, WItem, EditEntry, Investor, Investment, InvestmentPayment, PondReport } from "./types";
-import { EXPENSE_CATS, REVENUE_SRCS, POND_TYPES, POND_SPECIES, MORT_CAUSES, TODAY, getTodayStr, fmt, yFmt, uid, toMon, toYr, PAYMENT_METHODS, INV_STATUSES, STAFF_PERMISSIONS, STAFF_ROLES_ALL, INIT_INV_SETTINGS, ADMIN_NAME, downloadCSV, openPrintWindow, COUNTRY_CURRENCIES, COUNTRIES, DIAL_CODES, FLAG_EMOJI, convertNGN, fmtStockingDate, isSameDate } from "./data";
+import { EXPENSE_CATS, REVENUE_SRCS, POND_TYPES, POND_SPECIES, MORT_CAUSES, TODAY, getTodayStr, fmt, yFmt, uid, toMon, toYr, PAYMENT_METHODS, INV_STATUSES, STAFF_PERMISSIONS, STAFF_ROLES_ALL, INIT_INV_SETTINGS, ADMIN_NAME, downloadCSV, openPrintWindow, COUNTRY_CURRENCIES, COUNTRIES, DIAL_CODES, FLAG_EMOJI, convertNGN, fmtStockingDate, formatFishStockDate, formatFishStock, isSameDate } from "./data";
 import { Card, Bdg, PBtn, Pagination, PER_PAGE, StatCard, Tip, Modal, F, IC, SC, SearchableSelect, SelDrop, DMONTHS_S, DateFilter, SearchableCountrySelect, SH, useSort, DateInput, NumInput } from "./shared";
 import InvoicesPage from "./pages/InvoicesPage";
 import FeedDocumentationPage from "./pages/FeedDocumentationPage";
@@ -361,7 +361,7 @@ function FinancialDashboard({
     const se=revF.stockBatch?stockEvents?.find(e=>e.id===revF.stockBatch):undefined;
     const batchLabel=se?`${se.species} — ${se.count.toLocaleString()} fish (stocked ${se.date})`:undefined;
     const selPondObj=revF.source==="Fish Sales"&&revF.pond?(ponds||[]).find(p=>p.name===revF.pond):undefined;
-    const revFishStock=selPondObj&&selPondObj.species!=="—"?`${selPondObj.species} (${selPondObj.stockingDate})`:undefined;
+    const revFishStock=selPondObj&&selPondObj.stockingDate&&selPondObj.stockingDate!=="—"?formatFishStockDate(selPondObj.stockingDate):(selPondObj?.species&&selPondObj.species!=="—"?selPondObj.species:undefined);
     onAddRevenue({id:uid(),source:revF.source,amount:Number(revF.amount),date:revF.date,month:toMon(revF.date),year:toYr(revF.date),notes:revF.notes,originalNotes:revF.notes,pond:revF.source==="Fish Sales"?revF.pond||undefined:undefined,stockBatch:revF.source==="Fish Sales"&&batchLabel?batchLabel:undefined,fishStock:revFishStock,createdBy:currentUser?.name||undefined,createdById:currentUser?.email||undefined});
     setShowRev(false);
     setRevF({source:"Fish Sales",amount:"",date:TODAY,notes:"",pond:"",stockBatch:""});
@@ -634,7 +634,7 @@ function FinancialDashboard({
           <div><F label={`Amount (${cs})`}><NumInput value={expF.amount} onChange={v=>{setExpF(p=>({...p,amount:v}));if(v&&Number(v)>0)setExpFErr(p=>({...p,amount:""}));}} className={`${IC}${expFErr.amount?" border-red-400 focus:ring-red-200":""}`} placeholder="Enter amount"/></F>{expFErr.amount&&<p className="text-xs text-red-500 mt-1">{expFErr.amount}</p>}</div>
           <div><F label="Date"><DateInput value={expF.date} onChange={v=>{setExpF(p=>({...p,date:v}));if(v)setExpFErr(p=>({...p,date:""}));}}/></F>{expFErr.date&&<p className="text-xs text-red-500 mt-1">{expFErr.date}</p>}</div>
         </div>
-        <F label="Pond (Optional)"><select value={expF.pond} onChange={e=>{const pn=e.target.value;const pd=(ponds||[]).find(p=>p.name===pn);const fs=pd&&pd.species!=="—"?`${pd.species} (${pd.stockingDate})`:"";setExpF(p=>({...p,pond:pn,fishStock:fs}));}} className={SC}><option value="">None</option>{(ponds||[]).map(p=><option key={p.id}>{p.name}</option>)}</select></F>
+        <F label="Pond (Optional)"><select value={expF.pond} onChange={e=>{const pn=e.target.value;const pd=(ponds||[]).find(p=>p.name===pn);const fs=pd&&pd.stockingDate&&pd.stockingDate!=="—"?formatFishStockDate(pd.stockingDate):(pd?.species&&pd.species!=="—"?pd.species:"");setExpF(p=>({...p,pond:pn,fishStock:fs}));}} className={SC}><option value="">None</option>{(ponds||[]).map(p=><option key={p.id}>{p.name}</option>)}</select></F>
         {expF.fishStock&&<div className="flex items-center gap-2 px-3 py-2 bg-teal-50 border border-teal-200 rounded-lg"><Fish size={12} className="text-teal-600 shrink-0"/><span className="text-xs text-teal-700 font-semibold">{expF.fishStock}</span></div>}
         <F label="Description"><input type="text" value={expF.desc} onChange={e=>setExpF(p=>({...p,desc:e.target.value}))} className={IC} placeholder="Brief description…"/></F>
         <div className="flex gap-2 pt-1"><PBtn onClick={handleAddExp}><Plus size={14}/> Save</PBtn><button onClick={()=>{setShowExp(false);setExpFErr({});}} className="px-4 py-2 text-sm text-slate-400">Cancel</button></div>
@@ -1649,7 +1649,7 @@ function ReportsPage({
     if (!fPondId && farmPonds.length > 0) {
       const firstNonEmpty = farmPonds.find(p => p.status !== "Empty" && (Number(p.currentCount) || 0) > 0) || farmPonds[0];
       setFPondId(firstNonEmpty.id);
-      setFPondFishStock(firstNonEmpty.species && firstNonEmpty.species !== "—" ? `${firstNonEmpty.species} (${firstNonEmpty.stockingDate || "Active"})` : "Current Stock");
+      setFPondFishStock(firstNonEmpty.stockingDate && firstNonEmpty.stockingDate !== "—" ? formatFishStockDate(firstNonEmpty.stockingDate) : (firstNonEmpty.species && firstNonEmpty.species !== "—" ? firstNonEmpty.species : "Current Stock"));
     }
   }, [farmPonds, fPondId]);
 
@@ -1984,7 +1984,7 @@ function ReportsPage({
                     setFPondId(newId);
                     const selP = farmPonds.find(p => p.id === newId);
                     if (selP) {
-                      setFPondFishStock(selP.species && selP.species !== "—" ? `${selP.species} (${selP.stockingDate || "Active"})` : "Current Stock");
+                      setFPondFishStock(selP.stockingDate && selP.stockingDate !== "—" ? formatFishStockDate(selP.stockingDate) : (selP.species && selP.species !== "—" ? selP.species : "Current Stock"));
                     }
                   }}
                   className={SC}

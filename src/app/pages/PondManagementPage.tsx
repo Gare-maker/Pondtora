@@ -96,15 +96,17 @@ function PondDetail({
   const [editFeedRec,setEditFeedRec]=useState<FeedingRecord|null>(null);
   const [editTreatRec,setEditTreatRec]=useState<TreatmentRecord|null>(null);
 
-  const defaultFishStockLabel = pond.species !== "—" ? `${pond.species} (${fmtStockingDate(pond.stockingDate)})` : "Current Stock";
+  const defaultFishStockLabel = pond.stockingDate && pond.stockingDate !== "—" ? fmtStockingDate(pond.stockingDate) : (pond.species !== "—" ? pond.species : "Current Stock");
 
   const pondStockOptions = useMemo(() => {
     const opts: string[] = [];
-    if (pond.species && pond.species !== "—") {
-      opts.push(`${pond.species} (${fmtStockingDate(pond.stockingDate)})`);
+    if (pond.stockingDate && pond.stockingDate !== "—") {
+      opts.push(fmtStockingDate(pond.stockingDate));
+    } else if (pond.species && pond.species !== "—") {
+      opts.push(pond.species);
     }
     (stockEvents || []).filter(e => e.pondId === pond.id).forEach(e => {
-      const s = `${e.species || pond.species} (${e.date ? fmtStockingDate(e.date) : "Past"})`;
+      const s = e.date ? fmtStockingDate(e.date) : (e.species || pond.species || "Past");
       if (!opts.includes(s)) opts.push(s);
     });
     if (opts.length === 0) opts.push("Current Stock");
@@ -716,7 +718,7 @@ function PondDetail({
         )}
       </Modal>}
       {showCost&&<Modal title="Add Pond Cost" onClose={()=>{setShowCost(false);setCostErr({});}}>
-        {pond.species!=="—"&&<div className="flex items-center gap-2 bg-green-50 border border-green-100 rounded-xl px-4 py-2.5"><div className="w-1.5 h-1.5 rounded-full bg-green-500 shrink-0"/><span className="text-xs text-slate-500">Fish Stock:</span><span className="text-xs font-semibold text-slate-800">{pond.species} ({fmtStockingDate(pond.stockingDate)})</span></div>}
+        {pond.species!=="—"&&<div className="flex items-center gap-2 bg-green-50 border border-green-100 rounded-xl px-4 py-2.5"><div className="w-1.5 h-1.5 rounded-full bg-green-500 shrink-0"/><span className="text-xs text-slate-500">Fish Stock:</span><span className="text-xs font-semibold text-slate-800">{pond.stockingDate && pond.stockingDate !== "—" ? fmtStockingDate(pond.stockingDate) : pond.species}</span></div>}
         <F label="Category"><select value={costF.category} onChange={e=>setCostF(p=>({...p,category:e.target.value}))} className={SC}>{EXPENSE_CATS.map(c=><option key={c}>{c}</option>)}</select></F>
         <div className="grid grid-cols-2 gap-3">
           <div><F label={`Amount (${cs})`}><NumInput value={costF.amount} onChange={v=>{setCostF(p=>({...p,amount:v}));if(v&&Number(v)>0)setCostErr(p=>({...p,amount:""}));}} className={`${IC}${costErr.amount?" border-red-400":""}`} placeholder="0"/></F>{costErr.amount&&<p className="text-xs text-red-500 mt-1">{costErr.amount}</p>}</div>
@@ -1189,7 +1191,7 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
                 <div className="flex items-center gap-3 mt-0.5">
                   <span className="text-[11px] text-slate-400">{p.currentCount.toLocaleString()} fish</span>
                 </div>
-                {p.status==="Active"&&p.species!=="—"&&<p className="text-[11px] text-slate-700 font-medium mt-0.5">{p.species}{p.stockingDate&&p.stockingDate!=="—"?` · ${fmtStockingDate(p.stockingDate)}`:""}</p>}
+                {p.status==="Active"&&p.species!=="—"&&<p className="text-[11px] text-slate-700 font-medium mt-0.5">{p.stockingDate&&p.stockingDate!=="—"?fmtStockingDate(p.stockingDate):p.species}</p>}
               </div>
               <div className="relative shrink-0">
                 <ChevronRight size={16} className="text-slate-300"/>

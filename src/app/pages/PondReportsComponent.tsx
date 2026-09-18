@@ -5,7 +5,7 @@ import {
 } from "lucide-react";
 import type { Farm, Pond, StockEvent, TreatmentRecord, PondReport } from "../types";
 import { Card, Bdg, PBtn, Modal, F, IC, SC, DateInput } from "../shared";
-import { TODAY, uid } from "../data";
+import { TODAY, uid, formatFishStockDate, formatFishStock } from "../data";
 import { toast } from "sonner";
 
 interface PondReportsProps {
@@ -114,9 +114,9 @@ export default function PondReportsComponent({
     const stocks: { id: string; label: string; isCurrent: boolean }[] = [];
 
     // Current stock of the pond
-    const currentLabel = activePond.species && activePond.species !== "—"
-      ? `${activePond.species} (${activePond.stockingDate || "Current Stock"})`
-      : "Current Stock";
+    const currentLabel = activePond.stockingDate && activePond.stockingDate !== "—"
+      ? formatFishStockDate(activePond.stockingDate)
+      : (activePond.species && activePond.species !== "—" ? activePond.species : "Current Stock");
     
     const currentId = `current-${activePond.id}-${activePond.stockingDate || "active"}`;
     stocks.push({ id: currentId, label: `${currentLabel} — (Current Stock)`, isCurrent: true });
@@ -124,7 +124,8 @@ export default function PondReportsComponent({
     // Historical stock events for this pond
     const events = stockEvents.filter(e => e.pondId === activePond.id);
     events.forEach(ev => {
-      const histLabel = `${ev.species || activePond.species} (${ev.date || "Past"}) - Stock #${ev.id.slice(0, 6)}`;
+      const dateLabel = ev.date ? formatFishStockDate(ev.date) : (ev.species || activePond.species || "Past");
+      const histLabel = `${dateLabel} - Stock #${ev.id.slice(0, 6)}`;
       const evId = `event-${ev.id}`;
       if (!stocks.some(s => s.id === evId)) {
         stocks.push({ id: evId, label: histLabel, isCurrent: false });
@@ -174,9 +175,9 @@ export default function PondReportsComponent({
     setTreatActionTaken("");
     setTreatRemarks("");
 
-    const defaultStock = targetPond.species && targetPond.species !== "—"
-      ? `${targetPond.species} (${targetPond.stockingDate || "Current Stock"})`
-      : "Current Stock";
+    const defaultStock = targetPond.stockingDate && targetPond.stockingDate !== "—"
+      ? formatFishStockDate(targetPond.stockingDate)
+      : (targetPond.species && targetPond.species !== "—" ? targetPond.species : "Current Stock");
     const stockId = selectedFishStockId || `current-${targetPond.id}-${targetPond.stockingDate || "active"}`;
     setFormFishStockId(stockId);
 
@@ -850,7 +851,7 @@ export default function PondReportsComponent({
               <div className="flex justify-between py-1 border-b border-slate-100">
                 <span className="text-slate-400">Fish Stock</span>
                 <span className="font-semibold text-slate-800 truncate max-w-[200px]">
-                  {activePond?.species ? `${activePond.species} stock` : viewingReport.fishStockId}
+                  {activePond?.stockingDate && activePond.stockingDate !== "—" ? formatFishStockDate(activePond.stockingDate) : (viewingReport.fishStockId ? formatFishStock(viewingReport.fishStockId) : (activePond?.species || "—"))}
                 </span>
               </div>
 
