@@ -1,8 +1,0 @@
-supabase/
-.git/
-scratch/
-scripts/
-guidelines/
-plans/
-dist/
-node_modules/
