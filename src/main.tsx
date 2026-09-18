@@ -63,18 +63,35 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   }
 
   handleReload = () => {
-    window.location.reload();
+    try {
+      if ("caches" in window) {
+        caches.keys().then((keys) => {
+          keys.forEach((key) => caches.delete(key));
+        });
+      }
+    } catch {}
+    const url = new URL(window.location.href);
+    url.searchParams.set("v", Date.now().toString());
+    window.location.href = url.toString();
   };
 
   handleResetAndReload = () => {
     try {
+      if ("caches" in window) {
+        caches.keys().then((keys) => {
+          keys.forEach((key) => caches.delete(key));
+        });
+      }
       Object.keys(localStorage).forEach((key) => {
         if (key.startsWith("pondtora_") && !key.startsWith("pondtora_admin_") && !key.startsWith("pondtora_custom_plans")) {
           localStorage.removeItem(key);
         }
       });
+      sessionStorage.clear();
     } catch {}
-    window.location.href = window.location.origin;
+    const url = new URL(window.location.href);
+    url.searchParams.set("v", Date.now().toString());
+    window.location.href = url.toString();
   };
 
   render() {
