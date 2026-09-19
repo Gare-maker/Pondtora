@@ -5395,7 +5395,6 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   }, [isStaff, accessibleFarms, activeFarmId]);
 
   /* Derived data — computed unconditionally before any early return (Rules of Hooks) */
-  const hasOneFarmOrNone = accessibleFarms.length <= 1;
   const matchesFarm = (fid?: string, pondName?: string) => {
     if (hasOneFarmOrNone) return true;
     if (!fid || fid === "default" || fid === "—" || fid === activeFarmId) return true;
