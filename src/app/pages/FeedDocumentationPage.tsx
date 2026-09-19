@@ -129,11 +129,16 @@ function FeedDocumentation({
   const activePonds = (ponds || []).filter(p => p && p.status === "Active");
   const allBrands = [...new Set((inventory || []).map(f => f?.brand).filter(Boolean))];
 
-  /* Available pellet sizes strictly from available feed inventory */
+  /* Available pellet sizes drawn from all pellets in Feed Stock (inventory & opened bags) */
   const availablePelletSizes = useMemo(() => {
-    const sizes = [...new Set((inventory || []).map(f => f?.size).filter(Boolean))];
-    return sizes.length > 0 ? sizes : FEED_SIZES;
-  }, [inventory]);
+    const fromInv = (inventory || []).map(f => f?.size).filter(Boolean);
+    const fromBags = (bagLogs || []).map(b => b?.size).filter(Boolean);
+    const combined = [...new Set([...fromInv, ...fromBags])];
+    if (combined.length > 0) {
+      return combined.sort((a, b) => (parseFloat(a) || 0) - (parseFloat(b) || 0));
+    }
+    return FEED_SIZES;
+  }, [inventory, bagLogs]);
 
   /* Brand filtering based on Feed Stock inventory */
   const invBrands = useMemo(() => {
@@ -777,11 +782,18 @@ function FeedDocumentation({
 
   /* ── bulk log (Log Feeding — All Ponds) ── */
   const [bulkDate, setBulkDate] = useState(TODAY);
-  const [bulkBy, setBulkBy] = useState("");
+  const [bulkBy, setBulkBy] = useState(currentUser?.name || "");
   const [bulkRows, setBulkRows] = useState<BulkRow[]>([]);
   const [savingFeed, setSavingFeed] = useState(false);
   const nowTime = () => new Date().toLocaleTimeString("en", { hour: "2-digit", minute: "2-digit", hour12: false });
   const [logTime] = useState(nowTime);
+
+  // Auto-populate bulkBy if currentUser loads or changes
+  useEffect(() => {
+    if (currentUser?.name && !bulkBy) {
+      setBulkBy(currentUser.name);
+    }
+  }, [currentUser?.name]);
 
   const getRowsForDate = (targetDate: string) => {
     const dateLabel = toDateLabel(targetDate);
@@ -823,6 +835,7 @@ function FeedDocumentation({
       }
     }
     setBulkDate(initialDate);
+    setBulkBy(currentUser?.name || "");
     setBulkRows(getRowsForDate(initialDate));
     setShowLog(true);
   };
@@ -853,6 +866,7 @@ function FeedDocumentation({
 
     const dateLabel = toDateLabel(bulkDate);
     const now = new Date().toLocaleString("en", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+    const recorder = bulkBy.trim() || currentUser?.name || "Admin";
 
     try {
       for (const r of bulkRows) {
@@ -868,7 +882,7 @@ function FeedDocumentation({
               originalEvening: existing.evening,
               updatedEvening: e,
               editedAt: now,
-              editedBy: bulkBy || "—",
+              editedBy: recorder,
               editedById: ""
             };
             await onEditFeedRecord({
@@ -877,7 +891,7 @@ function FeedDocumentation({
               morning: m,
               evening: e,
               total: m + e,
-              recordedBy: bulkBy || existing.recordedBy,
+              recordedBy: recorder,
               morningTime: r.morningTime || existing.morningTime,
               eveningTime: r.eveningTime || existing.eveningTime,
               fishStock: existing.fishStock || pondToStock(r.pondName),
@@ -897,7 +911,7 @@ function FeedDocumentation({
               morning: m,
               evening: e,
               total: m + e,
-              recordedBy: bulkBy || "—",
+              recordedBy: recorder,
               morningTime: r.morningTime || undefined,
               eveningTime: r.eveningTime || undefined
             });
@@ -1450,14 +1464,14 @@ function FeedDocumentation({
         );
       })()}
 
-      {/* ── Bulk Feeding Log Modal (Brand removed, Fish Stock auto-determined) ── */}
+      {/* ── Bulk Feeding Log Modal (Brand removed, Fish Stock under Pond, Auto-Recorded By) ── */}
       {showLog && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-3 sm:p-6" onClick={e => e.target === e.currentTarget && setShowLog(false)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl flex flex-col" style={{ maxHeight: "92vh" }}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-6xl flex flex-col" style={{ maxHeight: "92vh" }}>
             <div className="flex items-start justify-between px-6 py-4 border-b border-slate-100 shrink-0">
               <div>
                 <h2 className="text-lg font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Log Feeding — All Ponds</h2>
-                <p className="text-xs text-slate-400 mt-0.5">Enter morning &amp; evening amounts for each pond. Fish Stock is automatically determined.</p>
+                <p className="text-xs text-slate-400 mt-0.5">Enter morning &amp; evening amounts for each pond. Fish Stock and Stocked Date are tied directly to each pond.</p>
               </div>
               <button onClick={() => setShowLog(false)} className="text-slate-400 hover:text-slate-700 p-1 ml-4 shrink-0"><X size={20} /></button>
             </div>
@@ -1466,9 +1480,19 @@ function FeedDocumentation({
                 <label className="block text-[11px] font-bold text-slate-600 mb-1 uppercase tracking-wide">Date</label>
                 <DateInput value={bulkDate} onChange={handleBulkDateChange} />
               </div>
-              <div className="min-w-[200px]">
-                <label className="block text-[11px] font-bold text-slate-600 mb-1 uppercase tracking-wide">Recorded By</label>
-                <input value={bulkBy} onChange={e => setBulkBy(e.target.value)} className={IC} placeholder="Employee name" />
+              <div className="min-w-[220px]">
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wide">Recorded By</label>
+                  {currentUser?.name && (
+                    <span className="text-[10px] text-green-600 font-medium">Auto-populated</span>
+                  )}
+                </div>
+                <input
+                  value={bulkBy}
+                  onChange={e => setBulkBy(e.target.value)}
+                  className={IC}
+                  placeholder={currentUser?.name || "Employee / Admin name"}
+                />
               </div>
               <div className="flex items-center gap-2 ml-auto">
                 <span className="text-xs text-slate-400">Session time:</span>
@@ -1476,14 +1500,19 @@ function FeedDocumentation({
               </div>
             </div>
             <div className="flex-1 overflow-y-auto overflow-x-auto">
-              <table className="w-full text-sm min-w-[860px]">
+              <table className="w-full text-sm">
                 <thead className="sticky top-0 z-20">
                   <tr className="bg-slate-50 border-b border-slate-200">
-                    <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left w-10 sticky left-0 z-20 bg-slate-50">#</th>
-                    <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left sticky left-10 z-20 bg-slate-50 border-r border-slate-200">Pond</th>
-                    {["Tied Fish Stock", "Initial Stock", "Fish Count", "Pellet Size", "Morning (kg)", "AM Time", "Evening (kg)", "PM Time", "Total"].map(h => (
-                      <th key={h} className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left whitespace-nowrap">{h}</th>
-                    ))}
+                    <th className="px-3 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-center w-10 sticky left-0 z-20 bg-slate-50">#</th>
+                    <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left min-w-[160px] sticky left-10 z-20 bg-slate-50 border-r border-slate-200">Pond</th>
+                    <th className="px-3 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-right min-w-[85px] whitespace-nowrap">Initial Stock</th>
+                    <th className="px-3 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-right min-w-[85px] whitespace-nowrap">Fish Count</th>
+                    <th className="px-3 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left min-w-[120px] whitespace-nowrap">Pellet Size</th>
+                    <th className="px-3 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left min-w-[95px] whitespace-nowrap">Morning (kg)</th>
+                    <th className="px-3 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left min-w-[85px] whitespace-nowrap">AM Time</th>
+                    <th className="px-3 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left min-w-[95px] whitespace-nowrap">Evening (kg)</th>
+                    <th className="px-3 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left min-w-[85px] whitespace-nowrap">PM Time</th>
+                    <th className="px-3 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-center min-w-[80px] whitespace-nowrap">Total</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -1496,24 +1525,23 @@ function FeedDocumentation({
                     const rowAtMax = !!rowMaxKg && cumFed >= rowMaxKg;
                     return (
                       <tr key={row.pondId} className={`transition-colors ${hasFeed ? "bg-green-50/40" : "hover:bg-slate-50"}`}>
-                        <td className="px-4 py-3 text-slate-300 text-xs font-mono w-10 sticky left-0 z-10 bg-white">{i + 1}</td>
-                        <td className="px-4 py-3 min-w-[140px] sticky left-10 z-10 bg-white border-r border-slate-100">
-                          <p className="font-semibold text-slate-900">{row.pondName}</p>
-                          {row.stockDate !== "—" ? (
-                            <p className="text-[11px] font-medium text-teal-700 mt-0.5">Stocked: {row.stockDate}</p>
-                          ) : (
-                            <p className="text-[11px] text-slate-400">—</p>
-                          )}
-                        </td>
-                        <td className="px-4 py-3 text-xs text-slate-800 font-semibold whitespace-nowrap min-w-[140px]">
-                          <div>
-                            <span>{row.fishStock || "Current Stock"}</span>
-                            {row.stockDate !== "—" && <span className="block text-[10px] text-slate-400 font-normal">{row.stockDate}</span>}
+                        <td className="px-3 py-3 text-slate-300 text-xs font-mono text-center w-10 sticky left-0 z-10 bg-white">{i + 1}</td>
+                        <td className="px-4 py-3 min-w-[160px] sticky left-10 z-10 bg-white border-r border-slate-100">
+                          <p className="font-bold text-slate-900 leading-tight">{row.pondName}</p>
+                          <div className="mt-0.5 space-y-0.5">
+                            <p className="text-[11px] font-medium text-teal-700 leading-tight">
+                              {row.fishStock || "Current Stock"}
+                            </p>
+                            {row.stockDate !== "—" && (
+                              <p className="text-[10px] text-slate-400 leading-tight">
+                                Stocked: {row.stockDate}
+                              </p>
+                            )}
                           </div>
                         </td>
-                        <td className="px-4 py-3 text-slate-500 min-w-[90px] font-['Barlow_Condensed',sans-serif] text-base">{row.initialStock.toLocaleString()}</td>
-                        <td className="px-4 py-3 min-w-[90px]"><span className="font-semibold text-green-700 font-['Barlow_Condensed',sans-serif] text-base">{row.currentCount.toLocaleString()}</span></td>
-                        <td className="px-3 py-2.5 min-w-[120px]">
+                        <td className="px-3 py-3 text-right text-slate-500 font-['Barlow_Condensed',sans-serif] text-base">{row.initialStock.toLocaleString()}</td>
+                        <td className="px-3 py-3 text-right"><span className="font-semibold text-green-700 font-['Barlow_Condensed',sans-serif] text-base">{row.currentCount.toLocaleString()}</span></td>
+                        <td className="px-2.5 py-2.5">
                           <select
                             value={row.size}
                             onChange={e => updateRow(row.pondId, "size", e.target.value)}
@@ -1524,12 +1552,12 @@ function FeedDocumentation({
                           </select>
                           {rowAtMax && <p className="text-[10px] font-bold mt-0.5 text-red-600">⚠ Max weight reached</p>}
                         </td>
-                        <td className="px-3 py-2.5 min-w-[100px]"><input type="number" value={row.morning} onChange={e => updateRow(row.pondId, "morning", e.target.value)} className={TI} placeholder="0" min="0" step="0.5" /></td>
-                        <td className="px-3 py-2.5 min-w-[90px]"><input type="time" value={row.morningTime} onChange={e => updateRow(row.pondId, "morningTime", e.target.value)} className={`${TI} text-xs`} style={{ colorScheme: "light" }} /></td>
-                        <td className="px-3 py-2.5 min-w-[100px]"><input type="number" value={row.evening} onChange={e => updateRow(row.pondId, "evening", e.target.value)} className={TI} placeholder="0" min="0" step="0.5" /></td>
-                        <td className="px-3 py-2.5 min-w-[90px]"><input type="time" value={row.eveningTime} onChange={e => updateRow(row.pondId, "eveningTime", e.target.value)} className={`${TI} text-xs`} style={{ colorScheme: "light" }} /></td>
-                        <td className="px-4 py-3 min-w-[80px] text-center">
-                          {total > 0 ? <span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-green-100 text-green-800 font-bold text-sm font-['Barlow_Condensed',sans-serif]">{total}kg</span> : <span className="text-slate-300 text-xs">—</span>}
+                        <td className="px-2 py-2.5"><input type="number" value={row.morning} onChange={e => updateRow(row.pondId, "morning", e.target.value)} className={TI} placeholder="0" min="0" step="0.5" /></td>
+                        <td className="px-2 py-2.5"><input type="time" value={row.morningTime} onChange={e => updateRow(row.pondId, "morningTime", e.target.value)} className={`${TI} text-xs`} style={{ colorScheme: "light" }} /></td>
+                        <td className="px-2 py-2.5"><input type="number" value={row.evening} onChange={e => updateRow(row.pondId, "evening", e.target.value)} className={TI} placeholder="0" min="0" step="0.5" /></td>
+                        <td className="px-2 py-2.5"><input type="time" value={row.eveningTime} onChange={e => updateRow(row.pondId, "eveningTime", e.target.value)} className={`${TI} text-xs`} style={{ colorScheme: "light" }} /></td>
+                        <td className="px-3 py-3 text-center">
+                          {total > 0 ? <span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-green-100 text-green-800 font-bold text-sm font-['Barlow_Condensed',sans-serif]">{total}kg</span> : <span className="text-slate-300 text-xs">—</span>}
                         </td>
                       </tr>
                     );
@@ -1538,8 +1566,8 @@ function FeedDocumentation({
                 {bulkRows.length > 0 && (
                   <tfoot>
                     <tr className="bg-slate-50 border-t-2 border-slate-200">
-                      <td colSpan={10} className="px-4 py-3 text-right text-xs font-bold text-slate-500 uppercase tracking-wider">Grand Total</td>
-                      <td className="px-4 py-3 text-center"><span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-green-600 text-white font-bold text-sm font-['Barlow_Condensed',sans-serif]">{grandTotal}kg</span></td>
+                      <td colSpan={9} className="px-4 py-3 text-right text-xs font-bold text-slate-500 uppercase tracking-wider">Grand Total</td>
+                      <td className="px-3 py-3 text-center"><span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-green-600 text-white font-bold text-sm font-['Barlow_Condensed',sans-serif]">{grandTotal}kg</span></td>
                     </tr>
                   </tfoot>
                 )}
