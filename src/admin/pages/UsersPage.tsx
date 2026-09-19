@@ -10,6 +10,7 @@ import { Card, Bdg, PBtn, Pagination, PER_PAGE, Modal, F, IC, SC } from "../../a
 import type { AdminUser, AdminPlan, AccountStatus } from "../types";
 import { fmtDate, trialDaysLeft, fmtMoney, computeSubscriptionStatus } from "../types";
 import { supabase } from "../../lib/supabase";
+import { isStaffUser } from "../../lib/userSync";
 import { toast } from "sonner";
 
 function getWhatsAppUrl(phone?: string, name?: string): string | null {
@@ -355,8 +356,10 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
 
   const planNames = useMemo(() => plans.filter(p => p.status === "Active").map(p => p.name), [plans]);
 
+  const customerUsers = useMemo(() => (users || []).filter(u => !isStaffUser(u)), [users]);
+
   const filtered = useMemo(() => {
-    let list = [...users];
+    let list = [...customerUsers];
 
     if (filterStatus !== "All") {
       list = list.filter(u => u.subscriptionStatus === filterStatus || (filterStatus === "Suspended" && u.accountStatus === "Suspended"));
@@ -366,7 +369,6 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
       list = list.filter(u => {
         const r = (u.role || "owner").toLowerCase().trim();
         if (filterRole === "owner") return r === "owner" || r === "farm owner";
-        if (filterRole === "staff") return r === "staff" || r === "staff member";
         if (filterRole === "admin") return r === "admin" || r === "superadmin";
         return true;
       });
@@ -567,7 +569,7 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
             User Accounts Management
           </h1>
           <p className="text-sm text-slate-400 mt-0.5">
-            Monitor, regulate, and view details for all {users.length} registered farm accounts.
+            Monitor, regulate, and view details for all {customerUsers.length} registered farm owner accounts.
           </p>
         </div>
 
@@ -620,9 +622,9 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
             {/* Role Filter Selector */}
             <div className="flex items-center gap-1 bg-slate-100/90 p-0.5 rounded-lg border border-slate-200/80">
               {[
-                { id: "All", label: "All Roles" },
-                { id: "owner", label: "Owners" },
-                { id: "staff", label: "Staff" },
+                { id: "All", label: "All Accounts" },
+                { id: "owner", label: "Farm Owners" },
+                { id: "admin", label: "Admins" },
               ].map(r => (
                 <button
                   key={r.id}
@@ -679,7 +681,18 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
-              {paged.length === 0 && (
+              {isRefreshing && users.length === 0 && (
+                <tr>
+                  <td colSpan={9} className="text-center py-20 text-slate-400 text-xs">
+                    <div className="max-w-md mx-auto space-y-3">
+                      <RotateCw className="mx-auto text-emerald-500 animate-spin" size={32} />
+                      <p className="font-semibold text-slate-700">Connecting to Supabase Database…</p>
+                      <p className="text-[11px] text-slate-400">Retrieving live registered farm accounts.</p>
+                    </div>
+                  </td>
+                </tr>
+              )}
+              {!isRefreshing && paged.length === 0 && (
                 <tr>
                   <td colSpan={9} className="text-center py-16 text-slate-400 text-xs">
                     <div className="max-w-md mx-auto space-y-2">
@@ -689,7 +702,7 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                       </p>
                       <p className="text-[11px] text-slate-400">
                         {users.length === 0
-                          ? "Users who sign up or are created in Supabase will automatically appear here."
+                          ? "Users who sign up or create farm accounts in the app will automatically appear here."
                           : "Try adjusting your search terms or filter criteria."}
                       </p>
                       {onRefresh && users.length === 0 && (
@@ -724,17 +737,13 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                           <p className="font-bold text-slate-800 truncate group-hover:text-emerald-700 transition-colors">
                             {u.name}
                           </p>
-                          {u.role === "staff" || u.role === "staff member" ? (
-                            <span className="text-[9px] font-bold bg-blue-100 text-blue-800 px-1.5 py-0.2 rounded">
-                              Staff
-                            </span>
-                          ) : u.role === "admin" || u.role === "superadmin" ? (
+                          {u.role === "admin" || u.role === "superadmin" ? (
                             <span className="text-[9px] font-bold bg-purple-100 text-purple-800 px-1.5 py-0.2 rounded">
                               Admin
                             </span>
                           ) : (
                             <span className="text-[9px] font-bold bg-emerald-100 text-emerald-800 px-1.5 py-0.2 rounded">
-                              Owner
+                              Farm Owner
                             </span>
                           )}
                         </div>

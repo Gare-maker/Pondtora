@@ -20,6 +20,8 @@ const STATUS_COLOR: Record<string, "green" | "amber" | "red" | "gray"> = {
 
 const STATUSES = ["All", "Active", "Trial", "Expired", "Suspended", "Free Access"];
 
+import { isStaffUser } from "../../lib/userSync";
+
 export default function SubscriptionsPage({ users, plans, onUpdate }: Props) {
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState("All");
@@ -34,8 +36,10 @@ export default function SubscriptionsPage({ users, plans, onUpdate }: Props) {
     freeAccess: false,
   });
 
+  const customerUsers = useMemo(() => (users || []).filter(u => !isStaffUser(u)), [users]);
+
   const filtered = useMemo(() => {
-    let list = [...users];
+    let list = [...customerUsers];
 
     if (filter === "Free Access") {
       list = list.filter(u => u.freeAccess);

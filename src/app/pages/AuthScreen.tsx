@@ -308,35 +308,67 @@ function AuthScreen({
       if (!user) throw new Error("Login failed — no user returned.");
 
       // Check if user profile actually exists in database
-      // If deleted by admin, user_profiles is gone!
       const { data: existingProf, error: profCheckErr } = await supabase
         .from("user_profiles")
-        .select("id, name, email, status")
+        .select("id, name, email, status, role")
         .eq("id", user.id)
         .maybeSingle();
 
-      if (!existingProf && !profCheckErr) {
-        // User was deleted by admin! Sign out immediately and eliminate the orphaned auth user
-        await supabase.auth.signOut();
+      let currentProf = existingProf;
+
+      // Self-heal profile and primary farm from auth user metadata if missing
+      if (!currentProf && !profCheckErr) {
+        const meta = user.user_metadata ?? {};
+        const isStaff = meta.role === "staff" || Boolean(meta.owner_id);
+        const name = meta.name || cleanEmail.split("@")[0];
+        const farmName = meta.farm_name || "Primary Farm";
+        const role = isStaff ? "staff" : (cleanEmail === "edafejesugarec@gmail.com" ? "admin" : "owner");
+
         try {
-          await supabase.rpc("delete_user_completely", { target_user_id: user.id });
-        } catch {}
-        try {
-          await supabase.rpc("delete_user_by_email", { target_email: cleanEmail });
-        } catch {}
-        setLErr("This account has been deleted. You can create a new account afresh with this email.");
-        setUnconfirmedEmail("");
-        return;
+          const { data: healedProf } = await supabase.from("user_profiles").upsert({
+            id: user.id,
+            name: name,
+            farm_name: farmName,
+            city: meta.city || "Lagos",
+            state: meta.state || "Lagos",
+            country: meta.country || "Nigeria",
+            email: cleanEmail,
+            phone: meta.phone || "",
+            currency_symbol: meta.currency_symbol || "₦",
+            currency_code: meta.currency_code || "NGN",
+            active_plan: meta.active_plan || "Starter",
+            trial_start_date: meta.trial_start_date || new Date().toISOString(),
+            role: role,
+            status: "Active",
+            updated_at: new Date().toISOString(),
+          }).select().maybeSingle();
+
+          if (healedProf) {
+            currentProf = healedProf;
+          }
+
+          if (!isStaff) {
+            await supabase.from("farms").insert({
+              user_id: user.id,
+              name: farmName,
+              city: meta.city || "Lagos",
+              state: meta.state || "Lagos",
+              country: meta.country || "Nigeria",
+            });
+          }
+        } catch (healErr) {
+          console.warn("Could not self-heal profile:", healErr);
+        }
       }
 
-      if (existingProf?.status === "Suspended") {
+      if (currentProf?.status === "Suspended") {
         await supabase.auth.signOut();
         setLErr("This account has been suspended by an administrator. Please contact support.");
         return;
       }
 
       const meta = user.user_metadata ?? {};
-      const isStaffMeta = meta.role === "staff" || Boolean(meta.owner_id) || existingProf?.role === "staff" || existingProf?.role === "staff member";
+      const isStaffMeta = meta.role === "staff" || Boolean(meta.owner_id) || currentProf?.role === "staff" || currentProf?.role === "staff member";
 
       // Strict enforcement: block login until email is verified, unless user is staff provisioned by an owner
       if (!user.email_confirmed_at && !isStaffMeta) {

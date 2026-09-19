@@ -3964,16 +3964,8 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   const addBagLog=async(b:BagOpenLog)=>{
     const fid=b.farmId||activeFarmId||farms[0]?.id||"";
     const farmBag:BagOpenLog={...b,id:isUuid(b.id)?b.id:crypto.randomUUID(),farmId:fid};
-    const bStock=farmBag.fishStock||"";
-    const existing=bagLogs.find(x=>isSameDate(x.date,farmBag.date)&&x.brand===farmBag.brand&&x.size===farmBag.size&&(x.fishStock||"")===bStock&&(!x.farmId||x.farmId===farmBag.farmId));
-    if(existing){
-      const updated={...existing,bagsOpened:farmBag.bagsOpened,totalKg:farmBag.totalKg,kgPerBag:farmBag.kgPerBag,farmId:farmBag.farmId};
-      setBagLogs(prev=>prev.map(x=>x.id===existing.id?updated:x));
-      api.bagLogs.update(updated).catch(console.warn);
-    } else {
-      setBagLogs(prev=>[farmBag,...prev]);
-      api.bagLogs.create(farmBag).catch(console.warn);
-    }
+    setBagLogs(prev=>[farmBag,...prev]);
+    api.bagLogs.create(farmBag).catch(console.warn);
     toast.success("Bags logged");
   };
   const editBagLog=(b:BagOpenLog)=>{
@@ -5547,7 +5539,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
 
   if(!isAuth && showLanding) return <LandingPage onLogin={()=>{window.scrollTo(0,0);setAuthInitialView("login");setShowLanding(false);}} onSignup={()=>{window.scrollTo(0,0);setAuthInitialView("create");setShowLanding(false);}} onAdmin={onAdmin}/>;
   if(!isAuth) return <AuthScreenPage onLogin={handleLogin} onSignup={handleSignup} initialView={authInitialView} onAdmin={onAdmin}/>;
-  if(isAuth && adminOverride.isSuspended) {
+  if(isAuth && (adminOverride.isSuspended || userProfile?.status === "Suspended")) {
     return (
       <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6 text-white font-['Barlow',sans-serif]">
         <div className="max-w-md w-full bg-slate-900 border border-red-500/30 rounded-3xl p-8 text-center space-y-4 shadow-2xl">

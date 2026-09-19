@@ -396,35 +396,124 @@ RETURNS TABLE (
   paystack_reference TEXT,
   last_payment_date TEXT,
   subscription_status TEXT,
+  free_access BOOLEAN,
   farm_count BIGINT,
   pond_count BIGINT,
-  staff_count BIGINT
-) LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+  staff_count BIGINT,
+  last_sign_in_at TIMESTAMPTZ
+) LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, auth AS $$
+#variable_conflict use_column
 BEGIN
+  -- 1. Self-heal: If any staff member was mistakenly given role = 'owner', ensure their role is 'staff'
+  UPDATE public.user_profiles up
+  SET role = 'staff'
+  WHERE up.role != 'staff'
+    AND LOWER(TRIM(COALESCE(up.email, ''))) != 'edafejesugarec@gmail.com'
+    AND EXISTS (
+      SELECT 1 FROM public.staff_members sm
+      WHERE (sm.staff_auth_id = up.id OR LOWER(TRIM(sm.email)) = LOWER(TRIM(up.email)))
+        AND sm.user_id != up.id
+    );
+
+  -- 2. Auto-repair: Ensure eligible farm owners in auth.users have a matching user_profiles row
+  -- STRICTLY EXCLUDES staff accounts (role = 'staff', owner_id IS NOT NULL, or in staff_members)
+  INSERT INTO public.user_profiles (
+    id, name, farm_name, city, state, country, email, phone,
+    currency_symbol, currency_code, active_plan, trial_start_date, role, status
+  )
+  SELECT
+    au.id,
+    COALESCE(au.raw_user_meta_data->>'name', split_part(au.email, '@', 1)),
+    COALESCE(au.raw_user_meta_data->>'farm_name', 'Primary Farm'),
+    COALESCE(au.raw_user_meta_data->>'city', 'Lagos'),
+    COALESCE(au.raw_user_meta_data->>'state', 'Lagos'),
+    COALESCE(au.raw_user_meta_data->>'country', 'Nigeria'),
+    COALESCE(au.email, ''),
+    COALESCE(au.raw_user_meta_data->>'phone', ''),
+    COALESCE(au.raw_user_meta_data->>'currency_symbol', '₦'),
+    COALESCE(au.raw_user_meta_data->>'currency_code', 'NGN'),
+    COALESCE(au.raw_user_meta_data->>'active_plan', 'Starter'),
+    COALESCE((au.raw_user_meta_data->>'trial_start_date')::TIMESTAMPTZ, au.created_at, NOW()),
+    CASE 
+      WHEN LOWER(TRIM(COALESCE(au.email, ''))) = 'edafejesugarec@gmail.com' THEN 'admin'
+      ELSE 'owner'
+    END,
+    'Active'
+  FROM auth.users au
+  WHERE NOT EXISTS (
+    SELECT 1 FROM public.user_profiles up WHERE up.id = au.id
+  )
+  -- Filter out staff accounts:
+  AND (au.raw_user_meta_data->>'role') IS DISTINCT FROM 'staff'
+  AND (au.raw_user_meta_data->>'owner_id') IS NULL
+  AND NOT EXISTS (
+    SELECT 1 FROM public.staff_members sm 
+    WHERE (sm.staff_auth_id = au.id OR LOWER(TRIM(sm.email)) = LOWER(TRIM(au.email)))
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM public.staff_invitations si 
+    WHERE LOWER(TRIM(si.email)) = LOWER(TRIM(au.email))
+  )
+  ON CONFLICT ON CONSTRAINT user_profiles_pkey DO NOTHING;
+
+  -- 3. Ensure farm owners have at least one farm record
+  INSERT INTO public.farms (user_id, name, city, state, country)
+  SELECT
+    up.id,
+    COALESCE(NULLIF(up.farm_name, ''), 'Primary Farm'),
+    COALESCE(NULLIF(up.city, ''), 'Lagos'),
+    COALESCE(NULLIF(up.state, ''), 'Lagos'),
+    COALESCE(NULLIF(up.country, ''), 'Nigeria')
+  FROM public.user_profiles up
+  WHERE up.role IN ('owner', 'admin')
+    AND NOT EXISTS (SELECT 1 FROM public.farms f WHERE f.user_id = up.id)
+  ON CONFLICT DO NOTHING;
+
+  -- 4. Return ONLY farm-owner customer accounts joined with stats
+  -- Excludes staff members (who belong to an owner's farm)
   RETURN QUERY
   SELECT
-    p.id,
-    COALESCE(p.name, split_part(p.email, '@', 1)) AS name,
-    p.email,
-    COALESCE(p.phone, '') AS phone,
-    COALESCE(p.farm_name, (SELECT f.name FROM farms f WHERE f.user_id = p.id ORDER BY f.created_at ASC LIMIT 1), 'Primary Farm') AS farm_name,
-    COALESCE(p.city, 'Lagos') AS city,
-    COALESCE(p.state, 'Lagos') AS state,
-    COALESCE(p.country, 'Nigeria') AS country,
-    COALESCE(p.role, 'owner') AS role,
-    COALESCE(p.active_plan, 'Starter') AS active_plan,
-    p.trial_start_date,
+    au.id,
+    COALESCE(NULLIF(p.name, ''), au.raw_user_meta_data->>'name', split_part(au.email, '@', 1)) AS name,
+    COALESCE(au.email, p.email, '') AS email,
+    COALESCE(p.phone, au.raw_user_meta_data->>'phone', '') AS phone,
+    COALESCE(NULLIF(p.farm_name, ''), (SELECT f.name FROM farms f WHERE f.user_id = au.id ORDER BY f.created_at ASC LIMIT 1), 'Primary Farm') AS farm_name,
+    COALESCE(NULLIF(p.city, ''), au.raw_user_meta_data->>'city', 'Lagos') AS city,
+    COALESCE(NULLIF(p.state, ''), au.raw_user_meta_data->>'state', 'Lagos') AS state,
+    COALESCE(NULLIF(p.country, ''), au.raw_user_meta_data->>'country', 'Nigeria') AS country,
+    COALESCE(p.role, au.raw_user_meta_data->>'role', 'owner') AS role,
+    COALESCE(p.active_plan, au.raw_user_meta_data->>'active_plan', 'Starter') AS active_plan,
+    COALESCE(p.trial_start_date, (au.raw_user_meta_data->>'trial_start_date')::TIMESTAMPTZ, au.created_at) AS trial_start_date,
     COALESCE(p.status, 'Active') AS status,
-    p.created_at,
-    p.updated_at,
+    au.created_at,
+    COALESCE(p.updated_at, au.updated_at, au.created_at) AS updated_at,
     p.paystack_reference,
     p.last_payment_date,
     p.subscription_status,
-    (SELECT COUNT(*) FROM farms f WHERE f.user_id = p.id)::BIGINT AS farm_count,
-    (SELECT COUNT(*) FROM ponds pd WHERE pd.user_id = p.id)::BIGINT AS pond_count,
-    (SELECT COUNT(*) FROM staff_members sm WHERE sm.user_id = p.id)::BIGINT AS staff_count
-  FROM user_profiles p
-  ORDER BY p.created_at DESC;
+    COALESCE((p.raw_data->>'free_access')::BOOLEAN, false) AS free_access,
+    (SELECT COUNT(*) FROM farms f WHERE f.user_id = au.id)::BIGINT AS farm_count,
+    (SELECT COUNT(*) FROM ponds pd WHERE pd.user_id = au.id)::BIGINT AS pond_count,
+    (SELECT COUNT(*) FROM staff_members sm WHERE sm.user_id = au.id)::BIGINT AS staff_count,
+    au.last_sign_in_at
+  FROM auth.users au
+  LEFT JOIN public.user_profiles p ON p.id = au.id
+  WHERE (
+    -- STRICT EXCLUSION: Must not be a staff member
+    (au.raw_user_meta_data->>'role') IS DISTINCT FROM 'staff'
+    AND (au.raw_user_meta_data->>'owner_id') IS NULL
+    AND LOWER(TRIM(COALESCE(p.role, ''))) NOT IN ('staff', 'general staff', 'farm manager', 'feeding staff', 'inventory staff', 'feeding & inventory staff')
+    AND NOT EXISTS (
+      SELECT 1 FROM public.staff_members sm 
+      WHERE (sm.staff_auth_id = au.id OR LOWER(TRIM(sm.email)) = LOWER(TRIM(au.email)))
+        AND sm.user_id != au.id
+    )
+    AND NOT EXISTS (
+      SELECT 1 FROM public.staff_invitations si 
+      WHERE LOWER(TRIM(si.email)) = LOWER(TRIM(au.email))
+        AND si.invited_by != au.id
+    )
+  )
+  ORDER BY au.created_at DESC;
 END;
 $$;
 

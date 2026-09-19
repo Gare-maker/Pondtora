@@ -32,6 +32,7 @@ import PlansPage from "./pages/PlansPage";
 import type { AdminUser, AdminPlan, AdminActivityLog } from "./types";
 import { DEFAULT_PLANS } from "./types";
 import { projectId } from "../../utils/supabase/info";
+import { supabase } from "../lib/supabase";
 import { loadPaystackConfig, savePaystackConfig, fetchRemotePaystackConfig, PaystackConfig } from "../lib/paystack";
 import {
   loadAllAdminUsers,
@@ -213,6 +214,43 @@ export default function AdminApp({ onExit }: { onExit?: () => void } = {}) {
     }
   }
 
+  // Verify Supabase Auth session on mount and ensure master admin credentials
+  useEffect(() => {
+    async function verifyAdminAuth() {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const email = (session?.user?.email || "").toLowerCase().trim();
+        const isMasterAdmin = email === "edafejesugarec@gmail.com";
+        const isAdminRole = session?.user?.user_metadata?.role === "admin" || session?.user?.user_metadata?.role === "superadmin";
+
+        if (!session || (!isMasterAdmin && !isAdminRole)) {
+          if (session?.user?.id) {
+            const { data: prof } = await supabase
+              .from("user_profiles")
+              .select("role, email")
+              .eq("id", session.user.id)
+              .maybeSingle();
+
+            if (prof?.role === "admin" || prof?.role === "superadmin" || prof?.email?.toLowerCase() === "edafejesugarec@gmail.com") {
+              setAdminEmail(email || "edafejesugarec@gmail.com");
+              setLoggedIn(true);
+              return;
+            }
+          }
+          localStorage.removeItem("pondtora_admin_auth");
+          setLoggedIn(false);
+        } else {
+          setAdminEmail(email || "edafejesugarec@gmail.com");
+          localStorage.setItem("pondtora_admin_auth", "true");
+          setLoggedIn(true);
+        }
+      } catch {
+        // Leave local state intact if network is temporarily unreachable
+      }
+    }
+    verifyAdminAuth();
+  }, []);
+
   // Automatically fetch live registered users and stats upon admin authentication
   useEffect(() => {
     if (loggedIn) {
@@ -374,6 +412,7 @@ export default function AdminApp({ onExit }: { onExit?: () => void } = {}) {
   function handleLogout() {
     logAction("Admin Sign Out", "auth", `Logged out from admin console`);
     localStorage.removeItem("pondtora_admin_auth");
+    supabase.auth.signOut().catch(() => {});
     setLoggedIn(false);
     setPage("dashboard");
   }

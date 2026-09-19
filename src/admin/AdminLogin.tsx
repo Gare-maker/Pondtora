@@ -41,10 +41,21 @@ export default function AdminLogin({ onLogin, onExit }: AdminLoginProps) {
           .eq("id", data.user.id)
           .maybeSingle();
 
+        const role = (profile?.role || data.user.user_metadata?.role || "").toLowerCase().trim();
+        const isMasterAdmin = cleanEmail === "edafejesugarec@gmail.com";
+        const isAdminRole = role === "admin" || role === "superadmin";
+
+        if (!isMasterAdmin && !isAdminRole) {
+          await supabase.auth.signOut();
+          setLoading(false);
+          setError("Access Denied: Only the product owner (edafejesugarec@gmail.com) and authorized platform administrators have access to this portal.");
+          return;
+        }
+
         setLoading(false);
         localStorage.setItem("pondtora_admin_auth", "true");
         localStorage.setItem("pondtora_admin_email", cleanEmail);
-        onLogin({ email: cleanEmail, role: profile?.role || "owner" });
+        onLogin({ email: cleanEmail, role: role || "admin" });
         return;
       }
 

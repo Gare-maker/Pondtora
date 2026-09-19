@@ -8,6 +8,7 @@ import {
 import { Card, Bdg } from "../../app/shared";
 import type { AdminUser, AdminPlan, AdminActivityLog } from "../types";
 import { fmtDate, trialDaysLeft, fmtMoney, effectivePrice } from "../types";
+import { isStaffUser } from "../../lib/userSync";
 import type { PlatformOperationalStats } from "../../lib/userSync";
 import { toast } from "sonner";
 
@@ -113,19 +114,21 @@ export default function DashboardPage({
   const [statusFilter, setStatusFilter] = useState<string>("All");
   const [selectedUserDossier, setSelectedUserDossier] = useState<AdminUser | null>(null);
 
-  // Compute Key Financial and User Statistics
+  const ownerUsers = useMemo(() => (users || []).filter(u => !isStaffUser(u)), [users]);
+
+  // Compute Key Financial and User Statistics (strictly customer/owner accounts)
   const stats = useMemo(() => {
-    const total = users.length;
-    const trial = users.filter(u => u.subscriptionStatus === "Trial").length;
-    const paid = users.filter(u => u.subscriptionStatus === "Active" && !u.freeAccess && Boolean(u.hasPaid || u.paystackReference || u.lastPaymentDate)).length;
-    const active = users.filter(u => u.subscriptionStatus === "Active").length;
-    const expired = users.filter(u => u.subscriptionStatus === "Expired").length;
-    const suspended = users.filter(u => u.subscriptionStatus === "Suspended").length;
-    const free = users.filter(u => u.freeAccess).length;
+    const total = ownerUsers.length;
+    const trial = ownerUsers.filter(u => u.subscriptionStatus === "Trial").length;
+    const paid = ownerUsers.filter(u => u.subscriptionStatus === "Active" && !u.freeAccess && Boolean(u.hasPaid || u.paystackReference || u.lastPaymentDate)).length;
+    const active = ownerUsers.filter(u => u.subscriptionStatus === "Active").length;
+    const expired = ownerUsers.filter(u => u.subscriptionStatus === "Expired").length;
+    const suspended = ownerUsers.filter(u => u.subscriptionStatus === "Suspended").length;
+    const free = ownerUsers.filter(u => u.freeAccess).length;
 
     // Calculate Monthly Recurring Revenue (MRR)
     let mrr = 0;
-    users.forEach(u => {
+    ownerUsers.forEach(u => {
       if (u.subscriptionStatus === "Active" && !u.freeAccess && (u.hasPaid || u.paystackReference || u.lastPaymentDate)) {
         const ep = effectivePrice(u, plans);
         if (typeof ep === "number") {
@@ -141,7 +144,7 @@ export default function DashboardPage({
     const arr = mrr * 12;
 
     return { total, trial, paid, active, expired, suspended, free, mrr, arr };
-  }, [users, plans]);
+  }, [ownerUsers, plans]);
 
   // Operational metrics computed from user profiles + platformStats
   const operational = useMemo(() => {
@@ -172,7 +175,7 @@ export default function DashboardPage({
 
   const planBreakdown = useMemo(() => {
     const m: Record<string, { count: number; revenue: number }> = {};
-    users.forEach(u => {
+    ownerUsers.forEach(u => {
       const k = u.activePlan || "Starter";
       if (!m[k]) m[k] = { count: 0, revenue: 0 };
       m[k].count += 1;
@@ -185,11 +188,11 @@ export default function DashboardPage({
       }
     });
     return Object.entries(m).sort((a, b) => b[1].count - a[1].count);
-  }, [users, plans]);
+  }, [ownerUsers, plans]);
 
-  // Filtered Users List
+  // Filtered Users List (strictly customer farm-owner accounts)
   const filteredUsers = useMemo(() => {
-    return users.filter(u => {
+    return ownerUsers.filter(u => {
       const q = searchQuery.toLowerCase().trim();
       const matchesSearch = !q ||
         (u.name && u.name.toLowerCase().includes(q)) ||
@@ -206,7 +209,7 @@ export default function DashboardPage({
 
       return matchesSearch && matchesStatus;
     });
-  }, [users, searchQuery, statusFilter]);
+  }, [ownerUsers, searchQuery, statusFilter]);
 
   const copyUserDossier = (u: AdminUser) => {
     const text = [

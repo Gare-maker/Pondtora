@@ -266,6 +266,38 @@ export function formatFishStock(stock: string | null | undefined): string {
   return trimmed;
 }
 
+export function getPondFishStock(pond?: { species?: string; stockingDate?: string; name?: string } | null): string {
+  if (!pond) return "General Stock";
+  if (pond.species && pond.species !== "—" && !POND_SPECIES.includes(pond.species)) {
+    return pond.species;
+  }
+  if (pond.stockingDate && pond.stockingDate !== "—") {
+    return formatFishStockDate(pond.stockingDate);
+  }
+  if (pond.species && pond.species !== "—") {
+    return pond.species;
+  }
+  return pond.name || "General Stock";
+}
+
+export function getFishStockDisplay(pond?: { species?: string; stockingDate?: string; name?: string } | null): string {
+  if (!pond) return "—";
+  if (pond.species && pond.species !== "—" && !POND_SPECIES.includes(pond.species)) {
+    return pond.species;
+  }
+  if (pond.stockingDate && pond.stockingDate !== "—") {
+    const formattedDate = formatFishStockDate(pond.stockingDate);
+    if (pond.species && pond.species !== "—") {
+      return `${pond.species} (${formattedDate})`;
+    }
+    return formattedDate;
+  }
+  if (pond.species && pond.species !== "—") {
+    return pond.species;
+  }
+  return pond.name || "—";
+}
+
 export function fmtDate(d:string):string{
   if(!d||d==="—"||d.trim()==="")return"—";
   return formatFishStockDate(d);
