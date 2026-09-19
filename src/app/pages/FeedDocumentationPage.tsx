@@ -304,17 +304,13 @@ function FeedDocumentation({
           stockDate: dStr || "—",
           species: p.species || "—",
           ponds: [p.name],
-          label: dStr && dStr !== "—" && dStr !== stockName
-            ? `${stockName} (Stock Date: ${dStr}) — ${p.name}`
-            : `${stockName} — ${p.name}`
+          label: `${stockName} — ${p.name}`
         });
       }
     });
     return Array.from(map.values()).map(opt => ({
       ...opt,
-      label: opt.stockDate && opt.stockDate !== "—" && opt.stockDate !== opt.name
-        ? `${opt.name} (Stock Date: ${opt.stockDate}) — Ponds: ${opt.ponds.join(", ")}`
-        : `${opt.name} — Ponds: ${opt.ponds.join(", ")}`
+      label: `${opt.name} — Ponds: ${opt.ponds.join(", ")}`
     }));
   }, [activePonds]);
 
@@ -964,13 +960,13 @@ function FeedDocumentation({
 
   /* ── download helpers ── */
   const downloadDayCSV = () => {
-    const headers = ["Pond", "Fish Stock", "Stock Date", "Pellet Size", "Morning (kg)", "AM Time", "Evening (kg)", "PM Time", "Total (kg)", "Recorded By"];
-    const feedRows = dayRows.filter(({ rec }) => !!rec).map(({ pond, rec }) => [pond.name, pondToStock(pond.name), pondToStockDate(pond.name), rec!.size, String(rec!.morning), rec!.morningTime || "—", String(rec!.evening), rec!.eveningTime || "—", rec!.total + "kg", rec!.recordedBy]);
+    const headers = ["Pond", "Fish Stock", "Pellet Size", "Morning (kg)", "AM Time", "Evening (kg)", "PM Time", "Total (kg)", "Recorded By"];
+    const feedRows = dayRows.filter(({ rec }) => !!rec).map(({ pond, rec }) => [pond.name, pondToStock(pond.name), rec!.size, String(rec!.morning), rec!.morningTime || "—", String(rec!.evening), rec!.eveningTime || "—", rec!.total + "kg", rec!.recordedBy]);
     downloadCSV(`feeding-records-${selDate.replace(/\s+/g, "-")}.csv`, headers, feedRows);
   };
   const downloadDayPDF = () => {
     const headers = ["Pond", "Fish Stock", "Pellet Size", "Morning+Evening", "Total", "Recorded By"];
-    const feedRows = dayRows.filter(({ rec }) => !!rec).map(({ pond, rec }) => [pond.name, `${pondToStock(pond.name)} (${pondToStockDate(pond.name)})`, rec!.size, `${rec!.morning}+${rec!.evening}kg`, rec!.total + "kg", rec!.recordedBy]);
+    const feedRows = dayRows.filter(({ rec }) => !!rec).map(({ pond, rec }) => [pond.name, pondToStock(pond.name), rec!.size, `${rec!.morning}+${rec!.evening}kg`, rec!.total + "kg", rec!.recordedBy]);
     openPrintWindow(`Feeding Records — ${selDate}`, headers, feedRows, `${dayRecords.length} session${dayRecords.length !== 1 ? "s" : ""} · ${dayGrand}kg total`);
   };
 

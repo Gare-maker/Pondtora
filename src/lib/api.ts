@@ -210,7 +210,9 @@ const TABLE_ALLOWED_COLUMNS: Record<string, Set<string>> = {
     "id", "user_id", "farm_id", "pond_id", "fish_stock_id", "report_type",
     "report_date", "issue", "description", "medicine", "cause", "treatment_details",
     "action_taken", "remarks", "notes", "treatment_id", "recorded_by",
-    "created_by", "created_at", "updated_at"
+    "created_by", "author_id", "author_role", "is_staff_submission",
+    "admin_review_note", "admin_review_status", "reviewed_by", "reviewed_at",
+    "created_at", "updated_at"
   ]),
   feeding_records: new Set([
     "id", "user_id", "farm_id", "date", "month", "year", "pond", "brand", "size",
@@ -263,7 +265,10 @@ const TABLE_ALLOWED_COLUMNS: Record<string, Set<string>> = {
   ]),
   reports: new Set([
     "id", "user_id", "farm_id", "title", "content", "type", "author", "date",
-    "status", "resolved_by", "resolved_date", "tags", "timestamp", "created_at"
+    "status", "resolved_by", "resolved_date", "tags", "timestamp",
+    "created_by_id", "created_by_role", "is_staff_submission",
+    "admin_review_note", "admin_review_status", "reviewed_by", "reviewed_at",
+    "created_at"
   ]),
   customers: new Set([
     "id", "user_id", "farm_id", "name", "phone", "email", "business_name", "address", "created_at"
@@ -612,13 +617,128 @@ export async function getEffectiveFarmId(suggestedFarmId?: string): Promise<stri
   return undefined;
 }
 
+export const TABLE_FEATURE_MAP: Record<string, string> = {
+  expenses: "Financial Dashboard",
+  revenues: "Financial Dashboard",
+  ponds: "Pond Management",
+  stock_events: "Pond Management",
+  mortality_entries: "Pond Management",
+  treatment_records: "Pond Management",
+  feed_inventory: "Feed Stock",
+  feeding_records: "Feeding Records",
+  bag_open_logs: "Feed Stock",
+  feed_remaining_logs: "Feed Stock",
+  reports: "Reports",
+  pond_reports: "Reports",
+  invoices: "Invoices",
+  customers: "Invoices",
+  price_groups: "Invoices",
+  investors: "Investors",
+  investments: "Investors",
+  investment_payments: "Investors",
+};
+
+export async function verifyStaffActionPermission(table: string, action: "canCreate" | "canEdit" | "canDelete"): Promise<void> {
+  const currentUid = await getUserId();
+  const ownerUid = await getOwnerUserId();
+  const isStaffCaller = ownerUid && ownerUid !== currentUid;
+  if (!isStaffCaller || !currentUid) return;
+
+  const feature = TABLE_FEATURE_MAP[table];
+  if (!feature) return;
+
+  try {
+    const { data: permRow } = await supabase
+      .from("staff_permissions")
+      .select("can_create, can_edit, can_delete, can_view")
+      .eq("staff_id", currentUid)
+      .eq("feature", feature)
+      .maybeSingle();
+
+    if (permRow) {
+      const allowed = action === "canCreate" ? (permRow.can_create ?? true) : action === "canEdit" ? (permRow.can_edit ?? true) : (permRow.can_delete ?? false);
+      if (allowed === false) {
+        throw new Error(`Unauthorized: You do not have permission to ${action === "canCreate" ? "create" : action === "canEdit" ? "edit" : "delete"} records in ${feature}.`);
+      }
+    }
+  } catch (err: any) {
+    if (err?.message && err.message.startsWith("Unauthorized")) throw err;
+  }
+}
+
+export async function verifyFarmAccess(farmId?: string): Promise<void> {
+  if (!farmId || !isUuid(farmId)) return;
+  const currentUid = await getUserId();
+  if (!currentUid) return;
+  const ownerUid = await getOwnerUserId();
+  const isStaffCaller = ownerUid && ownerUid !== currentUid;
+
+  if (isStaffCaller) {
+    const { data: sfa } = await supabase
+      .from("staff_farm_assignments")
+      .select("farm_id")
+      .eq("staff_id", currentUid)
+      .eq("farm_id", farmId)
+      .maybeSingle();
+    if (!sfa) {
+      throw new Error("Unauthorized: You do not have access to this farm.");
+    }
+  } else {
+    const { data: farm } = await supabase
+      .from("farms")
+      .select("id")
+      .eq("id", farmId)
+      .eq("user_id", currentUid)
+      .maybeSingle();
+    if (!farm) {
+      throw new Error("Unauthorized: You do not own this farm.");
+    }
+  }
+}
+
 async function dbList<T>(table: string, cacheKey?: string): Promise<T[]> {
   const userId = await getUserId();
+  if (!userId) return [];
   const ownerId = await getOwnerUserId();
+  const effectiveUserId = ownerId || userId;
+  const isStaffCaller = ownerId && ownerId !== userId;
+
   try {
-    const { data, error } = await supabase.from(table).select("*");
+    let query = supabase.from(table).select("*");
+
+    if (table === "farms") {
+      if (isStaffCaller) {
+        const { data: sfa } = await supabase.from("staff_farm_assignments").select("farm_id").eq("staff_id", userId);
+        const fids = (sfa || []).map((r: any) => r.farm_id).filter(isUuid);
+        if (fids.length === 0) return [];
+        query = query.in("id", fids);
+      } else {
+        query = query.eq("user_id", userId);
+      }
+    } else if (table === "staff_members") {
+      if (isStaffCaller) {
+        query = query.eq("staff_auth_id", userId);
+      } else {
+        query = query.eq("user_id", userId);
+      }
+    } else if (TABLE_ALLOWED_COLUMNS[table]?.has("farm_id")) {
+      let accessibleFarms: string[] = [];
+      if (isStaffCaller) {
+        const { data: sfa } = await supabase.from("staff_farm_assignments").select("farm_id").eq("staff_id", userId);
+        accessibleFarms = (sfa || []).map((r: any) => r.farm_id).filter(isUuid);
+      } else {
+        const { data: uFarms } = await supabase.from("farms").select("id").eq("user_id", userId);
+        accessibleFarms = (uFarms || []).map((r: any) => r.id).filter(isUuid);
+      }
+      if (accessibleFarms.length === 0) return [];
+      query = query.in("farm_id", accessibleFarms);
+    } else if (TABLE_ALLOWED_COLUMNS[table]?.has("user_id")) {
+      query = query.eq("user_id", effectiveUserId);
+    }
+
+    const { data, error } = await query;
     if (error) throw error;
-    const items = (data || []).map(r => objToCamel<T>(r));
+    const items = (data || []).map((r: any) => objToCamel<T>(r));
     if (cacheKey && userId) saveLocalCache({ [cacheKey]: items }, userId);
     if (cacheKey && ownerId && ownerId !== userId) saveLocalCache({ [cacheKey]: items }, ownerId);
     return items;
@@ -633,6 +753,8 @@ async function dbList<T>(table: string, cacheKey?: string): Promise<T[]> {
 }
 
 async function dbInsert<T extends { id?: string }>(table: string, item: T, cacheKey?: string): Promise<T> {
+  await verifyStaffActionPermission(table, "canCreate");
+
   const authUid = await getUserId();
   const ownerUid = await getOwnerUserId();
   const effectiveUserId = ownerUid || authUid;
@@ -643,6 +765,21 @@ async function dbInsert<T extends { id?: string }>(table: string, item: T, cache
     const effFarmId = await getEffectiveFarmId(itemToSave.farmId);
     if (effFarmId) {
       itemToSave.farmId = effFarmId;
+    }
+  }
+
+  if (itemToSave.farmId) {
+    await verifyFarmAccess(itemToSave.farmId);
+  }
+
+  const isStaffCaller = ownerUid && ownerUid !== authUid;
+  if (table === "reports" || table === "pond_reports") {
+    if (isStaffCaller) {
+      itemToSave.createdByRole = "staff";
+      itemToSave.authorRole = "staff";
+      itemToSave.isStaffSubmission = true;
+      itemToSave.createdById = authUid;
+      itemToSave.authorId = authUid;
     }
   }
 
@@ -698,6 +835,8 @@ async function dbInsert<T extends { id?: string }>(table: string, item: T, cache
 }
 
 async function dbUpdate<T extends { id?: string }>(table: string, item: T, cacheKey?: string): Promise<T> {
+  await verifyStaffActionPermission(table, "canEdit");
+
   const authUid = await getUserId();
   const ownerUid = await getOwnerUserId();
   const effectiveUserId = ownerUid || authUid;
@@ -710,9 +849,35 @@ async function dbUpdate<T extends { id?: string }>(table: string, item: T, cache
     }
   }
 
+  if (itemToSave.farmId) {
+    await verifyFarmAccess(itemToSave.farmId);
+  }
+
   const snake = objToSnake(itemToSave as any, effectiveUserId, table);
   const targetId = (item.id && isUuid(item.id)) ? item.id : (snake.id || (item.id ? toUuid(item.id) : undefined));
   delete snake.id; // Strip primary key column so Postgres doesn't reject updating PK in SET clause
+
+  // Submitted Staff Report Protection:
+  // Once a staff report has been submitted, its original contents are immutable for Admin and staff alike.
+  // Only separate review fields may be saved.
+  if (table === "reports" || table === "pond_reports") {
+    try {
+      const { data: existing } = await supabase.from(table).select("*").eq("id", targetId).maybeSingle();
+      if (existing) {
+        const isStaffSubmission = existing.created_by_role === "staff" || existing.author_role === "staff" || existing.is_staff_submission === true || (existing.author && existing.author !== "Admin" && existing.created_by_id && existing.created_by_id !== authUid);
+        if (isStaffSubmission) {
+          const allowedAdminFields = new Set(["review_status", "admin_review_note", "reviewed_by", "reviewed_at"]);
+          for (const key of Object.keys(snake)) {
+            if (!allowedAdminFields.has(key) && snake[key] !== existing[key] && snake[key] !== undefined) {
+              throw new Error("Submitted staff reports are official submitted records and cannot be edited.");
+            }
+          }
+        }
+      }
+    } catch (err: any) {
+      if (err?.message && err.message.includes("official submitted records")) throw err;
+    }
+  }
 
   // Update local cache scoped to current user and owner
   if (cacheKey) {
@@ -765,9 +930,26 @@ async function dbUpdate<T extends { id?: string }>(table: string, item: T, cache
 }
 
 async function dbDelete(table: string, id: string, cacheKey?: string): Promise<{ success: boolean }> {
+  await verifyStaffActionPermission(table, "canDelete");
+
   const userId = await getUserId();
   const ownerId = await getOwnerUserId();
   const targetId = isUuid(id) ? id : (idMap.get(id) || toUuid(id));
+
+  // Staff report protection: submitted staff reports cannot be destroyed
+  if (table === "reports" || table === "pond_reports") {
+    try {
+      const { data: existing } = await supabase.from(table).select("*").eq("id", targetId).maybeSingle();
+      if (existing) {
+        const isStaffSubmission = existing.created_by_role === "staff" || existing.author_role === "staff" || existing.is_staff_submission === true || (existing.author && existing.author !== "Admin" && existing.created_by_id && existing.created_by_id !== userId);
+        if (isStaffSubmission) {
+          throw new Error("Submitted staff reports are official records and cannot be deleted.");
+        }
+      }
+    } catch (err: any) {
+      if (err?.message && err.message.includes("official records")) throw err;
+    }
+  }
 
   // Update local cache scoped to current user and owner immediately
   const updateCacheForUid = (uid: string) => {
@@ -855,7 +1037,7 @@ export const api = {
     return { profile, farms, staffInfo: staffRes.data || null, isStaff };
   },
 
-  // Bulk load all user data from Supabase directly
+  // Bulk load all user data from Supabase directly — strictly scoped to authenticated user & assigned farms
   loadAll: async () => {
     const userId = await getUserId();
     if (!userId) {
@@ -874,7 +1056,6 @@ export const api = {
     const cached = getLocalCache(userId);
 
     try {
-      // Safe query helper: individual catch handlers ensure a single failure doesn't abort all data loading
       const safeQuery = async (queryPromise: PromiseLike<any>) => {
         try {
           const res = await queryPromise;
@@ -884,93 +1065,12 @@ export const api = {
         }
       };
 
-      const [
-        farmsRes, profilesRes, pondsRes, stockRes, invRes, feedRes,
-        bagRes, remainRes, expRes, revRes, mortRes, treatRes,
-        staffRes, farmAssignRes, staffPermRes, repRes, custRes, pgRes, invsRes, setRes,
-        kqRes, cqRes, krRes, crRes,
-        investorsRes, investmentsRes, invPayRes, pondRepRes
-      ] = await Promise.all([
-        safeQuery(supabase.from("farms").select("*").order("created_at", { ascending: true })),
+      // 1. First fetch profile to know current user email and role
+      const [profilesRes, currentStaffRes] = await Promise.all([
         safeQuery(supabase.from("user_profiles").select("*").eq("id", userId)),
-        safeQuery(supabase.from("ponds").select("*")),
-        safeQuery(supabase.from("stock_events").select("*")),
-        safeQuery(supabase.from("feed_inventory").select("*")),
-        safeQuery(supabase.from("feeding_records").select("*")),
-        safeQuery(supabase.from("bag_open_logs").select("*")),
-        safeQuery(supabase.from("feed_remaining_logs").select("*")),
-        safeQuery(supabase.from("expenses").select("*")),
-        safeQuery(supabase.from("revenues").select("*")),
-        safeQuery(supabase.from("mortality_entries").select("*")),
-        safeQuery(supabase.from("treatment_records").select("*")),
-        safeQuery(supabase.from("staff_members").select("*")),
-        safeQuery(supabase.from("staff_farm_assignments").select("*")),
-        safeQuery(supabase.from("staff_permissions").select("*")),
-        safeQuery(supabase.from("reports").select("*")),
-        safeQuery(supabase.from("customers").select("*")),
-        safeQuery(supabase.from("price_groups").select("*")),
-        safeQuery(supabase.from("invoices").select("*")),
-        safeQuery(supabase.from("invoice_settings").select("*")),
-        safeQuery(supabase.from("knowledge_questions").select("*")),
-        safeQuery(supabase.from("compatibility_questions").select("*")),
-        safeQuery(supabase.from("knowledge_results").select("*")),
-        safeQuery(supabase.from("compatibility_results").select("*")),
-        safeQuery(supabase.from("investors").select("*")),
-        safeQuery(supabase.from("investments").select("*")),
-        safeQuery(supabase.from("investment_payments").select("*")),
-        safeQuery(supabase.from("pond_reports").select("*")),
+        safeQuery(supabase.from("staff_members").select("*").eq("staff_auth_id", userId).maybeSingle()),
       ]);
 
-      // Robust extract helper: uses authoritative query data when present; falls back to cached data only on query failure
-      const extract = <T,>(res: any, cacheKey: string, mapper: (r: any) => T): T[] => {
-        if (res && !res.error && Array.isArray(res.data)) {
-          return res.data.map(mapper);
-        }
-        if (res?.error) {
-          console.warn(`Query for ${cacheKey} returned error:`, res.error);
-        }
-        if (cached && Array.isArray(cached[cacheKey]) && cached[cacheKey].length > 0) {
-          return cached[cacheKey];
-        }
-        return (res?.data || []).map(mapper);
-      };
-
-      let farms = extract<Farm>(farmsRes, "farms", (r: any) => objToCamel<Farm>(r));
-
-      // Build complete staff list with linked farms and permissions
-      const rawStaffList = (staffRes?.data || []).map((r: any) => objToCamel<StaffMember>(r));
-      const cachedStaff = ((cached?.staffMembers || []) as StaffMember[]);
-      const serverStaffIds = new Set(rawStaffList.map((s: any) => s.id));
-      const serverStaffEmails = new Set(rawStaffList.map((s: any) => (s.email || "").toLowerCase().trim()));
-      const pendingCachedStaff = cachedStaff.filter(
-        cs => cs?.id && !serverStaffIds.has(cs.id) && !serverStaffEmails.has((cs.email || "").toLowerCase().trim())
-      );
-      const combinedStaffRaw = [...rawStaffList, ...pendingCachedStaff];
-
-      const staffList: StaffMember[] = combinedStaffRaw.map((s: any) => {
-        const sFarms = (farmAssignRes?.data || []).filter((a: any) => a.staff_id === s.id).map((a: any) => a.farm_id);
-        const sPermRows = (staffPermRes?.data || []).filter((p: any) => p.staff_id === s.id);
-        const sPerms = sPermRows.filter((p: any) => p.can_view ?? true).map((p: any) => p.feature);
-        const sStaffPerms: Record<string, { canView: boolean; canCreate: boolean; canEdit: boolean; canDelete: boolean }> = {};
-        sPermRows.forEach((p: any) => {
-          sStaffPerms[p.feature] = {
-            canView: p.can_view ?? true,
-            canCreate: p.can_create ?? true,
-            canEdit: p.can_edit ?? true,
-            canDelete: p.can_delete ?? false,
-          };
-        });
-        const cachedStaffItem = cachedStaff.find((c: any) => c.id === s.id);
-        return {
-          ...s,
-          status: s.status || "Pending",
-          farms: (s.farms && s.farms.length > 0) ? s.farms : (sFarms.length > 0 ? sFarms : (cachedStaffItem?.farms || [])),
-          permissions: (s.permissions && s.permissions.length > 0) ? s.permissions : (sPerms.length > 0 ? sPerms : (cachedStaffItem?.permissions || [])),
-          staffPermissions: (s.staffPermissions && Object.keys(s.staffPermissions).length > 0) ? s.staffPermissions : (Object.keys(sStaffPerms).length > 0 ? sStaffPerms : (cachedStaffItem?.staffPermissions || {})),
-        };
-      });
-
-      // If user is staff with assigned farms, resolve all their accessible farms
       const userProfilesList = (profilesRes?.data || []).map((r: any) => objToCamel<UserProfile>(r));
       let userEmail = (userProfilesList[0]?.email || "").toLowerCase().trim();
       if (!userEmail) {
@@ -980,33 +1080,35 @@ export const api = {
         } catch {}
       }
 
-      let staffMember = staffList.find((s: any) => s.staffAuthId === userId || (userEmail && s.email?.toLowerCase() === userEmail));
+      let staffMember = currentStaffRes?.data ? objToCamel<StaffMember>(currentStaffRes.data) : null;
       if (!staffMember && userEmail) {
-        // Fallback direct check if staff row wasn't in list due to RLS
         const { data: directStaff } = await safeQuery(
-          supabase.from("staff_members").select("*").or(`staff_auth_id.eq.${userId},email.ilike.${userEmail}`).maybeSingle()
+          supabase.from("staff_members").select("*").ilike("email", userEmail).maybeSingle()
         );
-        if (directStaff) {
-          staffMember = objToCamel<StaffMember>(directStaff);
-          if (!staffList.some(s => s.id === staffMember!.id)) {
-            staffList.push(staffMember);
-          }
-        }
+        if (directStaff) staffMember = objToCamel<StaffMember>(directStaff);
       }
 
-      if (staffMember) {
-        // Unconditionally sync staff_auth_id and status to Active for currently logged in staff
-        if (userId) {
-          supabase.from("staff_members").update({ staff_auth_id: userId, status: "Active" }).eq("id", staffMember.id).then();
-          staffMember.staffAuthId = userId;
-          staffMember.status = "Active";
-        }
+      const isStaff = !!staffMember && userProfilesList[0]?.role !== "owner" && userProfilesList[0]?.role !== "admin" && userProfilesList[0]?.role !== "superadmin";
 
+      let farms: Farm[] = [];
+      let accessibleFarmIds: string[] = [];
+      let effectiveOwnerId = userId;
+      let staffPermsMap: Record<string, { canView: boolean; canCreate: boolean; canEdit: boolean; canDelete: boolean }> = {};
+
+      if (isStaff && staffMember) {
+        effectiveOwnerId = staffMember.userId || userId;
+        // Unconditionally sync staff_auth_id
+        supabase.from("staff_members").update({ staff_auth_id: userId, status: "Active" }).eq("id", staffMember.id).then();
+        staffMember.staffAuthId = userId;
+        staffMember.status = "Active";
+
+        // Resolve assigned farms for staff
         const targetFarmIds = new Set<string>();
         if (Array.isArray(staffMember.farms)) {
           staffMember.farms.forEach((fid: string) => { if (fid && isUuid(fid)) targetFarmIds.add(fid); });
         }
-        (farmAssignRes?.data || []).filter((a: any) => a.staff_id === staffMember!.id).forEach((a: any) => {
+        const { data: sfaRows } = await safeQuery(supabase.from("staff_farm_assignments").select("farm_id").eq("staff_id", staffMember.id));
+        (sfaRows || []).forEach((a: any) => {
           if (a.farm_id && isUuid(a.farm_id)) targetFarmIds.add(a.farm_id);
         });
 
@@ -1014,21 +1116,122 @@ export const api = {
           const { data: assignedFarms } = await safeQuery(
             supabase.from("farms").select("*").in("id", Array.from(targetFarmIds))
           );
-          farms = (assignedFarms || []).map(f => objToCamel<Farm>(f));
+          farms = (assignedFarms || []).map((f: any) => objToCamel<Farm>(f));
         } else {
           farms = [];
         }
+
+        // Query permissions for this staff member
+        const { data: sPermRows } = await safeQuery(supabase.from("staff_permissions").select("*").eq("staff_id", staffMember.id));
+        (sPermRows || []).forEach((p: any) => {
+          staffPermsMap[p.feature] = {
+            canView: p.can_view ?? true,
+            canCreate: p.can_create ?? true,
+            canEdit: p.can_edit ?? true,
+            canDelete: p.can_delete ?? false,
+          };
+        });
+        staffMember.staffPermissions = staffPermsMap;
+        staffMember.permissions = Object.keys(staffPermsMap).filter(k => staffPermsMap[k].canView);
+      } else {
+        // OWNER: Strictly fetch farms owned by this user
+        const { data: ownerFarms } = await safeQuery(
+          supabase.from("farms").select("*").eq("user_id", userId).order("created_at", { ascending: true })
+        );
+        farms = (ownerFarms || []).map((f: any) => objToCamel<Farm>(f));
       }
 
-      const finalStaffMembers = staffList.length > 0
-        ? staffList
-        : (cachedStaff.length > 0 ? cachedStaff : []);
+      accessibleFarmIds = farms.map(f => f.id).filter(isUuid);
+      const canStaffView = (feat: string): boolean => !isStaff || (staffPermsMap[feat]?.canView ?? true);
 
-      // Resolve invoice settings: match current user or owner
+      // 2. Query datasets strictly scoped to accessibleFarmIds and view permissions
+      const [
+        pondsRes, stockRes, invRes, feedRes,
+        bagRes, remainRes, expRes, revRes, mortRes, treatRes,
+        staffRes, farmAssignRes, staffPermRes, repRes, custRes, pgRes, invsRes, setRes,
+        kqRes, cqRes, krRes, crRes,
+        investorsRes, investmentsRes, invPayRes, pondRepRes
+      ] = await Promise.all([
+        canStaffView("Pond Management") && accessibleFarmIds.length > 0 ? safeQuery(supabase.from("ponds").select("*").in("farm_id", accessibleFarmIds)) : Promise.resolve({ data: [] }),
+        canStaffView("Pond Management") && accessibleFarmIds.length > 0 ? safeQuery(supabase.from("stock_events").select("*").in("farm_id", accessibleFarmIds)) : Promise.resolve({ data: [] }),
+        canStaffView("Feed Stock") && accessibleFarmIds.length > 0 ? safeQuery(supabase.from("feed_inventory").select("*").in("farm_id", accessibleFarmIds)) : Promise.resolve({ data: [] }),
+        canStaffView("Feeding Records") && accessibleFarmIds.length > 0 ? safeQuery(supabase.from("feeding_records").select("*").in("farm_id", accessibleFarmIds)) : Promise.resolve({ data: [] }),
+        canStaffView("Feed Stock") && accessibleFarmIds.length > 0 ? safeQuery(supabase.from("bag_open_logs").select("*").in("farm_id", accessibleFarmIds)) : Promise.resolve({ data: [] }),
+        canStaffView("Feed Stock") && accessibleFarmIds.length > 0 ? safeQuery(supabase.from("feed_remaining_logs").select("*").in("farm_id", accessibleFarmIds)) : Promise.resolve({ data: [] }),
+        canStaffView("Financial Dashboard") && accessibleFarmIds.length > 0 ? safeQuery(supabase.from("expenses").select("*").in("farm_id", accessibleFarmIds)) : Promise.resolve({ data: [] }),
+        canStaffView("Financial Dashboard") && accessibleFarmIds.length > 0 ? safeQuery(supabase.from("revenues").select("*").in("farm_id", accessibleFarmIds)) : Promise.resolve({ data: [] }),
+        canStaffView("Pond Management") && accessibleFarmIds.length > 0 ? safeQuery(supabase.from("mortality_entries").select("*").in("farm_id", accessibleFarmIds)) : Promise.resolve({ data: [] }),
+        canStaffView("Pond Management") && accessibleFarmIds.length > 0 ? safeQuery(supabase.from("treatment_records").select("*").in("farm_id", accessibleFarmIds)) : Promise.resolve({ data: [] }),
+        !isStaff ? safeQuery(supabase.from("staff_members").select("*").eq("user_id", userId)) : Promise.resolve({ data: staffMember ? [staffMember] : [] }),
+        !isStaff && accessibleFarmIds.length > 0 ? safeQuery(supabase.from("staff_farm_assignments").select("*").in("farm_id", accessibleFarmIds)) : Promise.resolve({ data: [] }),
+        !isStaff ? safeQuery(supabase.from("staff_permissions").select("*")) : Promise.resolve({ data: [] }),
+        canStaffView("Reports") && accessibleFarmIds.length > 0 ? safeQuery(supabase.from("reports").select("*").in("farm_id", accessibleFarmIds)) : Promise.resolve({ data: [] }),
+        canStaffView("Invoices") && accessibleFarmIds.length > 0 ? safeQuery(supabase.from("customers").select("*").in("farm_id", accessibleFarmIds)) : Promise.resolve({ data: [] }),
+        canStaffView("Invoices") && accessibleFarmIds.length > 0 ? safeQuery(supabase.from("price_groups").select("*").in("farm_id", accessibleFarmIds)) : Promise.resolve({ data: [] }),
+        canStaffView("Invoices") && accessibleFarmIds.length > 0 ? safeQuery(supabase.from("invoices").select("*").in("farm_id", accessibleFarmIds)) : Promise.resolve({ data: [] }),
+        safeQuery(supabase.from("invoice_settings").select("*").eq("user_id", effectiveOwnerId)),
+        safeQuery(supabase.from("knowledge_questions").select("*")),
+        safeQuery(supabase.from("compatibility_questions").select("*")),
+        safeQuery(supabase.from("knowledge_results").select("*")),
+        safeQuery(supabase.from("compatibility_results").select("*")),
+        canStaffView("Investors") && accessibleFarmIds.length > 0 ? safeQuery(supabase.from("investors").select("*").in("farm_id", accessibleFarmIds)) : Promise.resolve({ data: [] }),
+        canStaffView("Investors") && accessibleFarmIds.length > 0 ? safeQuery(supabase.from("investments").select("*").in("farm_id", accessibleFarmIds)) : Promise.resolve({ data: [] }),
+        canStaffView("Investors") && accessibleFarmIds.length > 0 ? safeQuery(supabase.from("investment_payments").select("*").in("farm_id", accessibleFarmIds)) : Promise.resolve({ data: [] }),
+        canStaffView("Reports") && accessibleFarmIds.length > 0 ? safeQuery(supabase.from("pond_reports").select("*").in("farm_id", accessibleFarmIds)) : Promise.resolve({ data: [] }),
+      ]);
+
+      const extract = <T,>(res: any, cacheKey: string, mapper: (r: any) => T): T[] => {
+        if (res && !res.error && Array.isArray(res.data)) {
+          return res.data.map(mapper);
+        }
+        if (cached && Array.isArray(cached[cacheKey]) && cached[cacheKey].length > 0) {
+          return cached[cacheKey];
+        }
+        return (res?.data || []).map(mapper);
+      };
+
+      // Build staff list
+      let staffList: StaffMember[] = [];
+      if (!isStaff) {
+        const rawStaffList = (staffRes?.data || []).map((r: any) => objToCamel<StaffMember>(r));
+        const cachedStaff = ((cached?.staffMembers || []) as StaffMember[]);
+        const serverStaffIds = new Set(rawStaffList.map((s: any) => s.id));
+        const serverStaffEmails = new Set(rawStaffList.map((s: any) => (s.email || "").toLowerCase().trim()));
+        const pendingCachedStaff = cachedStaff.filter(
+          cs => cs?.id && !serverStaffIds.has(cs.id) && !serverStaffEmails.has((cs.email || "").toLowerCase().trim())
+        );
+        const combinedStaffRaw = [...rawStaffList, ...pendingCachedStaff];
+
+        staffList = combinedStaffRaw.map((s: any) => {
+          const sFarms = (farmAssignRes?.data || []).filter((a: any) => a.staff_id === s.id).map((a: any) => a.farm_id);
+          const sPermRows = (staffPermRes?.data || []).filter((p: any) => p.staff_id === s.id);
+          const sPerms = sPermRows.filter((p: any) => p.can_view ?? true).map((p: any) => p.feature);
+          const sStaffPerms: Record<string, { canView: boolean; canCreate: boolean; canEdit: boolean; canDelete: boolean }> = {};
+          sPermRows.forEach((p: any) => {
+            sStaffPerms[p.feature] = {
+              canView: p.can_view ?? true,
+              canCreate: p.can_create ?? true,
+              canEdit: p.can_edit ?? true,
+              canDelete: p.can_delete ?? false,
+            };
+          });
+          const cachedStaffItem = cachedStaff.find((c: any) => c.id === s.id);
+          return {
+            ...s,
+            status: s.status || "Pending",
+            farms: (s.farms && s.farms.length > 0) ? s.farms : (sFarms.length > 0 ? sFarms : (cachedStaffItem?.farms || [])),
+            permissions: (s.permissions && s.permissions.length > 0) ? s.permissions : (sPerms.length > 0 ? sPerms : (cachedStaffItem?.permissions || [])),
+            staffPermissions: (s.staffPermissions && Object.keys(s.staffPermissions).length > 0) ? s.staffPermissions : (Object.keys(sStaffPerms).length > 0 ? sStaffPerms : (cachedStaffItem?.staffPermissions || {})),
+          };
+        });
+      } else if (staffMember) {
+        staffList = [staffMember];
+      }
+
+      // Resolve invoice settings
       let resolvedInvSettings: InvSettings | null = null;
       if (setRes && Array.isArray(setRes.data) && setRes.data.length > 0) {
-        const ownerUid = staffMember?.userId || userId;
-        const matching = setRes.data.find((s: any) => s.user_id === ownerUid) || setRes.data.find((s: any) => s.user_id === userId) || setRes.data[0];
+        const matching = setRes.data.find((s: any) => s.user_id === effectiveOwnerId) || setRes.data[0];
         if (matching) resolvedInvSettings = objToCamel<InvSettings>(matching);
       } else if (setRes?.data && !Array.isArray(setRes.data)) {
         resolvedInvSettings = objToCamel<InvSettings>(setRes.data);
@@ -1037,7 +1240,7 @@ export const api = {
         resolvedInvSettings = cached.invoiceSettings;
       }
 
-      // Auto-heal in background: assign primary farmId to any existing unlinked rows
+      // Safe auto-heal: ONLY update rows belonging to this effective owner
       const primaryFarm = farms[0];
       if (primaryFarm?.id && isUuid(primaryFarm.id)) {
         const pFid = primaryFarm.id;
@@ -1047,7 +1250,7 @@ export const api = {
           "reports", "customers", "price_groups", "invoices", "investors", "investments", "pond_reports"
         ];
         Promise.all(tablesToHeal.map(tbl =>
-          supabase.from(tbl).update({ farm_id: pFid }).is("farm_id", null).then()
+          supabase.from(tbl).update({ farm_id: pFid }).eq("user_id", effectiveOwnerId).is("farm_id", null).then()
         )).catch(() => {});
       }
 
@@ -1065,7 +1268,7 @@ export const api = {
         revenues: extract<Revenue>(revRes, "revenues", (r: any) => objToCamel<Revenue>(r)),
         mortalityEntries: extract<MortalityEntry>(mortRes, "mortalityEntries", (r: any) => objToCamel<MortalityEntry>(r)),
         treatmentRecords: extract<TreatmentRecord>(treatRes, "treatmentRecords", (r: any) => objToCamel<TreatmentRecord>(r)),
-        staffMembers: finalStaffMembers,
+        staffMembers: staffList,
         reports: extract<Report>(repRes, "reports", (r: any) => objToCamel<Report>(r)),
         customers: extract<Customer>(custRes, "customers", (r: any) => objToCamel<Customer>(r)),
         priceGroups: extract<PriceGroup>(pgRes, "priceGroups", (r: any) => objToCamel<PriceGroup>(r)),
@@ -1083,7 +1286,6 @@ export const api = {
         isStaff: !!staffMember,
       };
 
-      // Save to user-scoped cache and owner cache as backup
       saveLocalCache(result, userId);
       if (staffMember?.userId && staffMember.userId !== userId) {
         saveLocalCache(result, staffMember.userId);
@@ -1119,8 +1321,23 @@ export const api = {
   farms: {
     list: () => dbList<Farm>("farms", "farms"),
     create: (f: Partial<Farm>) => dbInsert<Farm>("farms", f as Farm, "farms"),
-    update: (f: Farm) => dbUpdate<Farm>("farms", f, "farms"),
-    remove: (id: string) => dbDelete("farms", id, "farms"),
+    update: async (f: Farm) => {
+      const userId = await getUserId();
+      if (userId && f.userId && f.userId !== userId) {
+        throw new Error("You do not have permission to update this farm.");
+      }
+      return dbUpdate<Farm>("farms", f, "farms");
+    },
+    remove: async (id: string) => {
+      const userId = await getUserId();
+      if (userId) {
+        const { data: farm } = await supabase.from("farms").select("user_id").eq("id", id).maybeSingle();
+        if (farm && farm.user_id && farm.user_id !== userId) {
+          throw new Error("You do not have permission to delete this farm.");
+        }
+      }
+      return dbDelete("farms", id, "farms");
+    },
     syncActiveFarm: async (farmId: string) => {
       try {
         await supabase.auth.updateUser({ data: { active_farm_id: farmId } });
@@ -1489,12 +1706,20 @@ export const api = {
       if (opts.farms && opts.farms.length > 0) {
         try {
           await supabase.from("staff_farm_assignments").delete().eq("staff_id", staffMember.id);
-          const farmRows = opts.farms.map(fid => ({
-            staff_id: staffMember.id,
-            farm_id: fid,
-            assigned_by: userId || null,
-          }));
-          await supabase.from("staff_farm_assignments").insert(farmRows);
+          let assignableFarms = opts.farms;
+          if (userId) {
+            const { data: ownedFarms } = await supabase.from("farms").select("id").eq("user_id", userId);
+            const ownedSet = new Set((ownedFarms || []).map(f => f.id));
+            assignableFarms = opts.farms.filter(fid => ownedSet.has(fid));
+          }
+          if (assignableFarms.length > 0) {
+            const farmRows = assignableFarms.map(fid => ({
+              staff_id: staffMember.id,
+              farm_id: fid,
+              assigned_by: userId || null,
+            }));
+            await supabase.from("staff_farm_assignments").insert(farmRows);
+          }
         } catch (e) {
           console.warn("Could not insert staff_farm_assignments:", e);
         }
@@ -1556,9 +1781,17 @@ export const api = {
         try {
           await supabase.from("staff_farm_assignments").delete().eq("staff_id", targetId);
           if (s.farms.length > 0) {
-            await supabase.from("staff_farm_assignments").insert(
-              s.farms.map(fid => ({ staff_id: targetId, farm_id: fid, assigned_by: userId || null }))
-            );
+            let assignableFarms = s.farms;
+            if (userId) {
+              const { data: ownedFarms } = await supabase.from("farms").select("id").eq("user_id", userId);
+              const ownedSet = new Set((ownedFarms || []).map(f => f.id));
+              assignableFarms = s.farms.filter(fid => ownedSet.has(fid));
+            }
+            if (assignableFarms.length > 0) {
+              await supabase.from("staff_farm_assignments").insert(
+                assignableFarms.map(fid => ({ staff_id: targetId, farm_id: fid, assigned_by: userId || null }))
+              );
+            }
           }
         } catch {}
       }

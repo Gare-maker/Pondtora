@@ -1603,6 +1603,8 @@ function ReportsPage({
   canCreate = true,
   canEdit = true,
   canDelete = true,
+  currentUser,
+  isOwner = true,
 }: {
   reports: Report[];
   staff: StaffMember[];
@@ -1618,6 +1620,8 @@ function ReportsPage({
   canCreate?: boolean;
   canEdit?: boolean;
   canDelete?: boolean;
+  currentUser?: { name: string; email: string };
+  isOwner?: boolean;
 }) {
   const [typeFilter, setTypeFilter] = useState<"All" | "Daily" | "Weekly" | "Monthly" | "Pond-Based">("All");
   const [dateSearch, setDateSearch] = useState("");
@@ -1674,8 +1678,37 @@ function ReportsPage({
     return mt && md;
   });
   const [reportPage, setReportPage] = useState(1);
-  const [submitError, setSubmitError] = useState("");
   const [editReport, setEditReport] = useState<Report | null>(null);
+  const [reviewReport, setReviewReport] = useState<Report | null>(null);
+  const [reviewNote, setReviewNote] = useState("");
+  const [reviewStatus, setReviewStatus] = useState("Reviewed");
+  const [savingReview, setSavingReview] = useState(false);
+
+  const openReviewModal = (r: Report) => {
+    setReviewReport(r);
+    setReviewNote(r.adminReviewNote || "");
+    setReviewStatus(r.adminReviewStatus || "Reviewed");
+  };
+
+  const handleSaveReview = async () => {
+    if (!reviewReport) return;
+    setSavingReview(true);
+    try {
+      const updated: Report = {
+        ...reviewReport,
+        adminReviewNote: reviewNote.trim(),
+        adminReviewStatus: reviewStatus,
+        reviewedBy: currentUser?.name || "Admin",
+        reviewedAt: new Date().toISOString(),
+      };
+      onEdit(updated);
+      setReviewReport(null);
+      toast.success("Review note saved successfully");
+    } finally {
+      setSavingReview(false);
+    }
+  };
+
   const isWithin6h = (r: Report) => { if (!r.timestamp) return false; return Date.now() - new Date(r.timestamp).getTime() < 6 * 60 * 60 * 1000; };
   const openEditReport = (r: Report) => {
     setEditReport(r);
@@ -1926,33 +1959,79 @@ function ReportsPage({
                   <span className="text-xs font-bold text-slate-700 font-['Barlow_Condensed',sans-serif] uppercase tracking-wider">{group.label}</span>
                   <span className="text-[11px] text-slate-400">({group.items.length})</span>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">{group.items.map(r => (
-                  <Card key={r.id} className="p-4 space-y-3">
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <Bdg label={r.type} color={r.type === "Daily" ? "green" : r.type === "Weekly" ? "blue" : "purple"} />
-                          <span className="text-xs text-slate-400">{r.date}</span>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">{group.items.map(r => {
+                  const isStaffReport = Boolean(r.isStaffSubmission || r.authorRole === "staff" || r.createdByRole === "staff");
+                  return (
+                    <Card key={r.id} className="p-4 space-y-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <Bdg label={r.type} color={r.type === "Daily" ? "green" : r.type === "Weekly" ? "blue" : "purple"} />
+                            {isStaffReport && (
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
+                                Official Staff Record
+                              </span>
+                            )}
+                            {r.adminReviewStatus && (
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800 border border-indigo-200">
+                                {r.adminReviewStatus}
+                              </span>
+                            )}
+                            <span className="text-xs text-slate-400">{r.date}</span>
+                          </div>
+                          <h3 className="text-sm font-bold text-slate-900 mt-1">{r.title}</h3>
+                          <p className="text-xs text-slate-400">By {r.author} {isStaffReport ? "(Staff)" : ""}</p>
                         </div>
-                        <h3 className="text-sm font-bold text-slate-900 mt-1">{r.title}</h3>
-                        <p className="text-xs text-slate-400">By {r.author}</p>
+                        <div className="flex items-center gap-1 shrink-0">
+                          {/* Admin Review Button for Owners/Admins on Staff Reports */}
+                          {isOwner && isStaffReport && (
+                            <button
+                              onClick={() => openReviewModal(r)}
+                              className="px-2.5 py-1 text-xs font-semibold bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 rounded-lg transition-colors flex items-center gap-1"
+                              title="Add or update administrative review"
+                            >
+                              <FileText size={12} />
+                              Review
+                            </button>
+                          )}
+                          {/* Normal Edit Button ONLY for non-staff reports within 6 hours */}
+                          {!isStaffReport && canEdit && isWithin6h(r) && (
+                            <button onClick={() => openEditReport(r)} className="p-1.5 rounded-lg text-slate-300 hover:text-green-600 hover:bg-green-50 transition-colors shrink-0" title="Edit within 6 hours">
+                              <Pencil size={13} />
+                            </button>
+                          )}
+                        </div>
                       </div>
-                      {canEdit && isWithin6h(r) && (
-                        <button onClick={() => openEditReport(r)} className="p-1.5 rounded-lg text-slate-300 hover:text-green-600 hover:bg-green-50 transition-colors shrink-0" title="Edit within 6 hours">
-                          <Pencil size={13} />
-                        </button>
-                      )}
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 border-t border-slate-100 pt-3">
-                      {parseReportFields(r.content).filter(f => !f.label.toLowerCase().includes("confirmed")).map((f, i) => (
-                        <div key={i} className="bg-slate-50 rounded-xl px-3 py-2.5">
-                          {f.label && <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">{f.label}</p>}
-                          <p className="text-xs font-semibold text-slate-800">{f.value}</p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 border-t border-slate-100 pt-3">
+                        {parseReportFields(r.content).filter(f => !f.label.toLowerCase().includes("confirmed")).map((f, i) => (
+                          <div key={i} className="bg-slate-50 rounded-xl px-3 py-2.5">
+                            {f.label && <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">{f.label}</p>}
+                            <p className="text-xs font-semibold text-slate-800">{f.value}</p>
+                          </div>
+                        ))}
+                      </div>
+                      {/* Review Box Display */}
+                      {r.adminReviewNote && (
+                        <div className="border-t border-slate-100 pt-2.5 bg-indigo-50/50 p-2.5 rounded-xl border border-indigo-100 space-y-1">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-700">Administrative Review Note</span>
+                            {r.adminReviewStatus && (
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800">
+                                {r.adminReviewStatus}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-indigo-950 font-medium">{r.adminReviewNote}</p>
+                          {r.reviewedBy && (
+                            <p className="text-[10px] text-slate-400">
+                              Reviewed by {r.reviewedBy}{r.reviewedAt ? ` on ${new Date(r.reviewedAt).toLocaleDateString()}` : ""}
+                            </p>
+                          )}
                         </div>
-                      ))}
-                    </div>
-                  </Card>
-                ))}</div>
+                      )}
+                    </Card>
+                  );
+                })}</div>
               </div>
             ))}</div>
             <Pagination total={filtered.length} page={reportPage} perPage={PER_PAGE} onPage={setReportPage} /></>
@@ -2188,6 +2267,58 @@ function ReportsPage({
           <button onClick={() => { setShowModal(false); setEditReport(null); }} disabled={isSubmitting} className="px-4 py-2 text-sm text-slate-400">Cancel</button>
         </div>
       </Modal>}
+
+      {reviewReport && (
+        <Modal title={`Administrative Review: ${reviewReport.title}`} onClose={() => setReviewReport(null)}>
+          <div className="space-y-4">
+            <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs text-slate-600 space-y-1">
+              <p><strong className="text-slate-700">Author:</strong> {reviewReport.author} (Staff)</p>
+              <p><strong className="text-slate-700">Date:</strong> {reviewReport.date}</p>
+              <p className="text-[11px] text-amber-700 font-medium">
+                Note: Original staff submission fields cannot be altered. Your review comments and verification status will be attached to this official record.
+              </p>
+            </div>
+            <F label="Review Status">
+              <select
+                className={SC}
+                value={reviewStatus}
+                onChange={e => setReviewStatus(e.target.value)}
+              >
+                <option value="Reviewed">Reviewed</option>
+                <option value="Approved">Approved</option>
+                <option value="Needs Clarification">Needs Clarification</option>
+                <option value="Pending Review">Pending Review</option>
+              </select>
+            </F>
+            <F label="Administrative Notes / Feedback">
+              <textarea
+                className={`${IC} min-h-[90px]`}
+                value={reviewNote}
+                onChange={e => setReviewNote(e.target.value)}
+                placeholder="Enter feedback, verification remarks, or instructions for the staff member…"
+              />
+            </F>
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setReviewReport(null)}
+                className="px-4 py-2 border border-slate-200 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveReview}
+                disabled={savingReview}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5"
+              >
+                {savingReview && <Loader2 size={13} className="animate-spin" />}
+                Save Review
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }
@@ -3512,6 +3643,43 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   const [investmentPayments,setInvestmentPayments]=useState<InvestmentPayment[]>(()=>readInit("investment_payments","investmentPayments",[]));
   const [pondReports,setPondReports]=useState<PondReport[]>(()=>readInit("pond_reports","pondReports",[]));
 
+  // Action-level permissions for the current staff user (populated from backend staffInfo)
+  const [staffOwnPermissions,setStaffOwnPermissions]=useState<Record<string,{canView:boolean;canCreate:boolean;canEdit:boolean;canDelete:boolean}>>({});
+
+  /* ── Permission derivation & farm scoping ── */
+  const currentStaff = staff.find(s => (s.staffAuthId && userProfile?.id && s.staffAuthId === userProfile.id) || (s.email && userProfile?.email && s.email.trim().toLowerCase() === userProfile.email.trim().toLowerCase()));
+  const isStaff = userProfile?.role === "staff" || Boolean((userProfile as any)?.ownerId) || (Boolean(currentStaff) && currentStaff?.role !== "Admin" && currentStaff?.role !== "Director" && userProfile?.role !== "owner");
+  const isOwner = !isStaff;
+
+  const hasPerm = useCallback((p: string) => {
+    if (isOwner) return true;
+    const perms = (currentStaff?.permissions && currentStaff.permissions.length > 0)
+      ? currentStaff.permissions
+      : (userProfile?.permissions || []);
+    if (perms.length === 0) return false;
+    if (perms.includes(p)) return true;
+    if (p === "Invoices" && perms.includes("Invoice")) return true;
+    if (p === "Invoice" && perms.includes("Invoices")) return true;
+    if (p === "Staff Assessments" && (perms.includes("Staff Assessment") || perms.includes("Staff Assessments"))) return true;
+    if (p === "Notifications" && (perms.includes("Notification") || perms.includes("Notifications"))) return true;
+    if (p === "Pond Details" && perms.includes("Pond Management")) return true;
+    return false;
+  }, [isOwner, currentStaff?.permissions, userProfile?.permissions]);
+
+  const staffPermsMap: Record<string,{canView:boolean;canCreate:boolean;canEdit:boolean;canDelete:boolean}> =
+    (isStaff && Object.keys(staffOwnPermissions).length > 0)
+      ? staffOwnPermissions
+      : (currentStaff?.staffPermissions || {});
+
+  const canView   = (feature: string): boolean => isOwner || (hasPerm(feature) && (staffPermsMap[feature]?.canView   ?? true));
+  const canCreate = (feature: string): boolean => isOwner || (hasPerm(feature) && (staffPermsMap[feature]?.canCreate ?? false));
+  const canEdit   = (feature: string): boolean => isOwner || (hasPerm(feature) && (staffPermsMap[feature]?.canEdit   ?? false));
+  const canDelete = (feature: string): boolean => isOwner || (hasPerm(feature) && (staffPermsMap[feature]?.canDelete ?? false));
+
+  const assignedStaffFarms = farms.filter(f => currentStaff?.farms?.includes(f.id) || (userProfile as any)?.farms?.includes(f.id));
+  const accessibleFarms = isOwner ? farms : assignedStaffFarms;
+  const hasOneFarmOrNone = accessibleFarms.length <= 1;
+
   const [kQuestionsState,setKQuestions_]=useState<any[]>(()=>loadLocal("pondtora_k_questions",INIT_K));
   const [cQuestionsState,setCQuestions_]=useState<any[]>(()=>loadLocal("pondtora_c_questions",INIT_C));
   const [kResultsState,setKResults_]=useState<any[]>(()=>loadLocal("pondtora_k_results",[]));
@@ -3690,6 +3858,10 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     api.treatments.create(farmTr).catch(console.warn);
   };
   const addPond=async(p:Pond)=>{
+    if (!canCreate("Pond Management")) {
+      toast.error("You do not have permission to create ponds.");
+      return;
+    }
     const fid=p.farmId||activeFarmId||farms[0]?.id||"";
     const farmPonds=ponds.filter(x=>hasOneFarmOrNone||x.farmId===fid);
     if(farmPonds.length>=pondLimit){
@@ -3733,6 +3905,10 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     }
   };
   const handleEditPond=async(id:string,updates:Partial<Pond>)=>{
+    if (!canEdit("Pond Management")) {
+      toast.error("You do not have permission to edit ponds.");
+      return;
+    }
     const oldPond=ponds.find(x=>x.id===id);
     if(!oldPond)return;
 
@@ -3828,6 +4004,10 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     }
   };
   const addExp=async(e:Expense)=>{
+    if (!canCreate("Financial Dashboard") && !canCreate("Expenses & Financial Records")) {
+      toast.error("You do not have permission to add expenses.");
+      return;
+    }
     const fid=e.farmId||activeFarmId||farms[0]?.id||"";
     const ne:Expense={...e,id:isUuid(e.id)?e.id:crypto.randomUUID(),farmId:fid};
     setExpenses(prev=>[ne,...prev]);
@@ -3843,6 +4023,10 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     }
   };
   const editExp=async(e:Expense)=>{
+    if (!canEdit("Financial Dashboard") && !canEdit("Expenses & Financial Records")) {
+      toast.error("You do not have permission to edit expenses.");
+      return;
+    }
     setExpenses(prev=>prev.map(x=>x.id===e.id?e:x));
     try {
       await api.expenses.update(e);
@@ -3853,6 +4037,10 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     }
   };
   const addRev=async(r:Revenue)=>{
+    if (!canCreate("Financial Dashboard") && !canCreate("Revenue & Sales Records")) {
+      toast.error("You do not have permission to add revenues.");
+      return;
+    }
     const fid=r.farmId||activeFarmId||farms[0]?.id||"";
     const nr:Revenue={...r,id:isUuid(r.id)?r.id:crypto.randomUUID(),farmId:fid};
     setRevenues(prev=>[nr,...prev]);
@@ -3868,6 +4056,10 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     }
   };
   const editRev=async(r:Revenue)=>{
+    if (!canEdit("Financial Dashboard") && !canEdit("Revenue & Sales Records")) {
+      toast.error("You do not have permission to edit revenues.");
+      return;
+    }
     setRevenues(prev=>prev.map(x=>x.id===r.id?r:x));
     try {
       await api.revenues.update(r);
@@ -3878,6 +4070,10 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     }
   };
   const deleteExp=async(id:string)=>{
+    if (!canDelete("Financial Dashboard") && !canDelete("Expenses & Financial Records")) {
+      toast.error("You do not have permission to delete expenses.");
+      return;
+    }
     setExpenses(prev=>prev.filter(x=>x.id!==id));
     try {
       await api.expenses.remove(id);
@@ -3888,6 +4084,10 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     }
   };
   const deleteRev=async(id:string)=>{
+    if (!canDelete("Financial Dashboard") && !canDelete("Revenue & Sales Records")) {
+      toast.error("You do not have permission to delete revenues.");
+      return;
+    }
     setRevenues(prev=>prev.filter(x=>x.id!==id));
     try {
       await api.revenues.remove(id);
@@ -3917,6 +4117,10 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     }
   };
   const addFeed=async(r:FeedingRecord)=>{
+    if (!canCreate("Feeding Records")) {
+      toast.error("You do not have permission to log feeding.");
+      return;
+    }
     const fid=r.farmId||activeFarmId||farms[0]?.id||"";
     const farmRec:FeedingRecord={...r,id:isUuid(r.id)?r.id:crypto.randomUUID(),farmId:fid};
     setFeeding(prev=>{
@@ -3945,6 +4149,10 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     }
   };
   const editFeedRecord=async(r:FeedingRecord)=>{
+    if (!canEdit("Feeding Records")) {
+      toast.error("You do not have permission to edit feeding records.");
+      return;
+    }
     const farmRec:FeedingRecord={...r,farmId:r.farmId||activeFarmId||farms[0]?.id||""};
     setFeeding(prev=>prev.map(x=>x.id===farmRec.id?farmRec:x));
     try {
@@ -3954,6 +4162,10 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     }
   };
   const deleteFeedRecord=async(id:string)=>{
+    if (!canDelete("Feeding Records")) {
+      toast.error("You do not have permission to delete feeding records.");
+      return;
+    }
     setFeeding(prev=>prev.filter(x=>x.id!==id));
     try {
       await api.feeding.remove(id);
@@ -3995,16 +4207,48 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     api.remainLogs.update(farmRemain).catch(console.warn);
   };
   const addInv=async(f:FeedItem)=>{
+    if (!canCreate("Feed Stock")) {
+      toast.error("You do not have permission to add feed inventory.");
+      return;
+    }
     const fid=f.farmId||activeFarmId||farms[0]?.id||"";
     const fWithFarm={...f,id:isUuid(f.id)?f.id:crypto.randomUUID(),farmId:fid};
     setInventory(prev=>[...prev,fWithFarm]);
     toast.success("Feed purchase recorded");
     api.inventory.create(fWithFarm).catch(console.warn);
   };
-  const delInv=(id:string)=>{setInventory(prev=>prev.filter(f=>f.id!==id));api.inventory.remove(id).catch(console.warn);};
-  const editInv=(f:FeedItem)=>{const fWithFarm={...f,farmId:f.farmId||activeFarmId||farms[0]?.id||""};setInventory(prev=>prev.map(x=>x.id===f.id?fWithFarm:x));api.inventory.update(fWithFarm).catch(console.warn);};
-  const editFish=(id:string,u:{species:string;currentCount:number;stockingDate:string;fishStock?:string})=>{setPonds(prev=>prev.map(p=>{if(p.id!==id)return p;const np={...p,...u};api.ponds.update(np).catch(console.warn);return np;}));};
-  const deletePond=(id:string)=>{setPonds(prev=>prev.filter(p=>p.id!==id));api.ponds.remove(id).catch(console.warn);};
+  const delInv=(id:string)=>{
+    if (!canDelete("Feed Stock")) {
+      toast.error("You do not have permission to delete feed inventory.");
+      return;
+    }
+    setInventory(prev=>prev.filter(f=>f.id!==id));
+    api.inventory.remove(id).catch(console.warn);
+  };
+  const editInv=(f:FeedItem)=>{
+    if (!canEdit("Feed Stock")) {
+      toast.error("You do not have permission to edit feed inventory.");
+      return;
+    }
+    const fWithFarm={...f,farmId:f.farmId||activeFarmId||farms[0]?.id||""};
+    setInventory(prev=>prev.map(x=>x.id===f.id?fWithFarm:x));
+    api.inventory.update(fWithFarm).catch(console.warn);
+  };
+  const editFish=(id:string,u:{species:string;currentCount:number;stockingDate:string;fishStock?:string})=>{
+    if (!canEdit("Pond Management")) {
+      toast.error("You do not have permission to edit pond fish.");
+      return;
+    }
+    setPonds(prev=>prev.map(p=>{if(p.id!==id)return p;const np={...p,...u};api.ponds.update(np).catch(console.warn);return np;}));
+  };
+  const deletePond=(id:string)=>{
+    if (!canDelete("Pond Management")) {
+      toast.error("You do not have permission to delete ponds.");
+      return;
+    }
+    setPonds(prev=>prev.filter(p=>p.id!==id));
+    api.ponds.remove(id).catch(console.warn);
+  };
   const addMort=async(m:MortalityEntry,pondId:string)=>{
     const fid=m.farmId||activeFarmId||farms[0]?.id||"";
     const farmMort:MortalityEntry={...m,id:isUuid(m.id)?m.id:crypto.randomUUID(),pondId,farmId:fid};
@@ -4179,8 +4423,6 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   const [setupRunning,setSetupRunning]=useState(false);
   const [setupError,setSetupError]=useState<string|null>(null);
   const [sqlCopied,setSqlCopied]=useState(false);
-  // Action-level permissions for the current staff user (populated from backend staffInfo)
-  const [staffOwnPermissions,setStaffOwnPermissions]=useState<Record<string,{canView:boolean;canCreate:boolean;canEdit:boolean;canDelete:boolean}>>({});
 
   /* ── Apply backend authoritative data to state ── */
   const applyBackendData=useCallback((d:any)=>{
@@ -4191,54 +4433,11 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       ? d.farms
       : (userProfile?.id ? loadUserLocal(userProfile.id, "farms", "farms", []) : []);
 
-    let resolvedFarms = rawFarms;
-    const isMultiFarmPlan = activePlan === "3-Farm Plan" || activePlan === "5-Farm Plan" || activePlan === "Unlimited Farms";
-    const isStaffUser = userProfile?.role === "staff" || Boolean((userProfile as any)?.ownerId) || d.isStaff;
-    const duplicateFarmIdMap = new Map<string, string>(); // maps duplicateFarmId -> primaryFarmId
+    const resolvedFarms = rawFarms;
 
     const pondsData: Pond[] = (d.ponds && d.ponds.length > 0)
       ? d.ponds
       : (userProfile?.id ? loadUserLocal(userProfile.id, "ponds", "ponds", []) : []);
-
-    if (rawFarms.length > 1 && !isMultiFarmPlan && !isStaffUser) {
-      // Find farm with most ponds/records or earliest created
-      const farmPondCounts = new Map<string, number>();
-      pondsData.forEach(p => {
-        if (p.farmId) farmPondCounts.set(p.farmId, (farmPondCounts.get(p.farmId) || 0) + 1);
-      });
-
-      let primary = rawFarms[0];
-      let maxCount = farmPondCounts.get(primary.id) || 0;
-      for (const f of rawFarms) {
-        const count = farmPondCounts.get(f.id) || 0;
-        if (count > maxCount) {
-          primary = f;
-          maxCount = count;
-        }
-      }
-
-      for (const f of rawFarms) {
-        if (f.id !== primary.id) {
-          duplicateFarmIdMap.set(f.id, primary.id);
-        }
-      }
-      resolvedFarms = [primary];
-    } else if (rawFarms.length > 1) {
-      // Multi-farm plan or staff: merge only identical duplicate farm names
-      const seenNames = new Map<string, Farm>();
-      const deduped: Farm[] = [];
-      for (const f of rawFarms) {
-        const nameKey = (f.name || "").trim().toLowerCase();
-        if (seenNames.has(nameKey)) {
-          const original = seenNames.get(nameKey)!;
-          duplicateFarmIdMap.set(f.id, original.id);
-        } else {
-          seenNames.set(nameKey, f);
-          deduped.push(f);
-        }
-      }
-      resolvedFarms = deduped;
-    }
 
     if (resolvedFarms.length > 0) {
       setFarms(resolvedFarms);
@@ -4297,15 +4496,6 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     const normFid = (fid?: string) => {
       if (!fid || fid === "default" || fid === "—") {
         return resolvedFarms[0]?.id || "";
-      }
-      if (duplicateFarmIdMap.has(fid)) {
-        return duplicateFarmIdMap.get(fid)!;
-      }
-      if (resolvedFarms.length === 1 && resolvedFarms[0]?.id) {
-        return resolvedFarms[0].id;
-      }
-      if (resolvedFarms.length > 0 && !resolvedFarms.some(f => f.id === fid)) {
-        return resolvedFarms[0].id;
       }
       return fid;
     };
@@ -4930,7 +5120,19 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     setShowChoosePlan(true);
   };
   const addReport=(r:Report)=>{
-    const rr={...r,id:isUuid(r.id)?r.id:crypto.randomUUID(),farmId:activeFarmId};
+    if (!canCreate("Reports")) {
+      toast.error("You do not have permission to submit reports.");
+      return;
+    }
+    const rr: Report = {
+      ...r,
+      id: isUuid(r.id) ? r.id : crypto.randomUUID(),
+      farmId: activeFarmId,
+      authorRole: isStaff ? "staff" : "owner",
+      createdByRole: isStaff ? "staff" : "owner",
+      createdById: userProfile?.id || null,
+      isStaffSubmission: isStaff,
+    };
     setReports(prev=>[rr,...prev]);
     toast.success("Report saved");
     api.reports.create(rr).catch(console.warn);
@@ -4938,7 +5140,37 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     const nid=`report-submitted-${rr.id}`;
     setExtraNotifs(prev=>[...prev.filter(n=>n.id!==nid),{id:nid,type:"report" as const,farmId:activeFarmId,farmName:farm?.name||"",date:TODAY,read:false,reportId:rr.id,reportTitle:rr.title,reportAuthor:rr.author,reportStatus:"submitted"}]);
   };
-  const editReportFn=(r:Report)=>{setReports(prev=>prev.map(x=>x.id===r.id?r:x));api.reports.update(r).catch(console.warn);};
+  const editReportFn=(r:Report)=>{
+    const isStaffReport = Boolean(r.isStaffSubmission || r.authorRole === "staff" || r.createdByRole === "staff");
+    if (isStaffReport) {
+      if (isOwner) {
+        // Admin/Owner can only update administrative review fields
+        const existing = reports.find(x => x.id === r.id);
+        if (existing) {
+          const reviewed: Report = {
+            ...existing,
+            adminReviewNote: r.adminReviewNote ?? existing.adminReviewNote,
+            adminReviewStatus: r.adminReviewStatus ?? existing.adminReviewStatus ?? "Reviewed",
+            reviewedBy: r.reviewedBy || userProfile?.name || "Admin",
+            reviewedAt: r.reviewedAt || new Date().toISOString(),
+          };
+          setReports(prev => prev.map(x => x.id === r.id ? reviewed : x));
+          api.reports.update(reviewed).catch(console.warn);
+          toast.success("Admin review note saved");
+          return;
+        }
+      } else {
+        toast.error("Submitted staff reports are official records and cannot be edited.");
+        return;
+      }
+    }
+    if (!canEdit("Reports")) {
+      toast.error("You do not have permission to edit reports.");
+      return;
+    }
+    setReports(prev=>prev.map(x=>x.id===r.id?r:x));
+    api.reports.update(r).catch(console.warn);
+  };
   const addStaff=(s:StaffMember, password?: string)=>{
     const staffId=isUuid(s.id)?s.id:crypto.randomUUID();
     const cleanStaff={...s,id:staffId};
@@ -5078,6 +5310,10 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     setCQuestions_(qs);
   };
   const addInvoice=async(inv:Invoice)=>{
+    if (!canCreate("Invoices")) {
+      toast.error("You do not have permission to create invoices.");
+      return;
+    }
     const fid=inv.farmId||activeFarmId||farms[0]?.id||"";
     const ni:Invoice={...inv,id:isUuid(inv.id)?inv.id:crypto.randomUUID(),farmId:fid};
     setInvoices(prev=>[ni,...prev]);
@@ -5093,6 +5329,10 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     }
   };
   const editInvoice=async(inv:Invoice)=>{
+    if (!canEdit("Invoices")) {
+      toast.error("You do not have permission to edit invoices.");
+      return;
+    }
     const old=invoices.find(x=>x.id===inv.id);
     setInvoices(prev=>prev.map(x=>x.id===inv.id?inv:x));
     try {
@@ -5113,6 +5353,10 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     }
   };
   const deleteInvoice=async(id:string)=>{
+    if (!canDelete("Invoices")) {
+      toast.error("You do not have permission to delete invoices.");
+      return;
+    }
     setInvoices(prev=>prev.filter(x=>x.id!==id));
     try {
       await api.invoices.remove(id);
@@ -5126,42 +5370,6 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   const addPriceGroup=(g:PriceGroup)=>{const fid=g.farmId||activeFarmId||farms[0]?.id||"";const ng={...g,id:isUuid(g.id)?g.id:crypto.randomUUID(),farmId:fid};setPriceGroups(prev=>[...prev,ng]);api.priceGroups.create(ng).catch(console.warn);};
   const editPriceGroup=(g:PriceGroup)=>{setPriceGroups(prev=>prev.map(x=>x.id===g.id?g:x));api.priceGroups.update(g).catch(console.warn);};
   const delPriceGroup=(id:string)=>{setPriceGroups(prev=>prev.filter(g=>g.id!==id));api.priceGroups.remove(id).catch(console.warn);};
-  /* ── Permission derivation & farm scoping ── */
-  const currentStaff = staff.find(s => (s.staffAuthId && userProfile?.id && s.staffAuthId === userProfile.id) || (s.email && userProfile?.email && s.email.trim().toLowerCase() === userProfile.email.trim().toLowerCase()));
-  const isStaff = userProfile?.role === "staff" || Boolean((userProfile as any)?.ownerId) || (Boolean(currentStaff) && currentStaff?.role !== "Admin" && currentStaff?.role !== "Director" && userProfile?.role !== "owner");
-  const isOwner = !isStaff;
-
-  const hasPerm = useCallback((p: string) => {
-    if (isOwner) return true;
-    const perms = (currentStaff?.permissions && currentStaff.permissions.length > 0)
-      ? currentStaff.permissions
-      : (userProfile?.permissions || []);
-    if (perms.length === 0) return false;
-    if (perms.includes(p)) return true;
-    if (p === "Invoices" && perms.includes("Invoice")) return true;
-    if (p === "Invoice" && perms.includes("Invoices")) return true;
-    if (p === "Staff Assessments" && (perms.includes("Staff Assessment") || perms.includes("Staff Assessments"))) return true;
-    if (p === "Notifications" && (perms.includes("Notification") || perms.includes("Notifications"))) return true;
-    if (p === "Pond Details" && perms.includes("Pond Management")) return true;
-    return false;
-  }, [isOwner, currentStaff?.permissions, userProfile?.permissions]);
-
-  // Action-level permission helpers (canCreate/canEdit/canDelete per feature).
-  // For owners these always return true. For staff they check the action-level
-  // permissions loaded from the backend (staffOwnPermissions or currentStaff.staffPermissions).
-  const staffPermsMap: Record<string,{canView:boolean;canCreate:boolean;canEdit:boolean;canDelete:boolean}> =
-    (isStaff && Object.keys(staffOwnPermissions).length > 0)
-      ? staffOwnPermissions
-      : (currentStaff?.staffPermissions || {});
-
-  const canCreate = (feature: string): boolean => isOwner || (hasPerm(feature) && (staffPermsMap[feature]?.canCreate ?? false));
-  const canEdit   = (feature: string): boolean => isOwner || (hasPerm(feature) && (staffPermsMap[feature]?.canEdit   ?? false));
-  const canDelete = (feature: string): boolean => isOwner || (hasPerm(feature) && (staffPermsMap[feature]?.canDelete ?? false));
-
-  const assignedStaffFarms = farms.filter(f => currentStaff?.farms?.includes(f.id) || (userProfile as any)?.farms?.includes(f.id));
-  // FIXED: staff with no farm assignments see NO farms (not all farms).
-  // Previously the fallback `farms` let staff see all owner farms by default.
-  const accessibleFarms = isOwner ? farms : assignedStaffFarms;
 
   // Auto-redirect staff to their first permitted page if their current view is not permitted
   useEffect(() => {
@@ -5216,6 +5424,10 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   const farmInvestors=investors.filter(inv=>!inv.farmId||matchesFarm(inv.farmId));
 
   const handleAddInvestor=async(inv:Investor,investment:Investment,payments:InvestmentPayment[])=>{
+    if (!canCreate("Investors")) {
+      toast.error("You do not have permission to add investors.");
+      return;
+    }
     const fid=activeFarmId||farms[0]?.id||"";
     const cleanInvestor:Investor={...inv,id:isUuid(inv.id)?inv.id:crypto.randomUUID(),farmId:fid};
     setInvestors(prev=>[cleanInvestor,...prev]);
@@ -5246,6 +5458,10 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   };
 
   const handleEditInvestor=async(inv:Investor)=>{
+    if (!canEdit("Investors")) {
+      toast.error("You do not have permission to edit investors.");
+      return;
+    }
     setInvestors(prev=>prev.map(i=>i.id===inv.id?inv:i));
     try {
       await api.investors.update(inv);
@@ -5257,6 +5473,10 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   };
 
   const handleEditInvestment=async(inv:Investment)=>{
+    if (!canEdit("Investors")) {
+      toast.error("You do not have permission to edit investments.");
+      return;
+    }
     setInvestments(prev=>prev.map(i=>i.id===inv.id?inv:i));
     try {
       await api.investments.update(inv);
@@ -5268,6 +5488,10 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   };
 
   const handleDeleteInvestor=async(id:string)=>{
+    if (!canDelete("Investors")) {
+      toast.error("You do not have permission to delete investors.");
+      return;
+    }
     setInvestors(prev=>prev.filter(i=>i.id!==id));
     const toDelInvIds=investments.filter(i=>i.investorId===id).map(i=>i.id);
     setInvestments(prev=>prev.filter(i=>i.investorId!==id));
@@ -5282,6 +5506,10 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   };
 
   const handleRecordPayment=async(payment:InvestmentPayment)=>{
+    if (!canCreate("Investors") && !canEdit("Investors")) {
+      toast.error("You do not have permission to record investor payments.");
+      return;
+    }
     const fid=payment.farmId||activeFarmId||farms[0]?.id||"";
     const cleanPay:InvestmentPayment={...payment,id:isUuid(payment.id)?payment.id:crypto.randomUUID(),farmId:fid};
     setInvestmentPayments(prev=>[cleanPay,...prev]);
@@ -5295,6 +5523,10 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   };
 
   const handleMarkPaymentPaid=async(paymentId:string)=>{
+    if (!canEdit("Investors")) {
+      toast.error("You do not have permission to update payments.");
+      return;
+    }
     const p=investmentPayments.find(x=>x.id===paymentId);
     if(!p)return;
     const updated:InvestmentPayment={...p,status:"Paid",paymentDate:TODAY};
@@ -5309,8 +5541,20 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   };
 
   const handleAddPondReport=async(r:PondReport)=>{
+    if (!canCreate("Reports") && !canCreate("Pond Management")) {
+      toast.error("You do not have permission to submit pond reports.");
+      return;
+    }
     const fid=r.farmId||activeFarmId||farms[0]?.id||"";
-    const nr:PondReport={...r,id:isUuid(r.id)?r.id:crypto.randomUUID(),farmId:fid};
+    const nr:PondReport={
+      ...r,
+      id:isUuid(r.id)?r.id:crypto.randomUUID(),
+      farmId:fid,
+      authorRole: isStaff ? "staff" : "owner",
+      createdByRole: isStaff ? "staff" : "owner",
+      createdById: userProfile?.id || null,
+      isStaffSubmission: isStaff,
+    };
     setPondReports(prev=>[nr,...prev]);
     try {
       await api.pondReports.create(nr);
@@ -5675,9 +5919,9 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
             {active==="inventory"     &&(hasPerm("Feed Stock")?<FeedInventoryPage inventory={farmInventory} onAdd={addInv} onDelete={delInv} feedingRecords={farmFeeding} bagLogs={farmBagLogs} remainLogs={farmRemainLogs} ponds={farmPonds} onEditBagLog={editBagLog} onEditInv={editInv} currency={cs} canEditLocked={isOwner||currentStaff?.role==="Farm Manager"} canCreate={canCreate("Feed Stock")} canEdit={canEdit("Feed Stock")} canDelete={canDelete("Feed Stock")}/>:<AccessDenied/>)}
             {active==="documentation" &&(hasPerm("Feeding Records")?<FeedDocumentationPage feedingRecords={farmFeeding} onAddRecord={addFeed} onEditFeedRecord={editFeedRecord} onDeleteRecord={deleteFeedRecord} ponds={farmPonds} inventory={farmInventory} bagLogs={farmBagLogs} onAddBagLog={addBagLog} onEditBagLog={editBagLog} onEditInv={editInv} remainLogs={farmRemainLogs} onAddRemainLog={addRemainLog} onEditRemainLog={editRemainLog} onReconMismatches={onReconMismatches} reconFocus={reconFocus} canEditLocked={isOwner||currentStaff?.role==="Farm Manager"} currentUser={{name:currentStaff?.name||userProfile?.name||"",email:userProfile?.email||""}} canCreate={canCreate("Feeding Records")} canEdit={canEdit("Feeding Records")} canDelete={canDelete("Feeding Records")}/>:<AccessDenied/>)}
             {active==="invoices"      &&(hasPerm("Invoices")?<InvoicesPage ponds={farmPonds} invoices={farmInvoices} customers={farmCustomers} priceGroups={farmPriceGroups} settings={invSettings} onAddInvoice={addInvoice} onEditInvoice={editInvoice} onDeleteInvoice={deleteInvoice} onAddCustomer={addCustomer} onAddPriceGroup={addPriceGroup} onEditPriceGroup={editPriceGroup} onDeletePriceGroup={delPriceGroup} onUpdateSettings={(s)=>{setInvSettings(s);api.invSettings.update(s).catch(console.warn);}} currentUser={userProfile?.name} currency={cs} canCreate={canCreate("Invoices")} canEdit={canEdit("Invoices")} canDelete={canDelete("Invoices")}/>:<AccessDenied/>)}
-            {active==="staff"         &&(isOwner?<StaffPage staff={staff} onAdd={addStaff} onEdit={editStaff} onDelete={delStaff} farms={farms} activeFarmId={activeFarmId} ownerEmail={userProfile?.email}/>:<AccessDenied/>)}
+            {active==="staff"         &&(isOwner?<StaffPage staff={staff} onAdd={addStaff} onEdit={editStaff} onDelete={delStaff} farms={farms.filter(f => f.userId === userProfile?.id || isOwner)} activeFarmId={activeFarmId} ownerEmail={userProfile?.email}/>:<AccessDenied/>)}
             {active==="investors"     &&(hasPerm("Investors")?<InvestorsPage investors={farmInvestors} investments={farmInvestments} payments={farmPayments} farms={farms} ponds={farmPonds} stockEvents={stockEvents} activeFarmId={activeFarmId} currency={cs} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}} isOwner={isOwner} canManage={isOwner||hasPerm("Investors")} onAddInvestor={handleAddInvestor} onEditInvestor={handleEditInvestor} onEditInvestment={handleEditInvestment} onDeleteInvestor={handleDeleteInvestor} onRecordPayment={handleRecordPayment} onMarkPaymentPaid={handleMarkPaymentPaid} canCreate={canCreate("Investors")} canEdit={canEdit("Investors")} canDelete={canDelete("Investors")}/>:<AccessDenied/>)}
-            {active==="reports"       &&(hasPerm("Reports")?<ReportsPage reports={farmReports} staff={staff} onAdd={addReport} onEdit={editReportFn} pondReports={farmPondReports} treatments={farmTreatments} farms={farms} ponds={farmPonds} stockEvents={stockEvents} onAddPondReport={handleAddPondReport} activeFarmId={activeFarmId} canCreate={canCreate("Reports")} canEdit={canEdit("Reports")} canDelete={canDelete("Reports")}/>:<AccessDenied/>)}
+            {active==="reports"       &&(hasPerm("Reports")?<ReportsPage reports={farmReports} staff={staff} onAdd={addReport} onEdit={editReportFn} pondReports={farmPondReports} treatments={farmTreatments} farms={farms} ponds={farmPonds} stockEvents={stockEvents} onAddPondReport={handleAddPondReport} activeFarmId={activeFarmId} canCreate={canCreate("Reports")} canEdit={canEdit("Reports")} canDelete={canDelete("Reports")} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}} isOwner={isOwner}/>:<AccessDenied/>)}
             {active==="assessments"   &&(hasPerm("Staff Assessments")?<EmployeeAssessmentsPage kQuestions={kQuestions} cQuestions={cQuestions} kResults={kResults} cResults={cResults} onSaveKQuestions={saveKQuestions} onSaveCQuestions={saveCQuestions} onAddKResult={addKResult} onAddCResult={addCResult} ownerId={userProfile?.id??""}/>:<AccessDenied/>)}
             {active==="pricing"       &&(isOwner?<SubscriptionPage farmCount={farms.length} activePlan={activePlan} setActivePlan={setActivePlan} trialStartDate={trialStartDate} setTrialStartDate={setTrialStartDate} currency={cs} convertPrice={cvt} userProfile={userProfile} activeFarmName={farms.find(f=>f.id===activeFarmId)?.name||userProfile?.farmName}/>:<AccessDenied/>)}
             {active==="settings"      &&<SettingsPage farms={isOwner?farms:accessibleFarms} onAddFarm={handleAddFarmDirect} onEditFarm={handleEditFarm} onDeleteFarm={handleDeleteFarm} userProfile={userProfile} onUpdateProfile={handleUpdateProfile} isOwner={isOwner} ponds={ponds} activePlan={activePlan}/>}

@@ -14,7 +14,7 @@ export interface MortalityEntry { id:string; pondId:string; date:string; count:n
 export interface BagOpenLog    { id:string; date:string; month:string; year:number; brand:string; size:string; kgPerBag:number; bagsOpened:number; totalKg:number; fishStock?:string; farmId?:string; }
 export interface FeedRemainingLog { id:string; brand:string; size:string; fishStock:string; remainingKg:number; date:string; farmId?:string; month?:string; year?:number; }
 export interface StaffMember  { id:string; userId?:string; staffAuthId?:string; name:string; email:string; phone:string; role:string; status:"Active"|"Pending"; joinedDate:string; permissions:string[]; farms:string[]; staffPermissions?: Record<string, { canView:boolean; canCreate:boolean; canEdit:boolean; canDelete:boolean }>; }
-export interface Report       { id:string; title:string; content:string; type:"Daily"|"Weekly"|"Monthly"; author:string; date:string; status:"Open"|"Resolved"; resolvedBy?:string; resolvedDate?:string; tags:string[]; timestamp?:string; farmId?:string; }
+export interface Report       { id:string; title:string; content:string; type:"Daily"|"Weekly"|"Monthly"|"Pond-Based"; author:string; date:string; status:"Open"|"Resolved"; resolvedBy?:string; resolvedDate?:string; tags:string[]; timestamp?:string; farmId?:string; createdById?:string; createdByRole?:string; isStaffSubmission?:boolean; adminReviewNote?:string; adminReviewStatus?:string; reviewedBy?:string; reviewedAt?:string; }
 export interface UserProfile  { id?:string; name:string; farmName:string; city:string; state:string; country:string; email:string; phone:string; currencySymbol:string; currencyCode:string; activePlan?:string|null; trialStartDate?:string|null; role?:string; permissions?:string[]; ownerId?:string; farms?:string[]; }
 
 export interface StockEvent   { id:string; pondId:string; pondName:string; date:string; species:string; count:number; avgWeight?:number; cost:number; salePrice?:number; type:"Initial"|"Transfer"|"Restock"|"Closed"; fromPond?:string; clearedDate?:string; supplier?:string; farmId?:string; }
@@ -100,6 +100,13 @@ export interface PondReport {
   treatmentId?: string;
   recordedBy?: string;
   createdBy?: string;
+  authorId?: string;
+  authorRole?: string;
+  isStaffSubmission?: boolean;
+  adminReviewNote?: string;
+  adminReviewStatus?: string;
+  reviewedBy?: string;
+  reviewedAt?: string;
   createdAt?: string;
   updatedAt?: string;
 }

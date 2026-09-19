@@ -895,10 +895,33 @@ export default function PondReportsComponent({
                   </p>
                 </div>
               )}
+
+              {(viewingReport.adminReviewNote || viewingReport.adminReviewStatus) && (
+                <div className="pt-2 border-t border-slate-100">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <p className="text-[10px] text-indigo-700 uppercase font-bold tracking-wider">Administrative Review</p>
+                    {viewingReport.adminReviewStatus && (
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800 border border-indigo-200">
+                        {viewingReport.adminReviewStatus}
+                      </span>
+                    )}
+                  </div>
+                  {viewingReport.adminReviewNote && (
+                    <p className="p-2.5 bg-indigo-50/70 border border-indigo-200 rounded-xl text-indigo-950 font-medium text-xs">
+                      {viewingReport.adminReviewNote}
+                    </p>
+                  )}
+                  {viewingReport.reviewedBy && (
+                    <p className="text-[10px] text-slate-400 mt-1">
+                      Reviewed by <span className="font-semibold text-slate-600">{viewingReport.reviewedBy}</span>{viewingReport.reviewedAt ? ` on ${new Date(viewingReport.reviewedAt).toLocaleDateString()}` : ""}
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="pt-3 border-t border-slate-100 flex justify-between items-center">
-              {canDelete && onDeletePondReport ? (
+              {canDelete && onDeletePondReport && !(viewingReport.isStaffSubmission || viewingReport.authorRole === "staff" || viewingReport.createdByRole === "staff") ? (
                 <button
                   type="button"
                   onClick={async () => {
@@ -912,6 +935,10 @@ export default function PondReportsComponent({
                 >
                   Delete Report
                 </button>
+              ) : (viewingReport.isStaffSubmission || viewingReport.authorRole === "staff" || viewingReport.createdByRole === "staff") ? (
+                <span className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-lg font-semibold">
+                  Official Staff Submission (Protected)
+                </span>
               ) : <div/>}
               <button
                 type="button"

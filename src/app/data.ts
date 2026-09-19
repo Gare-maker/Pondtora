@@ -250,23 +250,23 @@ export const fmtStockingDate = formatFishStockDate;
 export function formatFishStock(stock: string | null | undefined): string {
   if (!stock || stock === "—" || !stock.trim()) return "—";
   const trimmed = stock.trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
-    const formatted = formatFishStockDate(trimmed);
-    if (formatted && formatted !== "—") return formatted;
-  }
+  const formatted = formatFishStockDate(trimmed);
+  if (formatted && formatted !== "—") return formatted;
   return trimmed;
 }
 
 export function getPondFishStock(pond?: { species?: string; stockingDate?: string; name?: string; fishStock?: string } | null): string {
   if (!pond) return "General Stock";
+  // Stock date is the primary fish stock identity
+  if (pond.stockingDate && pond.stockingDate !== "—" && pond.stockingDate.trim()) {
+    const formatted = formatFishStockDate(pond.stockingDate);
+    if (formatted && formatted !== "—") return formatted;
+  }
   if ((pond as any).fishStock && (pond as any).fishStock.trim() && (pond as any).fishStock !== "—") {
-    return (pond as any).fishStock.trim();
+    return formatFishStock((pond as any).fishStock.trim());
   }
   if (pond.species && pond.species !== "—" && !POND_SPECIES.includes(pond.species)) {
     return pond.species;
-  }
-  if (pond.stockingDate && pond.stockingDate !== "—") {
-    return formatFishStockDate(pond.stockingDate);
   }
   if (pond.species && pond.species !== "—") {
     return pond.species;
@@ -276,23 +276,11 @@ export function getPondFishStock(pond?: { species?: string; stockingDate?: strin
 
 export function getFishStockDisplay(pond?: { species?: string; stockingDate?: string; name?: string; fishStock?: string } | null): string {
   if (!pond) return "—";
-  if ((pond as any).fishStock && (pond as any).fishStock.trim() && (pond as any).fishStock !== "—") {
-    const fs = (pond as any).fishStock.trim();
-    if (pond.stockingDate && pond.stockingDate !== "—") {
-      const formattedDate = formatFishStockDate(pond.stockingDate);
-      return `${fs} (${formattedDate})`;
-    }
-    return fs;
-  }
-  if (pond.species && pond.species !== "—" && !POND_SPECIES.includes(pond.species)) {
-    return pond.species;
-  }
   if (pond.stockingDate && pond.stockingDate !== "—") {
-    const formattedDate = formatFishStockDate(pond.stockingDate);
-    if (pond.species && pond.species !== "—") {
-      return `${pond.species} (${formattedDate})`;
-    }
-    return formattedDate;
+    return formatFishStockDate(pond.stockingDate);
+  }
+  if ((pond as any).fishStock && (pond as any).fishStock.trim() && (pond as any).fishStock !== "—") {
+    return formatFishStock((pond as any).fishStock);
   }
   if (pond.species && pond.species !== "—") {
     return pond.species;
