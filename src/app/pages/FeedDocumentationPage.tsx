@@ -552,15 +552,30 @@ function FeedDocumentation({
     setEditDocBag(null);
   };
 
+  /* ── helper: check if Fish Stock + Pellet Size is already recorded for a given date ── */
+  const isStockAndSizeAlreadyLogged = (stockName: string, palletSize: string, checkDate: string): boolean => {
+    if (!stockName || !palletSize || !checkDate) return false;
+    const normalizedStock = normalizeFishStock(stockName).toLowerCase().trim();
+    const normalizedSize = palletSize.toLowerCase().trim();
+    const dateLabel = toDateLabel(checkDate);
+    return (bagLogs || []).some(b =>
+      (isSameDate(b.date, checkDate) || isSameDate(b.date, dateLabel)) &&
+      normalizeFishStock(b.fishStock).toLowerCase().trim() === normalizedStock &&
+      (b.size || "").toLowerCase().trim() === normalizedSize
+    );
+  };
+
   /* ── bags opened modal state ── */
   const [bagsDate, setBagsDate] = useState(TODAY);
   type BagRow = { fishStock: string; brand: string; size: string; kgPerBag: number; qty: string };
-  const blankBagRow = (): BagRow => {
+  const blankBagRow = (targetDate?: string): BagRow => {
     const fs = activeFishStockOptions[0]?.name || "";
     const b = invBrands[0] || "";
-    const s = invSizesForBrand(b)[0] || "";
-    const inv = (inventory || []).find(f => f && f.brand === b && f.size === s);
-    return { fishStock: fs, brand: b, size: s, kgPerBag: inv?.weightPerBag || 15, qty: "" };
+    const allSizes = invSizesForBrand(b);
+    const dateToCheck = targetDate || bagsDate;
+    const unloggedSize = allSizes.find(s => !isStockAndSizeAlreadyLogged(fs, s, dateToCheck)) || allSizes[0] || "";
+    const inv = (inventory || []).find(f => f && f.brand === b && f.size === unloggedSize);
+    return { fishStock: fs, brand: b, size: unloggedSize, kgPerBag: inv?.weightPerBag || 15, qty: "" };
   };
   const [bagRows, setBagRows] = useState<BagRow[]>([]);
   const openBagsModal = () => {
@@ -579,7 +594,7 @@ function FeedDocumentation({
       }
     }
     setBagsDate(initialDate);
-    setBagRows([blankBagRow()]);
+    setBagRows([blankBagRow(initialDate)]);
     setBagsErr({});
     setShowBagsModal(true);
   };
@@ -587,14 +602,28 @@ function FeedDocumentation({
   const removeBagRow = (i: number) => setBagRows(prev => prev.filter((_, idx) => idx !== i));
   const updateBagRow = (i: number, k: keyof BagRow, v: string) => setBagRows(prev => prev.map((r, idx) => {
     if (idx !== i) return r;
+    if (k === "fishStock") {
+      const allSizes = invSizesForBrand(r.brand);
+      const isCurLogged = isStockAndSizeAlreadyLogged(v, r.size, bagsDate);
+      let newSize = r.size;
+      if (isCurLogged) {
+        const unloggedSize = allSizes.find(s => !isStockAndSizeAlreadyLogged(v, s, bagsDate));
+        if (unloggedSize) newSize = unloggedSize;
+      }
+      const inv = (inventory || []).find(f => f && f.brand === r.brand && f.size === newSize);
+      return { ...r, fishStock: v, size: newSize, kgPerBag: inv?.weightPerBag || 15 };
+    }
     if (k === "brand") {
       const szs = invSizesForBrand(v);
-      const newSize = szs.includes(r.size) ? r.size : (szs[0] || "");
-      const inv = (inventory || []).find(f => f && f.brand === v && f.size === newSize);
-      return { ...r, brand: v, size: newSize, kgPerBag: inv?.weightPerBag || 15 };
+      const unloggedSize = szs.find(s => !isStockAndSizeAlreadyLogged(r.fishStock, s, bagsDate)) || szs[0] || "";
+      const inv = (inventory || []).find(f => f && f.brand === v && f.size === unloggedSize);
+      return { ...r, brand: v, size: unloggedSize, kgPerBag: inv?.weightPerBag || 15 };
     }
     const u = { ...r, [k]: v };
-    if (k === "size") { const inv = (inventory || []).find(f => f && f.brand === r.brand && f.size === v); u.kgPerBag = inv?.weightPerBag || 15; }
+    if (k === "size") {
+      const inv = (inventory || []).find(f => f && f.brand === r.brand && f.size === v);
+      u.kgPerBag = inv?.weightPerBag || 15;
+    }
     return u;
   }));
   const filledBagRows = bagRows.filter(r => Number(r.qty) > 0);
@@ -607,7 +636,7 @@ function FeedDocumentation({
     const dateLabel = toDateLabel(bagsDate);
 
     // Track combinations within the form to prevent duplicate rows in single submission
-    const formKeys = new Set<string>();
+    const formStockSizeKeys = new Set<string>();
 
     filledBagRows.forEach((r, idx) => {
       if (!r.fishStock) {
@@ -623,24 +652,20 @@ function FeedDocumentation({
         return;
       }
 
-      const normalizedStock = normalizeFishStock(r.fishStock);
-      const comboKey = `${normalizedStock.toLowerCase().trim()}__${r.brand.toLowerCase().trim()}__${r.size.toLowerCase().trim()}`;
+      const normalizedStock = normalizeFishStock(r.fishStock).toLowerCase().trim();
+      const normalizedSize = r.size.toLowerCase().trim();
+      const stockSizeKey = `${normalizedStock}__${normalizedSize}`;
 
-      // Duplicate check 1: Duplicate within the form
-      if (formKeys.has(comboKey)) {
-        errs[`dup_${idx}`] = `Duplicate entry: "${r.fishStock} + ${r.brand} + ${r.size}" has already been entered in this form.`;
+      // Duplicate check 1: Duplicate within the form for the same stock and pallet size
+      if (formStockSizeKeys.has(stockSizeKey)) {
+        errs[`dup_${idx}`] = `Duplicate entry in form: Fish Stock "${r.fishStock}" with pellet size "${r.size}" has already been entered. You can only log for the same stock if the pallet size is different.`;
       }
-      formKeys.add(comboKey);
+      formStockSizeKeys.add(stockSizeKey);
 
-      // Duplicate check 2: Duplicate against existing records for the same date
-      const alreadyLogged = (bagLogs || []).some(b =>
-        (isSameDate(b.date, bagsDate) || isSameDate(b.date, dateLabel)) &&
-        normalizeFishStock(b.fishStock).toLowerCase().trim() === normalizedStock.toLowerCase().trim() &&
-        b.brand.toLowerCase().trim() === r.brand.toLowerCase().trim() &&
-        b.size.toLowerCase().trim() === r.size.toLowerCase().trim()
-      );
+      // Duplicate check 2: Duplicate against existing records for the same date and stock + pallet size
+      const alreadyLogged = isStockAndSizeAlreadyLogged(r.fishStock, r.size, bagsDate);
       if (alreadyLogged) {
-        errs[`dup_${idx}`] = `The same Fish Stock, Brand, and Pallet Size (${r.fishStock} + ${r.brand} + ${r.size}) has already been recorded for ${dateLabel}. Please edit the existing entry if you need to adjust bag quantities.`;
+        errs[`dup_${idx}`] = `Cannot log bag open twice: Fish Stock "${r.fishStock}" with pellet size "${r.size}" has already been recorded for ${dateLabel}. You can only log for this stock if the pallet size is different.`;
       }
 
       const requestedBags = Number(r.qty) || 0;
@@ -1076,42 +1101,15 @@ function FeedDocumentation({
                 <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" />
                 <input value={dailySearch} onChange={e => setDailySearch(e.target.value)} placeholder="Search pond, stock, or size…" className={`${IC} pl-8 w-52 text-xs py-1.5`} />
               </div>
-              {mergedBagRows.filter(r => r.bagsOpened > 0).length > 0 && (
-                <button onClick={() => setDocTab("bags")} className="text-xs font-bold text-blue-700 hover:text-blue-900 bg-blue-50 px-2.5 py-1.5 rounded-lg border border-blue-200 transition-colors flex items-center gap-1.5">
-                  <Package size={13} /> {mergedBagRows.filter(r => r.bagsOpened > 0).reduce((s, r) => s + r.bagsOpened, 0)} Bags Opened Today →
-                </button>
-              )}
             </div>
           </div>
-
-          {/* ── Opened Bags for Selected Date Quick Bar ── */}
-          {mergedBagRows.filter(r => r.bagsOpened > 0).length > 0 ? (
-            <div className="px-5 py-2.5 bg-blue-50/60 border-b border-blue-100 flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-xs font-bold text-blue-900 flex items-center gap-1.5"><Package size={13} className="text-blue-600" /> Opened Bags:</span>
-                {mergedBagRows.filter(r => r.bagsOpened > 0).map((r, idx) => (
-                  <span key={idx} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-white border border-blue-200 text-blue-800 shadow-2xs">
-                    <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
-                    <span className="font-bold text-slate-800">{r.brand} {r.size}</span>
-                    <span className="text-slate-500 font-normal">({formatFishStock(r.fishStock)})</span>:
-                    <strong className="font-bold text-blue-700">{r.bagsOpened} bag{r.bagsOpened !== 1 ? "s" : ""} ({r.totalKgOpened}kg)</strong>
-                  </span>
-                ))}
-              </div>
-              <button onClick={() => setDocTab("bags")} className="text-xs font-bold text-blue-700 hover:text-blue-900 transition-colors underline ml-auto">Manage Bags →</button>
-            </div>
-          ) : (
-            <div className="px-5 py-2 bg-slate-50 border-b border-slate-100 text-xs text-slate-500">
-              <span>No bags opened logged for {selDate}.</span>
-            </div>
-          )}
 
           <div className="overflow-x-auto">
             <table className="w-full text-sm min-w-[950px]">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-100">
-                  <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left w-10 sticky left-0 z-20 bg-slate-50">#</th>
-                  <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left sticky left-10 z-20 bg-slate-50 border-r border-slate-200">Pond</th>
+                  <th className="w-12 min-w-[48px] max-w-[48px] px-2 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-center sticky left-0 z-20 bg-slate-50">#</th>
+                  <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left sticky left-[48px] z-20 bg-slate-50 border-r border-slate-200 min-w-[130px]">Pond</th>
                   {["Fish Stock (Tied)", "Stock Date", "Initial Stock", "Fish Count", "Pellet Size", "Morning (kg)", "AM Time", "Evening (kg)", "PM Time", "Total (kg)", "Recorded By"].map(h => (
                     <th key={h} className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left whitespace-nowrap">{h}</th>
                   ))}
@@ -1127,8 +1125,8 @@ function FeedDocumentation({
                   const stockDateFormatted = pond.stockingDate && pond.stockingDate !== "—" ? formatFishStockDate(pond.stockingDate) : "—";
                   return (
                     <tr key={pond.id} onClick={() => rec && setViewFeedRec(rec)} className={`transition-colors ${hasFeed ? "hover:bg-green-50/30 cursor-pointer" : "opacity-40 hover:opacity-60"}`}>
-                      <td className="px-4 py-3.5 text-slate-300 text-xs font-mono w-10 sticky left-0 z-10 bg-white">{i + 1}</td>
-                      <td className="px-4 py-3.5 min-w-[130px] sticky left-10 z-10 bg-white border-r border-slate-100">
+                      <td className={`w-12 min-w-[48px] max-w-[48px] px-2 py-3.5 text-slate-300 text-xs font-mono text-center sticky left-0 z-10 ${hasFeed ? "bg-white" : "bg-white"}`}>{i + 1}</td>
+                      <td className="px-4 py-3.5 min-w-[130px] sticky left-[48px] z-10 bg-white border-r border-slate-100">
                         <p className="font-semibold text-slate-900">{pond.name}</p>
                         <p className="text-[11px] text-slate-400">{pond.type || "—"}</p>
                       </td>
@@ -1266,14 +1264,14 @@ function FeedDocumentation({
                   <thead>
                     <tr className="bg-slate-50 border-b border-slate-100">
                       <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left whitespace-nowrap sticky left-0 z-20 bg-slate-50 border-r border-slate-200 min-w-[160px]">Fish Stock</th>
-                      <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left whitespace-nowrap">Stock Date</th>
                       <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left whitespace-nowrap">Pellet Size</th>
                       <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left whitespace-nowrap">Feed Brand</th>
-                      <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left whitespace-nowrap">Ponds Included</th>
-                      <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left whitespace-nowrap">Bags Opened</th>
-                      <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left whitespace-nowrap">KG Opened</th>
-                      <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left whitespace-nowrap">KG Consumed</th>
-                      <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left whitespace-nowrap">Remaining KG</th>
+                      <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left whitespace-nowrap">Ponds</th>
+                      <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left whitespace-nowrap">Exp. Feed (kg)</th>
+                      <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left whitespace-nowrap">Exp. Bags</th>
+                      <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left whitespace-nowrap">Rec. Bags</th>
+                      <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left whitespace-nowrap">Exp. Remaining</th>
+                      <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left whitespace-nowrap">Rec. Remaining</th>
                       <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left whitespace-nowrap">Status</th>
                     </tr>
                   </thead>
@@ -1282,8 +1280,8 @@ function FeedDocumentation({
                       const rowKey = `${r.fishStock}||${r.brand}||${r.size}`;
                       const highlighted = !!(reconFocus && reconFocus.key === `${r.fishStock}__${r.brand}__${r.size}`);
                       const sc = STATUS_CFG[r.status] || STATUS_CFG.matched;
-                      const hasShortage = r.kgConsumed > (r.carryover + r.kgOpened);
-                      const shortageAmt = (r.kgConsumed - (r.carryover + r.kgOpened)).toFixed(1);
+                      const bagErr = r.status === "bag_mismatch" || r.status === "multiple_mismatches";
+                      const remErr = r.status === "remaining_mismatch" || r.status === "multiple_mismatches";
                       return (
                         <tr
                           key={rowKey}
@@ -1293,9 +1291,9 @@ function FeedDocumentation({
                         >
                           <td className="px-4 py-3 sticky left-0 z-10 bg-white border-r border-slate-100 min-w-[160px]">
                             <p className="text-xs font-semibold text-slate-800 leading-tight">{formatFishStock(r.fishStock)}</p>
-                          </td>
-                          <td className="px-4 py-3 text-xs text-teal-700 font-medium whitespace-nowrap">
-                            {r.stockDate !== "—" ? <span className="bg-teal-50 px-2 py-0.5 rounded border border-teal-200">{r.stockDate}</span> : "—"}
+                            {r.stockDate && r.stockDate !== "—" && (
+                              <p className="text-[10px] text-teal-700 font-medium mt-0.5">{r.stockDate}</p>
+                            )}
                           </td>
                           <td className="px-4 py-3"><Bdg label={r.size} color="blue" /></td>
                           <td className="px-4 py-3 font-semibold text-slate-700 whitespace-nowrap">{r.brand}</td>
@@ -1313,23 +1311,15 @@ function FeedDocumentation({
                               </span>
                             )}
                           </td>
-                          <td className="px-4 py-3 font-semibold text-slate-800 whitespace-nowrap">{r.recordedBags} bag{r.recordedBags !== 1 ? "s" : ""}</td>
-                          <td className="px-4 py-3 font-bold text-slate-900 whitespace-nowrap">
-                            <span>{r.kgOpened} kg</span>
-                            {r.recordedBags > 0 && <span className="block text-[10px] text-slate-400 font-normal">({r.recordedBags} × {r.bagWeight}kg)</span>}
-                          </td>
-                          <td className="px-4 py-3 font-bold text-blue-700 whitespace-nowrap">{r.kgConsumed} kg</td>
-                          <td className={`px-4 py-3 font-bold whitespace-nowrap ${r.remainingKg > 0 ? "text-green-700" : "text-slate-600"}`}>{r.remainingKg} kg</td>
+                          <td className="px-4 py-3 font-bold text-slate-800 whitespace-nowrap">{r.totalFed} kg</td>
+                          <td className="px-4 py-3 font-semibold text-slate-700 whitespace-nowrap">{r.expectedBags}</td>
+                          <td className={`px-4 py-3 font-semibold whitespace-nowrap ${bagErr ? "text-red-600 font-bold" : "text-slate-700"}`}>{r.recordedBags}</td>
+                          <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{r.expectedRemaining > 0 ? `${r.expectedRemaining} kg` : <span className="text-slate-300">—</span>}</td>
+                          <td className={`px-4 py-3 font-semibold whitespace-nowrap ${remErr ? "text-red-600 font-bold" : "text-slate-600"}`}>{r.recordedRemaining > 0 ? `${r.recordedRemaining} kg` : <span className="text-slate-300">—</span>}</td>
                           <td className="px-4 py-3 whitespace-nowrap">
-                            {hasShortage ? (
-                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-red-100 text-red-700 border border-red-200">
-                                🔴 Shortage: {shortageAmt} kg
-                              </span>
-                            ) : (
-                              <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold ${sc.cls}`}>
-                                {sc.label}
-                              </span>
-                            )}
+                            <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold ${sc.cls}`}>
+                              {sc.label}
+                            </span>
                           </td>
                         </tr>
                       );
@@ -1342,17 +1332,20 @@ function FeedDocumentation({
         );
       })()}
 
-      {/* ── Reconciliation Popup (Desktop & Mobile) ── */}
+      {/* ── Reconciliation Popup (Desktop & Mobile 7-Step Breakdown) ── */}
       {popupRecon && (() => {
         const pr = popupRecon;
+        const bagErr = pr.status === "bag_mismatch" || pr.status === "multiple_mismatches";
+        const remErr = pr.status === "remaining_mismatch" || pr.status === "multiple_mismatches";
+        const qtyErr = pr.status === "feed_qty_mismatch";
         const pondsForRow = (feedingRecords || []).filter(r =>
           r && isSameDate(r.date, selDate) &&
           r.size === pr.size &&
+          (!pr.brand || pr.brand === "—" || !r.brand || r.brand === pr.brand) &&
           (pr.ponds.includes(r.pond) || pondToStock(r.pond) === pr.fishStock) &&
           (Number(r.total) > 0 || Number(r.morning) > 0 || Number(r.evening) > 0)
         );
-        const hasShortage = pr.kgConsumed > (pr.carryover + pr.kgOpened);
-        const shortageAmt = (pr.kgConsumed - (pr.carryover + pr.kgOpened)).toFixed(1);
+        const ratio = pr.bagWeight > 0 ? (pr.netNeeded / pr.bagWeight).toFixed(2) : "—";
         const sc = STATUS_CFG[pr.status] || STATUS_CFG.matched;
 
         return (
@@ -1361,99 +1354,137 @@ function FeedDocumentation({
               <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 sticky top-0 bg-white z-10 shrink-0">
                 <div>
                   <h2 className="text-base font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Reconciliation Detail</h2>
-                  <p className="text-xs text-slate-500 mt-0.5">{selDate} · <strong>{formatFishStock(pr.fishStock)}</strong> (Stock Date: {pr.stockDate})</p>
-                  <p className="text-xs text-slate-400 font-medium mt-0.5">{pr.brand} · <span className="text-blue-600 font-bold">{pr.size}</span></p>
+                  <p className="text-xs text-slate-400 mt-0.5">{selDate} · <strong className="text-slate-700">{formatFishStock(pr.fishStock)}</strong> {pr.stockDate !== "—" && `(${pr.stockDate})`}</p>
+                  <p className="text-xs text-slate-400">{pr.brand} · <span className="font-semibold text-blue-600">{pr.size}</span></p>
                 </div>
                 <button onClick={() => setPopupRecon(null)} className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"><X size={18} /></button>
               </div>
               <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3 text-xs">
-                {hasShortage ? (
-                  <div className="px-3 py-2.5 rounded-xl text-xs font-bold text-center bg-red-100 text-red-700 border border-red-200">
-                    🔴 Shortage Detected: {shortageAmt} kg deficit for {pr.size}
-                  </div>
-                ) : (
-                  <div className={`px-3 py-2.5 rounded-xl text-xs font-bold text-center ${sc.cls}`}>{sc.label}</div>
-                )}
+                <div className={`px-3 py-2.5 rounded-xl text-xs font-bold text-center ${sc.cls}`}>{sc.label}</div>
 
-                {/* Step 1: Multi-Pond Breakdown */}
+                {/* Step 1 */}
                 <div className="bg-white border border-slate-200 rounded-xl p-4">
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2">Step 1 — Ponds Included &amp; Feed Consumed ({pr.size})</p>
-                  <div className="space-y-1.5 mb-2">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2">Step 1 — Total Feed Given to Fish Stock</p>
+                  <div className="space-y-1 mb-2">
                     {pondsForRow.length === 0 ? (
-                      <p className="text-slate-400 italic text-xs py-1">No individual pond feeding recorded for {pr.size} today.</p>
+                      <p className="text-slate-400 italic text-xs py-1">No feeding recorded for this feed today.</p>
                     ) : (
                       pondsForRow.map(r => (
                         <div key={r.id} className="flex items-center justify-between py-1 border-b border-slate-50 last:border-0">
-                          <div>
-                            <span className="text-slate-700 font-semibold">{r.pond}</span>
-                            <span className="text-[10px] text-slate-400 ml-2">(AM: {r.morning || 0}kg, PM: {r.evening || 0}kg)</span>
-                          </div>
-                          <span className="font-bold text-slate-900">{r.total} kg</span>
+                          <span className="text-slate-600 font-medium">{r.pond}</span>
+                          <span className="font-bold text-slate-800">{r.total} kg</span>
                         </div>
                       ))
                     )}
                   </div>
                   <div className="border-t border-slate-100 pt-2 flex items-center justify-between">
-                    <span className="font-bold text-slate-700">Total KG Consumed ({pr.size})</span>
-                    <span className="font-black text-blue-700 text-sm">{pr.kgConsumed} kg</span>
+                    <span className="font-bold text-slate-700">Total Feed Given ({formatFishStock(pr.fishStock)})</span>
+                    <span className="font-black text-blue-700 text-sm">{pr.totalFed} kg</span>
                   </div>
                 </div>
 
-                {/* Step 2: Bags Opened & Inventory */}
+                {/* Step 2 */}
                 <div className="bg-white border border-slate-200 rounded-xl p-4">
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2">Step 2 — Bags Opened &amp; KG Opened</p>
-                  <div className="space-y-1.5">
-                    <div className="flex items-center justify-between text-slate-600">
-                      <span>Bags Opened Recorded:</span>
-                      <span className="font-bold text-slate-900">{pr.recordedBags} bag{pr.recordedBags !== 1 ? "s" : ""}</span>
-                    </div>
-                    <div className="flex items-center justify-between text-slate-600">
-                      <span>Bag Weight ({pr.brand} {pr.size}):</span>
-                      <span className="font-medium text-slate-700">{pr.bagWeight} kg / bag</span>
-                    </div>
-                    <div className="flex items-center justify-between text-slate-600">
-                      <span>KG Opened ({pr.recordedBags} bags × {pr.bagWeight} kg):</span>
-                      <span className="font-bold text-slate-900">{pr.kgOpened} kg</span>
-                    </div>
-                    {pr.carryover > 0 && (
-                      <div className="flex items-center justify-between text-amber-700">
-                        <span>Yesterday's Carryover:</span>
-                        <span className="font-bold">+{pr.carryover} kg</span>
-                      </div>
-                    )}
-                    <div className="border-t border-slate-100 pt-1.5 flex items-center justify-between">
-                      <span className="font-bold text-slate-700">Total Available KG</span>
-                      <span className="font-black text-slate-900 text-sm">{pr.carryover + pr.kgOpened} kg</span>
-                    </div>
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2">Step 2 — Yesterday's Remaining</p>
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-500">Carryover from Yesterday</span>
+                    <span className="font-semibold text-amber-600">{pr.carryover} kg</span>
                   </div>
                 </div>
 
-                {/* Step 3: Reconciliation Formula */}
-                <div className={`rounded-xl p-4 border ${hasShortage ? "bg-red-50 border-red-200" : "bg-white border-slate-200"}`}>
-                  <p className={`text-[10px] font-bold uppercase tracking-wider mb-2 ${hasShortage ? "text-red-600" : "text-slate-400"}`}>
-                    Step 3 — Reconciliation (KG Opened − KG Consumed)
+                {/* Step 3 */}
+                <div className={`rounded-xl p-4 border ${qtyErr ? "bg-red-50 border-red-200" : "bg-white border-slate-200"}`}>
+                  <p className={`text-[10px] font-bold uppercase tracking-wider mb-2 ${qtyErr ? "text-red-500" : "text-slate-400"}`}>
+                    Step 3 — Required New Feed{qtyErr && " ⚠ Feed Qty Mismatch"}
                   </p>
-                  <div className="flex items-center gap-2 text-slate-600 text-xs font-mono pl-1">
-                    <span>{pr.carryover + pr.kgOpened} kg (Available) − {pr.kgConsumed} kg (Consumed)</span>
+                  <div className="flex items-center gap-2 text-slate-500 text-[11px] pl-1 font-mono">
+                    <span>{pr.totalFed} kg − {pr.carryover} kg</span>
                     <span>=</span>
-                    <span className={`font-black text-sm ${hasShortage ? "text-red-700" : "text-green-700"}`}>
-                      {hasShortage ? `-${shortageAmt} kg (Shortage)` : `${pr.remainingKg} kg (Remaining)`}
-                    </span>
+                    <span className={`font-black text-sm ${qtyErr ? "text-red-600" : "text-blue-600"}`}>{pr.netNeeded} kg</span>
                   </div>
-                  {hasShortage ? (
-                    <p className="text-[11px] text-red-600 font-semibold mt-2">
-                      ⚠️ Feeding recorded ({pr.kgConsumed} kg) exceeds available opened feed ({pr.carryover + pr.kgOpened} kg). Additional bags must be opened or records verified.
-                    </p>
-                  ) : (
-                    <p className="text-[11px] text-slate-500 mt-2">
-                      Remaining feed ({pr.remainingKg} kg) is stored in the feed shed and will carry over.
+                  {qtyErr && (
+                    <p className="text-[11px] text-red-600 font-semibold mt-1.5">
+                      Feed given ({pr.totalFed}kg) exceeds available ({pr.carryover}kg carryover + {pr.recordedBags * pr.bagWeight}kg bags = {pr.carryover + (pr.recordedBags * pr.bagWeight)}kg)
                     </p>
                   )}
                 </div>
 
-                {/* Step 4: Pallet Isolation Reminder */}
-                <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 text-[11px] text-slate-500">
-                  <span className="font-bold text-slate-700">Note:</span> Reconciliation is calculated strictly for <strong>{pr.brand} {pr.size}</strong> on <strong>{formatFishStock(pr.fishStock)}</strong>. Surpluses or shortages do not cross over to other pellet sizes.
+                {/* Step 4 */}
+                <div className={`rounded-xl p-4 border ${bagErr ? "bg-red-50 border-red-200" : "bg-white border-slate-200"}`}>
+                  <p className={`text-[10px] font-bold uppercase tracking-wider mb-2 ${bagErr ? "text-red-500" : "text-slate-400"}`}>
+                    Step 4 — Expected Bags Opened{bagErr && " ⚠ Bag Count Mismatch"}
+                  </p>
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between text-slate-600">
+                      <span>Bag Weight ({pr.brand} {pr.size})</span>
+                      <span className="font-semibold text-slate-700">{pr.bagWeight} kg/bag</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-slate-400 text-[11px] pl-1 font-mono">
+                      <span>{pr.netNeeded} kg ÷ {pr.bagWeight} kg</span>
+                      <span>=</span>
+                      <span className="font-bold text-slate-600">{ratio}</span>
+                    </div>
+                    <div className={`flex items-center justify-between border-t pt-1.5 ${bagErr ? "border-red-200" : "border-slate-100"}`}>
+                      <span className="font-bold text-slate-600">Rounded up to</span>
+                      <span className={`font-black text-sm ${bagErr ? "text-red-600" : "text-slate-900"}`}>{pr.expectedBags} bags</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Step 5 */}
+                <div className={`rounded-xl p-4 border ${bagErr ? "bg-red-50 border-red-200" : "bg-white border-slate-200"}`}>
+                  <p className={`text-[10px] font-bold uppercase tracking-wider mb-2 ${bagErr ? "text-red-500" : "text-slate-400"}`}>
+                    Step 5 — Recorded Bags Opened
+                  </p>
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-600">Recorded Bags</span>
+                    <span className={`font-black text-sm ${bagErr ? "text-red-600" : "text-green-600"}`}>
+                      {pr.recordedBags} bag{pr.recordedBags !== 1 ? "s" : ""} {bagErr ? "✗" : "✓"}
+                    </span>
+                  </div>
+                  {bagErr && (
+                    <p className="text-[11px] text-red-500 font-semibold mt-1.5">
+                      Expected {pr.expectedBags} bags, recorded {pr.recordedBags} bags
+                    </p>
+                  )}
+                </div>
+
+                {/* Step 6 */}
+                <div className={`rounded-xl p-4 border ${remErr ? "bg-red-50 border-red-200" : "bg-white border-slate-200"}`}>
+                  <p className={`text-[10px] font-bold uppercase tracking-wider mb-2 ${remErr ? "text-red-500" : "text-slate-400"}`}>
+                    Step 6 — Expected Remaining{remErr && " ⚠ Remaining Mismatch"}
+                  </p>
+                  <div className="space-y-1.5">
+                    <div className="flex items-center gap-2 text-slate-500 text-[11px] pl-1 font-mono">
+                      <span>{pr.carryover}kg + ({pr.expectedBags} × {pr.bagWeight}kg) − {pr.totalFed}kg</span>
+                      <span>=</span>
+                      <span className="font-bold text-slate-800">{pr.expectedRemaining} kg</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Step 7 */}
+                <div className={`rounded-xl p-4 border ${remErr ? "bg-red-50 border-red-200" : "bg-white border-slate-200"}`}>
+                  <p className={`text-[10px] font-bold uppercase tracking-wider mb-2 ${remErr ? "text-red-500" : "text-slate-400"}`}>
+                    Step 7 — Recorded Remaining
+                  </p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <p className="text-[10px] text-slate-400 mb-0.5">Expected</p>
+                      <p className="font-bold text-slate-800">{pr.expectedRemaining} kg</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-slate-400 mb-0.5">Recorded</p>
+                      <p className={`font-bold ${remErr ? "text-red-600" : "text-green-600"}`}>
+                        {pr.recordedRemaining} kg {remErr ? "✗" : "✓"}
+                      </p>
+                    </div>
+                  </div>
+                  {remErr && (
+                    <p className="text-[11px] text-red-500 font-semibold mt-1.5">
+                      Difference of {Math.abs(pr.expectedRemaining - pr.recordedRemaining).toFixed(1)} kg
+                    </p>
+                  )}
                 </div>
               </div>
               <div className="px-5 py-4 border-t border-slate-100 shrink-0">
@@ -1503,8 +1534,8 @@ function FeedDocumentation({
               <table className="w-full text-sm">
                 <thead className="sticky top-0 z-20">
                   <tr className="bg-slate-50 border-b border-slate-200">
-                    <th className="px-3 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-center w-10 sticky left-0 z-20 bg-slate-50">#</th>
-                    <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left min-w-[160px] sticky left-10 z-20 bg-slate-50 border-r border-slate-200">Pond</th>
+                    <th className="w-12 min-w-[48px] max-w-[48px] px-2 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-center sticky left-0 z-30 bg-slate-50">#</th>
+                    <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left min-w-[160px] sticky left-[48px] z-30 bg-slate-50 border-r border-slate-200">Pond</th>
                     <th className="px-3 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-right min-w-[85px] whitespace-nowrap">Initial Stock</th>
                     <th className="px-3 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-right min-w-[85px] whitespace-nowrap">Fish Count</th>
                     <th className="px-3 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left min-w-[120px] whitespace-nowrap">Pellet Size</th>
@@ -1525,19 +1556,12 @@ function FeedDocumentation({
                     const rowAtMax = !!rowMaxKg && cumFed >= rowMaxKg;
                     return (
                       <tr key={row.pondId} className={`transition-colors ${hasFeed ? "bg-green-50/40" : "hover:bg-slate-50"}`}>
-                        <td className="px-3 py-3 text-slate-300 text-xs font-mono text-center w-10 sticky left-0 z-10 bg-white">{i + 1}</td>
-                        <td className="px-4 py-3 min-w-[160px] sticky left-10 z-10 bg-white border-r border-slate-100">
+                        <td className={`w-12 min-w-[48px] max-w-[48px] px-2 py-3 text-slate-400 text-xs font-mono text-center sticky left-0 z-20 ${hasFeed ? "bg-[#f2faf4]" : "bg-white"}`}>{i + 1}</td>
+                        <td className={`px-4 py-3 min-w-[160px] sticky left-[48px] z-20 border-r border-slate-200 ${hasFeed ? "bg-[#f2faf4]" : "bg-white"}`}>
                           <p className="font-bold text-slate-900 leading-tight">{row.pondName}</p>
-                          <div className="mt-0.5 space-y-0.5">
-                            <p className="text-[11px] font-medium text-teal-700 leading-tight">
-                              {row.fishStock || "Current Stock"}
-                            </p>
-                            {row.stockDate !== "—" && (
-                              <p className="text-[10px] text-slate-400 leading-tight">
-                                Stocked: {row.stockDate}
-                              </p>
-                            )}
-                          </div>
+                          <p className="text-[11px] font-medium text-teal-700 leading-tight mt-0.5">
+                            {row.fishStock || "Current Stock"}
+                          </p>
                         </td>
                         <td className="px-3 py-3 text-right text-slate-500 font-['Barlow_Condensed',sans-serif] text-base">{row.initialStock.toLocaleString()}</td>
                         <td className="px-3 py-3 text-right"><span className="font-semibold text-green-700 font-['Barlow_Condensed',sans-serif] text-base">{row.currentCount.toLocaleString()}</span></td>
@@ -1639,8 +1663,27 @@ function FeedDocumentation({
                         <SearchableSelect value={row.brand} onChange={v => { updateBagRow(i, "brand", v); const szs = invSizesForBrand(v); if (szs.length > 0 && !szs.includes(row.size)) updateBagRow(i, "size", szs[0]); }} options={invBrands} placeholder="Select brand…" />
                       </F>
                       <F label="3. Pellet Size">
-                        <select value={row.size} onChange={e => updateBagRow(i, "size", e.target.value)} className={SC}>
-                          {invSizesForBrand(row.brand).map(s => <option key={s}>{s}</option>)}
+                        <select
+                          value={row.size}
+                          onChange={e => {
+                            updateBagRow(i, "size", e.target.value);
+                            setBagsErr(p => {
+                              const next = { ...p };
+                              delete next[`dup_${i}`];
+                              delete next[`size_${i}`];
+                              return next;
+                            });
+                          }}
+                          className={SC}
+                        >
+                          {invSizesForBrand(row.brand).map(s => {
+                            const alreadyLogged = isStockAndSizeAlreadyLogged(row.fishStock, s, bagsDate);
+                            return (
+                              <option key={s} value={s}>
+                                {s}{alreadyLogged ? " (Already Logged Today)" : ""}
+                              </option>
+                            );
+                          })}
                         </select>
                       </F>
                     </div>
@@ -1679,12 +1722,50 @@ function FeedDocumentation({
                         )}
                       </div>
                     )}
-                    {bagsErr[`dup_${i}`] && (
-                      <div className="flex items-start gap-1.5 text-xs font-semibold text-red-700 bg-red-100/90 px-3 py-2 rounded-lg border border-red-300">
-                        <AlertTriangle size={14} className="shrink-0 mt-0.5" />
-                        <span>{bagsErr[`dup_${i}`]}</span>
-                      </div>
-                    )}
+                    {(() => {
+                      const isAlreadyLogged = isStockAndSizeAlreadyLogged(row.fishStock, row.size, bagsDate);
+                      const isDupInForm = bagRows.findIndex((other, idx) =>
+                        idx < i &&
+                        normalizeFishStock(other.fishStock).toLowerCase().trim() === normalizeFishStock(row.fishStock).toLowerCase().trim() &&
+                        other.size.toLowerCase().trim() === row.size.toLowerCase().trim()
+                      ) !== -1;
+
+                      if (isAlreadyLogged) {
+                        return (
+                          <div className="flex items-start gap-2 text-xs font-semibold text-red-800 bg-red-100/90 px-3.5 py-2.5 rounded-xl border border-red-300">
+                            <AlertTriangle size={15} className="text-red-600 shrink-0 mt-0.5" />
+                            <div>
+                              <p className="font-bold text-red-900">Cannot log bag open twice!</p>
+                              <p className="text-[11px] text-red-700 font-normal mt-0.5">
+                                Fish Stock <strong>{row.fishStock}</strong> with pellet size <strong>{row.size}</strong> has already been recorded for {toDateLabel(bagsDate)}. You can only log for this stock if the pellet size is different.
+                              </p>
+                            </div>
+                          </div>
+                        );
+                      }
+                      if (isDupInForm) {
+                        return (
+                          <div className="flex items-start gap-2 text-xs font-semibold text-amber-800 bg-amber-100/90 px-3.5 py-2.5 rounded-xl border border-amber-300">
+                            <AlertTriangle size={15} className="text-amber-600 shrink-0 mt-0.5" />
+                            <div>
+                              <p className="font-bold text-amber-900">Duplicate in this form</p>
+                              <p className="text-[11px] text-amber-700 font-normal mt-0.5">
+                                <strong>{row.fishStock}</strong> with pellet size <strong>{row.size}</strong> is already entered above. You can only log for the same stock if the pellet size is different.
+                              </p>
+                            </div>
+                          </div>
+                        );
+                      }
+                      if (bagsErr[`dup_${i}`]) {
+                        return (
+                          <div className="flex items-start gap-2 text-xs font-semibold text-red-700 bg-red-100/90 px-3.5 py-2 rounded-lg border border-red-300">
+                            <AlertTriangle size={14} className="shrink-0 mt-0.5 text-red-600" />
+                            <span>{bagsErr[`dup_${i}`]}</span>
+                          </div>
+                        );
+                      }
+                      return null;
+                    })()}
                   </div>
                 );
               })}
