@@ -262,14 +262,14 @@ function FeedDocumentation({
     if (matchingPond) {
       return pondToStock(matchingPond.name);
     }
-    const match = trimmed.match(/^(.*?)\s*\(([^)]+)\)$/);
-    if (match) {
-      const rawDate = match[2].trim();
-      const formatted = formatFishStockDate(rawDate);
+    const activeStock = (ponds || []).map(p => getPondFishStock(p)).find(s => s && s.toLowerCase().trim() === trimmed.toLowerCase());
+    if (activeStock) {
+      return activeStock;
+    }
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+      const formatted = formatFishStockDate(trimmed);
       if (formatted && formatted !== "—") return formatted;
     }
-    const asDate = formatFishStockDate(trimmed);
-    if (asDate !== "—" && asDate !== trimmed) return asDate;
     return trimmed;
   };
 
@@ -624,7 +624,7 @@ function FeedDocumentation({
       }
 
       const normalizedStock = normalizeFishStock(r.fishStock);
-      const comboKey = `${normalizedStock}__${r.brand}__${r.size}`;
+      const comboKey = `${normalizedStock.toLowerCase().trim()}__${r.brand.toLowerCase().trim()}__${r.size.toLowerCase().trim()}`;
 
       // Duplicate check 1: Duplicate within the form
       if (formKeys.has(comboKey)) {
@@ -635,12 +635,12 @@ function FeedDocumentation({
       // Duplicate check 2: Duplicate against existing records for the same date
       const alreadyLogged = (bagLogs || []).some(b =>
         (isSameDate(b.date, bagsDate) || isSameDate(b.date, dateLabel)) &&
-        normalizeFishStock(b.fishStock) === normalizedStock &&
-        b.brand === r.brand &&
-        b.size === r.size
+        normalizeFishStock(b.fishStock).toLowerCase().trim() === normalizedStock.toLowerCase().trim() &&
+        b.brand.toLowerCase().trim() === r.brand.toLowerCase().trim() &&
+        b.size.toLowerCase().trim() === r.size.toLowerCase().trim()
       );
       if (alreadyLogged) {
-        errs[`dup_${idx}`] = `This Fish Stock, Brand, and Pallet Size (${r.fishStock} + ${r.brand} + ${r.size}) has already been recorded for ${dateLabel}. Please edit the existing entry if you need to adjust bag quantities.`;
+        errs[`dup_${idx}`] = `The same Fish Stock, Brand, and Pallet Size (${r.fishStock} + ${r.brand} + ${r.size}) has already been recorded for ${dateLabel}. Please edit the existing entry if you need to adjust bag quantities.`;
       }
 
       const requestedBags = Number(r.qty) || 0;
@@ -1677,6 +1677,12 @@ function FeedDocumentation({
                             <span>Insufficient stock! Available: {avail.remainingBags} bag{avail.remainingBags !== 1 ? "s" : ""} ({avail.remainingKg}kg). Cannot deduct {requestedBags} bags.</span>
                           </div>
                         )}
+                      </div>
+                    )}
+                    {bagsErr[`dup_${i}`] && (
+                      <div className="flex items-start gap-1.5 text-xs font-semibold text-red-700 bg-red-100/90 px-3 py-2 rounded-lg border border-red-300">
+                        <AlertTriangle size={14} className="shrink-0 mt-0.5" />
+                        <span>{bagsErr[`dup_${i}`]}</span>
                       </div>
                     )}
                   </div>

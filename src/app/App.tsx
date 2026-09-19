@@ -3807,11 +3807,12 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       console.warn("Error closing pond:", err);
     }
   };
-  const restockPond=async(id:string,data:{species:string;initialStock:number;stockingDate:string;supplier?:string})=>{
+  const restockPond=async(id:string,data:{species:string;initialStock:number;stockingDate:string;supplier?:string;fishStock?:string})=>{
     const p=ponds.find(x=>x.id===id);
     if(!p)return;
     const fid=p.farmId||activeFarmId||farms[0]?.id||"";
-    const updated={...p,...data,currentCount:data.initialStock,totalCost:0,status:"Active" as const,transferNote:undefined,maxKgByPallet:{},farmId:fid};
+    const fs = data.fishStock || data.species;
+    const updated={...p,...data,fishStock:fs,currentCount:data.initialStock,totalCost:0,status:"Active" as const,transferNote:undefined,maxKgByPallet:{},farmId:fid};
     setPonds(prev=>prev.map(x=>x.id===id?updated:x));
     const se:StockEvent={id:crypto.randomUUID(),pondId:id,pondName:p.name,date:data.stockingDate,species:data.species,count:data.initialStock,cost:0,type:"Restock" as const,supplier:data.supplier,farmId:fid};
     setStockEvents(prev=>[...prev,se]);
@@ -4001,7 +4002,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   };
   const delInv=(id:string)=>{setInventory(prev=>prev.filter(f=>f.id!==id));api.inventory.remove(id).catch(console.warn);};
   const editInv=(f:FeedItem)=>{const fWithFarm={...f,farmId:f.farmId||activeFarmId||farms[0]?.id||""};setInventory(prev=>prev.map(x=>x.id===f.id?fWithFarm:x));api.inventory.update(fWithFarm).catch(console.warn);};
-  const editFish=(id:string,u:{species:string;currentCount:number;stockingDate:string})=>{setPonds(prev=>prev.map(p=>{if(p.id!==id)return p;const np={...p,...u};api.ponds.update(np).catch(console.warn);return np;}));};
+  const editFish=(id:string,u:{species:string;currentCount:number;stockingDate:string;fishStock?:string})=>{setPonds(prev=>prev.map(p=>{if(p.id!==id)return p;const np={...p,...u};api.ponds.update(np).catch(console.warn);return np;}));};
   const deletePond=(id:string)=>{setPonds(prev=>prev.filter(p=>p.id!==id));api.ponds.remove(id).catch(console.warn);};
   const addMort=async(m:MortalityEntry,pondId:string)=>{
     const fid=m.farmId||activeFarmId||farms[0]?.id||"";

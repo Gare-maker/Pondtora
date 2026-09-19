@@ -51,7 +51,7 @@ function PondDetail({
   onNurseryTransfer:(fromId:string,toId:string,count:number,pct:number,date:string)=>void;
   treatments:TreatmentRecord[];
   onAddTreatment:(t:TreatmentRecord)=>void;
-  onEditFish?:(pondId:string,u:{species:string;currentCount:number;stockingDate:string})=>void;
+  onEditFish?:(pondId:string,u:{species:string;currentCount:number;stockingDate:string;fishStock?:string})=>void;
   onSetMaxKg:(pondId:string,size:string,maxKg:number)=>void;
   inventory?:FeedItem[];
   onEditThisPond?:(p:Pond)=>void;
@@ -81,7 +81,11 @@ function PondDetail({
   const [showPondMenu,setShowPondMenu]=useState(false);
   const pondMenuRef=useRef<HTMLDivElement>(null);
   useEffect(()=>{const h=(e:MouseEvent)=>{if(pondMenuRef.current&&!pondMenuRef.current.contains(e.target as Node))setShowPondMenu(false);};document.addEventListener("mousedown",h);return()=>document.removeEventListener("mousedown",h);},[]);
-  const handleSaveEditFish=()=>{if(onEditFish)onEditFish(pond.id,{species:editFishF.species,currentCount:Number(editFishF.count)||pond.currentCount,stockingDate:editFishF.stockingDate||pond.stockingDate});setShowEditFish(false);};
+  const handleSaveEditFish=()=>{
+    const s = editFishF.species.trim();
+    if(onEditFish)onEditFish(pond.id,{species:s||pond.species,currentCount:Number(editFishF.count)||pond.currentCount,stockingDate:editFishF.stockingDate||pond.stockingDate,fishStock:s||pond.fishStock||pond.species});
+    setShowEditFish(false);
+  };
   const handleUpdateQty=()=>{const n=Number(qtyAmt)||0;if(n<=0)return;const newCount=qtyMode==="increase"?pond.currentCount+n:Math.max(0,pond.currentCount-n);if(onEditFish)onEditFish(pond.id,{species:pond.species,currentCount:newCount,stockingDate:pond.stockingDate});setShowUpdateQty(false);setQtyAmt("");};
   const [showMaxKg,setShowMaxKg]=useState(false);
   const [maxKgSize,setMaxKgSize]=useState(allInvSizes[0]||"");
@@ -352,8 +356,8 @@ function PondDetail({
     if(!restockF.initialStock||Number(restockF.initialStock)<=0)errs.initialStock="Initial stock count is required";
     if(!restockF.species)errs.species="Species is required";
     if(Object.keys(errs).length){setRestockErr(errs);return;}
-    setRestockErr({});
-    onRestockPond(pond.id,{species:restockF.species,initialStock:Number(restockF.initialStock),stockingDate:restockF.stockingDate||TODAY,stockMonth:restockF.stockingDate?toMon(restockF.stockingDate):toMon(TODAY),supplier:restockF.supplier});
+    const s = restockF.species.trim();
+    onRestockPond(pond.id,{species:s,fishStock:s,initialStock:Number(restockF.initialStock),stockingDate:restockF.stockingDate||TODAY,stockMonth:restockF.stockingDate?toMon(restockF.stockingDate):toMon(TODAY),supplier:restockF.supplier});
     setShowRestock(false);
     setRestockF({species:"Catfish",initialStock:"",stockingDate:"",supplier:""});
   };
@@ -941,7 +945,7 @@ export function getNextPondFigure(ponds: Pond[]): string {
 }
 
 /* ─── 2. Pond Management ────────────────────────────────────── */
-export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPond,onTransfer,onNurseryTransfer,mortality,onAddMortality,onAddCost,feedingRecords,stockEvents,treatments,onAddTreatment,activeFarmId,onDeletePond,onEditFish,onSetMaxKg,onEditPond,onScrollTop,currency="₦",inventory=[],farms=[],pondReports=[],onAddPondReport,canCreate=true,canEdit=true,canDelete=true}:{ponds:Pond[];onAddPond:(p:Pond)=>void;onClosePond:(id:string)=>void;onRestockPond:(id:string,data:{species:string;initialStock:number;stockingDate:string;stockMonth:string;supplier?:string})=>void;onTransfer:(fromId:string,toId:string,date:string)=>void;onNurseryTransfer:(fromId:string,toId:string,count:number,pct:number,date:string)=>void;mortality:MortalityEntry[];onAddMortality:(m:MortalityEntry,pondId:string)=>void;onAddCost:(e:Expense)=>void;feedingRecords:FeedingRecord[];stockEvents:StockEvent[];treatments:TreatmentRecord[];onAddTreatment:(t:TreatmentRecord)=>void;activeFarmId:string;onDeletePond?:(id:string)=>void;onEditFish?:(pondId:string,u:{species:string;currentCount:number;stockingDate:string})=>void;onSetMaxKg:(pondId:string,size:string,maxKg:number)=>void;onEditPond?:(id:string,u:Partial<Pond>)=>void;onScrollTop?:()=>void;currency?:string;inventory?:FeedItem[];farms?:Farm[];pondReports?:PondReport[];onAddPondReport?:(r:PondReport)=>Promise<void>;canCreate?:boolean;canEdit?:boolean;canDelete?:boolean;}){
+export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPond,onTransfer,onNurseryTransfer,mortality,onAddMortality,onAddCost,feedingRecords,stockEvents,treatments,onAddTreatment,activeFarmId,onDeletePond,onEditFish,onSetMaxKg,onEditPond,onScrollTop,currency="₦",inventory=[],farms=[],pondReports=[],onAddPondReport,canCreate=true,canEdit=true,canDelete=true}:{ponds:Pond[];onAddPond:(p:Pond)=>void;onClosePond:(id:string)=>void;onRestockPond:(id:string,data:{species:string;initialStock:number;stockingDate:string;stockMonth:string;supplier?:string;fishStock?:string})=>void;onTransfer:(fromId:string,toId:string,date:string)=>void;onNurseryTransfer:(fromId:string,toId:string,count:number,pct:number,date:string)=>void;mortality:MortalityEntry[];onAddMortality:(m:MortalityEntry,pondId:string)=>void;onAddCost:(e:Expense)=>void;feedingRecords:FeedingRecord[];stockEvents:StockEvent[];treatments:TreatmentRecord[];onAddTreatment:(t:TreatmentRecord)=>void;activeFarmId:string;onDeletePond?:(id:string)=>void;onEditFish?:(pondId:string,u:{species:string;currentCount:number;stockingDate:string;fishStock?:string})=>void;onSetMaxKg:(pondId:string,size:string,maxKg:number)=>void;onEditPond?:(id:string,u:Partial<Pond>)=>void;onScrollTop?:()=>void;currency?:string;inventory?:FeedItem[];farms?:Farm[];pondReports?:PondReport[];onAddPondReport?:(r:PondReport)=>Promise<void>;canCreate?:boolean;canEdit?:boolean;canDelete?:boolean;}){
   const cs=currency;
   const [detailId,setDetailId]=useState<string|null>(null);
   const [showAdd,setShowAdd]=useState(false);
@@ -1001,17 +1005,12 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
     type SG={key:string;stockName:string;stockingDate:string;speciesList:string[];supplierList:string[];pondNames:string[];pondIds:string[];totalStartCount:number;isActive:boolean};
     const groups:Record<string,SG>={};
 
-    const resolveStockKey = (species?: string, date?: string) => {
-      if (species && species !== "—" && !POND_SPECIES.includes(species)) {
-        return species;
-      }
-      return date || "—";
-    };
-
     (stockEvents||[]).filter(e=>e.type==="Initial"||e.type==="Restock").forEach(ev=>{
-      const gk=resolveStockKey(ev.species, ev.date);
+      const stockName = ev.species && ev.species !== "—" && !POND_SPECIES.includes(ev.species)
+        ? ev.species
+        : (ev.date ? fmtStockingDate(ev.date) : "Fish Stock");
+      const gk = stockName;
       if(!gk||gk==="—")return;
-      const stockName = ev.species && ev.species !== "—" ? ev.species : (ev.date ? fmtStockingDate(ev.date) : "Fish Stock");
       if(!groups[gk])groups[gk]={key:gk,stockName,stockingDate:ev.date,speciesList:[],supplierList:[],pondNames:[],pondIds:[],totalStartCount:0,isActive:false};
       if(ev.species&&!groups[gk].speciesList.includes(ev.species))groups[gk].speciesList.push(ev.species);
       if(ev.supplier&&!groups[gk].supplierList.includes(ev.supplier))groups[gk].supplierList.push(ev.supplier);
@@ -1019,15 +1018,16 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
       groups[gk].totalStartCount+=(ev.count||0);
     });
 
-    // Also ensure all current active ponds with fish stocks are represented in history!
-    (ponds||[]).filter(p=>p.status==="Active"&&p.species&&p.species!=="—"&&p.stockingDate&&p.stockingDate!=="—").forEach(p=>{
-      const gk=resolveStockKey(p.species, p.stockingDate);
-      const stockName = p.species && p.species !== "—" ? p.species : fmtStockingDate(p.stockingDate);
+    // Also ensure all current active ponds with fish stocks are represented and unified in history!
+    (ponds||[]).filter(p=>p.status==="Active").forEach(p=>{
+      const gk = getPondFishStock(p);
+      if(!gk || gk === "—" || gk === "General Stock") return;
+      const stockName = gk;
       if(!groups[gk]){
         groups[gk]={
           key:gk,
           stockName,
-          stockingDate:p.stockingDate,
+          stockingDate:p.stockingDate || "—",
           speciesList:[],
           supplierList:[],
           pondNames:[],
@@ -1037,7 +1037,8 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
         };
       }
       groups[gk].isActive=true;
-      if(p.species&&!groups[gk].speciesList.includes(p.species))groups[gk].speciesList.push(p.species);
+      if(p.species&&p.species!=="—"&&!groups[gk].speciesList.includes(p.species))groups[gk].speciesList.push(p.species);
+      if(p.supplier&&!groups[gk].supplierList.includes(p.supplier))groups[gk].supplierList.push(p.supplier);
       if(p.name&&!groups[gk].pondNames.includes(p.name)){
         groups[gk].pondNames.push(p.name);
         groups[gk].pondIds.push(p.id);
@@ -1048,7 +1049,7 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
       }
     });
 
-    return Object.values(groups).sort((a,b)=>b.stockingDate.localeCompare(a.stockingDate));
+    return Object.values(groups).sort((a,b)=>(b.stockingDate||"").localeCompare(a.stockingDate||""));
   })();
   const filtStockGroups=stockGroups.filter(g=>{
     if(stockHistYear!=="All"&&!g.stockingDate.startsWith(stockHistYear)&&!g.stockingDate.includes(stockHistYear))return false;
@@ -1338,8 +1339,8 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
             {stockDetailId&&(()=>{
               const grp=stockGroups.find(g=>g.key===stockDetailId);
               if(!grp)return <div className="p-8 text-center text-sm text-slate-400">Record not found.</div>;
-              const totalCurrentFish=ponds.filter(p=>(p.stockingDate===grp.stockingDate||grp.pondIds.includes(p.id))&&p.status==="Active").reduce((s,p)=>s+p.currentCount,0);
-              const allFeedRecs=feedingRecords.filter(r=>grp.pondNames.includes(r.pond));
+              const totalCurrentFish=ponds.filter(p=>(grp.pondIds.includes(p.id)||grp.pondNames.includes(p.name))&&p.status==="Active").reduce((s,p)=>s+p.currentCount,0);
+              const allFeedRecs=feedingRecords.filter(r=>grp.pondNames.includes(r.pond)||(r.fishStock&&r.fishStock===grp.stockName));
               const totalFeedKg=allFeedRecs.reduce((s,r)=>s+r.total,0);
               const bySize=allFeedRecs.reduce<Record<string,number>>((acc,r)=>{acc[r.size]=(acc[r.size]||0)+r.total;return acc;},{});
               const allMort=mortality.filter(m=>grp.pondIds.includes(m.pondId));
@@ -1354,7 +1355,7 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
                     <p className="text-[10px] font-bold uppercase tracking-widest text-green-600 mb-0.5">Section 1</p>
                     <p className="text-base font-bold text-slate-800 mb-3">Stock Aggregate Details</p>
                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-3">
-                      <div className={IC2}><p className="text-[10px] text-slate-400 uppercase tracking-wider mb-0.5">Fish Stock Identity</p><p className="text-sm font-bold text-slate-900">{grp.speciesList.join(", ")||"—"}</p></div>
+                      <div className={IC2}><p className="text-[10px] text-slate-400 uppercase tracking-wider mb-0.5">Fish Stock Identity</p><p className="text-sm font-bold text-slate-900">{grp.stockName || grp.speciesList.join(", ")||"—"}</p></div>
                       <div className={IC2}><p className="text-[10px] text-slate-400 uppercase tracking-wider mb-0.5">Stocking Date</p><p className="text-sm font-bold text-slate-900">{fmtStockingDate(grp.stockingDate)}</p></div>
                       <div className={IC2}><p className="text-[10px] text-slate-400 uppercase tracking-wider mb-0.5">Ponds Associated</p><p className="text-sm font-bold text-blue-700">{grp.pondNames.join(", ")||"—"}</p></div>
                       <div className={IC2}><p className="text-[10px] text-slate-400 uppercase tracking-wider mb-0.5">Supplier(s)</p><p className="text-sm font-bold text-slate-900">{grp.supplierList.join(", ")||"—"}</p></div>
@@ -1378,7 +1379,7 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
                             const aggMaxKg=grp.pondIds.reduce((s,pid)=>{const pp=ponds.find(x=>x.id===pid);return s+(pp?.maxKgByPallet?.[size]||0);},0)||undefined;
                             const atMax=!!aggMaxKg&&(kg as number)>=(aggMaxKg as number);
                             const pondsForThisSize=grp.pondNames.map((pName)=>{
-                              const pFeed=feedingRecords.filter(r=>r.pond===pName&&r.size===size);
+                              const pFeed=allFeedRecs.filter(r=>r.pond===pName&&r.size===size);
                               const pKg=pFeed.reduce((s,r)=>s+(Number(r.total)||0),0);
                               return { pondName: pName, kg: pKg };
                             }).filter(p=>p.kg>0);

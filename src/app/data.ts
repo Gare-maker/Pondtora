@@ -250,24 +250,18 @@ export const fmtStockingDate = formatFishStockDate;
 export function formatFishStock(stock: string | null | undefined): string {
   if (!stock || stock === "—" || !stock.trim()) return "—";
   const trimmed = stock.trim();
-  const match = trimmed.match(/^(.*?)\s*\(([^)]+)\)$/);
-  if (match) {
-    const rawDate = match[2].trim();
-    const formattedDate = formatFishStockDate(rawDate);
-    if (formattedDate && formattedDate !== "—") {
-      return formattedDate;
-    }
-    return match[1].trim() || trimmed;
-  }
-  const asDate = formatFishStockDate(trimmed);
-  if (asDate !== "—" && asDate !== trimmed) {
-    return asDate;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    const formatted = formatFishStockDate(trimmed);
+    if (formatted && formatted !== "—") return formatted;
   }
   return trimmed;
 }
 
-export function getPondFishStock(pond?: { species?: string; stockingDate?: string; name?: string } | null): string {
+export function getPondFishStock(pond?: { species?: string; stockingDate?: string; name?: string; fishStock?: string } | null): string {
   if (!pond) return "General Stock";
+  if ((pond as any).fishStock && (pond as any).fishStock.trim() && (pond as any).fishStock !== "—") {
+    return (pond as any).fishStock.trim();
+  }
   if (pond.species && pond.species !== "—" && !POND_SPECIES.includes(pond.species)) {
     return pond.species;
   }
@@ -280,8 +274,16 @@ export function getPondFishStock(pond?: { species?: string; stockingDate?: strin
   return pond.name || "General Stock";
 }
 
-export function getFishStockDisplay(pond?: { species?: string; stockingDate?: string; name?: string } | null): string {
+export function getFishStockDisplay(pond?: { species?: string; stockingDate?: string; name?: string; fishStock?: string } | null): string {
   if (!pond) return "—";
+  if ((pond as any).fishStock && (pond as any).fishStock.trim() && (pond as any).fishStock !== "—") {
+    const fs = (pond as any).fishStock.trim();
+    if (pond.stockingDate && pond.stockingDate !== "—") {
+      const formattedDate = formatFishStockDate(pond.stockingDate);
+      return `${fs} (${formattedDate})`;
+    }
+    return fs;
+  }
   if (pond.species && pond.species !== "—" && !POND_SPECIES.includes(pond.species)) {
     return pond.species;
   }
