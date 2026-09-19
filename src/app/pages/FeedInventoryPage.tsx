@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import {
   Plus, CheckCircle, Layers, Trash2, ChevronDown, ChevronUp,
   Pencil, Package, Download, FileText, Lock, Calendar, ChevronLeft, ChevronRight, Search, Fish
@@ -144,11 +144,11 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
         const stock = (b.fishStock && b.fishStock.trim() && b.fishStock !== "—") ? b.fishStock.trim() : "General Stock";
         const brand = b.brand || "Standard";
         const size = b.size || "4.0 mm";
-        const key = `${stock}__${brand}__${size}`;
+        const info = getStockInfo(stock);
+        const key = `${info.name.toLowerCase().trim()}__${brand.toLowerCase().trim()}__${size.toLowerCase().trim()}`;
         const bags = Number(b.bagsOpened) || 0;
         const kgPb = Number(b.kgPerBag) || 15;
         const kg = Number(b.totalKg) || (bags * kgPb);
-        const info = getStockInfo(stock);
 
         if (!dailyMap[key]) {
           dailyMap[key] = {
@@ -165,8 +165,9 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
             remainingKg: 0
           };
         } else {
-          dailyMap[key].bagsOpened += bags;
-          dailyMap[key].totalKgOpened += kg;
+          // If already entered for this stock + brand + size today, keep single session rather than accumulating duplicate bags
+          dailyMap[key].bagsOpened = bags;
+          dailyMap[key].totalKgOpened = kg;
         }
       });
 
@@ -174,9 +175,9 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
         const stock = (r.fishStock && r.fishStock.trim() && r.fishStock !== "—") ? r.fishStock.trim() : "General Stock";
         const brand = r.brand || "Standard";
         const size = r.size || "4.0 mm";
-        const key = `${stock}__${brand}__${size}`;
-        const rem = Number(r.remainingKg) || 0;
         const info = getStockInfo(stock);
+        const key = `${info.name.toLowerCase().trim()}__${brand.toLowerCase().trim()}__${size.toLowerCase().trim()}`;
+        const rem = Number(r.remainingKg) || 0;
 
         if (!dailyMap[key]) {
           dailyMap[key] = {
@@ -214,17 +215,18 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
         return a.size.localeCompare(b.size);
       });
     } else {
-      // All history mode: group by date, stock, brand, size
+      // All history mode: group by normalized date, stock, brand, size
       const map: Record<string, FeedHistoryRow> = {};
       (bagLogs || []).forEach(b => {
         const stock = (b.fishStock && b.fishStock.trim() && b.fishStock !== "—") ? b.fishStock.trim() : "General Stock";
         const brand = b.brand || "Standard";
         const size = b.size || "4.0 mm";
-        const key = `${b.date}__${stock}__${brand}__${size}`;
+        const dateKey = toValidDbDate(b.date) || b.date;
+        const info = getStockInfo(stock);
+        const key = `${dateKey}__${info.name.toLowerCase().trim()}__${brand.toLowerCase().trim()}__${size.toLowerCase().trim()}`;
         const bags = Number(b.bagsOpened) || 0;
         const kgPb = Number(b.kgPerBag) || 15;
         const kg = Number(b.totalKg) || (bags * kgPb);
-        const info = getStockInfo(stock);
 
         if (!map[key]) {
           map[key] = {
@@ -241,8 +243,9 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
             remainingKg: 0
           };
         } else {
-          map[key].bagsOpened += bags;
-          map[key].totalKgOpened += kg;
+          // Keep single entry per stock date + brand + size per day
+          map[key].bagsOpened = bags;
+          map[key].totalKgOpened = kg;
         }
       });
 
@@ -250,9 +253,10 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
         const stock = (r.fishStock && r.fishStock.trim() && r.fishStock !== "—") ? r.fishStock.trim() : "General Stock";
         const brand = r.brand || "Standard";
         const size = r.size || "4.0 mm";
-        const key = `${r.date}__${stock}__${brand}__${size}`;
-        const rem = Number(r.remainingKg) || 0;
+        const dateKey = toValidDbDate(r.date) || r.date;
         const info = getStockInfo(stock);
+        const key = `${dateKey}__${info.name.toLowerCase().trim()}__${brand.toLowerCase().trim()}__${size.toLowerCase().trim()}`;
+        const rem = Number(r.remainingKg) || 0;
 
         if (!map[key]) {
           map[key] = {

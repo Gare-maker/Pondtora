@@ -53,7 +53,7 @@ const NAV:{id:View;icon:React.ElementType;label:string}[]=[
 /* Map nav id → permission name (undefined = always visible) */
 const NAV_PERM:Partial<Record<View,string>>={
   financial:"Financial Dashboard",ponds:"Pond Management",inventory:"Feed Stock",
-  documentation:"Feeding Records",invoices:"Invoices",reports:"Reports",investors:"Investors",assessments:"Staff Assessments",
+  documentation:"Feeding Records",invoices:"Invoices",reports:"Reports",investors:"Investors",assessments:"Staff Assessments",notifications:"Notifications",
 };
 function Sidebar({active,onNav,collapsed,onToggle,farms,activeFarmId,onSwitchFarm,onAddFarm,sideOpen,staff,unreadCount,onNotifications,onLogout,hasPerm,isOwner,userProfile,currentStaff}:{active:View;onNav:(v:View)=>void;collapsed:boolean;onToggle:()=>void;farms:Farm[];activeFarmId:string;onSwitchFarm:(id:string)=>void;onAddFarm:()=>void;sideOpen:boolean;staff?:StaffMember[];unreadCount?:number;onNotifications?:()=>void;onLogout?:()=>void;hasPerm?:(p:string)=>boolean;isOwner?:boolean;userProfile?:UserProfile|null;currentStaff?:StaffMember|null;}){
   const [farmOpen,setFarmOpen]=useState(false);
@@ -83,7 +83,7 @@ function Sidebar({active,onNav,collapsed,onToggle,farms,activeFarmId,onSwitchFar
             <p className="text-xl font-bold text-white leading-none font-['Barlow_Condensed',sans-serif] tracking-wide">Pondtora</p>
           </div>
         )}
-        {onNotifications&&(
+        {onNotifications && (hasPerm ? hasPerm("Notifications") : (isOwner ?? true)) && (
           <button onClick={onNotifications} title="Notifications" className="relative p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors shrink-0">
             <Bell size={16}/>
             {(unreadCount??0)>0&&<span className="absolute top-0.5 right-0.5 w-2 h-2 rounded-full bg-red-500"/>}
@@ -868,6 +868,7 @@ function StaffPage({
     "Invoices": { canView: false, canCreate: false, canEdit: false, canDelete: false },
     "Investors": { canView: false, canCreate: false, canEdit: false, canDelete: false },
     "Staff Assessments": { canView: false, canCreate: false, canEdit: false, canDelete: false },
+    "Notifications": { canView: false, canCreate: false, canEdit: false, canDelete: false },
   };
 
   const [form, setForm] = useState({
@@ -5140,6 +5141,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     if (p === "Invoices" && perms.includes("Invoice")) return true;
     if (p === "Invoice" && perms.includes("Invoices")) return true;
     if (p === "Staff Assessments" && (perms.includes("Staff Assessment") || perms.includes("Staff Assessments"))) return true;
+    if (p === "Notifications" && (perms.includes("Notification") || perms.includes("Notifications"))) return true;
     if (p === "Pond Details" && perms.includes("Pond Management")) return true;
     return false;
   }, [isOwner, currentStaff?.permissions, userProfile?.permissions]);
@@ -5333,6 +5335,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     }
   },[isOwner,currentStaff,userProfile?.permissions,active,hasPerm]);
   const notifications=useMemo(()=>{
+    if (!hasPerm("Notifications")) return [];
     const notifs:AppNotification[]=[];
     const farm=farms.find(f=>f.id===activeFarmId)||farms[0];
 
@@ -5678,7 +5681,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
             {active==="assessments"   &&(hasPerm("Staff Assessments")?<EmployeeAssessmentsPage kQuestions={kQuestions} cQuestions={cQuestions} kResults={kResults} cResults={cResults} onSaveKQuestions={saveKQuestions} onSaveCQuestions={saveCQuestions} onAddKResult={addKResult} onAddCResult={addCResult} ownerId={userProfile?.id??""}/>:<AccessDenied/>)}
             {active==="pricing"       &&(isOwner?<SubscriptionPage farmCount={farms.length} activePlan={activePlan} setActivePlan={setActivePlan} trialStartDate={trialStartDate} setTrialStartDate={setTrialStartDate} currency={cs} convertPrice={cvt} userProfile={userProfile} activeFarmName={farms.find(f=>f.id===activeFarmId)?.name||userProfile?.farmName}/>:<AccessDenied/>)}
             {active==="settings"      &&<SettingsPage farms={isOwner?farms:accessibleFarms} onAddFarm={handleAddFarmDirect} onEditFarm={handleEditFarm} onDeleteFarm={handleDeleteFarm} userProfile={userProfile} onUpdateProfile={handleUpdateProfile} isOwner={isOwner} ponds={ponds} activePlan={activePlan}/>}
-            {active==="notifications" &&<NotificationsPage notifications={notifications} onMarkRead={markRead} onMarkAllRead={markAllRead} farms={farms} activeFarmId={activeFarmId} farmCount={farms.length} onDismiss={dismissNotif} onNotifNav={(n)=>{if(n.type==="reconciliation"&&n.reconDate&&n.reconKey){nav("documentation");setReconFocus({date:n.reconDate,key:n.reconKey});}}}/>}
+            {active==="notifications" && (hasPerm("Notifications") ? <NotificationsPage notifications={notifications} onMarkRead={markRead} onMarkAllRead={markAllRead} farms={farms} activeFarmId={activeFarmId} farmCount={farms.length} onDismiss={dismissNotif} onNotifNav={(n)=>{if(n.type==="reconciliation"&&n.reconDate&&n.reconKey){nav("documentation");setReconFocus({date:n.reconDate,key:n.reconKey});}}}/> : <AccessDenied/>)}
           </AppErrorBoundary>
         </main>
       </div>

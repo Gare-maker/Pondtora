@@ -391,7 +391,8 @@ function FeedDocumentation({
         (brand === "—" || !b.brand || b.brand === brand) &&
         (!b.fishStock || normalizeFishStock(b.fishStock) === fishStock)
       );
-      const recordedBags = matchingBagLogs.reduce((s, b) => s + (Number(b.bagsOpened) || 0), 0);
+      // If multiple duplicate bag logs exist for the same stock and pallet on this day, use the single session amount
+      const recordedBags = matchingBagLogs.length > 0 ? (Number(matchingBagLogs[matchingBagLogs.length - 1].bagsOpened) || 0) : 0;
 
       const carryover = (remainLogs || []).filter(r =>
         r && isSameDate(r.date, prevDate) &&
@@ -714,8 +715,9 @@ function FeedDocumentation({
       const kgPb = Number(b.kgPerBag) || 15;
       const totalKg = Number(b.totalKg) || (bags * kgPb);
       if (existing) {
-        existing.bagsOpened += bags;
-        existing.totalKgOpened += totalKg;
+        // Keep single entry per stock and pallet size rather than accumulating duplicate entries
+        existing.bagsOpened = bags;
+        existing.totalKgOpened = totalKg;
         existing.lastBagLog = b;
       } else {
         map.set(k, {
@@ -1110,7 +1112,7 @@ function FeedDocumentation({
                 <tr className="bg-slate-50 border-b border-slate-100">
                   <th className="w-12 min-w-[48px] max-w-[48px] px-2 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-center sticky left-0 z-20 bg-slate-50">#</th>
                   <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left sticky left-[48px] z-20 bg-slate-50 border-r border-slate-200 min-w-[130px]">Pond</th>
-                  {["Fish Stock (Tied)", "Stock Date", "Initial Stock", "Fish Count", "Pellet Size", "Morning (kg)", "AM Time", "Evening (kg)", "PM Time", "Total (kg)", "Recorded By"].map(h => (
+                  {["Stock Date", "Initial Stock", "Fish Count", "Pellet Size", "Morning (kg)", "AM Time", "Evening (kg)", "PM Time", "Total (kg)", "Recorded By"].map(h => (
                     <th key={h} className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left whitespace-nowrap">{h}</th>
                   ))}
                   <th className="px-4 py-3 w-8" />
@@ -1129,13 +1131,6 @@ function FeedDocumentation({
                       <td className="px-4 py-3.5 min-w-[130px] sticky left-[48px] z-10 bg-white border-r border-slate-100">
                         <p className="font-semibold text-slate-900">{pond.name}</p>
                         <p className="text-[11px] text-slate-400">{pond.type || "—"}</p>
-                      </td>
-                      <td className="px-4 py-3.5 text-xs text-slate-800 font-semibold whitespace-nowrap">
-                        {pond.species && pond.species !== "—" ? (
-                          <span>{pond.species}</span>
-                        ) : (
-                          <span className="text-slate-400">Current Stock</span>
-                        )}
                       </td>
                       <td className="px-4 py-3.5 text-xs text-teal-700 font-medium whitespace-nowrap">
                         {stockDateFormatted !== "—" ? (
@@ -1532,10 +1527,10 @@ function FeedDocumentation({
             </div>
             <div className="flex-1 overflow-y-auto overflow-x-auto">
               <table className="w-full text-sm">
-                <thead className="sticky top-0 z-20">
+                <thead className="sticky top-0 z-30 shadow-xs bg-slate-50">
                   <tr className="bg-slate-50 border-b border-slate-200">
-                    <th className="w-12 min-w-[48px] max-w-[48px] px-2 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-center sticky left-0 z-30 bg-slate-50">#</th>
-                    <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left min-w-[160px] sticky left-[48px] z-30 bg-slate-50 border-r border-slate-200">Pond</th>
+                    <th className="w-12 min-w-[48px] max-w-[48px] px-2 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-center sticky top-0 left-0 z-40 bg-slate-100">#</th>
+                    <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left min-w-[160px] sticky top-0 left-[48px] z-40 bg-slate-100 border-r border-slate-200">Pond</th>
                     <th className="px-3 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-right min-w-[85px] whitespace-nowrap">Initial Stock</th>
                     <th className="px-3 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-right min-w-[85px] whitespace-nowrap">Fish Count</th>
                     <th className="px-3 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left min-w-[120px] whitespace-nowrap">Pellet Size</th>
@@ -1556,8 +1551,8 @@ function FeedDocumentation({
                     const rowAtMax = !!rowMaxKg && cumFed >= rowMaxKg;
                     return (
                       <tr key={row.pondId} className={`transition-colors ${hasFeed ? "bg-green-50/40" : "hover:bg-slate-50"}`}>
-                        <td className={`w-12 min-w-[48px] max-w-[48px] px-2 py-3 text-slate-400 text-xs font-mono text-center sticky left-0 z-20 ${hasFeed ? "bg-[#f2faf4]" : "bg-white"}`}>{i + 1}</td>
-                        <td className={`px-4 py-3 min-w-[160px] sticky left-[48px] z-20 border-r border-slate-200 ${hasFeed ? "bg-[#f2faf4]" : "bg-white"}`}>
+                        <td className={`w-12 min-w-[48px] max-w-[48px] px-2 py-3 text-slate-400 text-xs font-mono text-center sticky left-0 z-10 ${hasFeed ? "bg-[#f2faf4]" : "bg-white"}`}>{i + 1}</td>
+                        <td className={`px-4 py-3 min-w-[160px] sticky left-[48px] z-10 border-r border-slate-200 ${hasFeed ? "bg-[#f2faf4]" : "bg-white"}`}>
                           <p className="font-bold text-slate-900 leading-tight">{row.pondName}</p>
                           <p className="text-[11px] font-medium text-teal-700 leading-tight mt-0.5">
                             {row.fishStock || "Current Stock"}

@@ -368,6 +368,7 @@ export const STAFF_PERMISSIONS = [
   "Invoices",
   "Investors",
   "Staff Assessments",
+  "Notifications",
 ];
 export const STAFF_ROLES_ALL=["Admin","Director","Farm Manager","Feeding Staff","General Staff"];
 export const INIT_PRICE_GROUPS:PriceGroup[]=[
