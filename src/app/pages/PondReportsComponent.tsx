@@ -148,20 +148,10 @@ export default function PondReportsComponent({
 
   // Auto-sync form pond & fish stock when add modal opens
   const openAddModal = () => {
-    const nonEmpties = currentFarmPonds.filter(p => p.status !== "Empty" && (Number(p.currentCount) || 0) > 0);
-    if (nonEmpties.length === 0) {
-      toast.error("Cannot submit report: No active ponds with fish stock found on this farm.");
-      return;
-    }
-
-    const rawTargetPondId = fixedPondId || selectedPondId || nonEmpties[0].id;
-    const rawTargetPond = ponds.find(p => p.id === rawTargetPondId);
-    const targetPond = (rawTargetPond && rawTargetPond.status !== "Empty" && (Number(rawTargetPond.currentCount) || 0) > 0)
-      ? rawTargetPond
-      : nonEmpties[0];
-
-    const targetPondId = targetPond.id;
-    const targetFarmId = targetPond.farmId || selectedFarmId;
+    const rawTargetPondId = fixedPondId || selectedPondId || currentFarmPonds[0]?.id || ponds[0]?.id;
+    const targetPond = ponds.find(p => p.id === rawTargetPondId) || currentFarmPonds[0] || ponds[0];
+    const targetPondId = targetPond?.id || "";
+    const targetFarmId = targetPond?.farmId || selectedFarmId || farms[0]?.id || "";
     
     setFormFarmId(targetFarmId);
     setFormPondId(targetPondId);
@@ -175,10 +165,10 @@ export default function PondReportsComponent({
     setTreatActionTaken("");
     setTreatRemarks("");
 
-    const defaultStock = targetPond.stockingDate && targetPond.stockingDate !== "—"
+    const defaultStock = targetPond?.stockingDate && targetPond.stockingDate !== "—"
       ? formatFishStockDate(targetPond.stockingDate)
-      : (targetPond.species && targetPond.species !== "—" ? targetPond.species : "Current Stock");
-    const stockId = selectedFishStockId || `current-${targetPond.id}-${targetPond.stockingDate || "active"}`;
+      : (targetPond?.species && targetPond.species !== "—" ? targetPond.species : "Current Stock");
+    const stockId = selectedFishStockId || (targetPond ? `current-${targetPond.id}-${targetPond.stockingDate || "active"}` : "general");
     setFormFishStockId(stockId);
 
     setShowAddModal(true);
@@ -266,13 +256,12 @@ export default function PondReportsComponent({
       return;
     }
     const chosenPond = ponds.find(p => p.id === formPondId);
-    if (!chosenPond || chosenPond.status === "Empty" || (Number(chosenPond.currentCount) || 0) <= 0) {
-      toast.error("Cannot submit a report to an empty pond. Please select an active pond with fish.");
+    if (!chosenPond) {
+      toast.error("Selected pond was not found. Please select a valid pond.");
       return;
     }
     if (!formFishStockId) {
-      toast.error("Fish stock must be explicitly connected");
-      return;
+      setFormFishStockId(chosenPond.stockingDate && chosenPond.stockingDate !== "—" ? formatFishStockDate(chosenPond.stockingDate) : (chosenPond.species || "General Stock"));
     }
     if (!formDate) {
       toast.error("Report date is required");
@@ -650,7 +639,7 @@ export default function PondReportsComponent({
                   {ponds.filter(p => p.farmId === formFarmId).map(p => {
                     const isEmpty = p.status === "Empty" || (Number(p.currentCount) || 0) <= 0;
                     return (
-                      <option key={p.id} value={p.id} disabled={isEmpty}>
+                      <option key={p.id} value={p.id}>
                         {p.name} ({p.species}) {isEmpty ? "(Empty — 0 fish)" : `(${p.currentCount?.toLocaleString() || 0} fish)`}
                       </option>
                     );

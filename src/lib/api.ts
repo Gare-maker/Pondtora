@@ -395,6 +395,22 @@ function saveLocalCache(data: any, userId?: string) {
   }
 }
 
+export function clearUserCache(userId?: string) {
+  if (!userId) return;
+  try {
+    localStorage.removeItem(getUserCacheKey(userId));
+    const prefix = `pondtora_${userId}_`;
+    const keys = Object.keys(localStorage);
+    for (const k of keys) {
+      if (k.startsWith(prefix)) {
+        localStorage.removeItem(k);
+      }
+    }
+  } catch (e) {
+    console.warn("Failed to clear user cache", e);
+  }
+}
+
 // ── Supabase Auth helpers (frontend) ─────────────────────────────────────────
 export const auth = {
   signUp: async (opts: {
@@ -1054,6 +1070,7 @@ async function dbDelete(table: string, id: string, cacheKey?: string): Promise<{
 export const api = {
   setup: async () => ({ sql: "" }),
   autoSetup: async () => ({ success: true }),
+  clearUserCache,
 
   me: async () => {
     const userId = await getUserId();
@@ -1387,9 +1404,6 @@ export const api = {
       };
 
       saveLocalCache(result, userId);
-      if (staffMember?.userId && staffMember.userId !== userId) {
-        saveLocalCache(result, staffMember.userId);
-      }
       return result;
     } catch (err) {
       console.warn("Direct Supabase loadAll failed, returning cache if available:", err);

@@ -2083,7 +2083,7 @@ function ReportsPage({
                   {farmPonds.map(p => {
                     const isEmpty = p.status === "Empty" || (Number(p.currentCount) || 0) <= 0;
                     return (
-                      <option key={p.id} value={p.id} disabled={isEmpty}>
+                      <option key={p.id} value={p.id}>
                         {p.name} ({p.type}) {p.species && p.species !== "—" ? `— ${p.species}` : ""} {isEmpty ? "(Empty — 0 fish)" : `(${p.currentCount?.toLocaleString() || 0} fish)`}
                       </option>
                     );
@@ -3608,13 +3608,15 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     };
   }, []);
   
-  const initialUid = activeSessionUid;
+  const [isDataLoading, setIsDataLoading] = useState(false);
+
   const readInit = <T,>(key: string, cacheProp: string, fallback: T): T => {
-    if (!initialUid) return fallback;
-    const direct = loadLocal(`pondtora_${initialUid}_${key}`, null);
+    const currentUid = typeof window !== "undefined" ? getStoredAuthUser() : null;
+    if (!currentUid) return fallback;
+    const direct = loadLocal(`pondtora_${currentUid}_${key}`, null);
     if (direct !== null && (Array.isArray(direct) ? direct.length > 0 : true)) return direct;
     try {
-      const rawCache = localStorage.getItem(`pondtora_${initialUid}_cache`);
+      const rawCache = localStorage.getItem(`pondtora_${currentUid}_cache`);
       if (rawCache) {
         const parsed = JSON.parse(rawCache);
         if (parsed && parsed[cacheProp] !== undefined && (Array.isArray(parsed[cacheProp]) ? parsed[cacheProp].length > 0 : true)) {
@@ -3628,7 +3630,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   const isDataLoadedRef = useRef(false);
 
   const loadUserLocal = useCallback(<T,>(uid: string | undefined | null, key: string, cacheProp: string, fallback: T): T => {
-    const targetUid = uid || userProfile?.id || initialUid;
+    const targetUid = uid || userProfile?.id || (typeof window !== "undefined" ? getStoredAuthUser() : null);
     if (!targetUid) return fallback;
     const direct = loadLocal(`pondtora_${targetUid}_${key}`, null);
     if (direct !== null && (Array.isArray(direct) ? direct.length > 0 : true)) return direct;
@@ -3642,10 +3644,10 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       }
     } catch {}
     return direct ?? fallback;
-  }, [userProfile?.id, initialUid]);
+  }, [userProfile?.id]);
 
   const saveUserLocal = useCallback(<T,>(uid: string | undefined | null, key: string, cacheProp: string, data: T): void => {
-    const targetUid = uid || userProfile?.id || initialUid;
+    const targetUid = uid || userProfile?.id || (typeof window !== "undefined" ? getStoredAuthUser() : null);
     if (!targetUid) return;
     try {
       localStorage.setItem(`pondtora_${targetUid}_${key}`, JSON.stringify(data));
@@ -3656,10 +3658,10 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       parsed[cacheProp] = data;
       localStorage.setItem(`pondtora_${targetUid}_cache`, JSON.stringify(parsed));
     } catch {}
-  }, [userProfile?.id, initialUid]);
+  }, [userProfile?.id]);
 
   const [farms,setFarms]=useState<Farm[]>(()=>readInit("farms","farms",[]));
-  const [activeFarmId,setActiveFarmId]=useState<string>(()=>initialUid?(localStorage.getItem(`pondtora_${initialUid}_active_farm_id`)||""): "");
+  const [activeFarmId,setActiveFarmId]=useState<string>(()=>{ const cUid = typeof window !== "undefined" ? getStoredAuthUser() : null; return cUid ? (localStorage.getItem(`pondtora_${cUid}_active_farm_id`)||"") : ""; });
   const [showAddFarm,setShowAddFarm]=useState(false);
   const [addFarmF,setAddFarmF]=useState({name:"",city:"",state:"",country:"Nigeria"});
   
@@ -3737,27 +3739,34 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   const isStaff = userProfile?.role === "staff" || Boolean((userProfile as any)?.ownerId) || (Boolean(currentStaff) && currentStaff?.role !== "Admin" && currentStaff?.role !== "Director" && userProfile?.role !== "owner");
   const isOwner = !isStaff;
 
+  const staffPermsMap: Record<string,{canView:boolean;canCreate:boolean;canEdit:boolean;canDelete:boolean}> =
+    (isStaff && Object.keys(staffOwnPermissions).length > 0)
+      ? staffOwnPermissions
+      : (currentStaff?.staffPermissions || {});
+
   const hasPerm = useCallback((p: string) => {
     if (isOwner) return true;
     const perms = (currentStaff?.permissions && currentStaff.permissions.length > 0)
       ? currentStaff.permissions
       : (userProfile?.permissions || []);
-    if (perms.length === 0) return false;
     if (perms.includes(p)) return true;
     if (p === "Invoices" && perms.includes("Invoice")) return true;
     if (p === "Invoice" && perms.includes("Invoices")) return true;
     if (p === "Staff Assessments" && (perms.includes("Staff Assessment") || perms.includes("Staff Assessments"))) return true;
     if (p === "Notifications" && (perms.includes("Notification") || perms.includes("Notifications"))) return true;
     if (p === "Pond Details" && perms.includes("Pond Management")) return true;
+    if (staffOwnPermissions[p]?.canView || staffOwnPermissions[p]?.canCreate || currentStaff?.staffPermissions?.[p]?.canView || currentStaff?.staffPermissions?.[p]?.canCreate) return true;
+    if (p === "Notifications" && (staffOwnPermissions["Notifications"]?.canView || currentStaff?.staffPermissions?.["Notifications"]?.canView)) return true;
     return false;
-  }, [isOwner, currentStaff?.permissions, userProfile?.permissions]);
+  }, [isOwner, currentStaff?.permissions, currentStaff?.staffPermissions, userProfile?.permissions, staffOwnPermissions]);
 
-  const staffPermsMap: Record<string,{canView:boolean;canCreate:boolean;canEdit:boolean;canDelete:boolean}> =
-    (isStaff && Object.keys(staffOwnPermissions).length > 0)
-      ? staffOwnPermissions
-      : (currentStaff?.staffPermissions || {});
-
-  const canView   = (feature: string): boolean => isOwner || (hasPerm(feature) && (staffPermsMap[feature]?.canView   ?? true));
+  const canView   = (feature: string): boolean => {
+    if (isOwner) return true;
+    if (feature === "Notifications") {
+      return Boolean(staffPermsMap["Notifications"]?.canView ?? hasPerm("Notifications"));
+    }
+    return hasPerm(feature) && (staffPermsMap[feature]?.canView ?? true);
+  };
   const canCreate = (feature: string): boolean => isOwner || (hasPerm(feature) && (staffPermsMap[feature]?.canCreate ?? false));
   const canEdit   = (feature: string): boolean => isOwner || (hasPerm(feature) && (staffPermsMap[feature]?.canEdit   ?? false));
   const canDelete = (feature: string): boolean => isOwner || (hasPerm(feature) && (staffPermsMap[feature]?.canDelete ?? false));
@@ -4836,6 +4845,9 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     if (d.compatibilityQuestions?.length > 0) setCQuestions_(d.compatibilityQuestions);
     if (d.knowledgeResults) setKResults_(d.knowledgeResults);
     if (d.compatibilityResults) setCResults_(d.compatibilityResults);
+
+    isDataLoadedRef.current = true;
+    setIsDataLoading(false);
   }, [userProfile, activePlan, loadUserLocal]);
 
   /* ── Auto-create tables then reload ── */
@@ -4861,6 +4873,9 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
 
   /* ── Backend data loading ── */
   const loadFromBackend=useCallback(async()=>{
+    if (!isDataLoadedRef.current) {
+      setIsDataLoading(true);
+    }
     try{
       const d=await api.loadAll() as any;
       if(d.needsSetup){
@@ -4917,6 +4932,8 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
         const cpr=loadUserLocal(uid,"pond_reports","pondReports",[]).filter((x: any) => !isDeletedId(x.id));
         if(cpr.length>0)setPondReports(cpr);
       }
+    } finally {
+      setIsDataLoading(false);
     }
   },[applyBackendData,runAutoSetup,userProfile?.id,loadUserLocal,isDeletedId]);
 
@@ -5290,39 +5307,20 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
 
   const handleLogin=(profile:UserProfile)=>{
     isDataLoadedRef.current = false;
+    setIsDataLoading(true);
     resetAllState();
     setUserProfile(profile);
     setIsAuth(true);
     setShowLanding(false);
-    if(profile?.id){
-      const uid=profile.id;
-      setFarms(loadUserLocal(uid,"farms","farms",[]));
-      setPonds(loadUserLocal(uid,"ponds","ponds",[]));
-      setExpenses(loadUserLocal(uid,"expenses","expenses",[]));
-      const cr=loadUserLocal(uid,"revenues","revenues",[]);
-      setRevenues(cr.filter((r: Revenue) => !r.notes?.startsWith("Payment for Invoice")));
-      setInventory(loadUserLocal(uid,"inventory","feedInventory",[]));
-      setFeeding(loadUserLocal(uid,"feeding","feedingRecords",[]));
-      setBagLogs(loadUserLocal(uid,"bag_logs","bagOpenLogs",[]));
-      setRemainLogs(loadUserLocal(uid,"remain_logs","feedRemainingLogs",[]));
-      setMortality(loadUserLocal(uid,"mortality","mortalityEntries",[]));
-      setTreatments(loadUserLocal(uid,"treatments","treatmentRecords",[]));
-      setStaff(loadUserLocal(uid,"staff","staffMembers",[]));
-      setStockEvents(loadUserLocal(uid,"stock_events","stockEvents",[]));
-      setReports(loadUserLocal(uid,"reports","reports",[]));
-      setCustomers(loadUserLocal(uid,"customers","customers",[]));
-      setPriceGroups(loadUserLocal(uid,"price_groups","priceGroups",[]));
-      setInvoices(loadUserLocal(uid,"invoices","invoices",[]));
-      setInvSettings(loadUserLocal(uid,"inv_settings","invoiceSettings",INIT_INV_SETTINGS));
-      setInvestors(loadUserLocal(uid,"investors","investors",[]));
-      setInvestments(loadUserLocal(uid,"investments","investments",[]));
-      setInvestmentPayments(loadUserLocal(uid,"investment_payments","investmentPayments",[]));
-      setPondReports(loadUserLocal(uid,"pond_reports","pondReports",[]));
-    }
     loadFromBackend();
   };
   const handleLogout=async()=>{
+    const uid = userProfile?.id || (typeof window !== "undefined" ? getStoredAuthUser() : null);
+    if (uid) {
+      api.clearUserCache(uid);
+    }
     resetAllStateAndStorage();
+    setIsDataLoading(false);
     await auth.signOut().catch(console.warn);
   };
   const handleSignup=(profile:UserProfile)=>{
@@ -5331,26 +5329,30 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     setPendingUser(profile);
     setShowChoosePlan(true);
   };
-  const addReport=(r:Report)=>{
-    if (!canCreate("Reports")) {
+  const addReport=async(r:Report)=>{
+    if (!isOwner && !canCreate("Reports") && !hasPerm("Reports")) {
       toast.error("You do not have permission to submit reports.");
       return;
     }
     const rr: Report = {
       ...r,
       id: isUuid(r.id) ? r.id : crypto.randomUUID(),
-      farmId: activeFarmId,
+      farmId: r.farmId || activeFarmId || farms[0]?.id || "",
       authorRole: isStaff ? "staff" : "owner",
       createdByRole: isStaff ? "staff" : "owner",
       createdById: userProfile?.id || null,
       isStaffSubmission: isStaff,
     };
     setReports(prev=>[rr,...prev]);
-    toast.success("Report saved");
-    api.reports.create(rr).catch(console.warn);
-    const farm=farms.find(f=>f.id===activeFarmId);
+    toast.success("Report submitted successfully");
+    try {
+      await api.reports.create(rr);
+    } catch(err) {
+      console.warn("Failed to persist report to backend:", err);
+    }
+    const farm=farms.find(f=>f.id===(rr.farmId || activeFarmId));
     const nid=`report-submitted-${rr.id}`;
-    setExtraNotifs(prev=>[...prev.filter(n=>n.id!==nid),{id:nid,type:"report" as const,farmId:activeFarmId,farmName:farm?.name||"",date:TODAY,read:false,reportId:rr.id,reportTitle:rr.title,reportAuthor:rr.author,reportStatus:"submitted"}]);
+    setExtraNotifs(prev=>[...prev.filter(n=>n.id!==nid),{id:nid,type:"report" as const,farmId:rr.farmId||activeFarmId,farmName:farm?.name||"",date:TODAY,read:false,reportId:rr.id,reportTitle:rr.title,reportAuthor:rr.author,reportStatus:"submitted"}]);
   };
   const editReportFn=(r:Report)=>{
     const isStaffReport = Boolean(r.isStaffSubmission || r.authorRole === "staff" || r.createdByRole === "staff");
@@ -5621,18 +5623,31 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   // Auto-redirect staff to their first permitted page if their current view is not permitted
   useEffect(() => {
     if (!isStaff) return;
+    if (active === "notifications") {
+      if (!canView("Notifications")) {
+        const firstAllowed = NAV.find(item => {
+          if (item.id === "staff" || item.id === "pricing" || item.id === "settings") return false;
+          const p = NAV_PERM[item.id];
+          return p && canView(p);
+        });
+        if (firstAllowed && firstAllowed.id !== active) {
+          setActive_(firstAllowed.id);
+        }
+      }
+      return;
+    }
     const permForActive = NAV_PERM[active];
-    if (!permForActive || !hasPerm(permForActive)) {
+    if (!permForActive || !canView(permForActive)) {
       const firstAllowed = NAV.find(item => {
         if (item.id === "staff" || item.id === "pricing" || item.id === "settings") return false;
         const p = NAV_PERM[item.id];
-        return p && hasPerm(p);
+        return p && canView(p);
       });
       if (firstAllowed && firstAllowed.id !== active) {
         setActive_(firstAllowed.id);
       }
     }
-  }, [isStaff, active, currentStaff?.permissions, userProfile?.permissions, hasPerm]);
+  }, [isStaff, active, currentStaff?.permissions, userProfile?.permissions, hasPerm, canView]);
 
   // Ensure staff's activeFarmId is an accessible farm
   useEffect(() => {
@@ -5860,7 +5875,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   };
 
   const handleAddPondReport=async(r:PondReport)=>{
-    if (!canCreate("Reports") && !canCreate("Pond Management")) {
+    if (!isOwner && !canCreate("Reports") && !canCreate("Pond Management") && !hasPerm("Reports") && !hasPerm("Pond Management")) {
       toast.error("You do not have permission to submit pond reports.");
       return;
     }
@@ -5877,26 +5892,12 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     setPondReports(prev=>[nr,...prev]);
     try {
       await api.pondReports.create(nr);
-      toast.success("Pond report saved");
+      toast.success("Pond report submitted successfully");
     } catch(err:any) {
       console.error("Failed to persist pond report:", err);
       toast.error("Pond report saved locally — sync error");
     }
   };
-
-  /* Auto-route staff members to their first permitted page if current page is restricted */
-  useEffect(()=>{
-    if(!isOwner){
-      const allowedViews=NAV.filter(({id})=>{
-        if(id==="staff"||id==="pricing"||id==="settings")return false;
-        const perm=NAV_PERM[id];
-        return Boolean(perm && hasPerm(perm));
-      }).map(n=>n.id);
-      if(allowedViews.length>0&&!allowedViews.includes(active)){
-        setActive_(allowedViews[0]);
-      }
-    }
-  },[isOwner,currentStaff,userProfile?.permissions,active,hasPerm]);
   const notifications=useMemo(()=>{
     if (!canView("Notifications")) return [];
     const notifs:AppNotification[]=[];
@@ -6232,20 +6233,28 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
           </div>
         </div>
         <main ref={mainRef} className="flex-1 overflow-y-auto bg-[#f5f7fa]">
-          <AppErrorBoundary key={active}>
-            {active==="financial"     &&(hasPerm("Financial Dashboard")?<FinancialDashboard expenses={farmExpenses} revenues={farmRevenues} onAddExpense={addExp} onAddRevenue={addRev} onEditExpense={editExp} onEditRevenue={editRev} onDeleteExpense={deleteExp} onDeleteRevenue={deleteRev} stockEvents={stockEvents} ponds={farmPonds} inventory={farmInventory} currency={cs} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}} canCreate={canCreate("Financial Dashboard")} canEdit={canEdit("Financial Dashboard")} canDelete={canDelete("Financial Dashboard")}/>:<AccessDenied/>)}
-            {active==="ponds"         &&(hasPerm("Pond Management")?<PondManagementPage ponds={farmPonds} onAddPond={addPond} onClosePond={closePond} onRestockPond={restockPond} onTransfer={transferStock} onNurseryTransfer={nurseryTransfer} mortality={farmMortality} onAddMortality={addMort} onAddCost={addExp} feedingRecords={farmFeeding} stockEvents={stockEvents} treatments={farmTreatments} onAddTreatment={addTreatment} activeFarmId={activeFarmId} onDeletePond={deletePond} onEditFish={editFish} onSetMaxKg={setPondMaxKg} onEditPond={handleEditPond} onScrollTop={()=>mainRef.current?.scrollTo({top:0,behavior:"instant"})} currency={cs} inventory={farmInventory} farms={farms} pondReports={farmPondReports} onAddPondReport={handleAddPondReport} canCreate={canCreate("Pond Management")} canEdit={canEdit("Pond Management")} canDelete={canDelete("Pond Management")}/>:<AccessDenied/>)}
-            {active==="inventory"     &&(hasPerm("Feed Stock")?<FeedInventoryPage inventory={farmInventory} onAdd={addInv} onDelete={delInv} feedingRecords={farmFeeding} bagLogs={farmBagLogs} remainLogs={farmRemainLogs} ponds={farmPonds} onEditBagLog={editBagLog} onEditInv={editInv} currency={cs} canEditLocked={isOwner||currentStaff?.role==="Farm Manager"} canCreate={canCreate("Feed Stock")} canEdit={canEdit("Feed Stock")} canDelete={canDelete("Feed Stock")}/>:<AccessDenied/>)}
-            {active==="documentation" &&(hasPerm("Feeding Records")?<FeedDocumentationPage feedingRecords={farmFeeding} onAddRecord={addFeed} onEditFeedRecord={editFeedRecord} onDeleteRecord={deleteFeedRecord} ponds={farmPonds} inventory={farmInventory} bagLogs={farmBagLogs} onAddBagLog={addBagLog} onEditBagLog={editBagLog} onEditInv={editInv} remainLogs={farmRemainLogs} onAddRemainLog={addRemainLog} onEditRemainLog={editRemainLog} onReconMismatches={onReconMismatches} reconFocus={reconFocus} canEditLocked={isOwner||currentStaff?.role==="Farm Manager"} currentUser={{name:currentStaff?.name||userProfile?.name||"",email:userProfile?.email||""}} canCreate={canCreate("Feeding Records")} canEdit={canEdit("Feeding Records")} canDelete={canDelete("Feeding Records")}/>:<AccessDenied/>)}
-            {active==="invoices"      &&(hasPerm("Invoices")?<InvoicesPage ponds={farmPonds} invoices={farmInvoices} customers={farmCustomers} priceGroups={farmPriceGroups} settings={invSettings} onAddInvoice={addInvoice} onEditInvoice={editInvoice} onDeleteInvoice={deleteInvoice} onAddCustomer={addCustomer} onAddPriceGroup={addPriceGroup} onEditPriceGroup={editPriceGroup} onDeletePriceGroup={delPriceGroup} onUpdateSettings={(s)=>{setInvSettings(s);api.invSettings.update(s).catch(console.warn);}} currentUser={userProfile?.name} currency={cs} canCreate={canCreate("Invoices")} canEdit={canEdit("Invoices")} canDelete={canDelete("Invoices")}/>:<AccessDenied/>)}
-            {active==="staff"         &&(isOwner?<StaffPage staff={staff} onAdd={addStaff} onEdit={editStaff} onDelete={delStaff} farms={farms.filter(f => f.userId === userProfile?.id || isOwner)} activeFarmId={activeFarmId} ownerEmail={userProfile?.email}/>:<AccessDenied/>)}
-            {active==="investors"     &&(hasPerm("Investors")?<InvestorsPage investors={farmInvestors} investments={farmInvestments} payments={farmPayments} farms={farms} ponds={farmPonds} stockEvents={stockEvents} activeFarmId={activeFarmId} currency={cs} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}} isOwner={isOwner} canManage={isOwner||hasPerm("Investors")} onAddInvestor={handleAddInvestor} onEditInvestor={handleEditInvestor} onEditInvestment={handleEditInvestment} onDeleteInvestor={handleDeleteInvestor} onRecordPayment={handleRecordPayment} onMarkPaymentPaid={handleMarkPaymentPaid} canCreate={canCreate("Investors")} canEdit={canEdit("Investors")} canDelete={canDelete("Investors")}/>:<AccessDenied/>)}
-            {active==="reports"       &&(hasPerm("Reports")?<ReportsPage reports={farmReports} staff={staff} onAdd={addReport} onEdit={editReportFn} onDelete={deleteReport} pondReports={farmPondReports} treatments={farmTreatments} farms={farms} ponds={farmPonds} stockEvents={stockEvents} onAddPondReport={handleAddPondReport} onDeletePondReport={deletePondReport} activeFarmId={activeFarmId} canCreate={canCreate("Reports")} canEdit={canEdit("Reports")} canDelete={canDelete("Reports")} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}} isOwner={isOwner}/>:<AccessDenied/>)}
-            {active==="assessments"   &&(hasPerm("Staff Assessments")?<EmployeeAssessmentsPage kQuestions={kQuestions} cQuestions={cQuestions} kResults={kResults} cResults={cResults} onSaveKQuestions={saveKQuestions} onSaveCQuestions={saveCQuestions} onAddKResult={addKResult} onAddCResult={addCResult} ownerId={userProfile?.id??""}/>:<AccessDenied/>)}
-            {active==="pricing"       &&(isOwner?<SubscriptionPage farmCount={farms.length} activePlan={activePlan} setActivePlan={setActivePlan} trialStartDate={trialStartDate} setTrialStartDate={setTrialStartDate} currency={cs} convertPrice={cvt} userProfile={userProfile} activeFarmName={farms.find(f=>f.id===activeFarmId)?.name||userProfile?.farmName}/>:<AccessDenied/>)}
-            {active==="settings"      &&<SettingsPage farms={isOwner?farms:accessibleFarms} onAddFarm={handleAddFarmDirect} onEditFarm={handleEditFarm} onDeleteFarm={handleDeleteFarm} userProfile={userProfile} onUpdateProfile={handleUpdateProfile} isOwner={isOwner} ponds={ponds} activePlan={activePlan}/>}
-            {active==="notifications" && (canView("Notifications") ? <NotificationsPage notifications={notifications} onMarkRead={markRead} onMarkAllRead={markAllRead} farms={farms} activeFarmId={activeFarmId} farmCount={farms.length} onDismiss={dismissNotif} onNotifNav={(n)=>{if(n.type==="reconciliation"&&n.reconDate&&n.reconKey){nav("documentation");setReconFocus({date:n.reconDate,key:n.reconKey});}}}/> : <AccessDenied/>)}
-          </AppErrorBoundary>
+          {isDataLoading ? (
+            <div className="flex flex-col items-center justify-center min-h-[60vh] gap-3 p-6">
+              <Loader2 size={36} className="text-green-600 animate-spin" />
+              <p className="text-base font-bold text-slate-800 font-['Barlow_Condensed',sans-serif] tracking-wide">Loading farm data…</p>
+              <p className="text-xs text-slate-400">Syncing records for your account</p>
+            </div>
+          ) : (
+            <AppErrorBoundary key={active}>
+              {active==="financial"     &&(hasPerm("Financial Dashboard")?<FinancialDashboard expenses={farmExpenses} revenues={farmRevenues} onAddExpense={addExp} onAddRevenue={addRev} onEditExpense={editExp} onEditRevenue={editRev} onDeleteExpense={deleteExp} onDeleteRevenue={deleteRev} stockEvents={stockEvents} ponds={farmPonds} inventory={farmInventory} currency={cs} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}} canCreate={canCreate("Financial Dashboard")} canEdit={canEdit("Financial Dashboard")} canDelete={canDelete("Financial Dashboard")}/>:<AccessDenied/>)}
+              {active==="ponds"         &&(hasPerm("Pond Management")?<PondManagementPage ponds={farmPonds} onAddPond={addPond} onClosePond={closePond} onRestockPond={restockPond} onTransfer={transferStock} onNurseryTransfer={nurseryTransfer} mortality={farmMortality} onAddMortality={addMort} onAddCost={addExp} feedingRecords={farmFeeding} stockEvents={stockEvents} treatments={farmTreatments} onAddTreatment={addTreatment} activeFarmId={activeFarmId} onDeletePond={deletePond} onEditFish={editFish} onSetMaxKg={setPondMaxKg} onEditPond={handleEditPond} onScrollTop={()=>mainRef.current?.scrollTo({top:0,behavior:"instant"})} currency={cs} inventory={farmInventory} farms={farms} pondReports={farmPondReports} onAddPondReport={handleAddPondReport} canCreate={canCreate("Pond Management")} canEdit={canEdit("Pond Management")} canDelete={canDelete("Pond Management")}/>:<AccessDenied/>)}
+              {active==="inventory"     &&(hasPerm("Feed Stock")?<FeedInventoryPage inventory={farmInventory} onAdd={addInv} onDelete={delInv} feedingRecords={farmFeeding} bagLogs={farmBagLogs} remainLogs={farmRemainLogs} ponds={farmPonds} onEditBagLog={editBagLog} onEditInv={editInv} currency={cs} canEditLocked={isOwner||currentStaff?.role==="Farm Manager"} canCreate={canCreate("Feed Stock")} canEdit={canEdit("Feed Stock")} canDelete={canDelete("Feed Stock")}/>:<AccessDenied/>)}
+              {active==="documentation" &&(hasPerm("Feeding Records")?<FeedDocumentationPage feedingRecords={farmFeeding} onAddRecord={addFeed} onEditFeedRecord={editFeedRecord} onDeleteRecord={deleteFeedRecord} ponds={farmPonds} inventory={farmInventory} bagLogs={farmBagLogs} onAddBagLog={addBagLog} onEditBagLog={editBagLog} onEditInv={editInv} remainLogs={farmRemainLogs} onAddRemainLog={addRemainLog} onEditRemainLog={editRemainLog} onReconMismatches={onReconMismatches} reconFocus={reconFocus} canEditLocked={isOwner||currentStaff?.role==="Farm Manager"} currentUser={{name:currentStaff?.name||userProfile?.name||"",email:userProfile?.email||""}} canCreate={canCreate("Feeding Records")} canEdit={canEdit("Feeding Records")} canDelete={canDelete("Feeding Records")}/>:<AccessDenied/>)}
+              {active==="invoices"      &&(hasPerm("Invoices")?<InvoicesPage ponds={farmPonds} invoices={farmInvoices} customers={farmCustomers} priceGroups={farmPriceGroups} settings={invSettings} onAddInvoice={addInvoice} onEditInvoice={editInvoice} onDeleteInvoice={deleteInvoice} onAddCustomer={addCustomer} onAddPriceGroup={addPriceGroup} onEditPriceGroup={editPriceGroup} onDeletePriceGroup={delPriceGroup} onUpdateSettings={(s)=>{setInvSettings(s);api.invSettings.update(s).catch(console.warn);}} currentUser={userProfile?.name} currency={cs} canCreate={canCreate("Invoices")} canEdit={canEdit("Invoices")} canDelete={canDelete("Invoices")}/>:<AccessDenied/>)}
+              {active==="staff"         &&(isOwner?<StaffPage staff={staff} onAdd={addStaff} onEdit={editStaff} onDelete={delStaff} farms={farms.filter(f => f.userId === userProfile?.id || isOwner)} activeFarmId={activeFarmId} ownerEmail={userProfile?.email}/>:<AccessDenied/>)}
+              {active==="investors"     &&(hasPerm("Investors")?<InvestorsPage investors={farmInvestors} investments={farmInvestments} payments={farmPayments} farms={farms} ponds={farmPonds} stockEvents={stockEvents} activeFarmId={activeFarmId} currency={cs} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}} isOwner={isOwner} canManage={isOwner||hasPerm("Investors")} onAddInvestor={handleAddInvestor} onEditInvestor={handleEditInvestor} onEditInvestment={handleEditInvestment} onDeleteInvestor={handleDeleteInvestor} onRecordPayment={handleRecordPayment} onMarkPaymentPaid={handleMarkPaymentPaid} canCreate={canCreate("Investors")} canEdit={canEdit("Investors")} canDelete={canDelete("Investors")}/>:<AccessDenied/>)}
+              {active==="reports"       &&(hasPerm("Reports")?<ReportsPage reports={farmReports} staff={staff} onAdd={addReport} onEdit={editReportFn} onDelete={deleteReport} pondReports={farmPondReports} treatments={farmTreatments} farms={farms} ponds={farmPonds} stockEvents={stockEvents} onAddPondReport={handleAddPondReport} onDeletePondReport={deletePondReport} activeFarmId={activeFarmId} canCreate={canCreate("Reports")} canEdit={canEdit("Reports")} canDelete={canDelete("Reports")} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}} isOwner={isOwner}/>:<AccessDenied/>)}
+              {active==="assessments"   &&(hasPerm("Staff Assessments")?<EmployeeAssessmentsPage kQuestions={kQuestions} cQuestions={cQuestions} kResults={kResults} cResults={cResults} onSaveKQuestions={saveKQuestions} onSaveCQuestions={saveCQuestions} onAddKResult={addKResult} onAddCResult={addCResult} ownerId={userProfile?.id??""}/>:<AccessDenied/>)}
+              {active==="pricing"       &&(isOwner?<SubscriptionPage farmCount={farms.length} activePlan={activePlan} setActivePlan={setActivePlan} trialStartDate={trialStartDate} setTrialStartDate={setTrialStartDate} currency={cs} convertPrice={cvt} userProfile={userProfile} activeFarmName={farms.find(f=>f.id===activeFarmId)?.name||userProfile?.farmName}/>:<AccessDenied/>)}
+              {active==="settings"      &&<SettingsPage farms={isOwner?farms:accessibleFarms} onAddFarm={handleAddFarmDirect} onEditFarm={handleEditFarm} onDeleteFarm={handleDeleteFarm} userProfile={userProfile} onUpdateProfile={handleUpdateProfile} isOwner={isOwner} ponds={ponds} activePlan={activePlan}/>}
+              {active==="notifications" && (canView("Notifications") ? <NotificationsPage notifications={notifications} onMarkRead={markRead} onMarkAllRead={markAllRead} farms={farms} activeFarmId={activeFarmId} farmCount={farms.length} onDismiss={dismissNotif} onNotifNav={(n)=>{if(n.type==="reconciliation"&&n.reconDate&&n.reconKey){nav("documentation");setReconFocus({date:n.reconDate,key:n.reconKey});}}}/> : <AccessDenied/>)}
+            </AppErrorBoundary>
+          )}
         </main>
       </div>
       {/* Add Farm Modal */}

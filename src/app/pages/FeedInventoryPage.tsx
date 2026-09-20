@@ -457,8 +457,8 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
               )}
             </div>
             <div className="flex items-center gap-2 flex-wrap">
-              <button onClick={()=>downloadCSV(`feed-stock-history-${historyMode==="daily"?dailyDate:"all"}.csv`,["#","Date","Fish Stock","Stock Date","Brand","Pellet Size","Bags Opened","Kg/Bag","KG Deducted","Remaining KG in Stock"],filteredDailyRows.map((r,i)=>[i+1,r.date,r.fishStock,r.stockDate,r.brand,r.size,r.bagsOpened,r.kgPerBag,r.totalKgOpened,r.remainingKg]))} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 text-xs font-semibold hover:border-green-400 hover:text-green-600 transition-colors"><Download size={12}/> CSV</button>
-              <button onClick={()=>openPrintWindow(`Feed Stock History Report — ${historyMode==="daily"?fmtStockingDate(dailyDate):"All Dates"}`,["#","Date","Fish Stock","Stock Date","Brand","Pellet Size","Bags Opened","Kg/Bag","KG Deducted","Remaining KG in Stock"],filteredDailyRows.map((r,i)=>[i+1,r.date,r.fishStock,r.stockDate,r.brand,r.size,`${r.bagsOpened} bag${r.bagsOpened!==1?"s":""}`,`${r.kgPerBag}kg`,`${r.totalKgOpened}kg`,`${r.remainingKg}kg`]),`Feed Bags Opened & Remaining Log (${historyMode==="daily"?fmtStockingDate(dailyDate):"All History"})`)} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 text-xs font-semibold hover:border-green-400 hover:text-green-600 transition-colors"><FileText size={12}/> Print</button>
+              <button onClick={()=>downloadCSV(`feed-stock-history-${historyMode==="daily"?dailyDate:"all"}.csv`,["#","Date","Fish Stock (Stock Date)","Brand","Pellet Size","Bags Opened","Kg/Bag","KG Deducted","Remaining KG in Stock"],filteredDailyRows.map((r,i)=>[i+1,r.date,`${r.fishStock}${r.stockDate&&r.stockDate!=="—"?` (${r.stockDate})`:""}`,r.brand,r.size,r.bagsOpened,r.kgPerBag,r.totalKgOpened,r.remainingKg]))} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 text-xs font-semibold hover:border-green-400 hover:text-green-600 transition-colors"><Download size={12}/> CSV</button>
+              <button onClick={()=>openPrintWindow(`Feed Stock History Report — ${historyMode==="daily"?fmtStockingDate(dailyDate):"All Dates"}`,["#","Date","Fish Stock (Stock Date)","Brand","Pellet Size","Bags Opened","Kg/Bag","KG Deducted","Remaining KG in Stock"],filteredDailyRows.map((r,i)=>[i+1,r.date,`${r.fishStock}${r.stockDate&&r.stockDate!=="—"?` (${r.stockDate})`:""}`,r.brand,r.size,`${r.bagsOpened} bag${r.bagsOpened!==1?"s":""}`,`${r.kgPerBag}kg`,`${r.totalKgOpened}kg`,`${r.remainingKg}kg`]),`Feed Bags Opened & Remaining Log (${historyMode==="daily"?fmtStockingDate(dailyDate):"All History"})`)} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 text-xs font-semibold hover:border-green-400 hover:text-green-600 transition-colors"><FileText size={12}/> Print</button>
             </div>
           </div>
 
@@ -514,7 +514,7 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
                   <tr className="border-b border-slate-100 bg-slate-50">
                     <th className="px-4 py-3 text-[11px] text-slate-400 w-10 sticky left-0 z-20 bg-slate-50">#</th>
                     <th className="text-left px-4 py-3 text-[11px] text-slate-600 uppercase tracking-wider whitespace-nowrap sticky left-10 z-20 bg-slate-50 border-r border-slate-200">Date</th>
-                    <th className="text-left px-4 py-3 text-[11px] text-slate-600 uppercase tracking-wider">Fish Stock &amp; Stock Date</th>
+                    <th className="text-left px-4 py-3 text-[11px] text-slate-600 uppercase tracking-wider">Fish Stock</th>
                     <th className="text-left px-4 py-3 text-[11px] text-slate-600 uppercase tracking-wider">Brand</th>
                     <th className="text-left px-4 py-3 text-[11px] text-slate-600 uppercase tracking-wider">Pellet Size</th>
                     <th className="text-right px-4 py-3 text-[11px] text-slate-600 uppercase tracking-wider">Bags Opened</th>
@@ -535,11 +535,9 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
                         <div className="flex items-center gap-2">
                           <span className="w-2 h-2 rounded-full bg-green-500 shrink-0"/>
                           <div>
-                            <p className="font-bold text-slate-900 text-sm">{r.fishStock}</p>
-                            {r.stockDate !== "—" && (
-                              <p className="text-[11px] font-medium text-teal-700 mt-0.5">
-                                Stock Date: <span className="font-semibold">{r.stockDate}</span>
-                              </p>
+                            <p className="font-bold text-slate-900 text-sm leading-tight">{r.fishStock}</p>
+                            {r.stockDate && r.stockDate !== "—" && (
+                              <p className="text-xs text-slate-500 font-normal leading-tight mt-0.5">{r.stockDate}</p>
                             )}
                             {r.ponds.length > 0 && (
                               <p className="text-[10px] text-slate-400 mt-0.5">Ponds: {r.ponds.join(", ")}</p>
@@ -584,9 +582,9 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
                 <div className="flex items-start justify-between gap-2">
                   <div>
                     <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{r.date}</span>
-                    <p className="text-sm font-bold text-slate-900">{r.fishStock}</p>
-                    {r.stockDate !== "—" && (
-                      <p className="text-xs text-teal-700 font-semibold mt-0.5">Stock Date: {r.stockDate}</p>
+                    <p className="text-sm font-bold text-slate-900 leading-tight">{r.fishStock}</p>
+                    {r.stockDate && r.stockDate !== "—" && (
+                      <p className="text-xs text-slate-500 font-normal leading-tight mt-0.5">{r.stockDate}</p>
                     )}
                   </div>
                   <Bdg label={r.size} color="blue"/>

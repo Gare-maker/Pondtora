@@ -183,20 +183,32 @@ function FeedDocumentation({
 
   /* Helper to check current available stock for a Pellet Size across inventory and feedings */
   const getPelletStock = (size: string, excludeRecordId?: string) => {
-    if (!size) return { availableKg: 0, totalPurchasedKg: 0, totalFedKg: 0, exists: false };
+    if (!size) return { availableQty: 0, availableKg: 0, inStockBags: 0, totalPurchasedBags: 0, totalPurchasedKg: 0, totalFedKg: 0, exists: false };
     const invItems = (inventory || []).filter(f => f && f.size === size);
-    const totalPurchasedKg = invItems.reduce((s, f) => s + (Number(f.totalKg) || (Number(f.bags) * (Number(f.weightPerBag) || 15))), 0);
     const totalPurchasedBags = invItems.reduce((s, f) => s + (Number(f.bags) || 0), 0);
-    const exists = invItems.length > 0 && (totalPurchasedKg > 0 || totalPurchasedBags > 0);
+    const weightPerBag = invItems[0]?.weightPerBag || 15;
+    const totalPurchasedKg = invItems.reduce((s, f) => s + (Number(f.totalKg) || (Number(f.bags) * (Number(f.weightPerBag) || weightPerBag))), 0);
+    const exists = invItems.length > 0 && (totalPurchasedBags > 0 || totalPurchasedKg > 0);
+
+    const openedLogs = (bagLogs || []).filter(b => b && b.size === size);
+    const totalOpenedBags = openedLogs.reduce((s, b) => s + (Number(b.bagsOpened) || 0), 0);
+    const inStockBags = Math.max(0, totalPurchasedBags - totalOpenedBags);
 
     const relevantFeeding = (feedingRecords || []).filter(fr => fr && fr.size === size && (excludeRecordId ? fr.id !== excludeRecordId : true));
     const totalFedKg = relevantFeeding.reduce((s, fr) => s + (Number(fr.total) || ((Number(fr.morning) || 0) + (Number(fr.evening) || 0))), 0);
-    const availableKg = Math.max(0, totalPurchasedKg - totalFedKg);
+    const totalOpenedKg = openedLogs.reduce((s, b) => s + (Number(b.totalKg) || (Number(b.bagsOpened) * (Number(b.kgPerBag) || weightPerBag))), 0);
+    const remainingOpenedKg = Math.max(0, totalOpenedKg - totalFedKg);
+    const availableKg = Math.max(0, (inStockBags * weightPerBag) + remainingOpenedKg);
+
+    // Available pallet quantity dynamically reflects actual Feed Stock inventory
+    const availableQty = inStockBags;
 
     return {
+      availableQty,
       availableKg,
-      totalPurchasedKg,
+      inStockBags,
       totalPurchasedBags,
+      totalPurchasedKg,
       totalFedKg,
       exists
     };
@@ -814,7 +826,7 @@ function FeedDocumentation({
   }, [reconRows, reconSearch]);
 
   /* ── log remaining feed state ── */
-  type RemainRow = { brand: string; size: string; fishStock: string; remainingKg: string };
+  type RemainRow = { id?: string; brand: string; size: string; fishStock: string; remainingKg: string };
   const blankRemainRow = (): RemainRow => {
     const b = invBrands[0] || "";
     const s = invSizesForBrand(b)[0] || "";
@@ -832,14 +844,88 @@ function FeedDocumentation({
     }
     return { ...r, [k]: v };
   }));
-  const openRemainModal = () => { setRemainRows([blankRemainRow()]); setShowRemainModal(true); };
-  const [remainValidErr, setRemainValidErr] = useState("");
-  const handleSaveRemain = () => {
-    const invalid = remainRows.find(r => !r.brand || !r.size || !r.fishStock || !(Number(r.remainingKg) > 0));
-    if (invalid) { setRemainValidErr("All fields are required. Please complete Feed Brand, Pellet Size, Fish Stock, and Remaining Feed for every entry."); return; }
+
+  const openRemainModal = () => {
+    const existing = (remainLogs || []).filter(r => r && isSameDate(r.date, selDate));
+    if (existing.length > 0) {
+      setRemainRows(existing.map(r => ({
+        id: r.id,
+        brand: r.brand || invBrands[0] || "",
+        size: r.size || (invSizesForBrand(r.brand || "")[0] || ""),
+        fishStock: r.fishStock || (activeFishStockOptions[0]?.name || ""),
+        remainingKg: r.remainingKg != null ? String(r.remainingKg) : ""
+      })));
+    } else {
+      setRemainRows([blankRemainRow()]);
+    }
     setRemainValidErr("");
-    remainRows.forEach(r => onAddRemainLog({ id: uid(), brand: r.brand, size: r.size, fishStock: normalizeFishStock(r.fishStock), remainingKg: Number(r.remainingKg), date: selDate }));
-    setShowRemainModal(false);
+    setShowRemainModal(true);
+  };
+
+  const [remainValidErr, setRemainValidErr] = useState("");
+  const handleSaveRemain = async () => {
+    const invalid = remainRows.find(r => !r.brand || !r.size || !r.fishStock || !(Number(r.remainingKg) >= 0 && r.remainingKg.trim() !== ""));
+    if (invalid) {
+      setRemainValidErr("All fields are required. Please complete Feed Brand, Pellet Size, Fish Stock, and Remaining Feed for every entry.");
+      return;
+    }
+
+    // Duplicate check: combination is Brand + Fish Stock + Pallet Size
+    const seen = new Set<string>();
+    for (const r of remainRows) {
+      const normStock = normalizeFishStock(r.fishStock).toLowerCase().trim();
+      const key = `${r.brand.toLowerCase().trim()}__${normStock}__${r.size.toLowerCase().trim()}`;
+      if (seen.has(key)) {
+        setRemainValidErr("This has already been logged for this brand, fish stock, and pallet size.");
+        return;
+      }
+      seen.add(key);
+
+      // Check against other saved remainLogs for that date (excluding the record being edited)
+      const isDupInSaved = (remainLogs || []).some(existing => {
+        if (r.id && existing.id === r.id) return false;
+        if (!isSameDate(existing.date, selDate)) return false;
+        const exKey = `${(existing.brand || "").toLowerCase().trim()}__${normalizeFishStock(existing.fishStock || "").toLowerCase().trim()}__${(existing.size || "").toLowerCase().trim()}`;
+        return exKey === key;
+      });
+      if (isDupInSaved) {
+        setRemainValidErr("This has already been logged for this brand, fish stock, and pallet size.");
+        return;
+      }
+    }
+
+    setRemainValidErr("");
+    try {
+      for (const r of remainRows) {
+        const val = Number(r.remainingKg) || 0;
+        if (r.id) {
+          const existingRec = (remainLogs || []).find(x => x.id === r.id);
+          if (existingRec && onEditRemainLog) {
+            await onEditRemainLog({
+              ...existingRec,
+              brand: r.brand,
+              size: r.size,
+              fishStock: normalizeFishStock(r.fishStock),
+              remainingKg: val,
+              date: selDate
+            });
+          }
+        } else {
+          await onAddRemainLog({
+            id: uid(),
+            brand: r.brand,
+            size: r.size,
+            fishStock: normalizeFishStock(r.fishStock),
+            remainingKg: val,
+            date: selDate
+          });
+        }
+      }
+      toast.success("Remaining feed logged");
+      setShowRemainModal(false);
+    } catch (err: any) {
+      setRemainValidErr(err?.message || "Failed to save remaining feed");
+    }
   };
 
   /* ── bulk log (Log Feeding — All Ponds) ── */
@@ -849,6 +935,27 @@ function FeedDocumentation({
   const [savingFeed, setSavingFeed] = useState(false);
   const nowTime = () => new Date().toLocaleTimeString("en", { hour: "2-digit", minute: "2-digit", hour12: false });
   const [logTime] = useState(nowTime);
+
+  /* Column reordering for Log Feeding table */
+  type LogColKey = "initialStock" | "fishCount" | "size" | "morning" | "morningTime" | "evening" | "eveningTime" | "total";
+  const DEFAULT_LOG_COLS: LogColKey[] = ["initialStock", "fishCount", "size", "morning", "morningTime", "evening", "eveningTime", "total"];
+  const [logColOrder, setLogColOrder] = useState<LogColKey[]>(DEFAULT_LOG_COLS);
+  const [draggedLogCol, setDraggedLogCol] = useState<LogColKey | null>(null);
+
+  const handleColDrop = (targetCol: LogColKey) => {
+    if (!draggedLogCol || draggedLogCol === targetCol) return;
+    setLogColOrder(prev => {
+      const next = [...prev];
+      const fromIdx = next.indexOf(draggedLogCol);
+      const toIdx = next.indexOf(targetCol);
+      if (fromIdx !== -1 && toIdx !== -1) {
+        next.splice(fromIdx, 1);
+        next.splice(toIdx, 0, draggedLogCol);
+      }
+      return next;
+    });
+    setDraggedLogCol(null);
+  };
 
   // Auto-populate bulkBy if currentUser loads or changes
   useEffect(() => {
@@ -1607,14 +1714,36 @@ function FeedDocumentation({
                   <tr className="bg-slate-50 border-b border-slate-200">
                     <th className="w-12 min-w-[48px] max-w-[48px] px-2 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-center sticky top-0 left-0 z-40 bg-slate-100">#</th>
                     <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left min-w-[160px] sticky top-0 left-[48px] z-40 bg-slate-100 border-r border-slate-200">Pond</th>
-                    <th className="px-3 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-right min-w-[85px] whitespace-nowrap">Initial Stock</th>
-                    <th className="px-3 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-right min-w-[85px] whitespace-nowrap">Fish Count</th>
-                    <th className="px-3 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left min-w-[120px] whitespace-nowrap">Pellet Size</th>
-                    <th className="px-3 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left min-w-[95px] whitespace-nowrap">Morning (kg)</th>
-                    <th className="px-3 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left min-w-[85px] whitespace-nowrap">AM Time</th>
-                    <th className="px-3 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left min-w-[95px] whitespace-nowrap">Evening (kg)</th>
-                    <th className="px-3 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left min-w-[85px] whitespace-nowrap">PM Time</th>
-                    <th className="px-3 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-center min-w-[80px] whitespace-nowrap">Total</th>
+                    {logColOrder.map(col => {
+                      let label = "";
+                      let align = "text-left";
+                      let minW = "min-w-[95px]";
+                      switch (col) {
+                        case "initialStock": label = "Initial Stock"; align = "text-right"; minW = "min-w-[85px]"; break;
+                        case "fishCount": label = "Fish Count"; align = "text-right"; minW = "min-w-[85px]"; break;
+                        case "size": label = "Pellet Size"; align = "text-left"; minW = "min-w-[120px]"; break;
+                        case "morning": label = "Morning (kg)"; align = "text-left"; minW = "min-w-[95px]"; break;
+                        case "morningTime": label = "AM Time"; align = "text-left"; minW = "min-w-[85px]"; break;
+                        case "evening": label = "Evening (kg)"; align = "text-left"; minW = "min-w-[95px]"; break;
+                        case "eveningTime": label = "PM Time"; align = "text-left"; minW = "min-w-[85px]"; break;
+                        case "total": label = "Total"; align = "text-center"; minW = "min-w-[80px]"; break;
+                      }
+                      return (
+                        <th
+                          key={col}
+                          draggable
+                          onDragStart={e => { e.stopPropagation(); setDraggedLogCol(col); }}
+                          onDragOver={e => { e.preventDefault(); e.stopPropagation(); }}
+                          onDrop={e => { e.preventDefault(); e.stopPropagation(); handleColDrop(col); }}
+                          className={`px-3 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider ${align} ${minW} whitespace-nowrap cursor-grab active:cursor-grabbing hover:bg-slate-200/80 transition-colors select-none`}
+                          title="Drag column to reorder"
+                        >
+                          <div className={`flex items-center gap-1 ${align === "text-right" ? "justify-end" : align === "text-center" ? "justify-center" : "justify-start"}`}>
+                            <span>{label}</span>
+                          </div>
+                        </th>
+                      );
+                    })}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -1634,44 +1763,83 @@ function FeedDocumentation({
                             {row.fishStock || "Current Stock"}
                           </p>
                         </td>
-                        <td className="px-3 py-3 text-right text-slate-500 font-['Barlow_Condensed',sans-serif] text-base">{row.initialStock.toLocaleString()}</td>
-                        <td className="px-3 py-3 text-right"><span className="font-semibold text-green-700 font-['Barlow_Condensed',sans-serif] text-base">{row.currentCount.toLocaleString()}</span></td>
-                        <td className="px-2.5 py-2.5">
-                          <select
-                            value={row.size}
-                            onChange={e => updateRow(row.pondId, "size", e.target.value)}
-                            className={TS}
-                          >
-                            {availablePelletSizes.map(s => {
-                              const stock = getPelletStock(s);
-                              const label = !stock.exists
-                                ? `${s} (Not in stock)`
-                                : stock.availableKg <= 0
-                                  ? `${s} (Empty - 0kg)`
-                                  : `${s} (${Math.round(stock.availableKg * 10) / 10}kg available)`;
-                              return <option key={s} value={s}>{label}</option>;
-                            })}
-                            {row.size && !availablePelletSizes.includes(row.size) && <option value={row.size}>{row.size}</option>}
-                          </select>
-                          {rowAtMax && <p className="text-[10px] font-bold mt-0.5 text-red-600">⚠ Max weight reached</p>}
-                          {(() => {
-                            const stock = getPelletStock(row.size);
-                            if (!stock.exists) {
-                              return <p className="text-[10px] font-bold mt-0.5 text-amber-600">⚠ Not in stock</p>;
-                            }
-                            if (stock.availableKg <= 0) {
-                              return <p className="text-[10px] font-bold mt-0.5 text-red-600">⚠ Empty (0 kg in stock)</p>;
-                            }
-                            return null;
-                          })()}
-                        </td>
-                        <td className="px-2 py-2.5"><input type="number" value={row.morning} onChange={e => updateRow(row.pondId, "morning", e.target.value)} className={TI} placeholder="0" min="0" step="0.5" /></td>
-                        <td className="px-2 py-2.5"><input type="time" value={row.morningTime} onChange={e => updateRow(row.pondId, "morningTime", e.target.value)} className={`${TI} text-xs`} style={{ colorScheme: "light" }} /></td>
-                        <td className="px-2 py-2.5"><input type="number" value={row.evening} onChange={e => updateRow(row.pondId, "evening", e.target.value)} className={TI} placeholder="0" min="0" step="0.5" /></td>
-                        <td className="px-2 py-2.5"><input type="time" value={row.eveningTime} onChange={e => updateRow(row.pondId, "eveningTime", e.target.value)} className={`${TI} text-xs`} style={{ colorScheme: "light" }} /></td>
-                        <td className="px-3 py-3 text-center">
-                          {total > 0 ? <span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-green-100 text-green-800 font-bold text-sm font-['Barlow_Condensed',sans-serif]">{total}kg</span> : <span className="text-slate-300 text-xs">—</span>}
-                        </td>
+                        {logColOrder.map(col => {
+                          switch (col) {
+                            case "initialStock":
+                              return (
+                                <td key={col} className="px-3 py-3 text-right text-slate-500 font-['Barlow_Condensed',sans-serif] text-base">
+                                  {row.initialStock.toLocaleString()}
+                                </td>
+                              );
+                            case "fishCount":
+                              return (
+                                <td key={col} className="px-3 py-3 text-right">
+                                  <span className="font-semibold text-green-700 font-['Barlow_Condensed',sans-serif] text-base">
+                                    {row.currentCount.toLocaleString()}
+                                  </span>
+                                </td>
+                              );
+                            case "size":
+                              return (
+                                <td key={col} className="px-2.5 py-2.5">
+                                  <select
+                                    value={row.size}
+                                    onChange={e => updateRow(row.pondId, "size", e.target.value)}
+                                    className={TS}
+                                  >
+                                    {availablePelletSizes.map(s => {
+                                      const stock = getPelletStock(s);
+                                      const label = !stock.exists || stock.availableQty <= 0
+                                        ? `${s} (0 available)`
+                                        : `${s} (${stock.availableQty} available)`;
+                                      return <option key={s} value={s}>{label}</option>;
+                                    })}
+                                    {row.size && !availablePelletSizes.includes(row.size) && <option value={row.size}>{row.size}</option>}
+                                  </select>
+                                  {rowAtMax && <p className="text-[10px] font-bold mt-0.5 text-red-600">⚠ Max weight reached</p>}
+                                  {(() => {
+                                    const stock = getPelletStock(row.size);
+                                    if (!stock.exists || stock.availableQty <= 0) {
+                                      return <p className="text-[10px] font-bold mt-0.5 text-red-600">0 available</p>;
+                                    }
+                                    return <p className="text-[10px] font-medium mt-0.5 text-slate-500">{stock.availableQty} available</p>;
+                                  })()}
+                                </td>
+                              );
+                            case "morning":
+                              return (
+                                <td key={col} className="px-2 py-2.5">
+                                  <input type="number" value={row.morning} onChange={e => updateRow(row.pondId, "morning", e.target.value)} className={TI} placeholder="0" min="0" step="0.5" />
+                                </td>
+                              );
+                            case "morningTime":
+                              return (
+                                <td key={col} className="px-2 py-2.5">
+                                  <input type="time" value={row.morningTime} onChange={e => updateRow(row.pondId, "morningTime", e.target.value)} className={`${TI} text-xs`} style={{ colorScheme: "light" }} />
+                                </td>
+                              );
+                            case "evening":
+                              return (
+                                <td key={col} className="px-2 py-2.5">
+                                  <input type="number" value={row.evening} onChange={e => updateRow(row.pondId, "evening", e.target.value)} className={TI} placeholder="0" min="0" step="0.5" />
+                                </td>
+                              );
+                            case "eveningTime":
+                              return (
+                                <td key={col} className="px-2 py-2.5">
+                                  <input type="time" value={row.eveningTime} onChange={e => updateRow(row.pondId, "eveningTime", e.target.value)} className={`${TI} text-xs`} style={{ colorScheme: "light" }} />
+                                </td>
+                              );
+                            case "total":
+                              return (
+                                <td key={col} className="px-3 py-3 text-center">
+                                  {total > 0 ? <span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-green-100 text-green-800 font-bold text-sm font-['Barlow_Condensed',sans-serif]">{total}kg</span> : <span className="text-slate-300 text-xs">—</span>}
+                                </td>
+                              );
+                            default:
+                              return null;
+                          }
+                        })}
                       </tr>
                     );
                   })}
@@ -1679,7 +1847,7 @@ function FeedDocumentation({
                 {bulkRows.length > 0 && (
                   <tfoot>
                     <tr className="bg-slate-50 border-t-2 border-slate-200">
-                      <td colSpan={9} className="px-4 py-3 text-right text-xs font-bold text-slate-500 uppercase tracking-wider">Grand Total</td>
+                      <td colSpan={logColOrder.length + 1} className="px-4 py-3 text-right text-xs font-bold text-slate-500 uppercase tracking-wider">Grand Total</td>
                       <td className="px-3 py-3 text-center"><span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-green-600 text-white font-bold text-sm font-['Barlow_Condensed',sans-serif]">{grandTotal}kg</span></td>
                     </tr>
                   </tfoot>
