@@ -917,8 +917,8 @@ function FeedDocumentation({
   const [logTime] = useState(nowTime);
 
   /* Column reordering for Log Feeding table */
-  type LogColKey = "initialStock" | "fishCount" | "size" | "morning" | "morningTime" | "evening" | "eveningTime" | "total";
-  const DEFAULT_LOG_COLS: LogColKey[] = ["initialStock", "fishCount", "size", "morning", "morningTime", "evening", "eveningTime", "total"];
+  type LogColKey = "fishCount" | "size" | "morning" | "morningTime" | "evening" | "eveningTime" | "total";
+  const DEFAULT_LOG_COLS: LogColKey[] = ["fishCount", "size", "morning", "morningTime", "evening", "eveningTime", "total"];
   const [logColOrder, setLogColOrder] = useState<LogColKey[]>(DEFAULT_LOG_COLS);
   const [draggedLogCol, setDraggedLogCol] = useState<LogColKey | null>(null);
 
@@ -1657,110 +1657,109 @@ function FeedDocumentation({
       {showLog && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-3 sm:p-6" onClick={e => e.target === e.currentTarget && setShowLog(false)}>
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-6xl flex flex-col overflow-hidden" style={{ maxHeight: "92vh" }}>
-            <div className="flex items-start justify-between px-6 py-4 border-b border-slate-100 bg-white shrink-0 z-20">
+            <div className="flex items-start justify-between px-5 sm:px-6 py-4 border-b border-slate-200 bg-white shrink-0 z-30 shadow-xs">
               <div>
                 <h2 className="text-lg font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Log Feeding — All Ponds</h2>
-                <p className="text-xs text-slate-400 mt-0.5">Enter morning &amp; evening amounts for each pond. Fish Stock and Stocked Date are tied directly to each pond.</p>
+                <p className="text-xs text-slate-400 mt-0.5">Enter morning &amp; evening amounts for each pond.</p>
               </div>
               <button onClick={() => setShowLog(false)} className="text-slate-400 hover:text-slate-700 p-1 ml-4 shrink-0"><X size={20} /></button>
             </div>
-            {/* Top controls fixed horizontally below modal header */}
-            <div className="px-4 sm:px-6 py-3 border-b border-slate-100 bg-slate-50 flex flex-wrap gap-4 items-end shrink-0 z-10">
-              <div className="min-w-[140px] sm:min-w-[160px]">
-                <label className="block text-[11px] font-bold text-slate-600 mb-1 uppercase tracking-wide">Date</label>
-                <DateInput value={bulkDate} onChange={handleBulkDateChange} />
-              </div>
-              <div className="min-w-[180px] sm:min-w-[220px] flex-1 max-w-xs">
-                <div className="flex items-center justify-between mb-1">
-                  <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wide">Recorded By</label>
-                  {currentUser?.name && (
-                    <span className="text-[10px] text-green-600 font-medium">Auto-populated</span>
-                  )}
+
+            {/* Modal scrollable body - scrolls vertically up and down */}
+            <div className="flex-1 overflow-y-auto min-h-0 bg-slate-50">
+              {/* Top controls: Date & Recorded By side-by-side cards (does NOT scroll sideways) */}
+              <div className="p-3 sm:p-4 bg-slate-50 border-b border-slate-200">
+                <div className="grid grid-cols-2 gap-2 sm:gap-4 items-end">
+                  {/* Date Card */}
+                  <div className="bg-white p-2.5 sm:p-3 rounded-xl border border-slate-200 shadow-xs">
+                    <label className="block text-[10px] sm:text-[11px] font-bold text-slate-600 mb-1 uppercase tracking-wide">Date</label>
+                    <DateInput value={bulkDate} onChange={handleBulkDateChange} />
+                  </div>
+
+                  {/* Recorded By Card */}
+                  <div className="bg-white p-2.5 sm:p-3 rounded-xl border border-slate-200 shadow-xs">
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-[10px] sm:text-[11px] font-bold text-slate-600 uppercase tracking-wide">Recorded By</label>
+                      {currentUser?.name && (
+                        <span className="text-[9px] sm:text-[10px] text-green-600 font-medium">Auto-populated</span>
+                      )}
+                    </div>
+                    <input
+                      value={bulkBy}
+                      onChange={e => setBulkBy(e.target.value)}
+                      className={IC}
+                      placeholder={currentUser?.name || "Employee / Admin name"}
+                    />
+                  </div>
                 </div>
-                <input
-                  value={bulkBy}
-                  onChange={e => setBulkBy(e.target.value)}
-                  className={IC}
-                  placeholder={currentUser?.name || "Employee / Admin name"}
-                />
+                <div className="flex items-center justify-end gap-1.5 mt-2 text-[11px] text-slate-400">
+                  <span>Session time:</span>
+                  <span className="font-semibold text-slate-700 font-['Barlow_Condensed',sans-serif]">{logTime}</span>
+                </div>
               </div>
-              <div className="flex items-center gap-2 ml-auto shrink-0 pb-1">
-                <span className="text-xs text-slate-400">Session time:</span>
-                <span className="text-sm font-semibold text-slate-700 font-['Barlow_Condensed',sans-serif]">{logTime}</span>
-              </div>
-            </div>
-            {/* Horizontally and vertically scrollable table container */}
-            <div className="flex-1 overflow-y-auto overflow-x-auto min-h-0">
-              <table className="w-full text-sm">
-                <thead className="sticky top-0 z-30 shadow-xs bg-slate-50">
-                  <tr className="bg-slate-50 border-b border-slate-200">
-                    <th className="w-12 min-w-[48px] max-w-[48px] px-2 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-center sticky top-0 left-0 z-40 bg-slate-100">#</th>
-                    <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left min-w-[160px] sticky top-0 left-[48px] z-40 bg-slate-100 border-r border-slate-200">Pond</th>
-                    {logColOrder.map(col => {
-                      let label = "";
-                      let align = "text-left";
-                      let minW = "min-w-[95px]";
-                      switch (col) {
-                        case "initialStock": label = "Initial Stock"; align = "text-right"; minW = "min-w-[85px]"; break;
-                        case "fishCount": label = "Fish Count"; align = "text-right"; minW = "min-w-[85px]"; break;
-                        case "size": label = "Pellet Size"; align = "text-left"; minW = "min-w-[120px]"; break;
-                        case "morning": label = "Morning (kg)"; align = "text-left"; minW = "min-w-[95px]"; break;
-                        case "morningTime": label = "AM Time"; align = "text-left"; minW = "min-w-[85px]"; break;
-                        case "evening": label = "Evening (kg)"; align = "text-left"; minW = "min-w-[95px]"; break;
-                        case "eveningTime": label = "PM Time"; align = "text-left"; minW = "min-w-[85px]"; break;
-                        case "total": label = "Total"; align = "text-center"; minW = "min-w-[80px]"; break;
-                      }
+
+              {/* ONLY the table scrolls sideways */}
+              <div className="overflow-x-auto w-full">
+                <table className="w-full text-sm">
+                  <thead className="sticky top-0 z-20 shadow-xs bg-slate-100">
+                    <tr className="bg-slate-100 border-b border-slate-200">
+                      <th className="w-12 min-w-[48px] max-w-[48px] px-2 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-center sticky top-0 left-0 z-30 bg-slate-100">#</th>
+                      <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left min-w-[110px] sticky top-0 left-[48px] z-30 bg-slate-100 border-r border-slate-200">Pond</th>
+                      {logColOrder.map(col => {
+                        let label = "";
+                        let align = "text-left";
+                        let minW = "min-w-[95px]";
+                        switch (col) {
+                          case "fishCount": label = "Fish Count"; align = "text-right"; minW = "min-w-[85px]"; break;
+                          case "size": label = "Pellet Size"; align = "text-left"; minW = "min-w-[120px]"; break;
+                          case "morning": label = "Morning (kg)"; align = "text-left"; minW = "min-w-[95px]"; break;
+                          case "morningTime": label = "AM Time"; align = "text-left"; minW = "min-w-[85px]"; break;
+                          case "evening": label = "Evening (kg)"; align = "text-left"; minW = "min-w-[95px]"; break;
+                          case "eveningTime": label = "PM Time"; align = "text-left"; minW = "min-w-[85px]"; break;
+                          case "total": label = "Total"; align = "text-center"; minW = "min-w-[80px]"; break;
+                        }
+                        return (
+                          <th
+                            key={col}
+                            draggable
+                            onDragStart={e => { e.stopPropagation(); setDraggedLogCol(col); }}
+                            onDragOver={e => { e.preventDefault(); e.stopPropagation(); }}
+                            onDrop={e => { e.preventDefault(); e.stopPropagation(); handleColDrop(col); }}
+                            className={`px-3 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider ${align} ${minW} whitespace-nowrap cursor-grab active:cursor-grabbing hover:bg-slate-200/80 transition-colors select-none`}
+                            title="Drag column to reorder"
+                          >
+                            <div className={`flex items-center gap-1 ${align === "text-right" ? "justify-end" : align === "text-center" ? "justify-center" : "justify-start"}`}>
+                              <span>{label}</span>
+                            </div>
+                          </th>
+                        );
+                      })}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 bg-white">
+                    {bulkRows.map((row, i) => {
+                      const m = Number(row.morning) || 0; const e = Number(row.evening) || 0; const total = m + e;
+                      const hasFeed = m > 0 || e > 0;
+                      const pondObj = ponds.find(p => p.id === row.pondId || p.name === row.pondName);
+                      const rowMaxKg = pondObj?.maxKgByPallet?.[row.size];
+                      const cumFed = (feedingRecords || []).filter(r => r && r.pond === row.pondName && r.size === row.size).reduce((s, r) => s + (Number(r.total) || 0), 0);
+                      const rowAtMax = !!rowMaxKg && cumFed >= rowMaxKg;
                       return (
-                        <th
-                          key={col}
-                          draggable
-                          onDragStart={e => { e.stopPropagation(); setDraggedLogCol(col); }}
-                          onDragOver={e => { e.preventDefault(); e.stopPropagation(); }}
-                          onDrop={e => { e.preventDefault(); e.stopPropagation(); handleColDrop(col); }}
-                          className={`px-3 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider ${align} ${minW} whitespace-nowrap cursor-grab active:cursor-grabbing hover:bg-slate-200/80 transition-colors select-none`}
-                          title="Drag column to reorder"
-                        >
-                          <div className={`flex items-center gap-1 ${align === "text-right" ? "justify-end" : align === "text-center" ? "justify-center" : "justify-start"}`}>
-                            <span>{label}</span>
-                          </div>
-                        </th>
-                      );
-                    })}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {bulkRows.map((row, i) => {
-                    const m = Number(row.morning) || 0; const e = Number(row.evening) || 0; const total = m + e;
-                    const hasFeed = m > 0 || e > 0;
-                    const pondObj = ponds.find(p => p.id === row.pondId || p.name === row.pondName);
-                    const rowMaxKg = pondObj?.maxKgByPallet?.[row.size];
-                    const cumFed = (feedingRecords || []).filter(r => r && r.pond === row.pondName && r.size === row.size).reduce((s, r) => s + (Number(r.total) || 0), 0);
-                    const rowAtMax = !!rowMaxKg && cumFed >= rowMaxKg;
-                    return (
-                      <tr key={row.pondId} className={`transition-colors ${hasFeed ? "bg-green-50/40" : "hover:bg-slate-50"}`}>
-                        <td className={`w-12 min-w-[48px] max-w-[48px] px-2 py-3 text-slate-400 text-xs font-mono text-center sticky left-0 z-10 ${hasFeed ? "bg-[#f2faf4]" : "bg-white"}`}>{i + 1}</td>
-                        <td className={`px-4 py-3 min-w-[160px] sticky left-[48px] z-10 border-r border-slate-200 ${hasFeed ? "bg-[#f2faf4]" : "bg-white"}`}>
-                          <p className="font-bold text-slate-900 leading-tight">{row.pondName}</p>
-                          <p className="text-[11px] font-medium text-teal-700 leading-tight mt-0.5">
-                            {row.fishStock || "Current Stock"}
-                          </p>
-                        </td>
-                        {logColOrder.map(col => {
-                          switch (col) {
-                            case "initialStock":
-                              return (
-                                <td key={col} className="px-3 py-3 text-right text-slate-500 font-['Barlow_Condensed',sans-serif] text-base">
-                                  {row.initialStock.toLocaleString()}
-                                </td>
-                              );
-                            case "fishCount":
-                              return (
-                                <td key={col} className="px-3 py-3 text-right">
-                                  <span className="font-semibold text-green-700 font-['Barlow_Condensed',sans-serif] text-base">
-                                    {row.currentCount.toLocaleString()}
-                                  </span>
-                                </td>
-                              );
+                        <tr key={row.pondId} className={`transition-colors ${hasFeed ? "bg-green-50/40" : "hover:bg-slate-50"}`}>
+                          <td className={`w-12 min-w-[48px] max-w-[48px] px-2 py-3 text-slate-400 text-xs font-mono text-center sticky left-0 z-10 ${hasFeed ? "bg-[#f2faf4]" : "bg-white"}`}>{i + 1}</td>
+                          <td className={`px-4 py-3 min-w-[110px] sticky left-[48px] z-10 border-r border-slate-200 ${hasFeed ? "bg-[#f2faf4]" : "bg-white"}`}>
+                            <p className="font-bold text-slate-900 leading-tight">{row.pondName}</p>
+                          </td>
+                          {logColOrder.map(col => {
+                            switch (col) {
+                              case "fishCount":
+                                return (
+                                  <td key={col} className="px-3 py-3 text-right">
+                                    <span className="font-semibold text-green-700 font-['Barlow_Condensed',sans-serif] text-base">
+                                      {row.currentCount.toLocaleString()}
+                                    </span>
+                                  </td>
+                                );
                             case "size":
                               return (
                                 <td key={col} className="px-2.5 py-2.5">
@@ -1836,7 +1835,8 @@ function FeedDocumentation({
                 )}
               </table>
             </div>
-            <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 shrink-0 flex flex-wrap items-center justify-between gap-3 rounded-b-2xl">
+          </div>
+          <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 shrink-0 flex flex-wrap items-center justify-between gap-3 rounded-b-2xl z-30">
               <div>
                 <p className="text-sm font-semibold text-slate-700"><span className="text-green-600">{filledCount}</span> of {bulkRows.length} ponds filled</p>
                 <p className="text-xs text-slate-400 mt-0.5">Only ponds with a value entered will be saved</p>
