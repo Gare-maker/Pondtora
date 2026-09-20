@@ -78,9 +78,8 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
     return true;
   });
   const pagedPurchases=[...filtPurchases].reverse().slice((purchasePage-1)*PER_PAGE,purchasePage*PER_PAGE);
-  /* daily bags opened & feed stock history tab state */
+  /* daily bags opened tab state */
   const [dailyDate, setDailyDate] = useState(TODAY);
-  const [historyMode, setHistoryMode] = useState<"daily" | "all">("daily");
   const [fDailyStock, setFDailyStock] = useState("All");
   const [fDailyBrand, setFDailyBrand] = useState("All");
   const [fDailySize, setFDailySize] = useState("All");
@@ -135,151 +134,85 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
   };
 
   const historyRows: FeedHistoryRow[] = useMemo(() => {
-    if (historyMode === "daily") {
-      const dayBagLogs = (bagLogs || []).filter(b => isSameDate(b.date, dailyDateStr));
-      const dayRemainLogs = (remainLogs || []).filter(r => isSameDate(r.date, dailyDateStr));
-      const dailyMap: Record<string, FeedHistoryRow> = {};
+    const dayBagLogs = (bagLogs || []).filter(b => isSameDate(b.date, dailyDateStr));
+    const dayRemainLogs = (remainLogs || []).filter(r => isSameDate(r.date, dailyDateStr));
+    const dailyMap: Record<string, FeedHistoryRow> = {};
 
-      dayBagLogs.forEach(b => {
-        const stock = (b.fishStock && b.fishStock.trim() && b.fishStock !== "—") ? b.fishStock.trim() : "General Stock";
-        const brand = b.brand || "Standard";
-        const size = b.size || "4.0 mm";
-        const info = getStockInfo(stock);
-        const key = `${info.name.toLowerCase().trim()}__${brand.toLowerCase().trim()}__${size.toLowerCase().trim()}`;
-        const bags = Number(b.bagsOpened) || 0;
-        const kgPb = Number(b.kgPerBag) || 15;
-        const kg = Number(b.totalKg) || (bags * kgPb);
+    dayBagLogs.forEach(b => {
+      const stock = (b.fishStock && b.fishStock.trim() && b.fishStock !== "—") ? b.fishStock.trim() : "General Stock";
+      const brand = b.brand || "Standard";
+      const size = b.size || "4.0 mm";
+      const info = getStockInfo(stock);
+      const key = `${info.name.toLowerCase().trim()}__${brand.toLowerCase().trim()}__${size.toLowerCase().trim()}`;
+      const bags = Number(b.bagsOpened) || 0;
+      const kgPb = Number(b.kgPerBag) || 15;
+      const kg = Number(b.totalKg) || (bags * kgPb);
 
-        if (!dailyMap[key]) {
-          dailyMap[key] = {
-            date: b.date,
-            dateFormatted: fmtStockingDate(b.date),
-            fishStock: info.name,
-            stockDate: info.stockDate,
-            ponds: info.ponds,
-            brand,
-            size,
-            bagsOpened: bags,
-            kgPerBag: kgPb,
-            totalKgOpened: kg,
-            remainingKg: 0
-          };
-        } else {
-          // If already entered for this stock + brand + size today, keep single session rather than accumulating duplicate bags
-          dailyMap[key].bagsOpened = bags;
-          dailyMap[key].totalKgOpened = kg;
+      if (!dailyMap[key]) {
+        dailyMap[key] = {
+          date: b.date,
+          dateFormatted: fmtStockingDate(b.date),
+          fishStock: info.name,
+          stockDate: info.stockDate,
+          ponds: info.ponds,
+          brand,
+          size,
+          bagsOpened: bags,
+          kgPerBag: kgPb,
+          totalKgOpened: kg,
+          remainingKg: 0
+        };
+      } else {
+        // If already entered for this stock + brand + size today, keep single session rather than accumulating duplicate bags
+        dailyMap[key].bagsOpened = bags;
+        dailyMap[key].totalKgOpened = kg;
+      }
+    });
+
+    dayRemainLogs.forEach(r => {
+      const stock = (r.fishStock && r.fishStock.trim() && r.fishStock !== "—") ? r.fishStock.trim() : "General Stock";
+      const brand = r.brand || "Standard";
+      const size = r.size || "4.0 mm";
+      const info = getStockInfo(stock);
+      const key = `${info.name.toLowerCase().trim()}__${brand.toLowerCase().trim()}__${size.toLowerCase().trim()}`;
+      const rem = Number(r.remainingKg) || 0;
+
+      if (!dailyMap[key]) {
+        dailyMap[key] = {
+          date: r.date,
+          dateFormatted: fmtStockingDate(r.date),
+          fishStock: info.name,
+          stockDate: info.stockDate,
+          ponds: info.ponds,
+          brand,
+          size,
+          bagsOpened: 0,
+          kgPerBag: 15,
+          totalKgOpened: 0,
+          remainingKg: rem
+        };
+      } else {
+        dailyMap[key].remainingKg = rem;
+      }
+    });
+
+    Object.values(dailyMap).forEach(item => {
+      if (item.remainingKg === 0) {
+        const match = (remainLogs || [])
+          .filter(rl => (rl.fishStock === item.fishStock || (!rl.fishStock && item.fishStock === "General Stock")) && rl.brand === item.brand && rl.size === item.size && rl.date <= dailyDateStr)
+          .sort((a,b) => b.date.localeCompare(a.date))[0];
+        if (match) {
+          item.remainingKg = Number(match.remainingKg) || 0;
         }
-      });
+      }
+    });
 
-      dayRemainLogs.forEach(r => {
-        const stock = (r.fishStock && r.fishStock.trim() && r.fishStock !== "—") ? r.fishStock.trim() : "General Stock";
-        const brand = r.brand || "Standard";
-        const size = r.size || "4.0 mm";
-        const info = getStockInfo(stock);
-        const key = `${info.name.toLowerCase().trim()}__${brand.toLowerCase().trim()}__${size.toLowerCase().trim()}`;
-        const rem = Number(r.remainingKg) || 0;
-
-        if (!dailyMap[key]) {
-          dailyMap[key] = {
-            date: r.date,
-            dateFormatted: fmtStockingDate(r.date),
-            fishStock: info.name,
-            stockDate: info.stockDate,
-            ponds: info.ponds,
-            brand,
-            size,
-            bagsOpened: 0,
-            kgPerBag: 15,
-            totalKgOpened: 0,
-            remainingKg: rem
-          };
-        } else {
-          dailyMap[key].remainingKg = rem;
-        }
-      });
-
-      Object.values(dailyMap).forEach(item => {
-        if (item.remainingKg === 0) {
-          const match = (remainLogs || [])
-            .filter(rl => (rl.fishStock === item.fishStock || (!rl.fishStock && item.fishStock === "General Stock")) && rl.brand === item.brand && rl.size === item.size && rl.date <= dailyDateStr)
-            .sort((a,b) => b.date.localeCompare(a.date))[0];
-          if (match) {
-            item.remainingKg = Number(match.remainingKg) || 0;
-          }
-        }
-      });
-
-      return Object.values(dailyMap).sort((a,b) => {
-        if (a.fishStock !== b.fishStock) return a.fishStock.localeCompare(b.fishStock);
-        if (a.brand !== b.brand) return a.brand.localeCompare(b.brand);
-        return a.size.localeCompare(b.size);
-      });
-    } else {
-      // All history mode: group by normalized date, stock, brand, size
-      const map: Record<string, FeedHistoryRow> = {};
-      (bagLogs || []).forEach(b => {
-        const stock = (b.fishStock && b.fishStock.trim() && b.fishStock !== "—") ? b.fishStock.trim() : "General Stock";
-        const brand = b.brand || "Standard";
-        const size = b.size || "4.0 mm";
-        const dateKey = toValidDbDate(b.date) || b.date;
-        const info = getStockInfo(stock);
-        const key = `${dateKey}__${info.name.toLowerCase().trim()}__${brand.toLowerCase().trim()}__${size.toLowerCase().trim()}`;
-        const bags = Number(b.bagsOpened) || 0;
-        const kgPb = Number(b.kgPerBag) || 15;
-        const kg = Number(b.totalKg) || (bags * kgPb);
-
-        if (!map[key]) {
-          map[key] = {
-            date: b.date,
-            dateFormatted: fmtStockingDate(b.date),
-            fishStock: info.name,
-            stockDate: info.stockDate,
-            ponds: info.ponds,
-            brand,
-            size,
-            bagsOpened: bags,
-            kgPerBag: kgPb,
-            totalKgOpened: kg,
-            remainingKg: 0
-          };
-        } else {
-          // Keep single entry per stock date + brand + size per day
-          map[key].bagsOpened = bags;
-          map[key].totalKgOpened = kg;
-        }
-      });
-
-      (remainLogs || []).forEach(r => {
-        const stock = (r.fishStock && r.fishStock.trim() && r.fishStock !== "—") ? r.fishStock.trim() : "General Stock";
-        const brand = r.brand || "Standard";
-        const size = r.size || "4.0 mm";
-        const dateKey = toValidDbDate(r.date) || r.date;
-        const info = getStockInfo(stock);
-        const key = `${dateKey}__${info.name.toLowerCase().trim()}__${brand.toLowerCase().trim()}__${size.toLowerCase().trim()}`;
-        const rem = Number(r.remainingKg) || 0;
-
-        if (!map[key]) {
-          map[key] = {
-            date: r.date,
-            dateFormatted: fmtStockingDate(r.date),
-            fishStock: info.name,
-            stockDate: info.stockDate,
-            ponds: info.ponds,
-            brand,
-            size,
-            bagsOpened: 0,
-            kgPerBag: 15,
-            totalKgOpened: 0,
-            remainingKg: rem
-          };
-        } else {
-          map[key].remainingKg = rem;
-        }
-      });
-
-      return Object.values(map).sort((a,b) => b.date.localeCompare(a.date));
-    }
-  }, [historyMode, bagLogs, remainLogs, dailyDateStr, ponds]);
+    return Object.values(dailyMap).sort((a,b) => {
+      if (a.fishStock !== b.fishStock) return a.fishStock.localeCompare(b.fishStock);
+      if (a.brand !== b.brand) return a.brand.localeCompare(b.brand);
+      return a.size.localeCompare(b.size);
+    });
+  }, [bagLogs, remainLogs, dailyDateStr, ponds]);
 
   const allDailyStocks = [...new Set([
     ...historyRows.map(r => r.fishStock),
@@ -435,36 +368,26 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
         <div className="space-y-4">
           {/* Top Date bar & filters */}
           <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-4 rounded-xl border border-slate-200">
-            <div className="flex items-center gap-3 flex-wrap">
-              {/* View Mode Toggle */}
-              <div className="flex gap-1 bg-slate-100 p-1 rounded-lg border border-slate-200 text-xs">
-                <button onClick={()=>{setHistoryMode("daily");setDailyPage(1);}} className={`px-2.5 py-1 rounded-md font-semibold transition-colors ${historyMode==="daily"?"bg-white text-slate-900 shadow-2xs font-bold":"text-slate-500 hover:text-slate-800"}`}>Daily Date View</button>
-                <button onClick={()=>{setHistoryMode("all");setDailyPage(1);}} className={`px-2.5 py-1 rounded-md font-semibold transition-colors ${historyMode==="all"?"bg-white text-slate-900 shadow-2xs font-bold":"text-slate-500 hover:text-slate-800"}`}>All Stock History</button>
+            <div className="flex items-center gap-2 flex-wrap">
+              <button onClick={()=>shiftDailyDate(-1)} className="p-2 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-600 transition-colors" title="Previous Day"><ChevronLeft size={16}/></button>
+              <div className="flex items-center gap-2">
+                <Calendar size={16} className="text-green-600"/>
+                <input type="date" value={dailyDate} onChange={e=>{setDailyDate(e.target.value);setDailyPage(1);}} className="text-sm font-bold text-slate-800 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-green-500" style={{ colorScheme: "light" }}/>
               </div>
-
-              {historyMode === "daily" && (
-                <div className="flex items-center gap-2">
-                  <button onClick={()=>shiftDailyDate(-1)} className="p-2 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-600 transition-colors" title="Previous Day"><ChevronLeft size={16}/></button>
-                  <div className="flex items-center gap-2">
-                    <Calendar size={16} className="text-green-600"/>
-                    <input type="date" value={dailyDate} onChange={e=>{setDailyDate(e.target.value);setDailyPage(1);}} className="text-sm font-bold text-slate-800 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-green-500"/>
-                  </div>
-                  <button onClick={()=>shiftDailyDate(1)} className="p-2 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-600 transition-colors" title="Next Day"><ChevronRight size={16}/></button>
-                  {dailyDate!==TODAY&&(
-                    <button onClick={()=>{setDailyDate(TODAY);setDailyPage(1);}} className="px-2.5 py-1.5 text-xs font-semibold text-green-700 bg-green-50 border border-green-200 rounded-lg hover:bg-green-100 transition-colors">Today</button>
-                  )}
-                </div>
+              <button onClick={()=>shiftDailyDate(1)} className="p-2 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-600 transition-colors" title="Next Day"><ChevronRight size={16}/></button>
+              {dailyDate!==TODAY&&(
+                <button onClick={()=>{setDailyDate(TODAY);setDailyPage(1);}} className="px-2.5 py-1.5 text-xs font-semibold text-green-700 bg-green-50 border border-green-200 rounded-lg hover:bg-green-100 transition-colors">Today</button>
               )}
             </div>
             <div className="flex items-center gap-2 flex-wrap">
-              <button onClick={()=>downloadCSV(`feed-stock-history-${historyMode==="daily"?dailyDate:"all"}.csv`,["#","Date","Fish Stock (Stock Date)","Brand","Pellet Size","Bags Opened","Kg/Bag","KG Deducted","Remaining KG in Stock"],filteredDailyRows.map((r,i)=>[i+1,r.date,`${r.fishStock}${r.stockDate&&r.stockDate!=="—"?` (${r.stockDate})`:""}`,r.brand,r.size,r.bagsOpened,r.kgPerBag,r.totalKgOpened,r.remainingKg]))} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 text-xs font-semibold hover:border-green-400 hover:text-green-600 transition-colors"><Download size={12}/> CSV</button>
-              <button onClick={()=>openPrintWindow(`Feed Stock History Report — ${historyMode==="daily"?fmtStockingDate(dailyDate):"All Dates"}`,["#","Date","Fish Stock (Stock Date)","Brand","Pellet Size","Bags Opened","Kg/Bag","KG Deducted","Remaining KG in Stock"],filteredDailyRows.map((r,i)=>[i+1,r.date,`${r.fishStock}${r.stockDate&&r.stockDate!=="—"?` (${r.stockDate})`:""}`,r.brand,r.size,`${r.bagsOpened} bag${r.bagsOpened!==1?"s":""}`,`${r.kgPerBag}kg`,`${r.totalKgOpened}kg`,`${r.remainingKg}kg`]),`Feed Bags Opened & Remaining Log (${historyMode==="daily"?fmtStockingDate(dailyDate):"All History"})`)} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 text-xs font-semibold hover:border-green-400 hover:text-green-600 transition-colors"><FileText size={12}/> Print</button>
+              <button onClick={()=>downloadCSV(`feed-stock-history-${dailyDate}.csv`,["#","Date","Fish Stock (Stock Date)","Brand","Pellet Size","Bags Opened","Kg/Bag","KG Deducted","Remaining KG in Stock"],filteredDailyRows.map((r,i)=>[i+1,r.date,`${r.fishStock}${r.stockDate&&r.stockDate!=="—"?` (${r.stockDate})`:""}`,r.brand,r.size,r.bagsOpened,r.kgPerBag,r.totalKgOpened,r.remainingKg]))} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 text-xs font-semibold hover:border-green-400 hover:text-green-600 transition-colors"><Download size={12}/> CSV</button>
+              <button onClick={()=>openPrintWindow(`Feed Stock History Report — ${fmtStockingDate(dailyDate)}`,["#","Date","Fish Stock (Stock Date)","Brand","Pellet Size","Bags Opened","Kg/Bag","KG Deducted","Remaining KG in Stock"],filteredDailyRows.map((r,i)=>[i+1,r.date,`${r.fishStock}${r.stockDate&&r.stockDate!=="—"?` (${r.stockDate})`:""}`,r.brand,r.size,`${r.bagsOpened} bag${r.bagsOpened!==1?"s":""}`,`${r.kgPerBag}kg`,`${r.totalKgOpened}kg`,`${r.remainingKg}kg`]),`Feed Bags Opened & Remaining Log (${fmtStockingDate(dailyDate)})`)} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 text-xs font-semibold hover:border-green-400 hover:text-green-600 transition-colors"><FileText size={12}/> Print</button>
             </div>
           </div>
 
-          {/* KPI Stat Cards for that Day / Range */}
+          {/* KPI Stat Cards for that Day */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <StatCard label="Bags Opened" value={`${dayTotalBags} bag${dayTotalBags!==1?"s":""}`} sub={historyMode==="daily"?`On ${fmtStockingDate(dailyDate)}`:"Total across logs"} icon={Package} hi/>
+            <StatCard label="Bags Opened" value={`${dayTotalBags} bag${dayTotalBags!==1?"s":""}`} sub={`On ${fmtStockingDate(dailyDate)}`} icon={Package} hi/>
             <StatCard label="KG Deducted" value={`${dayTotalKgOpened}kg`} sub="Opened feed weight" icon={Layers}/>
             <StatCard label="Remaining in Opened Bags" value={`${dayTotalRemainingKg}kg`} sub="Across active stocks" icon={CheckCircle}/>
             <StatCard label="Fish Stocks Active" value={String(dayTotalStocksCount)} sub="Stocks recorded" icon={Fish}/>

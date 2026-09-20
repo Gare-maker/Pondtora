@@ -1256,10 +1256,15 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
             onTouchEnd={()=>{if(longPressTimer.current)clearTimeout(longPressTimer.current);}}
             onTouchMove={()=>{if(longPressTimer.current){clearTimeout(longPressTimer.current);longPressTimer.current=null;}}}>
             <div className="flex-1 min-w-0 pr-2">
-              <div className="flex items-center gap-2 flex-wrap mb-1">
-                <p className="font-bold text-slate-900 text-sm truncate">{p.name}</p>
-                <Bdg label={p.category||"Production"} color={p.category==="Nursery"?"purple":"teal"}/>
-                <Bdg label={p.status==="Active"?"Active":"Inactive"} color={p.status==="Active"?"green":"gray"}/>
+              <div className="flex items-center gap-1.5 flex-wrap mb-1">
+                <p className="font-bold text-slate-900 text-sm sm:text-base leading-tight truncate">{p.name}</p>
+                <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-md ${p.category==="Nursery"?"bg-purple-50 text-purple-700 border border-purple-200/60":"bg-teal-50 text-teal-700 border border-teal-200/60"}`}>
+                  {p.category||"Production"}
+                </span>
+                <span className={`inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded-md ${p.status==="Active"?"bg-emerald-50 text-emerald-700 border border-emerald-200/60":"bg-slate-50 text-slate-500 border border-slate-200/60"}`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${p.status==="Active"?"bg-emerald-500":"bg-slate-400"}`}/>
+                  {p.status==="Active"?"Active":"Inactive"}
+                </span>
               </div>
               <div className="flex items-center gap-1.5 text-xs text-slate-600 font-medium truncate">
                 <span>{p.currentCount.toLocaleString()} fish</span>
