@@ -600,17 +600,25 @@ function FeedDocumentation({
     setEditDocBag(null);
   };
 
-  /* ── helper: check if Fish Stock + Pellet Size is already recorded for a given date ── */
-  const isStockAndSizeAlreadyLogged = (stockName: string, palletSize: string, checkDate: string): boolean => {
-    if (!stockName || !palletSize || !checkDate) return false;
+  /* ── helper: count bags opened for a given fish stock + pellet size on a date ── */
+  const getBagsLoggedTodayForStockAndSize = (stockName: string, palletSize: string, checkDate: string): number => {
+    if (!stockName || !palletSize || !checkDate || stockName === "—") return 0;
     const normalizedStock = normalizeFishStock(stockName).toLowerCase().trim();
     const normalizedSize = palletSize.toLowerCase().trim();
     const dateLabel = toDateLabel(checkDate);
-    return (bagLogs || []).some(b =>
+    const matching = (bagLogs || []).filter(b =>
+      b &&
+      (Number(b.bagsOpened) || 0) > 0 &&
+      b.fishStock &&
+      b.fishStock !== "—" &&
       (isSameDate(b.date, checkDate) || isSameDate(b.date, dateLabel)) &&
       normalizeFishStock(b.fishStock).toLowerCase().trim() === normalizedStock &&
       (b.size || "").toLowerCase().trim() === normalizedSize
     );
+    return matching.reduce((s, b) => s + (Number(b.bagsOpened) || 0), 0);
+  };
+  const isStockAndSizeAlreadyLogged = (stockName: string, palletSize: string, checkDate: string): boolean => {
+    return getBagsLoggedTodayForStockAndSize(stockName, palletSize, checkDate) > 0;
   };
 
   /* ── bags opened modal state ── */
@@ -620,27 +628,13 @@ function FeedDocumentation({
     const fs = activeFishStockOptions[0]?.name || "";
     const b = invBrands[0] || "";
     const allSizes = invSizesForBrand(b);
-    const dateToCheck = targetDate || bagsDate;
-    const unloggedSize = allSizes.find(s => !isStockAndSizeAlreadyLogged(fs, s, dateToCheck)) || allSizes[0] || "";
-    const inv = (inventory || []).find(f => f && f.brand === b && f.size === unloggedSize);
-    return { fishStock: fs, brand: b, size: unloggedSize, kgPerBag: inv?.weightPerBag || 15, qty: "" };
+    const defSize = allSizes[0] || "";
+    const inv = (inventory || []).find(f => f && f.brand === b && f.size === defSize);
+    return { fishStock: fs, brand: b, size: defSize, kgPerBag: inv?.weightPerBag || 15, qty: "" };
   };
   const [bagRows, setBagRows] = useState<BagRow[]>([]);
   const openBagsModal = () => {
-    let initialDate = TODAY;
-    if (/^\d{4}-\d{2}-\d{2}/.test(selDate)) {
-      initialDate = selDate.slice(0, 10);
-    } else {
-      const parts = selDate.trim().split(" ");
-      if (parts.length >= 2) {
-        const mIdx = MIDX_GLOBAL[parts[0]];
-        const d = parseInt(parts[1], 10);
-        if (mIdx !== undefined && !isNaN(d)) {
-          const y = viewYear || new Date().getFullYear();
-          initialDate = `${y}-${String(mIdx + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
-        }
-      }
-    }
+    const initialDate = /^\d{4}-\d{2}-\d{2}/.test(TODAY) ? TODAY : getTodayStr();
     setBagsDate(initialDate);
     setBagRows([blankBagRow(initialDate)]);
     setBagsErr({});
@@ -651,21 +645,13 @@ function FeedDocumentation({
   const updateBagRow = (i: number, k: keyof BagRow, v: string) => setBagRows(prev => prev.map((r, idx) => {
     if (idx !== i) return r;
     if (k === "fishStock") {
-      const allSizes = invSizesForBrand(r.brand);
-      const isCurLogged = isStockAndSizeAlreadyLogged(v, r.size, bagsDate);
-      let newSize = r.size;
-      if (isCurLogged) {
-        const unloggedSize = allSizes.find(s => !isStockAndSizeAlreadyLogged(v, s, bagsDate));
-        if (unloggedSize) newSize = unloggedSize;
-      }
-      const inv = (inventory || []).find(f => f && f.brand === r.brand && f.size === newSize);
-      return { ...r, fishStock: v, size: newSize, kgPerBag: inv?.weightPerBag || 15 };
+      return { ...r, fishStock: v };
     }
     if (k === "brand") {
       const szs = invSizesForBrand(v);
-      const unloggedSize = szs.find(s => !isStockAndSizeAlreadyLogged(r.fishStock, s, bagsDate)) || szs[0] || "";
-      const inv = (inventory || []).find(f => f && f.brand === v && f.size === unloggedSize);
-      return { ...r, brand: v, size: unloggedSize, kgPerBag: inv?.weightPerBag || 15 };
+      const newSize = szs.includes(r.size) ? r.size : (szs[0] || "");
+      const inv = (inventory || []).find(f => f && f.brand === v && f.size === newSize);
+      return { ...r, brand: v, size: newSize, kgPerBag: inv?.weightPerBag || 15 };
     }
     const u = { ...r, [k]: v };
     if (k === "size") {
@@ -704,17 +690,11 @@ function FeedDocumentation({
       const normalizedSize = r.size.toLowerCase().trim();
       const stockSizeKey = `${normalizedStock}__${normalizedSize}`;
 
-      // Duplicate check 1: Duplicate within the form for the same stock and pallet size
+      // Duplicate check: prevent duplicate rows within the same form submission
       if (formStockSizeKeys.has(stockSizeKey)) {
-        errs[`dup_${idx}`] = `Duplicate entry in form: Fish Stock "${r.fishStock}" with pellet size "${r.size}" has already been entered. You can only log for the same stock if the pallet size is different.`;
+        errs[`dup_${idx}`] = `Duplicate entry in form: Fish Stock "${r.fishStock}" with pellet size "${r.size}" has already been entered above. Please combine the bag count into one row.`;
       }
       formStockSizeKeys.add(stockSizeKey);
-
-      // Duplicate check 2: Duplicate against existing records for the same date and stock + pallet size
-      const alreadyLogged = isStockAndSizeAlreadyLogged(r.fishStock, r.size, bagsDate);
-      if (alreadyLogged) {
-        errs[`dup_${idx}`] = `Cannot log bag open twice: Fish Stock "${r.fishStock}" with pellet size "${r.size}" has already been recorded for ${dateLabel}. You can only log for this stock if the pallet size is different.`;
-      }
 
       const requestedBags = Number(r.qty) || 0;
       if (requestedBags <= 0) {
@@ -1684,31 +1664,33 @@ function FeedDocumentation({
               </div>
               <button onClick={() => setShowLog(false)} className="text-slate-400 hover:text-slate-700 p-1 ml-4 shrink-0"><X size={20} /></button>
             </div>
-            <div className="flex-1 overflow-y-auto overflow-x-auto min-h-0">
-              <div className="px-6 py-3 border-b border-slate-100 bg-slate-50 flex flex-wrap gap-4 items-end">
-                <div className="min-w-[160px]">
-                  <label className="block text-[11px] font-bold text-slate-600 mb-1 uppercase tracking-wide">Date</label>
-                  <DateInput value={bulkDate} onChange={handleBulkDateChange} />
-                </div>
-                <div className="min-w-[220px]">
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wide">Recorded By</label>
-                    {currentUser?.name && (
-                      <span className="text-[10px] text-green-600 font-medium">Auto-populated</span>
-                    )}
-                  </div>
-                  <input
-                    value={bulkBy}
-                    onChange={e => setBulkBy(e.target.value)}
-                    className={IC}
-                    placeholder={currentUser?.name || "Employee / Admin name"}
-                  />
-                </div>
-                <div className="flex items-center gap-2 ml-auto">
-                  <span className="text-xs text-slate-400">Session time:</span>
-                  <span className="text-sm font-semibold text-slate-700 font-['Barlow_Condensed',sans-serif]">{logTime}</span>
-                </div>
+            {/* Top controls fixed horizontally below modal header */}
+            <div className="px-4 sm:px-6 py-3 border-b border-slate-100 bg-slate-50 flex flex-wrap gap-4 items-end shrink-0 z-10">
+              <div className="min-w-[140px] sm:min-w-[160px]">
+                <label className="block text-[11px] font-bold text-slate-600 mb-1 uppercase tracking-wide">Date</label>
+                <DateInput value={bulkDate} onChange={handleBulkDateChange} />
               </div>
+              <div className="min-w-[180px] sm:min-w-[220px] flex-1 max-w-xs">
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wide">Recorded By</label>
+                  {currentUser?.name && (
+                    <span className="text-[10px] text-green-600 font-medium">Auto-populated</span>
+                  )}
+                </div>
+                <input
+                  value={bulkBy}
+                  onChange={e => setBulkBy(e.target.value)}
+                  className={IC}
+                  placeholder={currentUser?.name || "Employee / Admin name"}
+                />
+              </div>
+              <div className="flex items-center gap-2 ml-auto shrink-0 pb-1">
+                <span className="text-xs text-slate-400">Session time:</span>
+                <span className="text-sm font-semibold text-slate-700 font-['Barlow_Condensed',sans-serif]">{logTime}</span>
+              </div>
+            </div>
+            {/* Horizontally and vertically scrollable table container */}
+            <div className="flex-1 overflow-y-auto overflow-x-auto min-h-0">
               <table className="w-full text-sm">
                 <thead className="sticky top-0 z-30 shadow-xs bg-slate-50">
                   <tr className="bg-slate-50 border-b border-slate-200">
@@ -1933,14 +1915,11 @@ function FeedDocumentation({
                           }}
                           className={SC}
                         >
-                          {invSizesForBrand(row.brand).map(s => {
-                            const alreadyLogged = isStockAndSizeAlreadyLogged(row.fishStock, s, bagsDate);
-                            return (
-                              <option key={s} value={s}>
-                                {s}{alreadyLogged ? " (Already Logged Today)" : ""}
-                              </option>
-                            );
-                          })}
+                          {invSizesForBrand(row.brand).map(s => (
+                            <option key={s} value={s}>
+                              {s}
+                            </option>
+                          ))}
                         </select>
                       </F>
                     </div>
@@ -1980,26 +1959,13 @@ function FeedDocumentation({
                       </div>
                     )}
                     {(() => {
-                      const isAlreadyLogged = isStockAndSizeAlreadyLogged(row.fishStock, row.size, bagsDate);
+                      const previouslyOpened = getBagsLoggedTodayForStockAndSize(row.fishStock, row.size, bagsDate);
                       const isDupInForm = bagRows.findIndex((other, idx) =>
                         idx < i &&
                         normalizeFishStock(other.fishStock).toLowerCase().trim() === normalizeFishStock(row.fishStock).toLowerCase().trim() &&
                         other.size.toLowerCase().trim() === row.size.toLowerCase().trim()
                       ) !== -1;
 
-                      if (isAlreadyLogged) {
-                        return (
-                          <div className="flex items-start gap-2 text-xs font-semibold text-red-800 bg-red-100/90 px-3.5 py-2.5 rounded-xl border border-red-300">
-                            <AlertTriangle size={15} className="text-red-600 shrink-0 mt-0.5" />
-                            <div>
-                              <p className="font-bold text-red-900">Cannot log bag open twice!</p>
-                              <p className="text-[11px] text-red-700 font-normal mt-0.5">
-                                Fish Stock <strong>{row.fishStock}</strong> with pellet size <strong>{row.size}</strong> has already been recorded for {toDateLabel(bagsDate)}. You can only log for this stock if the pellet size is different.
-                              </p>
-                            </div>
-                          </div>
-                        );
-                      }
                       if (isDupInForm) {
                         return (
                           <div className="flex items-start gap-2 text-xs font-semibold text-amber-800 bg-amber-100/90 px-3.5 py-2.5 rounded-xl border border-amber-300">
@@ -2007,9 +1973,17 @@ function FeedDocumentation({
                             <div>
                               <p className="font-bold text-amber-900">Duplicate in this form</p>
                               <p className="text-[11px] text-amber-700 font-normal mt-0.5">
-                                <strong>{row.fishStock}</strong> with pellet size <strong>{row.size}</strong> is already entered above. You can only log for the same stock if the pellet size is different.
+                                <strong>{row.fishStock}</strong> with pellet size <strong>{row.size}</strong> is already entered above. Please combine the bags count into one row.
                               </p>
                             </div>
+                          </div>
+                        );
+                      }
+                      if (previouslyOpened > 0) {
+                        return (
+                          <div className="flex items-center gap-2 text-xs text-slate-600 bg-blue-50 px-3 py-2 rounded-lg border border-blue-200">
+                            <Package size={13} className="text-blue-500 shrink-0" />
+                            <span>Recorded for {toDateLabel(bagsDate)}: <strong>{previouslyOpened} bag{previouslyOpened !== 1 ? "s" : ""}</strong>. New bags entered will be added to stock deduction.</span>
                           </div>
                         );
                       }

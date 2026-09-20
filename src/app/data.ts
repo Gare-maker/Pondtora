@@ -339,7 +339,13 @@ export function isSameDate(d1?: string | null, d2?: string | null): boolean {
   const n2 = normalize(s2);
   if (n1 === n2) return true;
 
-  // Compare month-day part if one side omits year
+  // Compare month-day part ONLY if at least one side omits an explicit year
+  const s1HasExplicitYear = /\b\d{4}\b/.test(s1);
+  const s2HasExplicitYear = /\b\d{4}\b/.test(s2);
+  if (s1HasExplicitYear && s2HasExplicitYear) {
+    return false;
+  }
+
   const sub1 = n1.replace(/^\d{4}-/, "");
   const sub2 = n2.replace(/^\d{4}-/, "");
   return sub1 === sub2;
