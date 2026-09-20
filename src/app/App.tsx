@@ -1846,7 +1846,7 @@ function ReportsPage({
       return;
     }
 
-    if (!fTitle.trim()) { setSubmitError("Report title is required."); return; }
+    const autoTitle = fTitle.trim() || `${fType} Report — ${TODAY}`;
     let content = fContent.trim();
     if (fType === "Daily") {
       if (fOutletLocked === "Yes" && !fOutletConfirm) { setSubmitError("Please confirm whether you locked all pond outlets and inlets."); return; }
@@ -1865,10 +1865,10 @@ function ReportsPage({
     try {
       setIsSubmitting(true);
       if (editReport) {
-        onEdit({ ...editReport, title: fTitle.trim(), content, type: fType as any, author: fAuthor.trim() || editReport.author });
+        onEdit({ ...editReport, title: autoTitle, content, type: fType as any, author: fAuthor.trim() || editReport.author });
         toast.success("Report updated");
       } else {
-        onAdd({ id: uid(), title: fTitle.trim(), content, type: fType as any, author: fAuthor.trim() || "Admin", date: TODAY, status: "Open", tags: [], timestamp: new Date().toISOString() });
+        onAdd({ id: uid(), title: autoTitle, content, type: fType as any, author: fAuthor.trim() || "Admin", date: TODAY, status: "Open", tags: [], timestamp: new Date().toISOString() });
       }
       setFTitle(""); setFType("Daily"); setFContent(""); setFFedFish(""); setFFedFishConfirm(""); setFFeedSession(""); setFOutletLocked(""); setFOutletConfirm(""); setFWaterFlow(""); setFWaterFlowConfirm(""); setFWaterSession(""); setFPumpsOff(""); setFPumpsOffConfirm(""); setFEquipStored(""); setFEquipConfirm(""); setFNotes(""); setSubmitError(""); setShowModal(false);
     } catch (err: any) {
@@ -2097,204 +2097,45 @@ function ReportsPage({
             <option value="Daily">Daily Report</option>
             <option value="Weekly">Weekly Report</option>
             <option value="Monthly">Monthly Report</option>
-            <option value="Pond-Based">Pond-Based Report</option>
           </select>
         </F>
 
-        {fType === "Pond-Based" ? (
-          <div className="space-y-3">
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-              <F label="Select Pond" required>
-                <select
-                  value={fPondId}
-                  onChange={e => {
-                    const newId = e.target.value;
-                    setFPondId(newId);
-                    const selP = farmPonds.find(p => p.id === newId);
-                    if (selP) {
-                      setFPondFishStock(selP.stockingDate && selP.stockingDate !== "—" ? formatFishStockDate(selP.stockingDate) : (selP.species && selP.species !== "—" ? selP.species : "Current Stock"));
-                    }
-                  }}
-                  className={SC}
-                >
-                  {farmPonds.filter(Boolean).map(p => {
-                    const isEmpty = p.status === "Empty" || (Number(p.currentCount) || 0) <= 0;
-                    return (
-                      <option key={p.id} value={p.id}>
-                        {p.name} ({p.type || "Pond"}) {p.species && p.species !== "—" ? `— ${p.species}` : ""} {isEmpty ? "(Empty — 0 fish)" : `(${Number(p.currentCount || 0).toLocaleString()} fish)`}
-                      </option>
-                    );
-                  })}
-                </select>
-              </F>
-              <F label="Connected Fish Stock" required>
-                <input
-                  type="text"
-                  value={fPondFishStock}
-                  onChange={e => setFPondFishStock(e.target.value)}
-                  className={IC}
-                  placeholder="e.g. Catfish (Batch A)"
-                  required
-                />
-              </F>
-              <F label="Report Date" required>
-                <DateInput value={fPondDate} onChange={setFPondDate} />
-              </F>
+        {fType === "Daily" ? (
+          <div className="space-y-4">
+            {/* Feeding */}
+            <div className="p-3 bg-slate-50 rounded-xl space-y-2">
+              <p className="text-sm font-semibold text-slate-800">Were you the person who fed the fish today?</p>
+              <div className="flex gap-2">{(["Yes", "No"] as const).map(v => <button key={v} type="button" onClick={() => { setFFedFish(v); if (v === "No") setFFeedSession(""); }} className={`px-4 py-1.5 rounded-lg text-xs font-bold border transition-colors ${fFedFish === v ? "bg-green-600 text-white border-green-600" : "bg-white text-slate-600 border-slate-200 hover:border-green-400"}`}>{v}</button>)}</div>
+              {fFedFish === "Yes" && (<><p className="text-sm font-semibold text-slate-800 mt-2">Which feeding did you complete?</p><div className="flex gap-2">{(["Morning", "Evening", "Both"] as const).map(v => <button key={v} type="button" onClick={() => setFFeedSession(v)} className={`px-4 py-1.5 rounded-lg text-xs font-bold border transition-colors ${fFeedSession === v ? "bg-green-600 text-white border-green-600" : "bg-white text-slate-600 border-slate-200 hover:border-green-400"}`}>{v}</button>)}</div></>)}
             </div>
-
-            <F label="Pond Report Category" required>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => setFPondReportType("treatment")}
-                  className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold border transition-colors ${
-                    fPondReportType === "treatment"
-                      ? "bg-blue-600 text-white border-blue-600 shadow-xs"
-                      : "bg-white text-slate-700 border-slate-200 hover:border-blue-400"
-                  }`}
-                >
-                  Treatments
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setFPondReportType("other_issue")}
-                  className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold border transition-colors ${
-                    fPondReportType === "other_issue"
-                      ? "bg-amber-600 text-white border-amber-600 shadow-xs"
-                      : "bg-white text-slate-700 border-slate-200 hover:border-amber-400"
-                  }`}
-                >
-                  Other Issues
-                </button>
-              </div>
-            </F>
-
-            {fPondReportType === "treatment" ? (
-              <div className="space-y-3 p-3 bg-blue-50/50 border border-blue-100 rounded-xl">
-                <p className="text-xs font-bold text-blue-900">Treatment Details</p>
-                <F label="Medicine / Treatment Applied" required>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. Oxytetracycline / Salt bath / Potassium permanganate"
-                    value={fPondMedicine}
-                    onChange={e => setFPondMedicine(e.target.value)}
-                    className={IC}
-                  />
-                </F>
-                <F label="Cause / Observation / Diagnosis" required>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. Fin rot symptoms, parasite observation, gasping"
-                    value={fPondCause}
-                    onChange={e => setFPondCause(e.target.value)}
-                    className={IC}
-                  />
-                </F>
-                <F label="Treatment Details / Dosage & Method">
-                  <textarea
-                    rows={2}
-                    placeholder="e.g. 50g per 1,000 liters, repeated over 3 days, water bath for 30 minutes…"
-                    value={fPondDetails}
-                    onChange={e => setFPondDetails(e.target.value)}
-                    className={IC}
-                  />
-                </F>
-                <F label="Action Taken">
-                  <input
-                    type="text"
-                    placeholder="e.g. Isolated affected fish, stopped feeding for 24 hours"
-                    value={fPondAction}
-                    onChange={e => setFPondAction(e.target.value)}
-                    className={IC}
-                  />
-                </F>
-                <F label="Notes / Recovery Remarks">
-                  <textarea
-                    rows={2}
-                    placeholder="e.g. Fish showed recovery by evening; normal schooling resumed"
-                    value={fPondRemarks}
-                    onChange={e => setFPondRemarks(e.target.value)}
-                    className={IC}
-                  />
-                </F>
-              </div>
-            ) : (
-              <div className="space-y-3 p-3 bg-amber-50/50 border border-amber-100 rounded-xl">
-                <p className="text-xs font-bold text-amber-900">Issue Details</p>
-                <F label="Issue / Incident" required>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. Pump stopped working / Net torn / Algae bloom"
-                    value={fPondIssue}
-                    onChange={e => setFPondIssue(e.target.value)}
-                    className={IC}
-                  />
-                </F>
-                <F label="Description & Action Taken">
-                  <textarea
-                    rows={2}
-                    placeholder="Describe observations, circumstances and actions taken…"
-                    value={fPondDescription}
-                    onChange={e => setFPondDescription(e.target.value)}
-                    className={IC}
-                  />
-                </F>
-                <F label="Additional Notes">
-                  <textarea
-                    rows={2}
-                    placeholder="e.g. Water circulation resumed after generator restart…"
-                    value={fPondNotes}
-                    onChange={e => setFPondNotes(e.target.value)}
-                    className={IC}
-                  />
-                </F>
-              </div>
-            )}
+            {/* Outlet */}
+            <div className="p-3 bg-slate-50 rounded-xl space-y-2">
+              <p className="text-sm font-semibold text-slate-800">Did you lock the outlets and inlets and properly check to confirm?</p>
+              <div className="flex gap-2">{(["Yes", "Not Me"] as const).map(v => <button key={v} type="button" onClick={() => { setFOutletLocked(v); if (v === "Not Me") setFOutletConfirm(""); }} className={`px-4 py-1.5 rounded-lg text-xs font-bold border transition-colors ${fOutletLocked === v ? "bg-green-600 text-white border-green-600" : "bg-white text-slate-600 border-slate-200 hover:border-green-400"}`}>{v}</button>)}</div>
+              {fOutletLocked === "Yes" && (<><p className="text-sm font-semibold text-slate-800 mt-2">Are you sure you locked all pond outlets and inlets?</p><div className="flex gap-2">{(["Yes", "No"] as const).map(v => <button key={v} type="button" onClick={() => setFOutletConfirm(v)} className={`px-4 py-1.5 rounded-lg text-xs font-bold border transition-colors ${fOutletConfirm === v ? "bg-green-600 text-white border-green-600" : "bg-white text-slate-600 border-slate-200 hover:border-green-400"}`}>{v}</button>)}</div></>)}
+            </div>
+            {/* Water Flow */}
+            <div className="p-3 bg-slate-50 rounded-xl space-y-2">
+              <p className="text-sm font-semibold text-slate-800">Did you flush the pond or carry out water flow-through today?</p>
+              <div className="flex gap-2">{(["Yes", "No"] as const).map(v => <button key={v} type="button" onClick={() => { setFWaterFlow(v); if (v === "No") setFWaterSession(""); }} className={`px-4 py-1.5 rounded-lg text-xs font-bold border transition-colors ${fWaterFlow === v ? "bg-green-600 text-white border-green-600" : "bg-white text-slate-600 border-slate-200 hover:border-green-400"}`}>{v}</button>)}</div>
+              {fWaterFlow === "Yes" && (<><p className="text-sm font-semibold text-slate-800 mt-2">When was it done?</p><div className="flex gap-2">{(["Morning", "Evening", "Both"] as const).map(v => <button key={v} type="button" onClick={() => setFWaterSession(v)} className={`px-4 py-1.5 rounded-lg text-xs font-bold border transition-colors ${fWaterSession === v ? "bg-green-600 text-white border-green-600" : "bg-white text-slate-600 border-slate-200 hover:border-green-400"}`}>{v}</button>)}</div></>)}
+            </div>
+            {/* Pumps & Electrical */}
+            <div className="p-3 bg-slate-50 rounded-xl space-y-2">
+              <p className="text-sm font-semibold text-slate-800">Have you turned off all pumping machines and electrical devices properly?</p>
+              <div className="flex gap-2">{(["Yes", "No"] as const).map(v => <button key={v} type="button" onClick={() => { setFPumpsOff(v); if (v === "No") setFPumpsOffConfirm(""); }} className={`px-4 py-1.5 rounded-lg text-xs font-bold border transition-colors ${fPumpsOff === v ? "bg-green-600 text-white border-green-600" : "bg-white text-slate-600 border-slate-200 hover:border-green-400"}`}>{v}</button>)}</div>
+              {fPumpsOff === "Yes" && (<><p className="text-sm font-semibold text-slate-800 mt-2">Are you sure you personally turned off all pumping machines or assisted with this task?</p><div className="flex gap-2">{(["Yes", "No"] as const).map(v => <button key={v} type="button" onClick={() => setFPumpsOffConfirm(v)} className={`px-4 py-1.5 rounded-lg text-xs font-bold border transition-colors ${fPumpsOffConfirm === v ? "bg-green-600 text-white border-green-600" : "bg-white text-slate-600 border-slate-200 hover:border-green-400"}`}>{v}</button>)}</div><p className="text-xs text-slate-400 italic mt-1">Click &quot;Yes&quot; only if you personally carried out this task or assisted.</p></>)}
+            </div>
+            {/* Equipment Storage */}
+            <div className="p-3 bg-slate-50 rounded-xl space-y-2">
+              <p className="text-sm font-semibold text-slate-800">Are all equipment properly stored?</p>
+              <div className="flex gap-2">{(["Yes", "No"] as const).map(v => <button key={v} type="button" onClick={() => { setFEquipStored(v); if (v === "No") setFEquipConfirm(""); }} className={`px-4 py-1.5 rounded-lg text-xs font-bold border transition-colors ${fEquipStored === v ? "bg-green-600 text-white border-green-600" : "bg-white text-slate-600 border-slate-200 hover:border-green-400"}`}>{v}</button>)}</div>
+              {fEquipStored === "Yes" && (<><p className="text-sm font-semibold text-slate-800 mt-2">Are you sure?</p><div className="flex gap-2">{(["Yes", "No"] as const).map(v => <button key={v} type="button" onClick={() => setFEquipConfirm(v)} className={`px-4 py-1.5 rounded-lg text-xs font-bold border transition-colors ${fEquipConfirm === v ? "bg-green-600 text-white border-green-600" : "bg-white text-slate-600 border-slate-200 hover:border-green-400"}`}>{v}</button>)}</div></>)}
+            </div>
+            <F label="Additional Notes (Optional)"><textarea className={`${IC} min-h-[80px] resize-y`} placeholder="Any other observations or actions taken…" value={fNotes} onChange={e => setFNotes(e.target.value)} /></F>
           </div>
         ) : (
-          <>
-            <F label="Report Title"><input className={IC} placeholder="e.g. Morning inspection — Pond 2" value={fTitle} onChange={e => setFTitle(e.target.value)} /></F>
-            {fType === "Daily" ? (
-              <div className="space-y-4">
-                {/* Feeding */}
-                <div className="p-3 bg-slate-50 rounded-xl space-y-2">
-                  <p className="text-sm font-semibold text-slate-800">Were you the person who fed the fish today?</p>
-                  <div className="flex gap-2">{(["Yes", "No"] as const).map(v => <button key={v} type="button" onClick={() => { setFFedFish(v); if (v === "No") setFFeedSession(""); }} className={`px-4 py-1.5 rounded-lg text-xs font-bold border transition-colors ${fFedFish === v ? "bg-green-600 text-white border-green-600" : "bg-white text-slate-600 border-slate-200 hover:border-green-400"}`}>{v}</button>)}</div>
-                  {fFedFish === "Yes" && (<><p className="text-sm font-semibold text-slate-800 mt-2">Which feeding did you complete?</p><div className="flex gap-2">{(["Morning", "Evening", "Both"] as const).map(v => <button key={v} type="button" onClick={() => setFFeedSession(v)} className={`px-4 py-1.5 rounded-lg text-xs font-bold border transition-colors ${fFeedSession === v ? "bg-green-600 text-white border-green-600" : "bg-white text-slate-600 border-slate-200 hover:border-green-400"}`}>{v}</button>)}</div></>)}
-                </div>
-                {/* Outlet */}
-                <div className="p-3 bg-slate-50 rounded-xl space-y-2">
-                  <p className="text-sm font-semibold text-slate-800">Did you lock the outlets and inlets and properly check to confirm?</p>
-                  <div className="flex gap-2">{(["Yes", "Not Me"] as const).map(v => <button key={v} type="button" onClick={() => { setFOutletLocked(v); if (v === "Not Me") setFOutletConfirm(""); }} className={`px-4 py-1.5 rounded-lg text-xs font-bold border transition-colors ${fOutletLocked === v ? "bg-green-600 text-white border-green-600" : "bg-white text-slate-600 border-slate-200 hover:border-green-400"}`}>{v}</button>)}</div>
-                  {fOutletLocked === "Yes" && (<><p className="text-sm font-semibold text-slate-800 mt-2">Are you sure you locked all pond outlets and inlets?</p><div className="flex gap-2">{(["Yes", "No"] as const).map(v => <button key={v} type="button" onClick={() => setFOutletConfirm(v)} className={`px-4 py-1.5 rounded-lg text-xs font-bold border transition-colors ${fOutletConfirm === v ? "bg-green-600 text-white border-green-600" : "bg-white text-slate-600 border-slate-200 hover:border-green-400"}`}>{v}</button>)}</div></>)}
-                </div>
-                {/* Water Flow */}
-                <div className="p-3 bg-slate-50 rounded-xl space-y-2">
-                  <p className="text-sm font-semibold text-slate-800">Did you flush the pond or carry out water flow-through today?</p>
-                  <div className="flex gap-2">{(["Yes", "No"] as const).map(v => <button key={v} type="button" onClick={() => { setFWaterFlow(v); if (v === "No") setFWaterSession(""); }} className={`px-4 py-1.5 rounded-lg text-xs font-bold border transition-colors ${fWaterFlow === v ? "bg-green-600 text-white border-green-600" : "bg-white text-slate-600 border-slate-200 hover:border-green-400"}`}>{v}</button>)}</div>
-                  {fWaterFlow === "Yes" && (<><p className="text-sm font-semibold text-slate-800 mt-2">When was it done?</p><div className="flex gap-2">{(["Morning", "Evening", "Both"] as const).map(v => <button key={v} type="button" onClick={() => setFWaterSession(v)} className={`px-4 py-1.5 rounded-lg text-xs font-bold border transition-colors ${fWaterSession === v ? "bg-green-600 text-white border-green-600" : "bg-white text-slate-600 border-slate-200 hover:border-green-400"}`}>{v}</button>)}</div></>)}
-                </div>
-                {/* Pumps & Electrical */}
-                <div className="p-3 bg-slate-50 rounded-xl space-y-2">
-                  <p className="text-sm font-semibold text-slate-800">Have you turned off all pumping machines and electrical devices properly?</p>
-                  <div className="flex gap-2">{(["Yes", "No"] as const).map(v => <button key={v} type="button" onClick={() => { setFPumpsOff(v); if (v === "No") setFPumpsOffConfirm(""); }} className={`px-4 py-1.5 rounded-lg text-xs font-bold border transition-colors ${fPumpsOff === v ? "bg-green-600 text-white border-green-600" : "bg-white text-slate-600 border-slate-200 hover:border-green-400"}`}>{v}</button>)}</div>
-                  {fPumpsOff === "Yes" && (<><p className="text-sm font-semibold text-slate-800 mt-2">Are you sure you personally turned off all pumping machines or assisted with this task?</p><div className="flex gap-2">{(["Yes", "No"] as const).map(v => <button key={v} type="button" onClick={() => setFPumpsOffConfirm(v)} className={`px-4 py-1.5 rounded-lg text-xs font-bold border transition-colors ${fPumpsOffConfirm === v ? "bg-green-600 text-white border-green-600" : "bg-white text-slate-600 border-slate-200 hover:border-green-400"}`}>{v}</button>)}</div><p className="text-xs text-slate-400 italic mt-1">Click &quot;Yes&quot; only if you personally carried out this task or assisted.</p></>)}
-                </div>
-                {/* Equipment Storage */}
-                <div className="p-3 bg-slate-50 rounded-xl space-y-2">
-                  <p className="text-sm font-semibold text-slate-800">Are all equipment properly stored?</p>
-                  <div className="flex gap-2">{(["Yes", "No"] as const).map(v => <button key={v} type="button" onClick={() => { setFEquipStored(v); if (v === "No") setFEquipConfirm(""); }} className={`px-4 py-1.5 rounded-lg text-xs font-bold border transition-colors ${fEquipStored === v ? "bg-green-600 text-white border-green-600" : "bg-white text-slate-600 border-slate-200 hover:border-green-400"}`}>{v}</button>)}</div>
-                  {fEquipStored === "Yes" && (<><p className="text-sm font-semibold text-slate-800 mt-2">Are you sure?</p><div className="flex gap-2">{(["Yes", "No"] as const).map(v => <button key={v} type="button" onClick={() => setFEquipConfirm(v)} className={`px-4 py-1.5 rounded-lg text-xs font-bold border transition-colors ${fEquipConfirm === v ? "bg-green-600 text-white border-green-600" : "bg-white text-slate-600 border-slate-200 hover:border-green-400"}`}>{v}</button>)}</div></>)}
-                </div>
-                <F label="Additional Notes (Optional)"><textarea className={`${IC} min-h-[80px] resize-y`} placeholder="Any other observations or actions taken…" value={fNotes} onChange={e => setFNotes(e.target.value)} /></F>
-              </div>
-            ) : (
-              <F label="Content"><textarea className={`${IC} min-h-[120px] resize-y`} placeholder="Describe observations, issues or actions taken…" value={fContent} onChange={e => setFContent(e.target.value)} /></F>
-            )}
-          </>
+          <F label="Content"><textarea className={`${IC} min-h-[120px] resize-y`} placeholder="Describe observations, issues or actions taken…" value={fContent} onChange={e => setFContent(e.target.value)} /></F>
         )}
 
         <F label="Recorded By">

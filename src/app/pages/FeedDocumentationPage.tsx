@@ -946,11 +946,49 @@ function FeedDocumentation({
 
   const getRowsForDate = (targetDate: string) => {
     const dateLabel = toDateLabel(targetDate);
+    // Suggest pellet if used on the previous 2 consecutive feeding days for that specific pond
+    const getSuggestedPallet = (pondName: string): string | null => {
+      const pondRecords = (feedingRecords || [])
+        .filter(r => r && r.pond === pondName && r.size && (Number(r.total) > 0 || Number(r.morning) > 0 || Number(r.evening) > 0))
+        .filter(r => {
+          const rDateIso = r.date.match(/^\d{4}-\d{2}-\d{2}/) ? r.date.slice(0, 10) : "";
+          if (rDateIso && /^\d{4}-\d{2}-\d{2}/.test(targetDate)) {
+            return rDateIso < targetDate;
+          }
+          return true;
+        });
+
+      const dateMap = new Map<string, string>();
+      pondRecords.forEach(r => {
+        if (r.date && r.size) {
+          dateMap.set(r.date, r.size);
+        }
+      });
+
+      const uniqueDates = Array.from(dateMap.keys());
+      if (uniqueDates.length >= 2) {
+        uniqueDates.sort((a, b) => {
+          const tA = new Date(a).getTime() || 0;
+          const tB = new Date(b).getTime() || 0;
+          return tB - tA;
+        });
+        const date1 = uniqueDates[0];
+        const date2 = uniqueDates[1];
+        const size1 = dateMap.get(date1);
+        const size2 = dateMap.get(date2);
+        if (size1 && size2 && size1 === size2 && availablePelletSizes.includes(size1)) {
+          return size1;
+        }
+      }
+      return null;
+    };
+
     return activePonds.map(p => {
       const existing = (feedingRecords || []).find(r => r && r.pond === p.name && (isSameDate(r.date, targetDate) || r.date === dateLabel));
+      const consecutiveSuggestion = getSuggestedPallet(p.name);
       const defSize = existing?.size && availablePelletSizes.includes(existing.size)
         ? existing.size
-        : (p.defaultPellet && availablePelletSizes.includes(p.defaultPellet) ? p.defaultPellet : (availablePelletSizes[0] || "4.0 mm"));
+        : (consecutiveSuggestion || (p.defaultPellet && availablePelletSizes.includes(p.defaultPellet) ? p.defaultPellet : (availablePelletSizes[0] || "4.0 mm")));
       const fsStock = getPondFishStock(p);
       const stockDate = p.stockingDate && p.stockingDate !== "—" ? formatFishStockDate(p.stockingDate) : "—";
       return {
@@ -1256,26 +1294,28 @@ function FeedDocumentation({
       {/* ── Daily Feed tab ── */}
       {docTab === "daily" && (
         <Card className="overflow-hidden">
-          <div className="px-5 py-4 border-b border-slate-100 bg-slate-50 flex flex-wrap items-center justify-between gap-3">
+          <div className="px-5 py-4 border-b border-slate-100 bg-slate-50 flex items-center justify-between gap-3">
             <div>
               <h2 className="text-base font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">{selDate}</h2>
-              <p className="text-xs text-slate-400 mt-0.5">{dayRecords.length > 0 ? `${dayRecords.length} session${dayRecords.length !== 1 ? "s" : ""} · ${dayGrand}kg total feed` : "No feeding records for this date"}</p>
             </div>
-            <div className="flex items-center gap-3 flex-wrap">
+            <div className="flex items-center gap-3">
               <div className="relative">
                 <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" />
-                <input value={dailySearch} onChange={e => setDailySearch(e.target.value)} placeholder="Search pond, stock, or size…" className={`${IC} pl-8 w-52 text-xs py-1.5`} />
+                <input value={dailySearch} onChange={e => setDailySearch(e.target.value)} placeholder="Search pond, stock, or size…" className={`${IC} pl-8 w-44 sm:w-52 text-xs py-1.5`} />
               </div>
             </div>
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full text-sm min-w-[950px]">
+            <table className="w-full text-sm min-w-[700px] md:min-w-[950px]">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-100">
                   <th className="w-12 min-w-[48px] max-w-[48px] px-2 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-center sticky left-0 z-20 bg-slate-50">#</th>
                   <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left sticky left-[48px] z-20 bg-slate-50 border-r border-slate-200 min-w-[130px]">Pond</th>
-                  {["Stock Date", "Initial Stock", "Fish Count", "Pellet Size", "Morning (kg)", "AM Time", "Evening (kg)", "PM Time", "Total (kg)", "Recorded By"].map(h => (
+                  <th className="hidden md:table-cell px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left whitespace-nowrap">Stock Date</th>
+                  <th className="hidden md:table-cell px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left whitespace-nowrap">Initial Stock</th>
+                  <th className="hidden md:table-cell px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left whitespace-nowrap">Fish Count</th>
+                  {["Pellet Size", "Morning (kg)", "AM Time", "Evening (kg)", "PM Time", "Total (kg)", "Recorded By"].map(h => (
                     <th key={h} className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left whitespace-nowrap">{h}</th>
                   ))}
                   <th className="px-4 py-3 w-8" />
@@ -1292,18 +1332,22 @@ function FeedDocumentation({
                     <tr key={pond.id} onClick={() => rec && setViewFeedRec(rec)} className={`transition-colors ${hasFeed ? "hover:bg-green-50/30 cursor-pointer" : "opacity-40 hover:opacity-60"}`}>
                       <td className={`w-12 min-w-[48px] max-w-[48px] px-2 py-3.5 text-slate-300 text-xs font-mono text-center sticky left-0 z-10 ${hasFeed ? "bg-white" : "bg-white"}`}>{i + 1}</td>
                       <td className="px-4 py-3.5 min-w-[130px] sticky left-[48px] z-10 bg-white border-r border-slate-100">
-                        <p className="font-semibold text-slate-900">{pond.name}</p>
-                        <p className="text-[11px] text-slate-400">{pond.type || "—"}</p>
+                        <p className="font-semibold text-slate-900 leading-tight">{pond.name}</p>
+                        {stockDateFormatted !== "—" ? (
+                          <p className="text-[11px] text-teal-700 font-medium leading-tight mt-0.5">{stockDateFormatted}</p>
+                        ) : (
+                          <p className="text-[11px] text-slate-400 leading-tight mt-0.5">—</p>
+                        )}
                       </td>
-                      <td className="px-4 py-3.5 text-xs text-teal-700 font-medium whitespace-nowrap">
+                      <td className="hidden md:table-cell px-4 py-3.5 text-xs text-teal-700 font-medium whitespace-nowrap">
                         {stockDateFormatted !== "—" ? (
                           <span className="inline-flex items-center gap-1 bg-teal-50 px-2 py-0.5 rounded border border-teal-200">{stockDateFormatted}</span>
                         ) : (
                           <span className="text-slate-300">—</span>
                         )}
                       </td>
-                      <td className="px-4 py-3.5 text-slate-500 font-['Barlow_Condensed',sans-serif] text-base">{pond.initialStock.toLocaleString()}</td>
-                      <td className="px-4 py-3.5 font-semibold text-green-700 font-['Barlow_Condensed',sans-serif] text-base">{pond.currentCount.toLocaleString()}</td>
+                      <td className="hidden md:table-cell px-4 py-3.5 text-slate-500 font-['Barlow_Condensed',sans-serif] text-base">{pond.initialStock.toLocaleString()}</td>
+                      <td className="hidden md:table-cell px-4 py-3.5 font-semibold text-green-700 font-['Barlow_Condensed',sans-serif] text-base">{pond.currentCount.toLocaleString()}</td>
                       <td className="px-4 py-3.5">{rec ? <span className="flex items-center gap-1.5"><Bdg label={rec.size} color={atMax ? "red" : "blue"} />{atMax && <span className="text-[10px] font-bold text-red-500">⚠ Limit</span>}</span> : <span className="text-slate-300 text-xs">—</span>}</td>
                       <td className="px-4 py-3.5 font-medium">{rec ? `${rec.morning}kg` : <span className="text-slate-300">—</span>}</td>
                       <td className="px-4 py-3.5 text-slate-500 text-xs">{rec?.morningTime || <span className="text-slate-300">—</span>}</td>
@@ -1328,7 +1372,8 @@ function FeedDocumentation({
               {dayGrand > 0 && (
                 <tfoot>
                   <tr className="bg-slate-50 border-t-2 border-slate-200">
-                    <td colSpan={11} className="px-4 py-3 text-right text-xs font-bold text-slate-500 uppercase tracking-wider">Grand Total</td>
+                    <td colSpan={11} className="hidden md:table-cell px-4 py-3 text-right text-xs font-bold text-slate-500 uppercase tracking-wider">Grand Total</td>
+                    <td colSpan={8} className="md:hidden px-4 py-3 text-right text-xs font-bold text-slate-500 uppercase tracking-wider">Grand Total</td>
                     <td className="px-4 py-3"><span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-green-600 text-white font-bold text-sm font-['Barlow_Condensed',sans-serif]">{dayGrand}kg</span></td>
                     <td colSpan={2} />
                   </tr>
@@ -1741,9 +1786,10 @@ function FeedDocumentation({
                                     >
                                       {availablePelletSizes.map(s => {
                                         const stock = getPelletStock(s);
-                                        const label = !stock.exists || stock.availableQty <= 0
-                                          ? `${s} (0 available)`
-                                          : `${s} (${stock.availableQty} available)`;
+                                        const bagCount = stock.inStockBags || 0;
+                                        const label = !stock.exists || bagCount <= 0
+                                          ? `${s} (0 bags available)`
+                                          : `${s} (${bagCount} bag${bagCount !== 1 ? "s" : ""} available)`;
                                         return <option key={s} value={s}>{label}</option>;
                                       })}
                                       {row.size && !availablePelletSizes.includes(row.size) && <option value={row.size}>{row.size}</option>}
@@ -2000,24 +2046,26 @@ function FeedDocumentation({
                 <select value={editRec.size} onChange={e => setEditRec(p => p ? { ...p, size: e.target.value } : p)} className={SC}>
                   {availablePelletSizes.map(s => {
                     const stock = getPelletStock(s, editRec.id);
+                    const bagCount = stock.inStockBags || 0;
                     const label = !stock.exists
                       ? `${s} (Not in stock)`
-                      : stock.availableKg <= 0
-                        ? `${s} (Empty - 0kg)`
-                        : `${s} (${Math.round(stock.availableKg * 10) / 10}kg available)`;
+                      : bagCount <= 0
+                        ? `${s} (Empty - 0 bags)`
+                        : `${s} (${bagCount} bag${bagCount !== 1 ? "s" : ""} available)`;
                     return <option key={s} value={s}>{label}</option>;
                   })}
                   {editRec.size && !availablePelletSizes.includes(editRec.size) && <option value={editRec.size}>{editRec.size}</option>}
                 </select>
                 {(() => {
                   const stock = getPelletStock(editRec.size, editRec.id);
+                  const bagCount = stock.inStockBags || 0;
                   if (!stock.exists) {
                     return <p className="text-xs font-bold text-amber-600 mt-1">⚠ This pellet size is not in Feed Inventory</p>;
                   }
-                  if (stock.availableKg <= 0) {
-                    return <p className="text-xs font-bold text-red-600 mt-1">⚠ This pellet size is empty (0 kg remaining in stock)</p>;
+                  if (bagCount <= 0) {
+                    return <p className="text-xs font-bold text-red-600 mt-1">⚠ This pellet size is empty (0 bags remaining in stock)</p>;
                   }
-                  return <p className="text-xs text-slate-500 mt-1">Stock available: {Math.round(stock.availableKg * 10) / 10} kg</p>;
+                  return <p className="text-xs text-slate-500 mt-1">Stock available: {bagCount} bag{bagCount !== 1 ? "s" : ""}</p>;
                 })()}
               </F>
               <div className="grid grid-cols-2 gap-3">

@@ -141,6 +141,7 @@ function PondDetail({
   });
   const [issueErr,setIssueErr]=useState<Record<string,string>>({});
   const [viewingIssue,setViewingIssue]=useState<PondReport|null>(null);
+  const [viewingTreatment,setViewingTreatment]=useState<any|null>(null);
 
   const [transferF,setTransferF]=useState({toPond:"",date:TODAY,pct:"100",count:""});
   const [transferErr,setTransferErr]=useState<Record<string,string>>({});
@@ -413,7 +414,7 @@ function PondDetail({
           </div>
         </Card>
       ):(
-      <Card className="p-5">
+      <Card className="p-5 bg-gradient-to-br from-emerald-50/70 via-white to-teal-50/40 border-emerald-200/80 shadow-xs">
         <div className="flex items-center justify-between mb-4">
           <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Fish Information</p>
           {canEdit&&pond.status==="Active"&&<button onClick={()=>{setEditFishF({species:pond.species==="—"?"Catfish":pond.species,count:String(pond.currentCount),stockingDate:pond.stockingDate});setShowEditFish(true);}} className="flex items-center gap-1 text-xs text-slate-400 hover:text-green-600 border border-slate-200 hover:border-green-300 rounded-lg px-2 py-1 transition-colors"><Pencil size={11}/> Edit</button>}
@@ -588,7 +589,7 @@ function PondDetail({
               </tr></thead>
               <tbody className="divide-y divide-slate-50">
                 {unifiedTreatments.length===0?<tr><td colSpan={10} className="text-center text-xs text-slate-400 py-8">No treatment records for this pond. Click <strong>Log Treatment</strong> to record one.</td></tr>:unifiedTreatments.slice((treatPage-1)*PER_PAGE,treatPage*PER_PAGE).map((t,i)=>(
-                  <tr key={t.id} className="hover:bg-slate-50 transition-colors">
+                  <tr key={t.id} onClick={()=>setViewingTreatment(t)} className="hover:bg-slate-50 transition-colors cursor-pointer">
                     <td className="px-4 py-3 text-slate-300 text-xs font-mono">{(treatPage-1)*PER_PAGE + i + 1}</td>
                     <td className="px-4 py-3 text-slate-600 whitespace-nowrap font-mono text-xs">{t.date}</td>
                     <td className="px-4 py-3 text-slate-700 whitespace-nowrap"><Bdg label={t.fishStock} color="teal"/></td>
@@ -598,12 +599,17 @@ function PondDetail({
                     <td className="px-4 py-3 text-slate-600 text-xs max-w-[200px]">{t.actionTaken}</td>
                     <td className="px-4 py-3 text-slate-400 text-xs max-w-[180px]">{t.remarks}</td>
                     <td className="px-4 py-3 text-slate-500 text-xs whitespace-nowrap">{t.recordedBy}</td>
-                    <td className="px-4 py-3">
-                      {canEdit&&t.rawTreatment&&(
-                        <button onClick={()=>setEditTreatRec({...t.rawTreatment!})} className="p-1.5 rounded-lg text-slate-300 hover:text-green-600 hover:bg-green-50 transition-colors" title="Edit Treatment">
-                          <Pencil size={13}/>
+                    <td className="px-4 py-3" onClick={e=>e.stopPropagation()}>
+                      <div className="flex items-center gap-1">
+                        <button onClick={()=>setViewingTreatment(t)} className="p-1.5 rounded-lg text-slate-300 hover:text-green-600 hover:bg-green-50 transition-colors" title="View Treatment Details">
+                          <Eye size={13}/>
                         </button>
-                      )}
+                        {canEdit&&t.rawTreatment&&(
+                          <button onClick={()=>setEditTreatRec({...t.rawTreatment!})} className="p-1.5 rounded-lg text-slate-300 hover:text-green-600 hover:bg-green-50 transition-colors" title="Edit Treatment">
+                            <Pencil size={13}/>
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -638,7 +644,7 @@ function PondDetail({
               </tr></thead>
               <tbody className="divide-y divide-slate-50">
                 {otherIssues.length===0?<tr><td colSpan={9} className="text-center text-xs text-slate-400 py-8">No non-treatment issues recorded for this pond. Click <strong>Log Issue</strong> to record an incident.</td></tr>:otherIssues.slice((issuePage-1)*PER_PAGE,issuePage*PER_PAGE).map((iss,i)=>(
-                  <tr key={iss.id} className="hover:bg-slate-50 transition-colors">
+                  <tr key={iss.id} onClick={()=>setViewingIssue(iss)} className="hover:bg-slate-50 transition-colors cursor-pointer">
                     <td className="px-4 py-3 text-slate-300 text-xs font-mono">{(issuePage-1)*PER_PAGE + i + 1}</td>
                     <td className="px-4 py-3 text-slate-600 whitespace-nowrap font-mono text-xs">{iss.reportDate}</td>
                     <td className="px-4 py-3 text-slate-700 whitespace-nowrap"><Bdg label={iss.fishStockId || "—"} color="amber"/></td>
@@ -647,8 +653,8 @@ function PondDetail({
                     <td className="px-4 py-3 text-slate-600 text-xs max-w-[200px]">{iss.actionTaken || "—"}</td>
                     <td className="px-4 py-3 text-slate-400 text-xs max-w-[180px]">{iss.notes || iss.remarks || "—"}</td>
                     <td className="px-4 py-3 text-slate-500 text-xs whitespace-nowrap">{iss.recordedBy || iss.createdBy || "—"}</td>
-                    <td className="px-4 py-3">
-                      <button onClick={()=>setViewingIssue(iss)} className="p-1.5 rounded-lg text-slate-300 hover:text-green-600 hover:bg-green-50 transition-colors" title="View Details">
+                    <td className="px-4 py-3" onClick={e=>e.stopPropagation()}>
+                      <button onClick={()=>setViewingIssue(iss)} className="p-1.5 rounded-lg text-slate-300 hover:text-green-600 hover:bg-green-50 transition-colors" title="View Report Details">
                         <Eye size={13}/>
                       </button>
                     </td>
@@ -853,24 +859,47 @@ function PondDetail({
           <div className="flex gap-2 pt-1"><PBtn onClick={handleSaveIssue}><Plus size={14}/> Save Issue</PBtn><button onClick={()=>{setShowAddIssue(false);setIssueErr({});}} className="px-4 py-2 text-sm text-slate-400">Cancel</button></div>
         </div>
       </Modal>}
-      {viewingIssue&&<Modal title="Issue Details" onClose={()=>setViewingIssue(null)}>
+      {viewingIssue&&<Modal title="Report / Issue Details" onClose={()=>setViewingIssue(null)}>
         <div className="space-y-3 text-xs">
           <div className="flex items-center justify-between p-3 bg-slate-50 rounded-xl">
             <div>
               <p className="text-[10px] text-slate-400 uppercase font-bold">Report Date</p>
               <p className="font-bold text-slate-900 font-mono text-sm">{viewingIssue.reportDate}</p>
             </div>
-            <Bdg label="Other Issue" color="amber"/>
+            <Bdg label={viewingIssue.reportType==="treatment"?"Treatment":"Other Issue"} color={viewingIssue.reportType==="treatment"?"blue":"amber"}/>
           </div>
           <div className="space-y-2">
+            <div className="flex justify-between py-1 border-b border-slate-100"><span className="text-slate-500">Pond:</span><span className="font-semibold text-slate-800">{pond.name}</span></div>
             <div className="flex justify-between py-1 border-b border-slate-100"><span className="text-slate-500">Fish Stock:</span><span className="font-semibold text-slate-800">{viewingIssue.fishStockId || "—"}</span></div>
             <div className="py-1 border-b border-slate-100"><span className="text-slate-500">Issue / Incident:</span><p className="font-semibold text-slate-900 mt-0.5">{viewingIssue.issue || "—"}</p></div>
             <div className="py-1 border-b border-slate-100"><span className="text-slate-500">Description:</span><p className="text-slate-700 mt-0.5 whitespace-pre-wrap">{viewingIssue.description || "—"}</p></div>
             <div className="py-1 border-b border-slate-100"><span className="text-slate-500">Action Taken:</span><p className="text-slate-700 mt-0.5 whitespace-pre-wrap">{viewingIssue.actionTaken || "—"}</p></div>
-            <div className="py-1 border-b border-slate-100"><span className="text-slate-500">Notes:</span><p className="text-slate-700 mt-0.5 whitespace-pre-wrap">{viewingIssue.notes || viewingIssue.remarks || "—"}</p></div>
+            <div className="py-1 border-b border-slate-100"><span className="text-slate-500">Notes / Remarks:</span><p className="text-slate-700 mt-0.5 whitespace-pre-wrap">{viewingIssue.notes || viewingIssue.remarks || "—"}</p></div>
             <div className="flex justify-between py-1"><span className="text-slate-500">Logged By:</span><span className="text-slate-800 font-medium">{viewingIssue.recordedBy || viewingIssue.createdBy || "—"}</span></div>
           </div>
-          <div className="pt-2 flex justify-end"><button onClick={()=>setViewingIssue(null)} className="px-4 py-2 text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl">Close</button></div>
+          <div className="pt-2 flex justify-end"><button onClick={()=>setViewingIssue(null)} className="px-4 py-2 text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors">Close</button></div>
+        </div>
+      </Modal>}
+      {viewingTreatment&&<Modal title="Treatment Details" onClose={()=>setViewingTreatment(null)}>
+        <div className="space-y-3 text-xs">
+          <div className="flex items-center justify-between p-3 bg-blue-50/60 rounded-xl border border-blue-100">
+            <div>
+              <p className="text-[10px] text-blue-500 uppercase font-bold">Treatment Date</p>
+              <p className="font-bold text-slate-900 font-mono text-sm">{viewingTreatment.date}</p>
+            </div>
+            <Bdg label="Treatment" color="teal"/>
+          </div>
+          <div className="space-y-2">
+            <div className="flex justify-between py-1 border-b border-slate-100"><span className="text-slate-500">Pond:</span><span className="font-semibold text-slate-800">{pond.name}</span></div>
+            <div className="flex justify-between py-1 border-b border-slate-100"><span className="text-slate-500">Fish Stock:</span><span className="font-semibold text-slate-800">{viewingTreatment.fishStock || "—"}</span></div>
+            <div className="py-1 border-b border-slate-100"><span className="text-slate-500">Medicine Applied:</span><p className="font-bold text-slate-900 mt-0.5">{viewingTreatment.medicine || "—"}</p></div>
+            <div className="py-1 border-b border-slate-100"><span className="text-slate-500">Cause / Diagnosis:</span><p className="text-slate-700 mt-0.5 whitespace-pre-wrap">{viewingTreatment.cause || "—"}</p></div>
+            <div className="py-1 border-b border-slate-100"><span className="text-slate-500">Dosage / Treatment Details:</span><p className="text-slate-700 mt-0.5 whitespace-pre-wrap">{viewingTreatment.dosage || "—"}</p></div>
+            <div className="py-1 border-b border-slate-100"><span className="text-slate-500">Action Taken:</span><p className="text-slate-700 mt-0.5 whitespace-pre-wrap">{viewingTreatment.actionTaken || "—"}</p></div>
+            <div className="py-1 border-b border-slate-100"><span className="text-slate-500">Remarks:</span><p className="text-slate-700 mt-0.5 whitespace-pre-wrap">{viewingTreatment.remarks || "—"}</p></div>
+            <div className="flex justify-between py-1"><span className="text-slate-500">Logged By:</span><span className="text-slate-800 font-medium">{viewingTreatment.recordedBy || "—"}</span></div>
+          </div>
+          <div className="pt-2 flex justify-end"><button onClick={()=>setViewingTreatment(null)} className="px-4 py-2 text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors">Close</button></div>
         </div>
       </Modal>}
       {showEditFish&&<Modal title="Edit Fish Information" onClose={()=>setShowEditFish(false)}>
@@ -980,7 +1009,7 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
     });
     setEditPondId(null);
   };
-  const [fStatus,setFStatus]=useState("All"); const [fType,setFType]=useState("All"); const [fMonth,setFMonth]=useState("All"); const [search,setSearch]=useState("");
+  const [fStatus,setFStatus]=useState("All"); const [fMonth,setFMonth]=useState("All"); const [search,setSearch]=useState("");
   const [deletePondId,setDeletePondId]=useState<string|null>(null);
   const [pondMobileMenu,setPondMobileMenu]=useState<string|null>(null);
   const pondMenuRef=useRef<HTMLDivElement>(null);
@@ -1127,7 +1156,6 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
   const pondMonths=[...new Set(ponds.map(p=>p.stockMonth).filter(Boolean))];
   const filteredPonds=sortedPonds.filter(p=>{
     if(fStatus!=="All"&&p.status!==fStatus)return false;
-    if(fType!=="All"&&p.type!==fType)return false;
     if(fMonth!=="All"&&p.stockMonth!==fMonth)return false;
     if(search&&!p.name.toLowerCase().includes(search.toLowerCase())&&!p.species.toLowerCase().includes(search.toLowerCase()))return false;
     return true;
@@ -1159,9 +1187,7 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
       </div>
       <div className="flex flex-wrap gap-2 items-center">
         <div className="relative"><Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300"/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search…" className={`${IC} pl-8 w-40`}/></div>
-        {([["Status",fStatus,setFStatus,["All","Active","Empty"]],["Type",fType,setFType,["All","Earthen","Concrete","Tarpaulin"]]] as any[]).map(([label,val,set,opts]:any)=>(
-          <div key={label} className="flex items-center gap-1.5"><span className="text-xs text-slate-400">{label}:</span><select value={val} onChange={e=>set(e.target.value)} className={`${SC} py-1.5 text-xs w-auto`}>{opts.map((o:string)=><option key={o}>{o}</option>)}</select></div>
-        ))}
+        <div className="flex items-center gap-1.5"><span className="text-xs text-slate-400">Status:</span><select value={fStatus} onChange={e=>setFStatus(e.target.value)} className={`${SC} py-1.5 text-xs w-auto`}>{["All","Active","Empty"].map(o=><option key={o}>{o}</option>)}</select></div>
       </div>
       <Card>
         <div className="px-4 pt-4 pb-3 border-b border-slate-100">
@@ -1212,30 +1238,41 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
           <p className="text-[11px] text-slate-400"><span className="font-semibold text-slate-500">Tip:</span> Open any pond to add Fish Stock, manage feeding records, and view the Fish Stock currently assigned to that pond.</p>
         </div>
         {/* Mobile card list */}
-        <div className="md:hidden">
+        <div className="md:hidden p-3 space-y-2.5 bg-slate-50/50">
           {filteredPonds.length===0&&<p className="text-center text-xs text-slate-400 py-8">No ponds match filters</p>}
           {filteredPonds.map((p,pIdx)=>{
             const isNearBottom=pIdx>=filteredPonds.length-2;
             return(
-            <div key={p.id} className="flex items-center px-4 py-3 border-b border-slate-100 last:border-0 hover:bg-slate-50 active:bg-slate-100 transition-colors cursor-pointer"
+            <div key={p.id} className="bg-white border border-slate-200/90 rounded-xl p-3.5 flex items-center justify-between hover:border-green-300 hover:shadow-xs active:bg-slate-50 transition-all cursor-pointer"
               onClick={()=>setDetailId(p.id)}
               onContextMenu={e=>{e.preventDefault();setPondMobileMenu(p.id);}}
               onTouchStart={()=>{longPressTimer.current=setTimeout(()=>setPondMobileMenu(p.id),750);}}
               onTouchEnd={()=>{if(longPressTimer.current)clearTimeout(longPressTimer.current);}}
               onTouchMove={()=>{if(longPressTimer.current){clearTimeout(longPressTimer.current);longPressTimer.current=null;}}}>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <p className="font-semibold text-slate-900 text-sm truncate">{p.name}</p>
+              <div className="flex-1 min-w-0 pr-2">
+                <div className="flex items-center gap-2 flex-wrap mb-1">
+                  <p className="font-bold text-slate-900 text-sm truncate">{p.name}</p>
                   <Bdg label={p.category||"Production"} color={p.category==="Nursery"?"purple":"teal"}/>
                   <Bdg label={p.status==="Active"?"Active":"Inactive"} color={p.status==="Active"?"green":"gray"}/>
                 </div>
-                <div className="flex items-center gap-3 mt-0.5">
-                  <span className="text-[11px] text-slate-400">{p.currentCount.toLocaleString()} fish</span>
+                <div className="flex items-center gap-1.5 text-xs text-slate-600 font-medium truncate">
+                  <span>{p.currentCount.toLocaleString()} fish</span>
+                  {p.status==="Active"&&p.species!=="—"&&(
+                    <>
+                      <span className="text-slate-300">·</span>
+                      <span className="text-slate-700">{p.species}</span>
+                    </>
+                  )}
+                  {p.stockingDate&&p.stockingDate!=="—"&&(
+                    <>
+                      <span className="text-slate-300">·</span>
+                      <span className="text-slate-400 font-normal">{fmtStockingDate(p.stockingDate)}</span>
+                    </>
+                  )}
                 </div>
-                {p.status==="Active"&&p.species!=="—"&&<p className="text-[11px] text-slate-700 font-medium mt-0.5">{p.stockingDate&&p.stockingDate!=="—"?fmtStockingDate(p.stockingDate):p.species}</p>}
               </div>
-              <div className="relative shrink-0">
-                <ChevronRight size={16} className="text-slate-300"/>
+              <div className="relative shrink-0 flex items-center">
+                <ChevronRight size={18} className="text-slate-400"/>
                 {pondMobileMenu===p.id&&(
                   <div ref={pondMenuRef} className={`absolute right-0 z-50 bg-white border border-slate-200 rounded-xl shadow-2xl overflow-hidden min-w-[160px] ${isNearBottom?"bottom-0":"top-0"}`} onClick={e=>e.stopPropagation()}>
                     <button onClick={()=>{setDetailId(p.id);setPondMobileMenu(null);}} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-2"><Eye size={14}/> View Details</button>
@@ -1376,8 +1413,6 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
                       ):(
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                           {Object.entries(bySize).sort((a,b)=>{const pa=parseFloat(a[0]);const pb=parseFloat(b[0]);return(isNaN(pa)?-1:pa)-(isNaN(pb)?-1:pb);}).map(([size,kg])=>{
-                            const aggMaxKg=grp.pondIds.reduce((s,pid)=>{const pp=ponds.find(x=>x.id===pid);return s+(pp?.maxKgByPallet?.[size]||0);},0)||undefined;
-                            const atMax=!!aggMaxKg&&(kg as number)>=(aggMaxKg as number);
                             const pondsForThisSize=grp.pondNames.map((pName)=>{
                               const pFeed=allFeedRecs.filter(r=>r.pond===pName&&r.size===size);
                               const pKg=pFeed.reduce((s,r)=>s+(Number(r.total)||0),0);
@@ -1385,20 +1420,10 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
                             }).filter(p=>p.kg>0);
 
                             return(
-                              <div key={size} className={`rounded-xl p-3.5 border flex flex-col gap-2.5 ${atMax?"bg-red-50/70 border-red-200":"bg-slate-50 border-slate-200"}`}>
+                              <div key={size} className="rounded-xl p-3.5 border bg-slate-50 border-slate-200 flex flex-col gap-2.5">
                                 <div className="flex items-center justify-between gap-2">
-                                  <Bdg label={size} color={atMax?"red":"blue"}/>
-                                  <span className={`text-sm font-bold font-['Barlow_Condensed',sans-serif] ${atMax?"text-red-600":(kg as number)>0?"text-green-700":"text-slate-400"}`}>Total: {kg} kg</span>
-                                </div>
-                                <div className="space-y-1">
-                                  {aggMaxKg&&(<>
-                                    <div className="flex items-center justify-between gap-1">
-                                      <span className="text-[10px] text-slate-400 shrink-0">Max Capacity</span>
-                                      <span className="text-xs font-semibold text-red-500 font-['Barlow_Condensed',sans-serif]">{aggMaxKg} kg</span>
-                                    </div>
-                                    <div className="w-full bg-slate-200 rounded-full h-1 overflow-hidden"><div className={`h-1 rounded-full transition-all ${atMax?"bg-red-500":"bg-green-500"}`} style={{width:`${Math.min(100,((kg as number)/aggMaxKg)*100)}%`}}/></div>
-                                  </>)}
-                                  {atMax&&<p className="text-[10px] font-bold text-red-500">⚠ Limit reached</p>}
+                                  <Bdg label={size} color="blue"/>
+                                  <span className={`text-sm font-bold font-['Barlow_Condensed',sans-serif] ${(kg as number)>0?"text-green-700":"text-slate-400"}`}>Total: {kg} kg</span>
                                 </div>
                                 <div className="border-t border-slate-200/80 pt-2 space-y-1 bg-white/70 rounded-lg p-2">
                                   <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Pond Breakdown</p>
@@ -1474,26 +1499,14 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
                                       <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                                         {allSz.map(sz=>{
                                           const currentFeed=pondBySz[sz]||0;
-                                          const maxKg=thisPond?.maxKgByPallet?.[sz];
-                                          const atMax=!!maxKg&&currentFeed>=maxKg;
                                           return(
-                                            <div key={sz} className={`rounded-xl p-3 border flex flex-col gap-2 ${atMax?"bg-red-50 border-red-200":"bg-slate-50 border-slate-200"}`}>
+                                            <div key={sz} className="rounded-xl p-3 border border-slate-200 bg-slate-50 flex flex-col gap-2">
                                               <div className="flex items-start gap-1 min-w-0">
-                                                <Bdg label={sz} color={atMax?"red":"blue"}/>
+                                                <Bdg label={sz} color="blue"/>
                                               </div>
-                                              <div className="space-y-1">
-                                                <div className="flex items-center justify-between gap-1">
-                                                  <span className="text-[10px] text-slate-500 shrink-0">Fed</span>
-                                                  <span className={`text-xs font-bold font-['Barlow_Condensed',sans-serif] ${atMax?"text-red-600":currentFeed>0?"text-green-600":"text-slate-400"}`}>{currentFeed} kg</span>
-                                                </div>
-                                                {maxKg&&(<>
-                                                  <div className="flex items-center justify-between gap-1">
-                                                    <span className="text-[10px] text-slate-400 shrink-0">Max</span>
-                                                    <span className="text-xs font-semibold text-red-500 font-['Barlow_Condensed',sans-serif]">{maxKg} kg</span>
-                                                  </div>
-                                                  <div className="w-full bg-slate-200 rounded-full h-1 overflow-hidden"><div className={`h-1 rounded-full transition-all ${atMax?"bg-red-500":"bg-green-500"}`} style={{width:`${Math.min(100,(currentFeed/maxKg)*100)}%`}}/></div>
-                                                </>)}
-                                                {atMax&&<p className="text-[10px] font-bold text-red-500">⚠ Limit reached</p>}
+                                              <div className="flex items-center justify-between gap-1">
+                                                <span className="text-[10px] text-slate-500 shrink-0">Fed</span>
+                                                <span className={`text-xs font-bold font-['Barlow_Condensed',sans-serif] ${currentFeed>0?"text-green-600":"text-slate-400"}`}>{currentFeed} kg</span>
                                               </div>
                                             </div>
                                           );
@@ -1520,6 +1533,117 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
                         })}
                       </div>
                     )}
+                  </div>
+
+                  {/* Section 3: Feeding Sessions History with Max KG */}
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-green-600 mb-0.5">Section 3</p>
+                    <div className="flex items-center justify-between mb-3">
+                      <div>
+                        <p className="text-base font-bold text-slate-800">Feeding Sessions History</p>
+                        <p className="text-xs text-slate-400">Feeding sessions and recorded Max KG per pond and pallet</p>
+                      </div>
+                      {allFeedRecs.length>0&&<span className="text-xs font-bold text-green-700 font-['Barlow_Condensed',sans-serif] bg-green-50 px-2.5 py-1 rounded-lg border border-green-200">{allFeedRecs.length} date{allFeedRecs.length!==1?"s":""} recorded</span>}
+                    </div>
+                    {(()=>{
+                      type FeedSessionItem = {
+                        id: string;
+                        date: string;
+                        sessionTitle: string;
+                        time?: string;
+                        pondName: string;
+                        pallet: string;
+                        kgGiven: number;
+                        maxKg?: number;
+                      };
+                      const sessionsList: FeedSessionItem[] = [];
+                      const sortedFeed = [...allFeedRecs].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+
+                      sortedFeed.forEach(r => {
+                        const pondObj = ponds.find(p => p.name === r.pond || p.id === r.pond);
+                        const maxKgVal = pondObj?.maxKgByPallet?.[r.size];
+                        const m = Number(r.morning) || 0;
+                        const e = Number(r.evening) || 0;
+
+                        if (m > 0 && e > 0) {
+                          sessionsList.push({
+                            id: `${r.id}-s1`,
+                            date: r.date,
+                            sessionTitle: "Session 1",
+                            time: r.morningTime,
+                            pondName: r.pond,
+                            pallet: r.size,
+                            kgGiven: m,
+                            maxKg: maxKgVal
+                          });
+                          sessionsList.push({
+                            id: `${r.id}-s2`,
+                            date: r.date,
+                            sessionTitle: "Session 2",
+                            time: r.eveningTime,
+                            pondName: r.pond,
+                            pallet: r.size,
+                            kgGiven: e,
+                            maxKg: maxKgVal
+                          });
+                        } else if (m > 0) {
+                          sessionsList.push({
+                            id: `${r.id}-s1`,
+                            date: r.date,
+                            sessionTitle: "Session 1",
+                            time: r.morningTime,
+                            pondName: r.pond,
+                            pallet: r.size,
+                            kgGiven: m,
+                            maxKg: maxKgVal
+                          });
+                        } else if (e > 0) {
+                          sessionsList.push({
+                            id: `${r.id}-s2`,
+                            date: r.date,
+                            sessionTitle: "Session 2",
+                            time: r.eveningTime,
+                            pondName: r.pond,
+                            pallet: r.size,
+                            kgGiven: e,
+                            maxKg: maxKgVal
+                          });
+                        } else if (Number(r.total) > 0) {
+                          sessionsList.push({
+                            id: `${r.id}-tot`,
+                            date: r.date,
+                            sessionTitle: "Session",
+                            pondName: r.pond,
+                            pallet: r.size,
+                            kgGiven: Number(r.total),
+                            maxKg: maxKgVal
+                          });
+                        }
+                      });
+
+                      if (sessionsList.length === 0) {
+                        return <div className="bg-slate-50 rounded-xl px-4 py-6 text-xs text-slate-400 text-center">No feeding sessions recorded yet for this fish stock.</div>;
+                      }
+
+                      return (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                          {sessionsList.map(s => (
+                            <div key={s.id} className="bg-white border border-slate-200 rounded-xl p-3.5 space-y-2 shadow-2xs hover:border-green-300 transition-all">
+                              <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                                <span className="text-xs font-bold text-slate-800 font-['Barlow_Condensed',sans-serif]">{s.sessionTitle}</span>
+                                <span className="text-[11px] text-slate-400 font-mono">{s.date}{s.time ? ` · ${s.time}` : ""}</span>
+                              </div>
+                              <div className="space-y-1.5 text-xs">
+                                <div className="flex justify-between items-center"><span className="text-slate-500">Pond:</span><span className="font-semibold text-slate-800">{s.pondName}</span></div>
+                                <div className="flex justify-between items-center"><span className="text-slate-500">Pallet:</span><Bdg label={s.pallet} color="blue"/></div>
+                                <div className="flex justify-between items-center"><span className="text-slate-500">KG Given:</span><span className="font-bold text-green-700 font-['Barlow_Condensed',sans-serif] text-sm">{s.kgGiven}kg</span></div>
+                                <div className="flex justify-between items-center"><span className="text-slate-500">Max KG:</span><span className={`font-semibold font-['Barlow_Condensed',sans-serif] text-xs ${s.maxKg ? "text-red-500" : "text-slate-400"}`}>{s.maxKg ? `${s.maxKg}kg` : "—"}</span></div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })()}
                   </div>
                 </div>
               );
