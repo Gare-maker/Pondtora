@@ -1189,13 +1189,13 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
         <div className="relative"><Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300"/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search…" className={`${IC} pl-8 w-40`}/></div>
         <div className="flex items-center gap-1.5"><span className="text-xs text-slate-400">Status:</span><select value={fStatus} onChange={e=>setFStatus(e.target.value)} className={`${SC} py-1.5 text-xs w-auto`}>{["All","Active","Empty"].map(o=><option key={o}>{o}</option>)}</select></div>
       </div>
-      <Card>
-        <div className="px-4 pt-4 pb-3 border-b border-slate-100">
+      {/* Desktop table card */}
+      <Card className="hidden md:block">
+        <div className="px-4 py-3.5 border-b border-slate-100 flex items-center justify-between">
           <p className="text-xs font-bold uppercase tracking-wider text-slate-600">List of Ponds</p>
-          <p className="text-xs text-slate-400 mt-0.5">After creating a pond, open it to add Fish Stock, manage feeding records, transfer fish, and view all activities related to that pond.</p>
+          <span className="text-xs text-slate-400">{filteredPonds.length} ponds</span>
         </div>
-        {/* Desktop table */}
-        <div className="hidden md:block overflow-x-auto"><table className="w-full text-sm min-w-[700px]">
+        <div className="overflow-x-auto"><table className="w-full text-sm min-w-[700px]">
           <thead><tr className="border-b border-slate-100 bg-slate-50">
             <th className="px-4 py-3 text-[11px] text-slate-400 w-10 sticky left-0 z-20 bg-slate-50">#</th>
             <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider sticky left-10 z-20 bg-slate-50 border-r border-slate-200 whitespace-nowrap cursor-pointer select-none hover:text-green-600" onClick={()=>toggle("name")}><div className="flex items-center gap-1">Pond Name<div className="flex flex-col -space-y-0.5"><ChevronUp size={9} className={sf==="name"&&sd==="asc"?"text-green-600":"text-slate-200"}/><ChevronDown size={9} className={sf==="name"&&sd==="desc"?"text-green-600":"text-slate-200"}/></div></div></th>
@@ -1234,64 +1234,70 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
           </tbody>
         </table></div>
         <div className="px-4 pb-2"><Pagination total={filteredPonds.length} page={pondTablePage} perPage={PER_PAGE} onPage={setPondTablePage}/></div>
-        <div className="hidden md:block px-4 pb-3 border-t border-slate-50 pt-2">
+        <div className="px-4 pb-3 border-t border-slate-50 pt-2">
           <p className="text-[11px] text-slate-400"><span className="font-semibold text-slate-500">Tip:</span> Open any pond to add Fish Stock, manage feeding records, and view the Fish Stock currently assigned to that pond.</p>
         </div>
-        {/* Mobile card list */}
-        <div className="md:hidden p-3 space-y-2.5 bg-slate-50/50">
-          {filteredPonds.length===0&&<p className="text-center text-xs text-slate-400 py-8">No ponds match filters</p>}
-          {filteredPonds.map((p,pIdx)=>{
-            const isNearBottom=pIdx>=filteredPonds.length-2;
-            return(
-            <div key={p.id} className="bg-white border border-slate-200/90 rounded-xl p-3.5 flex items-center justify-between hover:border-green-300 hover:shadow-xs active:bg-slate-50 transition-all cursor-pointer"
-              onClick={()=>setDetailId(p.id)}
-              onContextMenu={e=>{e.preventDefault();setPondMobileMenu(p.id);}}
-              onTouchStart={()=>{longPressTimer.current=setTimeout(()=>setPondMobileMenu(p.id),750);}}
-              onTouchEnd={()=>{if(longPressTimer.current)clearTimeout(longPressTimer.current);}}
-              onTouchMove={()=>{if(longPressTimer.current){clearTimeout(longPressTimer.current);longPressTimer.current=null;}}}>
-              <div className="flex-1 min-w-0 pr-2">
-                <div className="flex items-center gap-2 flex-wrap mb-1">
-                  <p className="font-bold text-slate-900 text-sm truncate">{p.name}</p>
-                  <Bdg label={p.category||"Production"} color={p.category==="Nursery"?"purple":"teal"}/>
-                  <Bdg label={p.status==="Active"?"Active":"Inactive"} color={p.status==="Active"?"green":"gray"}/>
-                </div>
-                <div className="flex items-center gap-1.5 text-xs text-slate-600 font-medium truncate">
-                  <span>{p.currentCount.toLocaleString()} fish</span>
-                  {p.status==="Active"&&p.species!=="—"&&(
-                    <>
-                      <span className="text-slate-300">·</span>
-                      <span className="text-slate-700">{p.species}</span>
-                    </>
-                  )}
-                  {p.stockingDate&&p.stockingDate!=="—"&&(
-                    <>
-                      <span className="text-slate-300">·</span>
-                      <span className="text-slate-400 font-normal">{fmtStockingDate(p.stockingDate)}</span>
-                    </>
-                  )}
-                </div>
+      </Card>
+
+      {/* Mobile card list directly on background */}
+      <div className="md:hidden space-y-3">
+        <div className="flex items-center justify-between px-1">
+          <p className="text-xs font-bold uppercase tracking-wider text-slate-600">List of Ponds</p>
+          <span className="text-xs text-slate-400 font-medium">{filteredPonds.length} ponds</span>
+        </div>
+        {filteredPonds.length===0&&<p className="text-center text-xs text-slate-400 py-8 bg-white border border-slate-200 rounded-xl">No ponds match filters</p>}
+        {filteredPonds.map((p,pIdx)=>{
+          const isNearBottom=pIdx>=filteredPonds.length-2;
+          return(
+          <div key={p.id} className="bg-white border border-slate-200/90 rounded-xl p-3.5 flex items-center justify-between hover:border-green-300 hover:shadow-xs active:bg-slate-50 transition-all cursor-pointer shadow-2xs"
+            onClick={()=>setDetailId(p.id)}
+            onContextMenu={e=>{e.preventDefault();setPondMobileMenu(p.id);}}
+            onTouchStart={()=>{longPressTimer.current=setTimeout(()=>setPondMobileMenu(p.id),750);}}
+            onTouchEnd={()=>{if(longPressTimer.current)clearTimeout(longPressTimer.current);}}
+            onTouchMove={()=>{if(longPressTimer.current){clearTimeout(longPressTimer.current);longPressTimer.current=null;}}}>
+            <div className="flex-1 min-w-0 pr-2">
+              <div className="flex items-center gap-2 flex-wrap mb-1">
+                <p className="font-bold text-slate-900 text-sm truncate">{p.name}</p>
+                <Bdg label={p.category||"Production"} color={p.category==="Nursery"?"purple":"teal"}/>
+                <Bdg label={p.status==="Active"?"Active":"Inactive"} color={p.status==="Active"?"green":"gray"}/>
               </div>
-              <div className="relative shrink-0 flex items-center">
-                <ChevronRight size={18} className="text-slate-400"/>
-                {pondMobileMenu===p.id&&(
-                  <div ref={pondMenuRef} className={`absolute right-0 z-50 bg-white border border-slate-200 rounded-xl shadow-2xl overflow-hidden min-w-[160px] ${isNearBottom?"bottom-0":"top-0"}`} onClick={e=>e.stopPropagation()}>
-                    <button onClick={()=>{setDetailId(p.id);setPondMobileMenu(null);}} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-2"><Eye size={14}/> View Details</button>
-                    {canEdit&&<button onClick={()=>{openEditPond(p);setPondMobileMenu(null);}} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-2"><Pencil size={14}/> Edit</button>}
-                    {canDelete&&<button
-                      onClick={()=>{
-                        if(p.currentCount>0){alert(`Cannot delete ${p.name}: pond still has ${p.currentCount.toLocaleString()} fish. Remove all fish stock first.`);setPondMobileMenu(null);return;}
-                        setDeletePondId(p.id);setPondMobileMenu(null);
-                      }}
-                      className={`w-full text-left px-4 py-2.5 text-sm flex items-center gap-2 ${p.currentCount>0?"text-slate-300 cursor-not-allowed":"text-red-500 hover:bg-red-50"}`}
-                    ><Trash2 size={14}/> Delete Pond{p.currentCount>0&&<span className="text-[10px] text-slate-300 ml-auto">Not empty</span>}</button>}
-                  </div>
+              <div className="flex items-center gap-1.5 text-xs text-slate-600 font-medium truncate">
+                <span>{p.currentCount.toLocaleString()} fish</span>
+                {p.status==="Active"&&p.species!=="—"&&(
+                  <>
+                    <span className="text-slate-300">·</span>
+                    <span className="text-slate-700">{p.species}</span>
+                  </>
+                )}
+                {p.stockingDate&&p.stockingDate!=="—"&&(
+                  <>
+                    <span className="text-slate-300">·</span>
+                    <span className="text-slate-400 font-normal">{fmtStockingDate(p.stockingDate)}</span>
+                  </>
                 )}
               </div>
             </div>
-            );
-          })}
-        </div>
-      </Card>
+            <div className="relative shrink-0 flex items-center">
+              <ChevronRight size={18} className="text-slate-400"/>
+              {pondMobileMenu===p.id&&(
+                <div ref={pondMenuRef} className={`absolute right-0 z-50 bg-white border border-slate-200 rounded-xl shadow-2xl overflow-hidden min-w-[160px] ${isNearBottom?"bottom-0":"top-0"}`} onClick={e=>e.stopPropagation()}>
+                  <button onClick={()=>{setDetailId(p.id);setPondMobileMenu(null);}} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-2"><Eye size={14}/> View Details</button>
+                  {canEdit&&<button onClick={()=>{openEditPond(p);setPondMobileMenu(null);}} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-2"><Pencil size={14}/> Edit</button>}
+                  {canDelete&&<button
+                    onClick={()=>{
+                      if(p.currentCount>0){alert(`Cannot delete ${p.name}: pond still has ${p.currentCount.toLocaleString()} fish. Remove all fish stock first.`);setPondMobileMenu(null);return;}
+                      setDeletePondId(p.id);setPondMobileMenu(null);
+                    }}
+                    className={`w-full text-left px-4 py-2.5 text-sm flex items-center gap-2 ${p.currentCount>0?"text-slate-300 cursor-not-allowed":"text-red-500 hover:bg-red-50"}`}
+                  ><Trash2 size={14}/> Delete Pond{p.currentCount>0&&<span className="text-[10px] text-slate-300 ml-auto">Not empty</span>}</button>}
+                </div>
+              )}
+            </div>
+          </div>
+          );
+        })}
+        {filteredPonds.length>PER_PAGE&&<Pagination total={filteredPonds.length} page={pondTablePage} perPage={PER_PAGE} onPage={setPondTablePage}/>}
+      </div>
       {deletePondId&&(()=>{const p=ponds.find(x=>x.id===deletePondId);return(<Modal title="Delete Pond" onClose={()=>setDeletePondId(null)}><div className="flex flex-col items-center text-center py-2"><div className="w-12 h-12 rounded-full bg-red-50 border-2 border-red-200 flex items-center justify-center mb-4"><Trash2 size={22} className="text-red-500"/></div><p className="text-sm font-bold text-slate-800 mb-1">Are you sure you want to delete {p?.name}?</p><p className="text-xs text-slate-400 mb-5">This action cannot be undone. The pond and all its records will be permanently removed.</p><div className="flex gap-3 w-full"><button onClick={()=>{onDeletePond&&onDeletePond(deletePondId);setDeletePondId(null);}} className="flex-1 py-2.5 rounded-xl text-sm font-bold bg-red-500 hover:bg-red-600 text-white transition-colors">Delete Pond</button><button onClick={()=>setDeletePondId(null)} className="flex-1 py-2.5 rounded-xl text-sm font-semibold border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors">Cancel</button></div></div></Modal>);})()}
       {editPondModal}
       {showAdd&&<Modal title="Add Pond" onClose={()=>{setShowAdd(false);setAddErr({});}}>
