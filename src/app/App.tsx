@@ -1590,8 +1590,8 @@ function StaffPage({
 
 /* ─── 7. Reports ─────────────────────────────────────────────── */
 function ReportsPage({
-  reports,
-  staff,
+  reports = [],
+  staff = [],
   onAdd,
   onEdit,
   onDelete,
@@ -1609,8 +1609,8 @@ function ReportsPage({
   currentUser,
   isOwner = true,
 }: {
-  reports: Report[];
-  staff: StaffMember[];
+  reports?: Report[];
+  staff?: StaffMember[];
   onAdd: (r: Report) => void;
   onEdit: (r: Report) => void;
   onDelete?: (id: string) => void;
@@ -1628,18 +1628,29 @@ function ReportsPage({
   currentUser?: { name: string; email: string };
   isOwner?: boolean;
 }) {
+  const safeReports = useMemo(() => (Array.isArray(reports) ? reports.filter(Boolean) : []), [reports]);
+  const safeStaff = useMemo(() => (Array.isArray(staff) ? staff.filter(Boolean) : []), [staff]);
+  const safePonds = useMemo(() => (Array.isArray(ponds) ? ponds.filter(Boolean) : []), [ponds]);
+  const safeFarms = useMemo(() => (Array.isArray(farms) ? farms.filter(Boolean) : []), [farms]);
+
   const [typeFilter, setTypeFilter] = useState<"All" | "Daily" | "Weekly" | "Monthly" | "Pond-Based">("All");
   const [dateSearch, setDateSearch] = useState("");
   const [showModal, setShowModal] = useState(false);
   const [fTitle, setFTitle] = useState("");
   const [fType, setFType] = useState<"Daily" | "Weekly" | "Monthly" | "Pond-Based">("Daily");
   const [fContent, setFContent] = useState("");
-  const [fAuthor, setFAuthor] = useState("Admin");
+  const [fAuthor, setFAuthor] = useState(() => currentUser?.name || "Admin");
+
+  useEffect(() => {
+    if ((!fAuthor || fAuthor === "Admin") && currentUser?.name) {
+      setFAuthor(currentUser.name);
+    }
+  }, [currentUser]);
 
   /* Pond-Based report form fields */
   const farmPonds = useMemo(() => {
-    return ponds.filter(p => !activeFarmId || p.farmId === activeFarmId);
-  }, [ponds, activeFarmId]);
+    return safePonds.filter(p => !activeFarmId || p.farmId === activeFarmId);
+  }, [safePonds, activeFarmId]);
 
   const [fPondId, setFPondId] = useState<string>("");
   const [fPondFishStock, setFPondFishStock] = useState<string>("");
@@ -1657,9 +1668,12 @@ function ReportsPage({
 
   useEffect(() => {
     if (!fPondId && farmPonds.length > 0) {
-      const firstNonEmpty = farmPonds.find(p => p.status !== "Empty" && (Number(p.currentCount) || 0) > 0) || farmPonds[0];
-      setFPondId(firstNonEmpty.id);
-      setFPondFishStock(firstNonEmpty.stockingDate && firstNonEmpty.stockingDate !== "—" ? formatFishStockDate(firstNonEmpty.stockingDate) : (firstNonEmpty.species && firstNonEmpty.species !== "—" ? firstNonEmpty.species : "Current Stock"));
+      const firstNonEmpty = farmPonds.find(p => p && p.status !== "Empty" && (Number(p.currentCount) || 0) > 0) || farmPonds[0];
+      if (firstNonEmpty) {
+        setFPondId(firstNonEmpty.id || "");
+        const st = firstNonEmpty.stockingDate && firstNonEmpty.stockingDate !== "—" ? formatFishStockDate(firstNonEmpty.stockingDate) : (firstNonEmpty.species && firstNonEmpty.species !== "—" ? firstNonEmpty.species : "Current Stock");
+        setFPondFishStock(st || "Current Stock");
+      }
     }
   }, [farmPonds, fPondId]);
 
@@ -1677,9 +1691,11 @@ function ReportsPage({
   const [fEquipStored, setFEquipStored] = useState<"Yes" | "No" | "">("");
   const [fEquipConfirm, setFEquipConfirm] = useState<"Yes" | "No" | "">("");
   const [fNotes, setFNotes] = useState("");
-  const filtered = reports.filter(r => {
+  const filtered = safeReports.filter(r => {
+    if (!r) return false;
     const mt = typeFilter === "All" || r.type === typeFilter;
-    const md = !dateSearch || r.date === dateSearch || r.date.toLowerCase().includes(dateSearch.toLowerCase());
+    const rDate = String(r.date || "");
+    const md = !dateSearch || rDate === dateSearch || rDate.toLowerCase().includes(dateSearch.toLowerCase());
     return mt && md;
   });
   const [reportPage, setReportPage] = useState(1);
@@ -1862,12 +1878,32 @@ function ReportsPage({
   };
   const TB = "px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors";
   const TA = "bg-green-600 text-white"; const TI = "bg-white border border-slate-200 text-slate-500 hover:text-green-600 hover:border-green-300";
-  const dateLabel = (d: string) => { const today = new Date(TODAY); const rd = new Date(d); if (isNaN(rd.getTime())) return d; const diff = Math.round((today.getTime() - rd.getTime()) / (1000 * 60 * 60 * 24)); if (diff === 0) return "Today"; if (diff === 1) return "Yesterday"; return rd.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" }); };
+  const dateLabel = (d?: string) => {
+    if (!d) return "Today";
+    const today = new Date(TODAY);
+    const rd = new Date(d);
+    if (isNaN(rd.getTime())) return d;
+    const diff = Math.round((today.getTime() - rd.getTime()) / (1000 * 60 * 60 * 24));
+    if (diff === 0) return "Today";
+    if (diff === 1) return "Yesterday";
+    return rd.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  };
   const pagedReports = filtered.slice((reportPage - 1) * PER_PAGE, reportPage * PER_PAGE);
-  const grouped = pagedReports.reduce<{ label: string; date: string; items: Report[] }[]>((acc, r) => { const lbl = dateLabel(r.date); const ex = acc.find(g => g.date === r.date); if (ex) ex.items.push(r); else acc.push({ label: lbl, date: r.date, items: [r] }); return acc; }, []).sort((a, b) => b.date.localeCompare(a.date));
-  const parseReportFields = (content: string) => {
-    const parts = content.split(" | ").filter(Boolean);
-    return parts.map(p => { const idx = p.indexOf(": "); return idx > -1 ? { label: p.slice(0, idx), value: p.slice(idx + 2) } : { label: "", value: p }; });
+  const grouped = pagedReports.reduce<{ label: string; date: string; items: Report[] }>((acc, r) => {
+    const rDate = String(r.date || TODAY);
+    const lbl = dateLabel(rDate);
+    const ex = acc.find(g => g.date === rDate);
+    if (ex) ex.items.push(r);
+    else acc.push({ label: lbl, date: rDate, items: [r] });
+    return acc;
+  }, []).sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
+
+  const parseReportFields = (content?: string) => {
+    const parts = String(content || "").split(" | ").filter(Boolean);
+    return parts.map(p => {
+      const idx = p.indexOf(": ");
+      return idx > -1 ? { label: p.slice(0, idx).trim(), value: p.slice(idx + 2).trim() } : { label: "", value: p.trim() };
+    });
   };
   return (
     <div className="p-4 sm:p-6 space-y-5 w-full">
@@ -1927,11 +1963,11 @@ function ReportsPage({
       ) : (
         <>
           {(() => {
-            const activeStaff = staff.filter(s => s.status === "Active");
+            const activeStaff = safeStaff.filter(s => s && s.status === "Active");
             if (activeStaff.length === 0) return null;
             const targetDate = dateSearch || TODAY;
-            const submittedAuthors = new Set(reports.filter(r => r.type === "Daily" && r.date === targetDate).map(r => r.author));
-            const pending = activeStaff.filter(s => !submittedAuthors.has(s.name));
+            const submittedAuthors = new Set(safeReports.filter(r => r && r.type === "Daily" && r.date === targetDate).map(r => r.author));
+            const pending = activeStaff.filter(s => s && s.name && !submittedAuthors.has(s.name));
             const allSubmitted = pending.length === 0;
             return (
               <div className={`rounded-xl border px-4 py-3 ${allSubmitted ? "bg-green-50 border-green-200" : "bg-orange-50 border-orange-200"}`}>
@@ -2014,10 +2050,10 @@ function ReportsPage({
                         </div>
                       </div>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 border-t border-slate-100 pt-3">
-                        {parseReportFields(r.content).filter(f => !f.label.toLowerCase().includes("confirmed")).map((f, i) => (
+                        {parseReportFields(r.content).filter(f => !String(f.label || "").toLowerCase().includes("confirmed")).map((f, i) => (
                           <div key={i} className="bg-slate-50 rounded-xl px-3 py-2.5">
                             {f.label && <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">{f.label}</p>}
-                            <p className="text-xs font-semibold text-slate-800">{f.value}</p>
+                            <p className="text-xs font-semibold text-slate-800">{f.value || "—"}</p>
                           </div>
                         ))}
                       </div>
@@ -2080,11 +2116,11 @@ function ReportsPage({
                   }}
                   className={SC}
                 >
-                  {farmPonds.map(p => {
+                  {farmPonds.filter(Boolean).map(p => {
                     const isEmpty = p.status === "Empty" || (Number(p.currentCount) || 0) <= 0;
                     return (
                       <option key={p.id} value={p.id}>
-                        {p.name} ({p.type}) {p.species && p.species !== "—" ? `— ${p.species}` : ""} {isEmpty ? "(Empty — 0 fish)" : `(${p.currentCount?.toLocaleString() || 0} fish)`}
+                        {p.name} ({p.type || "Pond"}) {p.species && p.species !== "—" ? `— ${p.species}` : ""} {isEmpty ? "(Empty — 0 fish)" : `(${Number(p.currentCount || 0).toLocaleString()} fish)`}
                       </option>
                     );
                   })}
@@ -2261,8 +2297,8 @@ function ReportsPage({
         )}
 
         <F label="Recorded By">
-          {staff.filter(s => s.status === "Active").length > 0
-            ? <select className={SC} value={fAuthor} onChange={e => setFAuthor(e.target.value)}><option value="Admin">Admin</option>{staff.filter(s => s.status === "Active").map(s => <option key={s.id} value={s.name}>{s.name} — {s.role}</option>)}</select>
+          {safeStaff.filter(s => s && s.status === "Active").length > 0
+            ? <select className={SC} value={fAuthor} onChange={e => setFAuthor(e.target.value)}><option value="Admin">Admin</option>{safeStaff.filter(s => s && s.status === "Active").map(s => <option key={s.id} value={s.name}>{s.name} — {s.role}</option>)}</select>
             : <input className={IC} placeholder="Name of recorder" value={fAuthor} onChange={e => setFAuthor(e.target.value)} />
           }
         </F>
@@ -2471,6 +2507,11 @@ class AppErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundary
             <p className="text-xs text-slate-500 mt-1">
               A temporary issue occurred while loading this section.
             </p>
+            {this.state.error && (
+              <p className="text-[11px] text-red-600 bg-red-50 border border-red-100 rounded-lg p-2 font-mono break-all text-left mt-2">
+                {this.state.error.message || String(this.state.error)}
+              </p>
+            )}
           </div>
           <div className="flex justify-center gap-3 pt-2">
             <button

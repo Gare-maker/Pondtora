@@ -122,10 +122,11 @@ export default function PondReportsComponent({
     stocks.push({ id: currentId, label: `${currentLabel} — (Current Stock)`, isCurrent: true });
 
     // Historical stock events for this pond
-    const events = stockEvents.filter(e => e.pondId === activePond.id);
+    const events = (stockEvents || []).filter(e => e && e.pondId === activePond.id);
     events.forEach(ev => {
+      if (!ev) return;
       const dateLabel = ev.date ? formatFishStockDate(ev.date) : (ev.species || activePond.species || "Past");
-      const histLabel = `${dateLabel} - Stock #${ev.id.slice(0, 6)}`;
+      const histLabel = `${dateLabel} - Stock #${String(ev.id || "").slice(0, 6)}`;
       const evId = `event-${ev.id}`;
       if (!stocks.some(s => s.id === evId)) {
         stocks.push({ id: evId, label: histLabel, isCurrent: false });
@@ -176,7 +177,8 @@ export default function PondReportsComponent({
 
   // Filter pond reports by Period, Farm, Pond, and Fish Stock
   const filteredReports = useMemo(() => {
-    return pondReports.filter(report => {
+    return (pondReports || []).filter(report => {
+      if (!report) return false;
       // 1. Farm check
       if (!fixedPondId && selectedFarmId && report.farmId !== selectedFarmId) return false;
 
@@ -187,9 +189,10 @@ export default function PondReportsComponent({
       // 3. Fish Stock check (Mandatory Historical Separation!)
       // If user selected a specific fish stock, only show reports belonging to that stock
       if (selectedFishStockId) {
+        const repStockId = String(report.fishStockId || "");
         // Match either exact ID or compatible current stock identifier
-        const matches = report.fishStockId === selectedFishStockId ||
-          (selectedFishStockId.startsWith("current-") && report.fishStockId.startsWith("current-"));
+        const matches = repStockId === selectedFishStockId ||
+          (selectedFishStockId.startsWith("current-") && repStockId.startsWith("current-"));
         if (!matches) return false;
       }
 
@@ -197,20 +200,21 @@ export default function PondReportsComponent({
       if (reportTypeFilter !== "All" && report.reportType !== reportTypeFilter) return false;
 
       // 5. Period filtering
+      const rDate = String(report.reportDate || "");
       if (periodMode === "Monthly" && periodMonth) {
-        if (!report.reportDate.startsWith(periodMonth)) return false;
+        if (!rDate.startsWith(periodMonth)) return false;
       } else if (periodMode === "Quarterly" && periodQuarter) {
         const [yr, qStr] = periodQuarter.split("-Q");
         const q = parseInt(qStr, 10);
-        const [repYr, repM] = report.reportDate.split("-").map(Number);
+        const [repYr, repM] = rDate.split("-").map(Number);
         if (String(repYr) !== yr) return false;
-        const repQ = Math.floor((repM - 1) / 3) + 1;
+        const repQ = Math.floor(((repM || 1) - 1) / 3) + 1;
         if (repQ !== q) return false;
       } else if (periodMode === "Yearly" && periodYear) {
-        if (!report.reportDate.startsWith(periodYear)) return false;
+        if (!rDate.startsWith(periodYear)) return false;
       } else if (periodMode === "Custom") {
-        if (customStartDate && report.reportDate < customStartDate) return false;
-        if (customEndDate && report.reportDate > customEndDate) return false;
+        if (customStartDate && rDate < customStartDate) return false;
+        if (customEndDate && rDate > customEndDate) return false;
       }
 
       // 6. Search query
@@ -241,7 +245,6 @@ export default function PondReportsComponent({
     customEndDate,
     searchQuery,
   ]);
-
   // Handle Save Report
   const handleSaveReport = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -255,23 +258,16 @@ export default function PondReportsComponent({
       toast.error("Pond is required");
       return;
     }
-    const chosenPond = ponds.find(p => p.id === formPondId);
+    const chosenPond = (ponds || []).find(p => p && p.id === formPondId);
     if (!chosenPond) {
       toast.error("Selected pond was not found. Please select a valid pond.");
       return;
     }
-    if (!formFishStockId) {
-      setFormFishStockId(chosenPond.stockingDate && chosenPond.stockingDate !== "—" ? formatFishStockDate(chosenPond.stockingDate) : (chosenPond.species || "General Stock"));
-    }
+    const effectiveStockId = formFishStockId || (chosenPond.stockingDate && chosenPond.stockingDate !== "—" ? formatFishStockDate(chosenPond.stockingDate) : (chosenPond.species || "General Stock"));
     if (!formDate) {
       toast.error("Report date is required");
       return;
     }
-
-    setIsSubmitting(true);
-
-    const reportId = uid();
-    let createdTreatmentId: string | undefined = undefined;
 
     if (formType === "treatment") {
       if (!treatMedicine.trim()) {
@@ -282,7 +278,19 @@ export default function PondReportsComponent({
         toast.error("Reason / Cause for treatment is required");
         return;
       }
+    } else {
+      if (!formIssue.trim()) {
+        toast.error("Issue title is required");
+        return;
+      }
+    }
 
+    setIsSubmitting(true);
+
+    const reportId = uid();
+    let createdTreatmentId: string | undefined = undefined;
+
+    if (formType === "treatment") {
       // 1. Save to existing treatment system (treatment_records)
       const newTreatmentId = uid();
       createdTreatmentId = newTreatmentId;
@@ -302,18 +310,13 @@ export default function PondReportsComponent({
           console.warn("Treatment save error:", err);
         }
       }
-    } else {
-      if (!formIssue.trim()) {
-        toast.error("Issue title is required");
-        return;
-      }
     }
 
     const newReport: PondReport = {
       id: reportId,
       farmId: formFarmId,
       pondId: formPondId,
-      fishStockId: formFishStockId,
+      fishStockId: effectiveStockId,
       reportType: formType,
       reportDate: formDate,
       issue: formType === "treatment" ? treatMedicine.trim() : formIssue.trim(),
@@ -617,13 +620,13 @@ export default function PondReportsComponent({
                   value={formFarmId}
                   onChange={e => {
                     setFormFarmId(e.target.value);
-                    const fp = ponds.find(p => p.farmId === e.target.value);
+                    const fp = (ponds || []).find(p => p && p.farmId === e.target.value);
                     setFormPondId(fp?.id || "");
                   }}
                   className={SC}
                   required
                 >
-                  {farms.map(f => (
+                  {(farms || []).filter(Boolean).map(f => (
                     <option key={f.id} value={f.id}>{f.name}</option>
                   ))}
                 </select>
@@ -636,7 +639,7 @@ export default function PondReportsComponent({
                   className={SC}
                   required
                 >
-                  {ponds.filter(p => p.farmId === formFarmId).map(p => {
+                  {(ponds || []).filter(p => p && p.farmId === formFarmId).map(p => {
                     const isEmpty = p.status === "Empty" || (Number(p.currentCount) || 0) <= 0;
                     return (
                       <option key={p.id} value={p.id}>
