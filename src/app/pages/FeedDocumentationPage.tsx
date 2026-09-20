@@ -917,8 +917,8 @@ function FeedDocumentation({
   const [logTime] = useState(nowTime);
 
   /* Column reordering for Log Feeding table */
-  type LogColKey = "fishCount" | "size" | "morning" | "morningTime" | "evening" | "eveningTime" | "total";
-  const DEFAULT_LOG_COLS: LogColKey[] = ["fishCount", "size", "morning", "morningTime", "evening", "eveningTime", "total"];
+  type LogColKey = "size" | "morning" | "morningTime" | "evening" | "eveningTime" | "total";
+  const DEFAULT_LOG_COLS: LogColKey[] = ["size", "morning", "morningTime", "evening", "eveningTime", "total"];
   const [logColOrder, setLogColOrder] = useState<LogColKey[]>(DEFAULT_LOG_COLS);
   const [draggedLogCol, setDraggedLogCol] = useState<LogColKey | null>(null);
 
@@ -1660,57 +1660,27 @@ function FeedDocumentation({
             <div className="flex items-start justify-between px-5 sm:px-6 py-4 border-b border-slate-200 bg-white shrink-0 z-30 shadow-xs">
               <div>
                 <h2 className="text-lg font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Log Feeding — All Ponds</h2>
-                <p className="text-xs text-slate-400 mt-0.5">Enter morning &amp; evening amounts for each pond.</p>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Enter morning &amp; evening amounts for each pond for <span className="font-semibold text-slate-700">{toDateLabel(bulkDate)}</span>.
+                </p>
               </div>
               <button onClick={() => setShowLog(false)} className="text-slate-400 hover:text-slate-700 p-1 ml-4 shrink-0"><X size={20} /></button>
             </div>
 
             {/* Modal scrollable body - scrolls vertically up and down */}
             <div className="flex-1 overflow-y-auto min-h-0 bg-slate-50">
-              {/* Top controls: Date & Recorded By side-by-side cards (does NOT scroll sideways) */}
-              <div className="p-3 sm:p-4 bg-slate-50 border-b border-slate-200">
-                <div className="grid grid-cols-2 gap-2 sm:gap-4 items-end">
-                  {/* Date Card */}
-                  <div className="bg-white p-2.5 sm:p-3 rounded-xl border border-slate-200 shadow-xs">
-                    <label className="block text-[10px] sm:text-[11px] font-bold text-slate-600 mb-1 uppercase tracking-wide">Date</label>
-                    <DateInput value={bulkDate} onChange={handleBulkDateChange} />
-                  </div>
-
-                  {/* Recorded By Card */}
-                  <div className="bg-white p-2.5 sm:p-3 rounded-xl border border-slate-200 shadow-xs">
-                    <div className="flex items-center justify-between mb-1">
-                      <label className="block text-[10px] sm:text-[11px] font-bold text-slate-600 uppercase tracking-wide">Recorded By</label>
-                      {currentUser?.name && (
-                        <span className="text-[9px] sm:text-[10px] text-green-600 font-medium">Auto-populated</span>
-                      )}
-                    </div>
-                    <input
-                      value={bulkBy}
-                      onChange={e => setBulkBy(e.target.value)}
-                      className={IC}
-                      placeholder={currentUser?.name || "Employee / Admin name"}
-                    />
-                  </div>
-                </div>
-                <div className="flex items-center justify-end gap-1.5 mt-2 text-[11px] text-slate-400">
-                  <span>Session time:</span>
-                  <span className="font-semibold text-slate-700 font-['Barlow_Condensed',sans-serif]">{logTime}</span>
-                </div>
-              </div>
-
               {/* ONLY the table scrolls sideways */}
               <div className="overflow-x-auto w-full">
                 <table className="w-full text-sm">
                   <thead className="sticky top-0 z-20 shadow-xs bg-slate-100">
                     <tr className="bg-slate-100 border-b border-slate-200">
                       <th className="w-12 min-w-[48px] max-w-[48px] px-2 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-center sticky top-0 left-0 z-30 bg-slate-100">#</th>
-                      <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left min-w-[110px] sticky top-0 left-[48px] z-30 bg-slate-100 border-r border-slate-200">Pond</th>
+                      <th className="px-3 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left min-w-[110px] max-w-[135px] sticky top-0 left-[48px] z-30 bg-slate-100 border-r border-slate-200">Pond</th>
                       {logColOrder.map(col => {
                         let label = "";
                         let align = "text-left";
                         let minW = "min-w-[95px]";
                         switch (col) {
-                          case "fishCount": label = "Fish Count"; align = "text-right"; minW = "min-w-[85px]"; break;
                           case "size": label = "Pellet Size"; align = "text-left"; minW = "min-w-[120px]"; break;
                           case "morning": label = "Morning (kg)"; align = "text-left"; minW = "min-w-[95px]"; break;
                           case "morningTime": label = "AM Time"; align = "text-left"; minW = "min-w-[85px]"; break;
@@ -1747,46 +1717,40 @@ function FeedDocumentation({
                       return (
                         <tr key={row.pondId} className={`transition-colors ${hasFeed ? "bg-green-50/40" : "hover:bg-slate-50"}`}>
                           <td className={`w-12 min-w-[48px] max-w-[48px] px-2 py-3 text-slate-400 text-xs font-mono text-center sticky left-0 z-10 ${hasFeed ? "bg-[#f2faf4]" : "bg-white"}`}>{i + 1}</td>
-                          <td className={`px-4 py-3 min-w-[110px] sticky left-[48px] z-10 border-r border-slate-200 ${hasFeed ? "bg-[#f2faf4]" : "bg-white"}`}>
-                            <p className="font-bold text-slate-900 leading-tight">{row.pondName}</p>
+                          <td className={`px-3 py-2.5 min-w-[110px] max-w-[135px] sticky left-[48px] z-10 border-r border-slate-200 ${hasFeed ? "bg-[#f2faf4]" : "bg-white"}`}>
+                            <p className="font-bold text-slate-900 leading-tight truncate" title={row.pondName}>{row.pondName}</p>
+                            {row.stockDate && row.stockDate !== "—" ? (
+                              <p className="text-[11px] font-medium text-teal-700 leading-tight mt-0.5 truncate" title={`Stocked: ${row.stockDate}`}>
+                                {row.stockDate}
+                              </p>
+                            ) : (
+                              <p className="text-[10px] text-slate-400 leading-tight mt-0.5 truncate" title={row.fishStock || "No stock date"}>
+                                {row.fishStock && row.fishStock !== "General Stock" ? row.fishStock : "—"}
+                              </p>
+                            )}
                           </td>
                           {logColOrder.map(col => {
                             switch (col) {
-                              case "fishCount":
+                              case "size":
                                 return (
-                                  <td key={col} className="px-3 py-3 text-right">
-                                    <span className="font-semibold text-green-700 font-['Barlow_Condensed',sans-serif] text-base">
-                                      {row.currentCount.toLocaleString()}
-                                    </span>
+                                  <td key={col} className="px-2.5 py-2.5">
+                                    <select
+                                      value={row.size}
+                                      onChange={e => updateRow(row.pondId, "size", e.target.value)}
+                                      className={TS}
+                                    >
+                                      {availablePelletSizes.map(s => {
+                                        const stock = getPelletStock(s);
+                                        const label = !stock.exists || stock.availableQty <= 0
+                                          ? `${s} (0 available)`
+                                          : `${s} (${stock.availableQty} available)`;
+                                        return <option key={s} value={s}>{label}</option>;
+                                      })}
+                                      {row.size && !availablePelletSizes.includes(row.size) && <option value={row.size}>{row.size}</option>}
+                                    </select>
+                                    {rowAtMax && <p className="text-[10px] font-bold mt-0.5 text-red-600">⚠ Max weight reached</p>}
                                   </td>
                                 );
-                            case "size":
-                              return (
-                                <td key={col} className="px-2.5 py-2.5">
-                                  <select
-                                    value={row.size}
-                                    onChange={e => updateRow(row.pondId, "size", e.target.value)}
-                                    className={TS}
-                                  >
-                                    {availablePelletSizes.map(s => {
-                                      const stock = getPelletStock(s);
-                                      const label = !stock.exists || stock.availableQty <= 0
-                                        ? `${s} (0 available)`
-                                        : `${s} (${stock.availableQty} available)`;
-                                      return <option key={s} value={s}>{label}</option>;
-                                    })}
-                                    {row.size && !availablePelletSizes.includes(row.size) && <option value={row.size}>{row.size}</option>}
-                                  </select>
-                                  {rowAtMax && <p className="text-[10px] font-bold mt-0.5 text-red-600">⚠ Max weight reached</p>}
-                                  {(() => {
-                                    const stock = getPelletStock(row.size);
-                                    if (!stock.exists || stock.availableQty <= 0) {
-                                      return <p className="text-[10px] font-bold mt-0.5 text-red-600">0 available</p>;
-                                    }
-                                    return <p className="text-[10px] font-medium mt-0.5 text-slate-500">{stock.availableQty} available</p>;
-                                  })()}
-                                </td>
-                              );
                             case "morning":
                               return (
                                 <td key={col} className="px-2 py-2.5">

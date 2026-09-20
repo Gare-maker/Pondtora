@@ -1665,6 +1665,7 @@ function ReportsPage({
   const [fPondDescription, setFPondDescription] = useState("");
   const [fPondNotes, setFPondNotes] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState("");
 
   useEffect(() => {
     if (!fPondId && farmPonds.length > 0) {
@@ -1915,7 +1916,7 @@ function ReportsPage({
           </p>
         </div>
         {canCreate && (
-          <PBtn onClick={() => { setFType("Daily"); setShowModal(true); }} sm><Plus size={13} /> Submit Report</PBtn>
+          <PBtn onClick={() => { setFType("Daily"); setSubmitError(""); setShowModal(true); }} sm><Plus size={13} /> Submit Report</PBtn>
         )}
       </div>
 
@@ -2086,7 +2087,7 @@ function ReportsPage({
         </>
       )}
 
-      {showModal && <Modal title={editReport ? "Edit Report" : "Submit Report"} onClose={() => { setShowModal(false); setEditReport(null); }} wide>
+      {showModal && <Modal title={editReport ? "Edit Report" : "Submit Report"} onClose={() => { setShowModal(false); setEditReport(null); setSubmitError(""); }} wide>
         <F label="Report Type">
           <select
             className={SC}
