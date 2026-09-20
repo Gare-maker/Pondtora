@@ -379,7 +379,7 @@ app.get(`${P}/staff-members`, async (c) => {
 // Invite or add staff
 app.post(`${P}/staff-members/invite`, async (c) => {
   const userId = c.get("userId") as string;
-  const { email, password, name, phone, role, farms: rawFarms = [], permissions = [], appUrl, farmName } = await c.req.json();
+  const { email, password, name, phone, role, farms: rawFarms = [], permissions = [], staffPermissions, appUrl, farmName } = await c.req.json();
   if (!email) return c.json({ error: "Email is required" }, 400);
   const svc = adminDb();
 
@@ -517,7 +517,7 @@ app.post(`${P}/staff-members/invite`, async (c) => {
   }
 
   // Permissions
-  const staffPermsInput = (await c.req.json().catch(() => ({})))?.staffPermissions;
+  const staffPermsInput = staffPermissions;
   if (permissions.length > 0) {
     await svc.from("staff_permissions").delete().eq("staff_id", sm.id);
     await svc.from("staff_permissions").insert(
@@ -526,10 +526,10 @@ app.post(`${P}/staff-members/invite`, async (c) => {
         return {
           staff_id: sm.id,
           feature: feat,
-          can_view: custom?.canView ?? true,
-          can_create: custom?.canCreate ?? true,
-          can_edit: custom?.canEdit ?? true,
-          can_delete: custom?.canDelete ?? false,
+          can_view: custom ? (custom.canView ?? true) : true,
+          can_create: custom ? Boolean(custom.canCreate) : false,
+          can_edit: custom ? Boolean(custom.canEdit) : false,
+          can_delete: custom ? Boolean(custom.canDelete) : false,
         };
       })
     );
@@ -628,15 +628,15 @@ app.put(`${P}/staff-members/:id`, async (c) => {
         return {
           staff_id: data.id,
           feature: feat,
-          can_view: custom?.canView ?? true,
-          can_create: custom?.canCreate ?? true,
-          can_edit: custom?.canEdit ?? true,
-          can_delete: custom?.canDelete ?? false,
+          can_view: custom ? (custom.canView ?? true) : true,
+          can_create: custom ? Boolean(custom.canCreate) : false,
+          can_edit: custom ? Boolean(custom.canEdit) : false,
+          can_delete: custom ? Boolean(custom.canDelete) : false,
         };
       })
     );
   }
-  return c.json({ ...objToCamel(data), farms: farms ?? [], permissions: permissions ?? [] });
+  return c.json({ ...objToCamel(data), farms: farms ?? [], permissions: permissions ?? [], staffPermissions: staffPermissions ?? {} });
 });
 
 app.delete(`${P}/staff-members/:id`, async (c) => {

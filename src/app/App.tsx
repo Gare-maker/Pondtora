@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect, useCallback } from "react";
-import { api, auth, remapId, isUuid } from "../lib/api";
+import { api, auth, remapId, isUuid, toUuid, fromUuid } from "../lib/api";
 import { supabase, getAppUrl } from "../lib/supabase";
 import { projectId } from "../../utils/supabase/info";
 import pondtoraLogo from "../imports/loo-2.svg";
@@ -55,7 +55,7 @@ const NAV_PERM:Partial<Record<View,string>>={
   financial:"Financial Dashboard",ponds:"Pond Management",inventory:"Feed Stock",
   documentation:"Feeding Records",invoices:"Invoices",reports:"Reports",investors:"Investors",assessments:"Staff Assessments",notifications:"Notifications",
 };
-function Sidebar({active,onNav,collapsed,onToggle,farms,activeFarmId,onSwitchFarm,onAddFarm,sideOpen,staff,unreadCount,onNotifications,onLogout,hasPerm,isOwner,userProfile,currentStaff}:{active:View;onNav:(v:View)=>void;collapsed:boolean;onToggle:()=>void;farms:Farm[];activeFarmId:string;onSwitchFarm:(id:string)=>void;onAddFarm:()=>void;sideOpen:boolean;staff?:StaffMember[];unreadCount?:number;onNotifications?:()=>void;onLogout?:()=>void;hasPerm?:(p:string)=>boolean;isOwner?:boolean;userProfile?:UserProfile|null;currentStaff?:StaffMember|null;}){
+function Sidebar({active,onNav,collapsed,onToggle,farms,activeFarmId,onSwitchFarm,onAddFarm,sideOpen,staff,unreadCount,onNotifications,onLogout,hasPerm,canView,isOwner,userProfile,currentStaff}:{active:View;onNav:(v:View)=>void;collapsed:boolean;onToggle:()=>void;farms:Farm[];activeFarmId:string;onSwitchFarm:(id:string)=>void;onAddFarm:()=>void;sideOpen:boolean;staff?:StaffMember[];unreadCount?:number;onNotifications?:()=>void;onLogout?:()=>void;hasPerm?:(p:string)=>boolean;canView?:(p:string)=>boolean;isOwner?:boolean;userProfile?:UserProfile|null;currentStaff?:StaffMember|null;}){
   const [farmOpen,setFarmOpen]=useState(false);
   const [showLogoutModal,setShowLogoutModal]=useState(false);
   const farmDropRef=useRef<HTMLDivElement>(null);
@@ -83,7 +83,7 @@ function Sidebar({active,onNav,collapsed,onToggle,farms,activeFarmId,onSwitchFar
             <p className="text-xl font-bold text-white leading-none font-['Barlow_Condensed',sans-serif] tracking-wide">Pondtora</p>
           </div>
         )}
-        {onNotifications && (hasPerm ? hasPerm("Notifications") : (isOwner ?? true)) && (
+        {onNotifications && (isOwner || (canView ? canView("Notifications") : (hasPerm ? hasPerm("Notifications") : false))) && (
           <button onClick={onNotifications} title="Notifications" className="relative p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors shrink-0">
             <Bell size={16}/>
             {(unreadCount??0)>0&&<span className="absolute top-0.5 right-0.5 w-2 h-2 rounded-full bg-red-500"/>}
@@ -450,7 +450,7 @@ function FinancialDashboard({
         <StatCard label="Fish Stock Costs" value={fmt(stockCost)} icon={Fish}/>
         <StatCard label="Maintenance"      value={fmt(maintCost)} icon={Calculator}/>
         <StatCard label="Labor + Overhead" value={fmt(overhead)}  icon={Layers}/>
-        <StatCard label="Inventory Value"  value={fmt(inventoryValue)} sub={`${(inventory||[]).length} items`} icon={Package}/>
+        <StatCard label="Feed Inventory Value"  value={fmt(inventoryValue)} sub={`${(inventory||[]).length} items`} icon={Package}/>
       </div>
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         <Card className="lg:col-span-2 p-5">
@@ -909,11 +909,12 @@ function StaffPage({
     const permsMap: Record<string, { canView: boolean; canCreate: boolean; canEdit: boolean; canDelete: boolean }> = {};
     STAFF_PERMISSIONS.forEach(p => {
       const hasView = (s.permissions || []).includes(p);
+      const custom = existing[p];
       permsMap[p] = {
-        canView: hasView,
-        canCreate: existing[p]?.canCreate ?? hasView,
-        canEdit: existing[p]?.canEdit ?? hasView,
-        canDelete: existing[p]?.canDelete ?? false,
+        canView: custom ? (custom.canView ?? hasView) : hasView,
+        canCreate: custom ? Boolean(custom.canCreate) : false,
+        canEdit: custom ? Boolean(custom.canEdit) : false,
+        canDelete: custom ? Boolean(custom.canDelete) : false,
       };
     });
     setEditMember({
@@ -1593,12 +1594,14 @@ function ReportsPage({
   staff,
   onAdd,
   onEdit,
+  onDelete,
   pondReports = [],
   treatments = [],
   farms = [],
   ponds = [],
   stockEvents = [],
   onAddPondReport,
+  onDeletePondReport,
   activeFarmId = "",
   canCreate = true,
   canEdit = true,
@@ -1610,12 +1613,14 @@ function ReportsPage({
   staff: StaffMember[];
   onAdd: (r: Report) => void;
   onEdit: (r: Report) => void;
+  onDelete?: (id: string) => void;
   pondReports?: PondReport[];
   treatments?: TreatmentRecord[];
   farms?: Farm[];
   ponds?: Pond[];
   stockEvents?: StockEvent[];
   onAddPondReport?: (r: PondReport) => Promise<void>;
+  onDeletePondReport?: (id: string) => Promise<void> | void;
   activeFarmId?: string;
   canCreate?: boolean;
   canEdit?: boolean;
@@ -1914,6 +1919,7 @@ function ReportsPage({
           ponds={ponds}
           stockEvents={stockEvents}
           onAddPondReport={onAddPondReport || (async () => {})}
+          onDeletePondReport={onDeletePondReport}
           activeFarmId={activeFarmId}
           canCreate={canCreate}
           canDelete={canDelete}
@@ -1998,6 +2004,11 @@ function ReportsPage({
                           {!isStaffReport && canEdit && isWithin6h(r) && (
                             <button onClick={() => openEditReport(r)} className="p-1.5 rounded-lg text-slate-300 hover:text-green-600 hover:bg-green-50 transition-colors shrink-0" title="Edit within 6 hours">
                               <Pencil size={13} />
+                            </button>
+                          )}
+                          {!isStaffReport && canDelete && onDelete && (
+                            <button onClick={() => onDelete(r.id)} className="p-1.5 rounded-lg text-slate-300 hover:text-red-600 hover:bg-red-50 transition-colors shrink-0" title="Delete report">
+                              <Trash2 size={13} />
                             </button>
                           )}
                         </div>
@@ -3547,7 +3558,23 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     }
     return "login";
   });
-  const [userProfile,setUserProfile]=useState<UserProfile|null>(()=>loadLocal("pondtora_user_profile",null));
+  const getStoredAuthUser = (): string | null => {
+    try {
+      const authRaw = localStorage.getItem("pondtora_auth");
+      if (authRaw) {
+        const parsed = JSON.parse(authRaw);
+        const uid = parsed?.user?.id;
+        if (uid && isUuid(uid)) return uid;
+      }
+    } catch {}
+    return null;
+  };
+  const activeSessionUid = typeof window !== "undefined" ? getStoredAuthUser() : null;
+
+  const [userProfile,setUserProfile]=useState<UserProfile|null>(() => {
+    if (!activeSessionUid) return null;
+    return loadLocal(`pondtora_${activeSessionUid}_user_profile`, null);
+  });
   const [active,setActive_]=useState<View>("financial");
   const setActive=(v:View)=>{setActive_(v);};
   const [sideOpen,setSideOpen]=useState(false);
@@ -3581,7 +3608,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     };
   }, []);
   
-  const initialUid = typeof window !== "undefined" ? loadLocal("pondtora_user_profile", null)?.id : null;
+  const initialUid = activeSessionUid;
   const readInit = <T,>(key: string, cacheProp: string, fallback: T): T => {
     if (!initialUid) return fallback;
     const direct = loadLocal(`pondtora_${initialUid}_${key}`, null);
@@ -3617,6 +3644,20 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     return direct ?? fallback;
   }, [userProfile?.id, initialUid]);
 
+  const saveUserLocal = useCallback(<T,>(uid: string | undefined | null, key: string, cacheProp: string, data: T): void => {
+    const targetUid = uid || userProfile?.id || initialUid;
+    if (!targetUid) return;
+    try {
+      localStorage.setItem(`pondtora_${targetUid}_${key}`, JSON.stringify(data));
+    } catch {}
+    try {
+      const rawCache = localStorage.getItem(`pondtora_${targetUid}_cache`);
+      const parsed = rawCache ? JSON.parse(rawCache) : {};
+      parsed[cacheProp] = data;
+      localStorage.setItem(`pondtora_${targetUid}_cache`, JSON.stringify(parsed));
+    } catch {}
+  }, [userProfile?.id, initialUid]);
+
   const [farms,setFarms]=useState<Farm[]>(()=>readInit("farms","farms",[]));
   const [activeFarmId,setActiveFarmId]=useState<string>(()=>initialUid?(localStorage.getItem(`pondtora_${initialUid}_active_farm_id`)||""): "");
   const [showAddFarm,setShowAddFarm]=useState(false);
@@ -3642,6 +3683,51 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   const [investments,setInvestments]=useState<Investment[]>(()=>readInit("investments","investments",[]));
   const [investmentPayments,setInvestmentPayments]=useState<InvestmentPayment[]>(()=>readInit("investment_payments","investmentPayments",[]));
   const [pondReports,setPondReports]=useState<PondReport[]>(()=>readInit("pond_reports","pondReports",[]));
+
+  // Set of recently deleted record IDs to prevent race conditions or focus re-fetch from resurrecting deleted records
+  const deletedRecordIdsRef = useRef<Set<string>>(new Set());
+  const isDeletingRef = useRef(false);
+
+  const markDeletedId = useCallback((id: string) => {
+    if (!id) return;
+    isDeletingRef.current = true;
+    deletedRecordIdsRef.current.add(id);
+    if (isUuid(id)) {
+      const short = fromUuid(id);
+      if (short) deletedRecordIdsRef.current.add(short);
+    } else {
+      const mappedUuid = toUuid(id);
+      if (mappedUuid) deletedRecordIdsRef.current.add(mappedUuid);
+    }
+    setTimeout(() => {
+      isDeletingRef.current = false;
+    }, 4000);
+  }, []);
+
+  const unmarkDeletedId = useCallback((id: string) => {
+    if (!id) return;
+    deletedRecordIdsRef.current.delete(id);
+    if (isUuid(id)) {
+      const short = fromUuid(id);
+      if (short) deletedRecordIdsRef.current.delete(short);
+    } else {
+      const mappedUuid = toUuid(id);
+      if (mappedUuid) deletedRecordIdsRef.current.delete(mappedUuid);
+    }
+  }, []);
+
+  const isDeletedId = useCallback((id: string) => {
+    if (!id) return false;
+    if (deletedRecordIdsRef.current.has(id)) return true;
+    if (isUuid(id)) {
+      const short = fromUuid(id);
+      if (short && deletedRecordIdsRef.current.has(short)) return true;
+    } else {
+      const mappedUuid = toUuid(id);
+      if (mappedUuid && deletedRecordIdsRef.current.has(mappedUuid)) return true;
+    }
+    return false;
+  }, []);
 
   // Action-level permissions for the current staff user (populated from backend staffInfo)
   const [staffOwnPermissions,setStaffOwnPermissions]=useState<Record<string,{canView:boolean;canCreate:boolean;canEdit:boolean;canDelete:boolean}>>({});
@@ -3689,7 +3775,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   useEffect(()=>{localStorage.setItem("pondtora_is_auth",isAuth?"true":"false");},[isAuth]);
   useEffect(()=>{localStorage.setItem("pondtora_show_landing",showLanding?"true":"false");},[showLanding]);
   useEffect(()=>{
-    if(userProfile?.id){
+    if(userProfile?.id && isAuth && isDataLoadedRef.current){
       const uids = [userProfile.id];
       if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
         uids.push(userProfile.ownerId);
@@ -3720,7 +3806,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
         saveLocal(`pondtora_${uid}_pond_reports`,pondReports);
       });
     }
-  },[userProfile,farms,activeFarmId,ponds,inventory,feeding,bagLogs,remainLogs,expenses,revenues,mortality,treatments,staff,stockEvents,reports,customers,priceGroups,invoices,invSettings,investors,investments,investmentPayments,pondReports]);
+  },[userProfile,isAuth,farms,activeFarmId,ponds,inventory,feeding,bagLogs,remainLogs,expenses,revenues,mortality,treatments,staff,stockEvents,reports,customers,priceGroups,invoices,invSettings,investors,investments,investmentPayments,pondReports]);
 
   useEffect(()=>{
     if(farms.length>0){
@@ -3830,11 +3916,22 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     toast.success("Farm updated");
     api.farms.update(f).catch(console.warn);
   };
-  const handleDeleteFarm=(id:string)=>{
+  const handleDeleteFarm=async(id:string)=>{
+    const previous=farms;
     setFarms(prev=>prev.filter(f=>f.id!==id));
+    markDeletedId(id);
     if(activeFarmId===id){const remaining=farms.filter(f=>f.id!==id);if(remaining.length>0)handleSwitchFarm(remaining[0].id);}
-    toast.success("Farm deleted");
-    api.farms.remove(id).catch(console.warn);
+    if(userProfile?.id){try{saveUserLocal(userProfile.id,"farms","farms",previous.filter(f=>f.id!==id));}catch{}}
+    try{
+      await api.farms.remove(id);
+      toast.success("Farm deleted");
+    }catch(err:any){
+      console.error("Failed to delete farm:",err);
+      unmarkDeletedId(id);
+      setFarms(previous);
+      if(userProfile?.id){try{saveUserLocal(userProfile.id,"farms","farms",previous);}catch{}}
+      toast.error(err?.message||"Failed to delete farm. Kept visible.");
+    }
   };
   /* Create a farm directly from the Settings page (takes plain data object) */
   const handleAddFarmDirect=(d:{name:string;city:string;state:string;country:string})=>{
@@ -4074,13 +4171,19 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       toast.error("You do not have permission to delete expenses.");
       return;
     }
+    const previous=expenses;
     setExpenses(prev=>prev.filter(x=>x.id!==id));
+    markDeletedId(id);
+    if(userProfile?.id){try{saveUserLocal(userProfile.id,"expenses","expenses",previous.filter(x=>x.id!==id));}catch{}}
     try {
       await api.expenses.remove(id);
       toast.success("Expense deleted");
     } catch(err:any) {
       console.error("Failed to delete expense:", err);
-      toast.error("Expense deleted locally — sync error");
+      unmarkDeletedId(id);
+      setExpenses(previous);
+      if(userProfile?.id){try{saveUserLocal(userProfile.id,"expenses","expenses",previous);}catch{}}
+      toast.error(err?.message || "Failed to delete expense. Kept visible.");
     }
   };
   const deleteRev=async(id:string)=>{
@@ -4088,13 +4191,19 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       toast.error("You do not have permission to delete revenues.");
       return;
     }
+    const previous=revenues;
     setRevenues(prev=>prev.filter(x=>x.id!==id));
+    markDeletedId(id);
+    if(userProfile?.id){try{saveUserLocal(userProfile.id,"revenues","revenues",previous.filter(x=>x.id!==id));}catch{}}
     try {
       await api.revenues.remove(id);
       toast.success("Revenue deleted");
     } catch(err:any) {
       console.error("Failed to delete revenue:", err);
-      toast.error("Revenue deleted locally — sync error");
+      unmarkDeletedId(id);
+      setRevenues(previous);
+      if(userProfile?.id){try{saveUserLocal(userProfile.id,"revenues","revenues",previous);}catch{}}
+      toast.error(err?.message || "Failed to delete revenue. Kept visible.");
     }
   };
   const setPondMaxKg=async(pondId:string,size:string,maxKg:number)=>{
@@ -4123,6 +4232,29 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     }
     const fid=r.farmId||activeFarmId||farms[0]?.id||"";
     const farmRec:FeedingRecord={...r,id:isUuid(r.id)?r.id:crypto.randomUUID(),farmId:fid};
+
+    // Check pellet stock availability
+    if (farmRec.size) {
+      const invItems = inventory.filter(f => (!f.farmId || f.farmId === fid) && f.size === farmRec.size);
+      const totalPurchasedKg = invItems.reduce((s, f) => s + (Number(f.totalKg) || (Number(f.bags) * (Number(f.weightPerBag) || 15))), 0);
+      const totalPurchasedBags = invItems.reduce((s, f) => s + (Number(f.bags) || 0), 0);
+      if (invItems.length === 0 || (totalPurchasedBags <= 0 && totalPurchasedKg <= 0)) {
+        toast.error(`Pellet size "${farmRec.size}" is out of stock / empty in Feed Inventory. Please purchase and add feed stock first.`);
+        return;
+      }
+      const totalFedKg = feeding.filter(fr => (!fr.farmId || fr.farmId === fid) && fr.size === farmRec.size).reduce((s, fr) => s + (Number(fr.total) || ((Number(fr.morning) || 0) + (Number(fr.evening) || 0))), 0);
+      const availableKg = totalPurchasedKg - totalFedKg;
+      if (availableKg <= 0) {
+        toast.error(`Pellet size "${farmRec.size}" is completely empty (0 kg remaining in stock). Please add feed stock before feeding.`);
+        return;
+      }
+      const toFeed = (Number(farmRec.morning) || 0) + (Number(farmRec.evening) || 0);
+      if (toFeed > availableKg) {
+        toast.error(`Insufficient stock for pellet size "${farmRec.size}". Available: ${Math.round(availableKg * 10) / 10} kg, requested: ${toFeed} kg.`);
+        return;
+      }
+    }
+
     setFeeding(prev=>{
       const updated=[farmRec,...prev];
       /* check if cumulative for this pond+size reached max */
@@ -4145,7 +4277,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       toast.success("Feeding logged");
     } catch(err:any) {
       console.error("Failed to persist feeding record to database:", err);
-      toast.error("Feeding saved locally — offline or sync error");
+      toast.error(err?.message || "Feeding saved locally — offline or sync error");
     }
   };
   const editFeedRecord=async(r:FeedingRecord)=>{
@@ -4154,11 +4286,32 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       return;
     }
     const farmRec:FeedingRecord={...r,farmId:r.farmId||activeFarmId||farms[0]?.id||""};
+    if (farmRec.size) {
+      const invItems = inventory.filter(f => (!f.farmId || f.farmId === farmRec.farmId) && f.size === farmRec.size);
+      const totalPurchasedKg = invItems.reduce((s, f) => s + (Number(f.totalKg) || (Number(f.bags) * (Number(f.weightPerBag) || 15))), 0);
+      const totalPurchasedBags = invItems.reduce((s, f) => s + (Number(f.bags) || 0), 0);
+      if (invItems.length === 0 || (totalPurchasedBags <= 0 && totalPurchasedKg <= 0)) {
+        toast.error(`Pellet size "${farmRec.size}" is out of stock / empty in Feed Inventory. Please purchase and add feed stock first.`);
+        return;
+      }
+      const totalFedKg = feeding.filter(fr => (!fr.farmId || fr.farmId === farmRec.farmId) && fr.size === farmRec.size && fr.id !== farmRec.id).reduce((s, fr) => s + (Number(fr.total) || ((Number(fr.morning) || 0) + (Number(fr.evening) || 0))), 0);
+      const availableKg = totalPurchasedKg - totalFedKg;
+      if (availableKg <= 0) {
+        toast.error(`Pellet size "${farmRec.size}" is completely empty (0 kg remaining in stock). Please add feed stock before feeding.`);
+        return;
+      }
+      const toFeed = (Number(farmRec.morning) || 0) + (Number(farmRec.evening) || 0);
+      if (toFeed > availableKg) {
+        toast.error(`Insufficient stock for pellet size "${farmRec.size}". Available: ${Math.round(availableKg * 10) / 10} kg, requested: ${toFeed} kg.`);
+        return;
+      }
+    }
     setFeeding(prev=>prev.map(x=>x.id===farmRec.id?farmRec:x));
     try {
       await api.feeding.update(farmRec);
     } catch(err:any) {
       console.error("Failed to update feeding record in database:", err);
+      toast.error(err?.message || "Failed to update feeding record");
     }
   };
   const deleteFeedRecord=async(id:string)=>{
@@ -4166,13 +4319,19 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       toast.error("You do not have permission to delete feeding records.");
       return;
     }
+    const previous=feeding;
     setFeeding(prev=>prev.filter(x=>x.id!==id));
+    markDeletedId(id);
+    if(userProfile?.id){try{saveUserLocal(userProfile.id,"feeding","feedingRecords",previous.filter(x=>x.id!==id));}catch{}}
     try {
       await api.feeding.remove(id);
       toast.success("Feeding record deleted");
     } catch(err:any) {
       console.error("Failed to delete feeding record:", err);
-      toast.error("Feeding record deleted locally — sync error");
+      unmarkDeletedId(id);
+      setFeeding(previous);
+      if(userProfile?.id){try{saveUserLocal(userProfile.id,"feeding","feedingRecords",previous);}catch{}}
+      toast.error(err?.message || "Failed to delete feeding record. Kept visible.");
     }
   };
   const addBagLog=async(b:BagOpenLog)=>{
@@ -4217,13 +4376,25 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     toast.success("Feed purchase recorded");
     api.inventory.create(fWithFarm).catch(console.warn);
   };
-  const delInv=(id:string)=>{
+  const delInv=async(id:string)=>{
     if (!canDelete("Feed Stock")) {
       toast.error("You do not have permission to delete feed inventory.");
       return;
     }
+    const previous=inventory;
     setInventory(prev=>prev.filter(f=>f.id!==id));
-    api.inventory.remove(id).catch(console.warn);
+    markDeletedId(id);
+    if(userProfile?.id){try{saveUserLocal(userProfile.id,"inventory","feedInventory",previous.filter(f=>f.id!==id));}catch{}}
+    try {
+      await api.inventory.remove(id);
+      toast.success("Feed inventory deleted");
+    } catch(err:any) {
+      console.error("Failed to delete feed inventory:", err);
+      unmarkDeletedId(id);
+      setInventory(previous);
+      if(userProfile?.id){try{saveUserLocal(userProfile.id,"inventory","feedInventory",previous);}catch{}}
+      toast.error(err?.message || "Failed to delete feed inventory. Kept visible.");
+    }
   };
   const editInv=(f:FeedItem)=>{
     if (!canEdit("Feed Stock")) {
@@ -4241,13 +4412,25 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     }
     setPonds(prev=>prev.map(p=>{if(p.id!==id)return p;const np={...p,...u};api.ponds.update(np).catch(console.warn);return np;}));
   };
-  const deletePond=(id:string)=>{
+  const deletePond=async(id:string)=>{
     if (!canDelete("Pond Management")) {
       toast.error("You do not have permission to delete ponds.");
       return;
     }
+    const previous=ponds;
     setPonds(prev=>prev.filter(p=>p.id!==id));
-    api.ponds.remove(id).catch(console.warn);
+    markDeletedId(id);
+    if(userProfile?.id){try{saveUserLocal(userProfile.id,"ponds","ponds",previous.filter(p=>p.id!==id));}catch{}}
+    try {
+      await api.ponds.remove(id);
+      toast.success("Pond deleted");
+    } catch(err:any) {
+      console.error("Failed to delete pond:", err);
+      unmarkDeletedId(id);
+      setPonds(previous);
+      if(userProfile?.id){try{saveUserLocal(userProfile.id,"ponds","ponds",previous);}catch{}}
+      toast.error(err?.message || "Failed to delete pond. Kept visible.");
+    }
   };
   const addMort=async(m:MortalityEntry,pondId:string)=>{
     const fid=m.farmId||activeFarmId||farms[0]?.id||"";
@@ -4429,15 +4612,15 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     if (!d) return;
     isDataLoadedRef.current = true;
 
-    const rawFarms: Farm[] = (d.farms && d.farms.length > 0)
+    const rawFarms: Farm[] = (Array.isArray(d.farms)
       ? d.farms
-      : (userProfile?.id ? loadUserLocal(userProfile.id, "farms", "farms", []) : []);
+      : (userProfile?.id ? loadUserLocal(userProfile.id, "farms", "farms", []) : [])).filter((f: Farm) => !isDeletedId(f.id));
 
     const resolvedFarms = rawFarms;
 
-    const pondsData: Pond[] = (d.ponds && d.ponds.length > 0)
+    const pondsData: Pond[] = (Array.isArray(d.ponds)
       ? d.ponds
-      : (userProfile?.id ? loadUserLocal(userProfile.id, "ponds", "ponds", []) : []);
+      : (userProfile?.id ? loadUserLocal(userProfile.id, "ponds", "ponds", []) : [])).filter((p: Pond) => !isDeletedId(p.id));
 
     if (resolvedFarms.length > 0) {
       setFarms(resolvedFarms);
@@ -4502,7 +4685,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
 
     // Set backend authoritative data directly for the current authenticated user, normalizing farmId
     if (pondsData) {
-      const normPonds = pondsData.map((p: Pond) => ({ ...p, farmId: normFid(p.farmId) }));
+      const normPonds = pondsData.filter((p: Pond) => !isDeletedId(p.id)).map((p: Pond) => ({ ...p, farmId: normFid(p.farmId) }));
       setPonds(normPonds);
     }
 
@@ -4510,7 +4693,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       ? d.stockEvents
       : (userProfile?.id ? loadUserLocal(userProfile.id, "stock_events", "stockEvents", []) : []);
     if (stockData) {
-      const normStock = stockData.map((se: StockEvent) => ({ ...se, farmId: normFid(se.farmId) }));
+      const normStock = stockData.filter((se: StockEvent) => !isDeletedId(se.id)).map((se: StockEvent) => ({ ...se, farmId: normFid(se.farmId) }));
       setStockEvents(normStock);
     }
 
@@ -4518,7 +4701,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       ? d.feedInventory
       : (userProfile?.id ? loadUserLocal(userProfile.id, "inventory", "feedInventory", []) : []);
     if (invData) {
-      const normInv = invData.map((i: FeedItem) => ({ ...i, farmId: normFid(i.farmId) }));
+      const normInv = invData.filter((i: FeedItem) => !isDeletedId(i.id)).map((i: FeedItem) => ({ ...i, farmId: normFid(i.farmId) }));
       setInventory(normInv);
     }
 
@@ -4526,7 +4709,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       ? d.feedingRecords
       : (userProfile?.id ? loadUserLocal(userProfile.id, "feeding", "feedingRecords", []) : []);
     if (feedData) {
-      const normFeed = feedData.map((fr: FeedingRecord) => ({ ...fr, farmId: normFid(fr.farmId) }));
+      const normFeed = feedData.filter((fr: FeedingRecord) => !isDeletedId(fr.id)).map((fr: FeedingRecord) => ({ ...fr, farmId: normFid(fr.farmId) }));
       setFeeding(normFeed);
     }
 
@@ -4534,7 +4717,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       ? d.bagOpenLogs
       : (userProfile?.id ? loadUserLocal(userProfile.id, "bag_logs", "bagOpenLogs", []) : []);
     if (bagData) {
-      const normBags = bagData.map((b: BagOpenLog) => ({ ...b, farmId: normFid(b.farmId) }));
+      const normBags = bagData.filter((b: BagOpenLog) => !isDeletedId(b.id)).map((b: BagOpenLog) => ({ ...b, farmId: normFid(b.farmId) }));
       setBagLogs(normBags);
     }
 
@@ -4542,7 +4725,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       ? d.feedRemainingLogs
       : (userProfile?.id ? loadUserLocal(userProfile.id, "remain_logs", "feedRemainingLogs", []) : []);
     if (remData) {
-      const normRemain = remData.map((r: FeedRemainingLog) => ({ ...r, farmId: normFid(r.farmId) }));
+      const normRemain = remData.filter((r: FeedRemainingLog) => !isDeletedId(r.id)).map((r: FeedRemainingLog) => ({ ...r, farmId: normFid(r.farmId) }));
       setRemainLogs(normRemain);
     }
 
@@ -4550,7 +4733,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       ? d.expenses
       : (userProfile?.id ? loadUserLocal(userProfile.id, "expenses", "expenses", []) : []);
     if (expData) {
-      const normExp = expData.map((e: Expense) => ({ ...e, farmId: normFid(e.farmId) }));
+      const normExp = expData.filter((e: Expense) => !isDeletedId(e.id)).map((e: Expense) => ({ ...e, farmId: normFid(e.farmId) }));
       setExpenses(normExp);
     }
 
@@ -4562,7 +4745,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       const invoiceRevs = revData.filter((r: Revenue) => r.notes?.startsWith("Payment for Invoice"));
       invoiceRevs.forEach((r: Revenue) => api.revenues.remove(r.id).catch(console.warn));
       const cleanRevs = revData.filter((r: Revenue) => !r.notes?.startsWith("Payment for Invoice"));
-      const normRev = cleanRevs.map((r: Revenue) => ({ ...r, farmId: normFid(r.farmId) }));
+      const normRev = cleanRevs.filter((r: Revenue) => !isDeletedId(r.id)).map((r: Revenue) => ({ ...r, farmId: normFid(r.farmId) }));
       setRevenues(normRev);
     }
 
@@ -4570,7 +4753,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       ? d.mortalityEntries
       : (userProfile?.id ? loadUserLocal(userProfile.id, "mortality", "mortalityEntries", []) : []);
     if (mortData) {
-      const normMort = mortData.map((m: MortalityEntry) => ({ ...m, farmId: normFid(m.farmId) }));
+      const normMort = mortData.filter((m: MortalityEntry) => !isDeletedId(m.id)).map((m: MortalityEntry) => ({ ...m, farmId: normFid(m.farmId) }));
       setMortality(normMort);
     }
 
@@ -4578,7 +4761,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       ? d.treatmentRecords
       : (userProfile?.id ? loadUserLocal(userProfile.id, "treatments", "treatmentRecords", []) : []);
     if (treatData) {
-      const normTreat = treatData.map((t: TreatmentRecord) => ({ ...t, farmId: normFid(t.farmId) }));
+      const normTreat = treatData.filter((t: TreatmentRecord) => !isDeletedId(t.id)).map((t: TreatmentRecord) => ({ ...t, farmId: normFid(t.farmId) }));
       setTreatments(normTreat);
     }
     const serverStaff: StaffMember[] = Array.isArray(d.staffMembers) ? d.staffMembers : [];
@@ -4586,7 +4769,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     const serverStaffIds = new Set(serverStaff.map(s => s.id));
     const serverStaffEmails = new Set(serverStaff.map(s => (s.email || "").toLowerCase().trim()));
     const pendingLocalStaff = localStaff.filter(ls => ls?.id && !serverStaffIds.has(ls.id) && !serverStaffEmails.has((ls.email || "").toLowerCase().trim()));
-    const finalStaff = [...serverStaff, ...pendingLocalStaff];
+    const finalStaff = [...serverStaff, ...pendingLocalStaff].filter((s: StaffMember) => !isDeletedId(s.id));
     if (finalStaff.length > 0 || Array.isArray(d.staffMembers)) {
       setStaff(finalStaff);
     }
@@ -4594,7 +4777,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       ? d.reports
       : (userProfile?.id ? loadUserLocal(userProfile.id, "reports", "reports", []) : []);
     if (repData) {
-      const normRep = repData.map((r: Report) => ({ ...r, farmId: normFid(r.farmId) }));
+      const normRep = repData.filter((r: Report) => !isDeletedId(r.id)).map((r: Report) => ({ ...r, farmId: normFid(r.farmId) }));
       setReports(normRep);
     }
 
@@ -4602,7 +4785,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       ? d.customers
       : (userProfile?.id ? loadUserLocal(userProfile.id, "customers", "customers", []) : []);
     if (custData) {
-      const normCust = custData.map((c: Customer) => ({ ...c, farmId: normFid(c.farmId) }));
+      const normCust = custData.filter((c: Customer) => !isDeletedId(c.id)).map((c: Customer) => ({ ...c, farmId: normFid(c.farmId) }));
       setCustomers(normCust);
     }
 
@@ -4610,7 +4793,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       ? d.priceGroups
       : (userProfile?.id ? loadUserLocal(userProfile.id, "price_groups", "priceGroups", []) : []);
     if (pgData) {
-      const normPg = pgData.map((pg: PriceGroup) => ({ ...pg, farmId: normFid(pg.farmId) }));
+      const normPg = pgData.filter((pg: PriceGroup) => !isDeletedId(pg.id)).map((pg: PriceGroup) => ({ ...pg, farmId: normFid(pg.farmId) }));
       setPriceGroups(normPg);
     }
 
@@ -4618,18 +4801,18 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       ? d.invoices
       : (userProfile?.id ? loadUserLocal(userProfile.id, "invoices", "invoices", []) : []);
     if (invsData) {
-      const normInv = invsData.map((inv: Invoice) => ({ ...inv, farmId: normFid(inv.farmId) }));
+      const normInv = invsData.filter((inv: Invoice) => !isDeletedId(inv.id)).map((inv: Invoice) => ({ ...inv, farmId: normFid(inv.farmId) }));
       setInvoices(normInv);
     }
 
     if (d.invoiceSettings) setInvSettings(d.invoiceSettings);
-    if (Array.isArray(d.investors)) setInvestors(d.investors);
+    if (Array.isArray(d.investors)) setInvestors(d.investors.filter((inv: any) => !isDeletedId(inv.id)));
 
     const investData: Investment[] = Array.isArray(d.investments)
       ? d.investments
       : (userProfile?.id ? loadUserLocal(userProfile.id, "investments", "investments", []) : []);
     if (investData) {
-      const normInv = investData.map((inv: Investment) => ({ ...inv, farmId: normFid(inv.farmId) }));
+      const normInv = investData.filter((inv: Investment) => !isDeletedId(inv.id)).map((inv: Investment) => ({ ...inv, farmId: normFid(inv.farmId) }));
       setInvestments(normInv);
     }
 
@@ -4637,7 +4820,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       ? d.investmentPayments
       : (userProfile?.id ? loadUserLocal(userProfile.id, "investment_payments", "investmentPayments", []) : []);
     if (payData) {
-      const normPay = payData.map((p: InvestmentPayment) => ({ ...p, farmId: normFid(p.farmId) }));
+      const normPay = payData.filter((p: InvestmentPayment) => !isDeletedId(p.id)).map((p: InvestmentPayment) => ({ ...p, farmId: normFid(p.farmId) }));
       setInvestmentPayments(normPay);
     }
 
@@ -4645,7 +4828,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       ? d.pondReports
       : (userProfile?.id ? loadUserLocal(userProfile.id, "pond_reports", "pondReports", []) : []);
     if (prData) {
-      const normPr = prData.map((pr: PondReport) => ({ ...pr, farmId: normFid(pr.farmId) }));
+      const normPr = prData.filter((pr: PondReport) => !isDeletedId(pr.id)).map((pr: PondReport) => ({ ...pr, farmId: normFid(pr.farmId) }));
       setPondReports(normPr);
     }
 
@@ -4690,62 +4873,64 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       console.warn("Backend load failed, falling back to local storage cache:",e);
       if(userProfile?.id){
         const uid=userProfile.id;
-        const cf=loadUserLocal(uid,"farms","farms",[]);
+        const cf=loadUserLocal(uid,"farms","farms",[]).filter((x: any) => !isDeletedId(x.id));
         if(cf.length>0)setFarms(cf);
-        const cp=loadUserLocal(uid,"ponds","ponds",[]);
+        const cp=loadUserLocal(uid,"ponds","ponds",[]).filter((x: any) => !isDeletedId(x.id));
         if(cp.length>0)setPonds(cp);
-        const ce=loadUserLocal(uid,"expenses","expenses",[]);
+        const ce=loadUserLocal(uid,"expenses","expenses",[]).filter((x: any) => !isDeletedId(x.id));
         if(ce.length>0)setExpenses(ce);
-        const cr=loadUserLocal(uid,"revenues","revenues",[]);
+        const cr=loadUserLocal(uid,"revenues","revenues",[]).filter((x: any) => !isDeletedId(x.id));
         const cleanCr=cr.filter((r: Revenue) => !r.notes?.startsWith("Payment for Invoice"));
         if(cleanCr.length>0)setRevenues(cleanCr);
-        const ci=loadUserLocal(uid,"inventory","feedInventory",[]);
+        const ci=loadUserLocal(uid,"inventory","feedInventory",[]).filter((x: any) => !isDeletedId(x.id));
         if(ci.length>0)setInventory(ci);
-        const cfd=loadUserLocal(uid,"feeding","feedingRecords",[]);
+        const cfd=loadUserLocal(uid,"feeding","feedingRecords",[]).filter((x: any) => !isDeletedId(x.id));
         if(cfd.length>0)setFeeding(cfd);
-        const cbg=loadUserLocal(uid,"bag_logs","bagOpenLogs",[]);
+        const cbg=loadUserLocal(uid,"bag_logs","bagOpenLogs",[]).filter((x: any) => !isDeletedId(x.id));
         if(cbg.length>0)setBagLogs(cbg);
-        const crm=loadUserLocal(uid,"remain_logs","feedRemainingLogs",[]);
+        const crm=loadUserLocal(uid,"remain_logs","feedRemainingLogs",[]).filter((x: any) => !isDeletedId(x.id));
         if(crm.length>0)setRemainLogs(crm);
-        const cm=loadUserLocal(uid,"mortality","mortalityEntries",[]);
+        const cm=loadUserLocal(uid,"mortality","mortalityEntries",[]).filter((x: any) => !isDeletedId(x.id));
         if(cm.length>0)setMortality(cm);
-        const ct=loadUserLocal(uid,"treatments","treatmentRecords",[]);
+        const ct=loadUserLocal(uid,"treatments","treatmentRecords",[]).filter((x: any) => !isDeletedId(x.id));
         if(ct.length>0)setTreatments(ct);
-        const cs=loadUserLocal(uid,"staff","staffMembers",[]);
+        const cs=loadUserLocal(uid,"staff","staffMembers",[]).filter((x: any) => !isDeletedId(x.id));
         if(cs.length>0)setStaff(cs);
-        const cse=loadUserLocal(uid,"stock_events","stockEvents",[]);
+        const cse=loadUserLocal(uid,"stock_events","stockEvents",[]).filter((x: any) => !isDeletedId(x.id));
         if(cse.length>0)setStockEvents(cse);
-        const crp=loadUserLocal(uid,"reports","reports",[]);
+        const crp=loadUserLocal(uid,"reports","reports",[]).filter((x: any) => !isDeletedId(x.id));
         if(crp.length>0)setReports(crp);
-        const ccu=loadUserLocal(uid,"customers","customers",[]);
+        const ccu=loadUserLocal(uid,"customers","customers",[]).filter((x: any) => !isDeletedId(x.id));
         if(ccu.length>0)setCustomers(ccu);
-        const cpg=loadUserLocal(uid,"price_groups","priceGroups",[]);
+        const cpg=loadUserLocal(uid,"price_groups","priceGroups",[]).filter((x: any) => !isDeletedId(x.id));
         if(cpg.length>0)setPriceGroups(cpg);
-        const cinv=loadUserLocal(uid,"invoices","invoices",[]);
+        const cinv=loadUserLocal(uid,"invoices","invoices",[]).filter((x: any) => !isDeletedId(x.id));
         if(cinv.length>0)setInvoices(cinv);
         const cinvs=loadUserLocal(uid,"inv_settings","invoiceSettings",INIT_INV_SETTINGS);
         if(cinvs)setInvSettings(cinvs);
-        const cinvst=loadUserLocal(uid,"investors","investors",[]);
+        const cinvst=loadUserLocal(uid,"investors","investors",[]).filter((x: any) => !isDeletedId(x.id));
         if(cinvst.length>0)setInvestors(cinvst);
-        const cinvm=loadUserLocal(uid,"investments","investments",[]);
+        const cinvm=loadUserLocal(uid,"investments","investments",[]).filter((x: any) => !isDeletedId(x.id));
         if(cinvm.length>0)setInvestments(cinvm);
-        const cpay=loadUserLocal(uid,"investment_payments","investmentPayments",[]);
+        const cpay=loadUserLocal(uid,"investment_payments","investmentPayments",[]).filter((x: any) => !isDeletedId(x.id));
         if(cpay.length>0)setInvestmentPayments(cpay);
-        const cpr=loadUserLocal(uid,"pond_reports","pondReports",[]);
+        const cpr=loadUserLocal(uid,"pond_reports","pondReports",[]).filter((x: any) => !isDeletedId(x.id));
         if(cpr.length>0)setPondReports(cpr);
       }
     }
-  },[applyBackendData,runAutoSetup,userProfile?.id,loadUserLocal]);
+  },[applyBackendData,runAutoSetup,userProfile?.id,loadUserLocal,isDeletedId]);
 
   /* Re-fetch backend data when tab/window gains focus (cross-device sync) */
   useEffect(()=>{
     const handleFocus=()=>{
+      if(isDeletingRef.current) return;
       if(userProfile?.id||localStorage.getItem("pondtora_is_auth")==="true"){
         loadFromBackend();
       }
     };
     window.addEventListener("focus",handleFocus);
     const handleVis=()=>{
+      if(isDeletingRef.current) return;
       if(document.visibilityState==="visible"&&(userProfile?.id||localStorage.getItem("pondtora_is_auth")==="true")){
         loadFromBackend();
       }
@@ -4846,6 +5031,26 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
 
           try {
             await supabase.from("staff_members").update({ staff_auth_id: session.user.id, status: "Active" }).eq("id", staffMemberRecord.id);
+          } catch {}
+          try {
+            const { data: spRows } = await supabase
+              .from("staff_permissions")
+              .select("feature, can_view, can_create, can_edit, can_delete")
+              .eq("staff_id", staffMemberRecord.id);
+            if (spRows && spRows.length > 0) {
+              const spMap: Record<string, { canView: boolean; canCreate: boolean; canEdit: boolean; canDelete: boolean }> = {};
+              spRows.forEach((r: any) => {
+                spMap[r.feature] = {
+                  canView: r.can_view ?? true,
+                  canCreate: Boolean(r.can_create),
+                  canEdit: Boolean(r.can_edit),
+                  canDelete: Boolean(r.can_delete),
+                };
+              });
+              setStaffOwnPermissions(spMap);
+            } else if (meta.staff_permissions) {
+              setStaffOwnPermissions(meta.staff_permissions);
+            }
           } catch {}
         }
 
@@ -4979,6 +5184,26 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
           try {
             await supabase.from("staff_members").update({ staff_auth_id: session.user.id, status: "Active" }).eq("id", staffMemberRecord.id);
           } catch {}
+          try {
+            const { data: spRows } = await supabase
+              .from("staff_permissions")
+              .select("feature, can_view, can_create, can_edit, can_delete")
+              .eq("staff_id", staffMemberRecord.id);
+            if (spRows && spRows.length > 0) {
+              const spMap: Record<string, { canView: boolean; canCreate: boolean; canEdit: boolean; canDelete: boolean }> = {};
+              spRows.forEach((r: any) => {
+                spMap[r.feature] = {
+                  canView: r.can_view ?? true,
+                  canCreate: Boolean(r.can_create),
+                  canEdit: Boolean(r.can_edit),
+                  canDelete: Boolean(r.can_delete),
+                };
+              });
+              setStaffOwnPermissions(spMap);
+            } else if (meta.staff_permissions) {
+              setStaffOwnPermissions(meta.staff_permissions);
+            }
+          } catch {}
         }
 
         const activePlanStr = meta.active_plan || prof?.active_plan || "Starter";
@@ -5040,9 +5265,15 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     setInvoices([]);
     setInvSettings(INIT_INV_SETTINGS);
     setExtraNotifs([]);
+    setInvestors([]);
+    setInvestments([]);
+    setInvestmentPayments([]);
+    setPondReports([]);
+    setStaffOwnPermissions({});
   },[]);
 
   const resetAllStateAndStorage=useCallback(()=>{
+    isDataLoadedRef.current = false;
     resetAllState();
     setUserProfile(null);
     setIsAuth(false);
@@ -5058,54 +5289,35 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   },[resetAllState]);
 
   const handleLogin=(profile:UserProfile)=>{
+    isDataLoadedRef.current = false;
+    resetAllState();
     setUserProfile(profile);
     setIsAuth(true);
     setShowLanding(false);
     if(profile?.id){
       const uid=profile.id;
-      const cf=loadUserLocal(uid,"farms","farms",[]);
-      if(cf.length>0)setFarms(cf);
-      const cp=loadUserLocal(uid,"ponds","ponds",[]);
-      if(cp.length>0)setPonds(cp);
-      const ce=loadUserLocal(uid,"expenses","expenses",[]);
-      if(ce.length>0)setExpenses(ce);
+      setFarms(loadUserLocal(uid,"farms","farms",[]));
+      setPonds(loadUserLocal(uid,"ponds","ponds",[]));
+      setExpenses(loadUserLocal(uid,"expenses","expenses",[]));
       const cr=loadUserLocal(uid,"revenues","revenues",[]);
-      const cleanCr=cr.filter((r: Revenue) => !r.notes?.startsWith("Payment for Invoice"));
-      if(cleanCr.length>0)setRevenues(cleanCr);
-      const ci=loadUserLocal(uid,"inventory","feedInventory",[]);
-      if(ci.length>0)setInventory(ci);
-      const cfd=loadUserLocal(uid,"feeding","feedingRecords",[]);
-      if(cfd.length>0)setFeeding(cfd);
-      const cbg=loadUserLocal(uid,"bag_logs","bagOpenLogs",[]);
-      if(cbg.length>0)setBagLogs(cbg);
-      const crm=loadUserLocal(uid,"remain_logs","feedRemainingLogs",[]);
-      if(crm.length>0)setRemainLogs(crm);
-      const cm=loadUserLocal(uid,"mortality","mortalityEntries",[]);
-      if(cm.length>0)setMortality(cm);
-      const ct=loadUserLocal(uid,"treatments","treatmentRecords",[]);
-      if(ct.length>0)setTreatments(ct);
-      const cs=loadUserLocal(uid,"staff","staffMembers",[]);
-      if(cs.length>0)setStaff(cs);
-      const cse=loadUserLocal(uid,"stock_events","stockEvents",[]);
-      if(cse.length>0)setStockEvents(cse);
-      const crp=loadUserLocal(uid,"reports","reports",[]);
-      if(crp.length>0)setReports(crp);
-      const ccu=loadUserLocal(uid,"customers","customers",[]);
-      if(ccu.length>0)setCustomers(ccu);
-      const cpg=loadUserLocal(uid,"price_groups","priceGroups",[]);
-      if(cpg.length>0)setPriceGroups(cpg);
-      const cinv=loadUserLocal(uid,"invoices","invoices",[]);
-      if(cinv.length>0)setInvoices(cinv);
-      const cinvs=loadUserLocal(uid,"inv_settings","invoiceSettings",INIT_INV_SETTINGS);
-      if(cinvs)setInvSettings(cinvs);
-      const cinvst=loadUserLocal(uid,"investors","investors",[]);
-      if(cinvst.length>0)setInvestors(cinvst);
-      const cinvm=loadUserLocal(uid,"investments","investments",[]);
-      if(cinvm.length>0)setInvestments(cinvm);
-      const cpay=loadUserLocal(uid,"investment_payments","investmentPayments",[]);
-      if(cpay.length>0)setInvestmentPayments(cpay);
-      const cpr=loadUserLocal(uid,"pond_reports","pondReports",[]);
-      if(cpr.length>0)setPondReports(cpr);
+      setRevenues(cr.filter((r: Revenue) => !r.notes?.startsWith("Payment for Invoice")));
+      setInventory(loadUserLocal(uid,"inventory","feedInventory",[]));
+      setFeeding(loadUserLocal(uid,"feeding","feedingRecords",[]));
+      setBagLogs(loadUserLocal(uid,"bag_logs","bagOpenLogs",[]));
+      setRemainLogs(loadUserLocal(uid,"remain_logs","feedRemainingLogs",[]));
+      setMortality(loadUserLocal(uid,"mortality","mortalityEntries",[]));
+      setTreatments(loadUserLocal(uid,"treatments","treatmentRecords",[]));
+      setStaff(loadUserLocal(uid,"staff","staffMembers",[]));
+      setStockEvents(loadUserLocal(uid,"stock_events","stockEvents",[]));
+      setReports(loadUserLocal(uid,"reports","reports",[]));
+      setCustomers(loadUserLocal(uid,"customers","customers",[]));
+      setPriceGroups(loadUserLocal(uid,"price_groups","priceGroups",[]));
+      setInvoices(loadUserLocal(uid,"invoices","invoices",[]));
+      setInvSettings(loadUserLocal(uid,"inv_settings","invoiceSettings",INIT_INV_SETTINGS));
+      setInvestors(loadUserLocal(uid,"investors","investors",[]));
+      setInvestments(loadUserLocal(uid,"investments","investments",[]));
+      setInvestmentPayments(loadUserLocal(uid,"investment_payments","investmentPayments",[]));
+      setPondReports(loadUserLocal(uid,"pond_reports","pondReports",[]));
     }
     loadFromBackend();
   };
@@ -5180,7 +5392,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     setStaff(prev=>{
       const next=[...prev.filter(x=>x.id!==cleanStaff.id),cleanStaff];
       if(userProfile?.id){
-        try{localStorage.setItem(`pondtora_${userProfile.id}_staff`,JSON.stringify(next));}catch{}
+        try{saveUserLocal(userProfile.id,"staff","staffMembers",next);}catch{}
       }
       return next;
     });
@@ -5194,6 +5406,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       role:cleanStaff.role,
       farms:defaultFarms,
       permissions:cleanStaff.permissions,
+      staffPermissions:cleanStaff.staffPermissions,
       farmName: currentFarm?.name || userProfile?.farmName || "My Farm",
       appUrl:getAppUrl(),
     }).then(res=>{
@@ -5201,7 +5414,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
         setStaff(prev=>{
           const next=prev.map(x=>x.id===cleanStaff.id?{...x, ...res.staffMember}:x);
           if(userProfile?.id){
-            try{localStorage.setItem(`pondtora_${userProfile.id}_staff`,JSON.stringify(next));}catch{}
+            try{saveUserLocal(userProfile.id,"staff","staffMembers",next);}catch{}
           }
           return next;
         });
@@ -5213,7 +5426,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
         setStaff(prev => {
           const next = prev.filter(x => x.id !== cleanStaff.id);
           if(userProfile?.id){
-            try{localStorage.setItem(`pondtora_${userProfile.id}_staff`,JSON.stringify(next));}catch{}
+            try{saveUserLocal(userProfile.id,"staff","staffMembers",next);}catch{}
           }
           return next;
         });
@@ -5227,23 +5440,36 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     setStaff(prev=>{
       const next=prev.map(x=>x.id===s.id?s:x);
       if(userProfile?.id){
-        try{localStorage.setItem(`pondtora_${userProfile.id}_staff`,JSON.stringify(next));}catch{}
+        try{saveUserLocal(userProfile.id,"staff","staffMembers",next);}catch{}
       }
       return next;
     });
-    api.staff.update(s, password).catch(console.warn);
+    api.staff.update(s, password).catch(err => {
+      console.warn("Staff update error:", err);
+      toast.error(err?.message || "Failed to sync staff updates to server");
+    });
     toast.success("Staff member updated");
   };
-  const delStaff=(id:string)=>{
-    setStaff(prev=>{
-      const next=prev.filter(s=>s.id!==id);
+  const delStaff=async(id:string)=>{
+    const previous=staff;
+    const next=previous.filter(s=>s.id!==id);
+    setStaff(next);
+    markDeletedId(id);
+    if(userProfile?.id){
+      try{saveUserLocal(userProfile.id,"staff","staffMembers",next);}catch{}
+    }
+    try {
+      await api.staff.remove(id);
+      toast.success("Staff member removed");
+    } catch(err:any) {
+      console.error("Failed to remove staff member:", err);
+      unmarkDeletedId(id);
+      setStaff(previous);
       if(userProfile?.id){
-        try{localStorage.setItem(`pondtora_${userProfile.id}_staff`,JSON.stringify(next));}catch{}
+        try{saveUserLocal(userProfile.id,"staff","staffMembers",previous);}catch{}
       }
-      return next;
-    });
-    api.staff.remove(id).catch(console.warn);
-    toast.success("Staff member removed");
+      toast.error(err?.message || "Failed to remove staff member. Kept visible.");
+    }
   };
   const [showUpgradeModal,setShowUpgradeModal]=useState(false);
   const [upgradeModalMsg,setUpgradeModalMsg]=useState("");
@@ -5357,19 +5583,40 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       toast.error("You do not have permission to delete invoices.");
       return;
     }
+    const previous=invoices;
     setInvoices(prev=>prev.filter(x=>x.id!==id));
+    markDeletedId(id);
+    if(userProfile?.id){try{saveUserLocal(userProfile.id,"invoices","invoices",previous.filter(x=>x.id!==id));}catch{}}
     try {
       await api.invoices.remove(id);
       toast.success("Invoice deleted");
     } catch(err:any) {
       console.error("Failed to delete invoice:", err);
-      toast.error("Invoice deleted locally — sync error");
+      unmarkDeletedId(id);
+      setInvoices(previous);
+      if(userProfile?.id){try{saveUserLocal(userProfile.id,"invoices","invoices",previous);}catch{}}
+      toast.error(err?.message || "Failed to delete invoice. Kept visible.");
     }
   };
   const addCustomer=(c:Customer)=>{const fid=c.farmId||activeFarmId||farms[0]?.id||"";const nc={...c,id:isUuid(c.id)?c.id:crypto.randomUUID(),farmId:fid};setCustomers(prev=>[...prev,nc]);api.customers.create(nc).catch(console.warn);};
   const addPriceGroup=(g:PriceGroup)=>{const fid=g.farmId||activeFarmId||farms[0]?.id||"";const ng={...g,id:isUuid(g.id)?g.id:crypto.randomUUID(),farmId:fid};setPriceGroups(prev=>[...prev,ng]);api.priceGroups.create(ng).catch(console.warn);};
   const editPriceGroup=(g:PriceGroup)=>{setPriceGroups(prev=>prev.map(x=>x.id===g.id?g:x));api.priceGroups.update(g).catch(console.warn);};
-  const delPriceGroup=(id:string)=>{setPriceGroups(prev=>prev.filter(g=>g.id!==id));api.priceGroups.remove(id).catch(console.warn);};
+  const delPriceGroup=async(id:string)=>{
+    const previous=priceGroups;
+    setPriceGroups(prev=>prev.filter(g=>g.id!==id));
+    markDeletedId(id);
+    if(userProfile?.id){try{saveUserLocal(userProfile.id,"price_groups","priceGroups",previous.filter(g=>g.id!==id));}catch{}}
+    try {
+      await api.priceGroups.remove(id);
+      toast.success("Price group deleted");
+    } catch(err:any) {
+      console.error("Failed to delete price group:", err);
+      unmarkDeletedId(id);
+      setPriceGroups(previous);
+      if(userProfile?.id){try{saveUserLocal(userProfile.id,"price_groups","priceGroups",previous);}catch{}}
+      toast.error(err?.message || "Failed to delete price group. Kept visible.");
+    }
+  };
 
   // Auto-redirect staff to their first permitted page if their current view is not permitted
   useEffect(() => {
@@ -5396,13 +5643,16 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
 
   /* Derived data — computed unconditionally before any early return (Rules of Hooks) */
   const matchesFarm = (fid?: string, pondName?: string) => {
-    if (hasOneFarmOrNone) return true;
-    if (!fid || fid === "default" || fid === "—" || fid === activeFarmId) return true;
+    if (!activeFarmId) return !fid || fid === "default" || fid === "—";
+    if (fid && fid === activeFarmId) return true;
     if (pondName) {
       const p = ponds.find(x => x.name.toLowerCase() === pondName.toLowerCase());
-      if (p && (!p.farmId || p.farmId === "default" || p.farmId === activeFarmId)) return true;
+      if (p && (p.farmId === activeFarmId || (!p.farmId && (farms[0]?.id === activeFarmId || farms.length <= 1)))) return true;
     }
-    return fid === activeFarmId;
+    if (!fid || fid === "default" || fid === "—") {
+      return farms.length <= 1 || farms[0]?.id === activeFarmId;
+    }
+    return false;
   };
   const farmPonds=ponds.filter(p=>matchesFarm(p.farmId));
   const farmFeeding=feeding.filter(r=>matchesFarm(r.farmId,r.pond));
@@ -5491,16 +5741,86 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       toast.error("You do not have permission to delete investors.");
       return;
     }
-    setInvestors(prev=>prev.filter(i=>i.id!==id));
+    const prevInvestors=investors;
+    const prevInvestments=investments;
+    const prevPayments=investmentPayments;
+
+    const nextInvestors = prevInvestors.filter(i=>i.id!==id);
+    setInvestors(nextInvestors);
     const toDelInvIds=investments.filter(i=>i.investorId===id).map(i=>i.id);
-    setInvestments(prev=>prev.filter(i=>i.investorId!==id));
-    setInvestmentPayments(prev=>prev.filter(p=>!toDelInvIds.includes(p.investmentId)));
+    const nextInvestments = prevInvestments.filter(i=>i.investorId!==id);
+    setInvestments(nextInvestments);
+    const nextPayments = prevPayments.filter(p=>!toDelInvIds.includes(p.investmentId));
+    setInvestmentPayments(nextPayments);
+
+    markDeletedId(id);
+    toDelInvIds.forEach(invId=>markDeletedId(invId));
+
+    if(userProfile?.id){
+      try{saveUserLocal(userProfile.id,"investors","investors",nextInvestors);}catch{}
+      try{saveUserLocal(userProfile.id,"investments","investments",nextInvestments);}catch{}
+      try{saveUserLocal(userProfile.id,"investment_payments","investmentPayments",nextPayments);}catch{}
+    }
+
     try {
       await api.investors.remove(id);
       toast.success("Investor deleted");
     } catch(err:any) {
       console.error("Failed to delete investor:", err);
-      toast.error("Deleted locally — sync error");
+      unmarkDeletedId(id);
+      toDelInvIds.forEach(invId=>unmarkDeletedId(invId));
+      setInvestors(prevInvestors);
+      setInvestments(prevInvestments);
+      setInvestmentPayments(prevPayments);
+      if(userProfile?.id){
+        try{saveUserLocal(userProfile.id,"investors","investors",prevInvestors);}catch{}
+        try{saveUserLocal(userProfile.id,"investments","investments",prevInvestments);}catch{}
+        try{saveUserLocal(userProfile.id,"investment_payments","investmentPayments",prevPayments);}catch{}
+      }
+      toast.error(err?.message || "Failed to delete investor. Kept visible.");
+    }
+  };
+
+  const deletePondReport=async(id:string)=>{
+    if (!canDelete("Pond Management")) {
+      toast.error("You do not have permission to delete pond reports.");
+      return;
+    }
+    const previous=pondReports;
+    setPondReports(prev=>prev.filter(pr=>pr.id!==id));
+    markDeletedId(id);
+    if(userProfile?.id){try{saveUserLocal(userProfile.id,"pond_reports","pondReports",previous.filter(pr=>pr.id!==id));}catch{}}
+    try {
+      await api.pondReports.remove(id);
+      toast.success("Pond report deleted");
+    } catch(err:any) {
+      console.error("Failed to delete pond report:", err);
+      unmarkDeletedId(id);
+      setPondReports(previous);
+      if(userProfile?.id){try{saveUserLocal(userProfile.id,"pond_reports","pondReports",previous);}catch{}}
+      toast.error(err?.message || "Failed to delete pond report. Kept visible.");
+    }
+  };
+
+  const deleteReport=async(id:string)=>{
+    const rep=reports.find(r=>r.id===id);
+    if(rep && (rep.isStaffSubmission || rep.authorRole === "staff" || rep.createdByRole === "staff")) {
+      toast.error("Submitted staff reports are official records and cannot be deleted.");
+      return;
+    }
+    const previous=reports;
+    setReports(prev=>prev.filter(r=>r.id!==id));
+    markDeletedId(id);
+    if(userProfile?.id){try{saveUserLocal(userProfile.id,"reports","reports",previous.filter(r=>r.id!==id));}catch{}}
+    try {
+      await api.reports.remove(id);
+      toast.success("Report deleted");
+    } catch(err:any) {
+      console.error("Failed to delete report:", err);
+      unmarkDeletedId(id);
+      setReports(previous);
+      if(userProfile?.id){try{saveUserLocal(userProfile.id,"reports","reports",previous);}catch{}}
+      toast.error(err?.message || "Failed to delete report. Kept visible.");
     }
   };
 
@@ -5578,7 +5898,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     }
   },[isOwner,currentStaff,userProfile?.permissions,active,hasPerm]);
   const notifications=useMemo(()=>{
-    if (!hasPerm("Notifications")) return [];
+    if (!canView("Notifications")) return [];
     const notifs:AppNotification[]=[];
     const farm=farms.find(f=>f.id===activeFarmId)||farms[0];
 
@@ -5867,11 +6187,11 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       {sideOpen&&<div className="fixed inset-0 bg-black/30 z-30 lg:hidden" onClick={()=>setSideOpen(false)}/>}
       {/* Desktop sidebar — always in flow, collapsible */}
       <div className={`hidden lg:flex flex-col shrink-0 h-screen overflow-hidden transition-[width] duration-200 ${collapsed?"w-16":"w-64"}`}>
-        <Sidebar active={active} onNav={nav} collapsed={collapsed} onToggle={()=>setCollapsed(p=>!p)} farms={accessibleFarms} activeFarmId={activeFarmId} onSwitchFarm={handleSwitchFarm} onAddFarm={()=>setShowAddFarm(true)} sideOpen={true} staff={staff} unreadCount={unreadCount} onNotifications={()=>nav("notifications")} onLogout={handleLogout} hasPerm={hasPerm} isOwner={isOwner} userProfile={userProfile} currentStaff={currentStaff}/>
+        <Sidebar active={active} onNav={nav} collapsed={collapsed} onToggle={()=>setCollapsed(p=>!p)} farms={accessibleFarms} activeFarmId={activeFarmId} onSwitchFarm={handleSwitchFarm} onAddFarm={()=>setShowAddFarm(true)} sideOpen={true} staff={staff} unreadCount={unreadCount} onNotifications={()=>nav("notifications")} onLogout={handleLogout} hasPerm={hasPerm} canView={canView} isOwner={isOwner} userProfile={userProfile} currentStaff={currentStaff}/>
       </div>
       {/* Mobile sidebar — fixed drawer */}
       <div className={`fixed lg:hidden inset-y-0 left-0 z-40 w-64 transition-transform duration-200 ${sideOpen?"translate-x-0":"-translate-x-full"}`}>
-        <Sidebar active={active} onNav={nav} collapsed={false} onToggle={()=>setSideOpen(false)} farms={accessibleFarms} activeFarmId={activeFarmId} onSwitchFarm={id=>{handleSwitchFarm(id);setSideOpen(false);}} onAddFarm={()=>{setSideOpen(false);setShowAddFarm(true);}} sideOpen={sideOpen} staff={staff} unreadCount={unreadCount} onNotifications={()=>{nav("notifications");setSideOpen(false);}} onLogout={handleLogout} hasPerm={hasPerm} isOwner={isOwner} userProfile={userProfile} currentStaff={currentStaff}/>
+        <Sidebar active={active} onNav={nav} collapsed={false} onToggle={()=>setSideOpen(false)} farms={accessibleFarms} activeFarmId={activeFarmId} onSwitchFarm={id=>{handleSwitchFarm(id);setSideOpen(false);}} onAddFarm={()=>{setSideOpen(false);setShowAddFarm(true);}} sideOpen={sideOpen} staff={staff} unreadCount={unreadCount} onNotifications={()=>{nav("notifications");setSideOpen(false);}} onLogout={handleLogout} hasPerm={hasPerm} canView={canView} isOwner={isOwner} userProfile={userProfile} currentStaff={currentStaff}/>
       </div>
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Mobile top bar */}
@@ -5920,11 +6240,11 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
             {active==="invoices"      &&(hasPerm("Invoices")?<InvoicesPage ponds={farmPonds} invoices={farmInvoices} customers={farmCustomers} priceGroups={farmPriceGroups} settings={invSettings} onAddInvoice={addInvoice} onEditInvoice={editInvoice} onDeleteInvoice={deleteInvoice} onAddCustomer={addCustomer} onAddPriceGroup={addPriceGroup} onEditPriceGroup={editPriceGroup} onDeletePriceGroup={delPriceGroup} onUpdateSettings={(s)=>{setInvSettings(s);api.invSettings.update(s).catch(console.warn);}} currentUser={userProfile?.name} currency={cs} canCreate={canCreate("Invoices")} canEdit={canEdit("Invoices")} canDelete={canDelete("Invoices")}/>:<AccessDenied/>)}
             {active==="staff"         &&(isOwner?<StaffPage staff={staff} onAdd={addStaff} onEdit={editStaff} onDelete={delStaff} farms={farms.filter(f => f.userId === userProfile?.id || isOwner)} activeFarmId={activeFarmId} ownerEmail={userProfile?.email}/>:<AccessDenied/>)}
             {active==="investors"     &&(hasPerm("Investors")?<InvestorsPage investors={farmInvestors} investments={farmInvestments} payments={farmPayments} farms={farms} ponds={farmPonds} stockEvents={stockEvents} activeFarmId={activeFarmId} currency={cs} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}} isOwner={isOwner} canManage={isOwner||hasPerm("Investors")} onAddInvestor={handleAddInvestor} onEditInvestor={handleEditInvestor} onEditInvestment={handleEditInvestment} onDeleteInvestor={handleDeleteInvestor} onRecordPayment={handleRecordPayment} onMarkPaymentPaid={handleMarkPaymentPaid} canCreate={canCreate("Investors")} canEdit={canEdit("Investors")} canDelete={canDelete("Investors")}/>:<AccessDenied/>)}
-            {active==="reports"       &&(hasPerm("Reports")?<ReportsPage reports={farmReports} staff={staff} onAdd={addReport} onEdit={editReportFn} pondReports={farmPondReports} treatments={farmTreatments} farms={farms} ponds={farmPonds} stockEvents={stockEvents} onAddPondReport={handleAddPondReport} activeFarmId={activeFarmId} canCreate={canCreate("Reports")} canEdit={canEdit("Reports")} canDelete={canDelete("Reports")} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}} isOwner={isOwner}/>:<AccessDenied/>)}
+            {active==="reports"       &&(hasPerm("Reports")?<ReportsPage reports={farmReports} staff={staff} onAdd={addReport} onEdit={editReportFn} onDelete={deleteReport} pondReports={farmPondReports} treatments={farmTreatments} farms={farms} ponds={farmPonds} stockEvents={stockEvents} onAddPondReport={handleAddPondReport} onDeletePondReport={deletePondReport} activeFarmId={activeFarmId} canCreate={canCreate("Reports")} canEdit={canEdit("Reports")} canDelete={canDelete("Reports")} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}} isOwner={isOwner}/>:<AccessDenied/>)}
             {active==="assessments"   &&(hasPerm("Staff Assessments")?<EmployeeAssessmentsPage kQuestions={kQuestions} cQuestions={cQuestions} kResults={kResults} cResults={cResults} onSaveKQuestions={saveKQuestions} onSaveCQuestions={saveCQuestions} onAddKResult={addKResult} onAddCResult={addCResult} ownerId={userProfile?.id??""}/>:<AccessDenied/>)}
             {active==="pricing"       &&(isOwner?<SubscriptionPage farmCount={farms.length} activePlan={activePlan} setActivePlan={setActivePlan} trialStartDate={trialStartDate} setTrialStartDate={setTrialStartDate} currency={cs} convertPrice={cvt} userProfile={userProfile} activeFarmName={farms.find(f=>f.id===activeFarmId)?.name||userProfile?.farmName}/>:<AccessDenied/>)}
             {active==="settings"      &&<SettingsPage farms={isOwner?farms:accessibleFarms} onAddFarm={handleAddFarmDirect} onEditFarm={handleEditFarm} onDeleteFarm={handleDeleteFarm} userProfile={userProfile} onUpdateProfile={handleUpdateProfile} isOwner={isOwner} ponds={ponds} activePlan={activePlan}/>}
-            {active==="notifications" && (hasPerm("Notifications") ? <NotificationsPage notifications={notifications} onMarkRead={markRead} onMarkAllRead={markAllRead} farms={farms} activeFarmId={activeFarmId} farmCount={farms.length} onDismiss={dismissNotif} onNotifNav={(n)=>{if(n.type==="reconciliation"&&n.reconDate&&n.reconKey){nav("documentation");setReconFocus({date:n.reconDate,key:n.reconKey});}}}/> : <AccessDenied/>)}
+            {active==="notifications" && (canView("Notifications") ? <NotificationsPage notifications={notifications} onMarkRead={markRead} onMarkAllRead={markAllRead} farms={farms} activeFarmId={activeFarmId} farmCount={farms.length} onDismiss={dismissNotif} onNotifNav={(n)=>{if(n.type==="reconciliation"&&n.reconDate&&n.reconKey){nav("documentation");setReconFocus({date:n.reconDate,key:n.reconKey});}}}/> : <AccessDenied/>)}
           </AppErrorBoundary>
         </main>
       </div>

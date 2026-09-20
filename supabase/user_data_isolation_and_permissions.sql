@@ -228,7 +228,114 @@ FOR ALL USING (
   user_owns_farm(farm_id) OR is_admin()
 );
 
--- ── 6. RLS on Standard Farm-Scoped Tables ─────────────────────────────────────
+-- ── 5b. Staff Action-Level Permissions & Schema ──────────────────────────────
+ALTER TABLE IF EXISTS staff_members ADD COLUMN IF NOT EXISTS permissions JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE IF EXISTS staff_members ADD COLUMN IF NOT EXISTS farms JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE IF EXISTS staff_members ADD COLUMN IF NOT EXISTS staff_permissions JSONB DEFAULT '{}'::jsonb;
+
+CREATE TABLE IF NOT EXISTS staff_permissions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  staff_id UUID NOT NULL REFERENCES staff_members(id) ON DELETE CASCADE,
+  feature TEXT NOT NULL,
+  can_view BOOLEAN DEFAULT TRUE,
+  can_create BOOLEAN DEFAULT FALSE,
+  can_edit BOOLEAN DEFAULT FALSE,
+  can_delete BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE(staff_id, feature)
+);
+
+CREATE INDEX IF NOT EXISTS idx_sp_staff_id ON staff_permissions(staff_id);
+ALTER TABLE IF EXISTS staff_permissions ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "owner_permissions" ON staff_permissions;
+CREATE POLICY "owner_permissions" ON staff_permissions
+  FOR ALL USING (
+    is_admin() OR
+    EXISTS (SELECT 1 FROM staff_members sm WHERE sm.id = staff_permissions.staff_id AND (sm.user_id = auth.uid() OR sm.staff_auth_id = auth.uid()))
+  ) WITH CHECK (
+    is_admin() OR
+    EXISTS (SELECT 1 FROM staff_members sm WHERE sm.id = staff_permissions.staff_id AND (sm.user_id = auth.uid() OR sm.staff_auth_id = auth.uid()))
+  );
+
+-- Function: Universal record access check (Account Owner, Assigned Staff on Farm, or Admin)
+CREATE OR REPLACE FUNCTION user_can_access_record(p_user_id UUID, p_farm_id UUID)
+RETURNS BOOLEAN LANGUAGE plpgsql SECURITY DEFINER STABLE AS $$
+BEGIN
+  IF is_admin() THEN
+    RETURN TRUE;
+  END IF;
+  IF p_user_id IS NOT NULL AND p_user_id = auth.uid() THEN
+    RETURN TRUE;
+  END IF;
+  IF p_farm_id IS NOT NULL THEN
+    RETURN user_can_access_farm(p_farm_id);
+  END IF;
+  RETURN FALSE;
+END;
+$$;
+
+-- ── 6. Drop Legacy Permissive Policies ────────────────────────────────────────
+DO $$
+DECLARE
+  pol RECORD;
+BEGIN
+  FOR pol IN
+    SELECT schemaname, tablename, policyname
+    FROM pg_policies
+    WHERE schemaname = 'public'
+      AND tablename IN (
+        'farms', 'ponds', 'stock_events', 'feed_inventory', 'feeding_records', 'bag_open_logs',
+        'feed_remaining_logs', 'expenses', 'revenues', 'mortality_entries', 'treatment_records',
+        'reports', 'customers', 'price_groups', 'invoices', 'investors', 'investments',
+        'pond_reports', 'investment_payments', 'user_profiles', 'staff_members'
+      )
+      AND (
+        policyname ILIKE '%public%' OR
+        policyname ILIKE '%anon%' OR
+        policyname ILIKE '%allow_all%' OR
+        policyname ILIKE '%enable_all%' OR
+        policyname ILIKE '%all_access%'
+      )
+  LOOP
+    EXECUTE format('DROP POLICY IF EXISTS %I ON %I.%I;', pol.policyname, pol.schemaname, pol.tablename);
+  END LOOP;
+END;
+$$;
+
+-- ── 7. Ensure user_id Column Exists & Backfill ────────────────────────────────
+DO $$
+DECLARE
+  tbl TEXT;
+  tables TEXT[] := ARRAY[
+    'ponds', 'stock_events', 'feed_inventory', 'feeding_records', 'bag_open_logs',
+    'feed_remaining_logs', 'expenses', 'revenues', 'mortality_entries', 'treatment_records',
+    'reports', 'customers', 'price_groups', 'invoices', 'investors', 'investments',
+    'pond_reports', 'investment_payments'
+  ];
+BEGIN
+  FOREACH tbl IN ARRAY tables LOOP
+    IF EXISTS (
+      SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = tbl
+    ) THEN
+      EXECUTE format('ALTER TABLE %I ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES auth.users(id);', tbl);
+
+      IF EXISTS (
+        SELECT 1 FROM information_schema.columns WHERE table_name = tbl AND column_name = 'farm_id'
+      ) THEN
+        EXECUTE format('
+          UPDATE %I t
+          SET user_id = f.user_id
+          FROM farms f
+          WHERE t.farm_id = f.id AND t.user_id IS NULL AND f.user_id IS NOT NULL;
+        ', tbl);
+      END IF;
+    END IF;
+  END LOOP;
+END;
+$$;
+
+-- ── 8. RLS on Standard User-Owned & Farm-Scoped Tables ────────────────────────
 DO $$
 DECLARE
   tbl TEXT;
@@ -246,22 +353,22 @@ BEGIN
       EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY;', tbl);
 
       EXECUTE format('DROP POLICY IF EXISTS %I ON %I;', tbl || '_select_isolated', tbl);
-      EXECUTE format('CREATE POLICY %I ON %I FOR SELECT USING (user_can_access_farm(farm_id));', tbl || '_select_isolated', tbl);
+      EXECUTE format('CREATE POLICY %I ON %I FOR SELECT USING (user_can_access_record(user_id, farm_id));', tbl || '_select_isolated', tbl);
 
       EXECUTE format('DROP POLICY IF EXISTS %I ON %I;', tbl || '_insert_isolated', tbl);
-      EXECUTE format('CREATE POLICY %I ON %I FOR INSERT WITH CHECK (user_can_access_farm(farm_id));', tbl || '_insert_isolated', tbl);
+      EXECUTE format('CREATE POLICY %I ON %I FOR INSERT WITH CHECK (user_id = auth.uid() OR user_can_access_farm(farm_id) OR is_admin());', tbl || '_insert_isolated', tbl);
 
       EXECUTE format('DROP POLICY IF EXISTS %I ON %I;', tbl || '_update_isolated', tbl);
-      EXECUTE format('CREATE POLICY %I ON %I FOR UPDATE USING (user_can_access_farm(farm_id));', tbl || '_update_isolated', tbl);
+      EXECUTE format('CREATE POLICY %I ON %I FOR UPDATE USING (user_can_access_record(user_id, farm_id));', tbl || '_update_isolated', tbl);
 
       EXECUTE format('DROP POLICY IF EXISTS %I ON %I;', tbl || '_delete_isolated', tbl);
-      EXECUTE format('CREATE POLICY %I ON %I FOR DELETE USING (user_can_access_farm(farm_id));', tbl || '_delete_isolated', tbl);
+      EXECUTE format('CREATE POLICY %I ON %I FOR DELETE USING (user_can_access_record(user_id, farm_id));', tbl || '_delete_isolated', tbl);
     END IF;
   END LOOP;
 END;
 $$;
 
--- ── 7. RLS on Investment Payments (Supports direct farm_id & parent investment) ─
+-- ── 9. RLS on Investment Payments ─────────────────────────────────────────────
 DO $$
 BEGIN
   IF EXISTS (
@@ -272,40 +379,42 @@ BEGIN
     DROP POLICY IF EXISTS "investment_payments_select_isolated" ON investment_payments;
     CREATE POLICY "investment_payments_select_isolated" ON investment_payments
     FOR SELECT USING (
-      (farm_id IS NOT NULL AND user_can_access_farm(farm_id))
+      user_can_access_record(user_id, farm_id)
       OR EXISTS (
         SELECT 1 FROM investments i
-        WHERE i.id = investment_payments.investment_id AND user_can_access_farm(i.farm_id)
+        WHERE i.id = investment_payments.investment_id AND user_can_access_record(i.user_id, i.farm_id)
       )
     );
 
     DROP POLICY IF EXISTS "investment_payments_insert_isolated" ON investment_payments;
     CREATE POLICY "investment_payments_insert_isolated" ON investment_payments
     FOR INSERT WITH CHECK (
-      (farm_id IS NOT NULL AND user_can_access_farm(farm_id))
+      user_id = auth.uid()
+      OR (farm_id IS NOT NULL AND user_can_access_farm(farm_id))
       OR EXISTS (
         SELECT 1 FROM investments i
-        WHERE i.id = investment_payments.investment_id AND user_can_access_farm(i.farm_id)
+        WHERE i.id = investment_payments.investment_id AND user_can_access_record(i.user_id, i.farm_id)
       )
+      OR is_admin()
     );
 
     DROP POLICY IF EXISTS "investment_payments_update_isolated" ON investment_payments;
     CREATE POLICY "investment_payments_update_isolated" ON investment_payments
     FOR UPDATE USING (
-      (farm_id IS NOT NULL AND user_can_access_farm(farm_id))
+      user_can_access_record(user_id, farm_id)
       OR EXISTS (
         SELECT 1 FROM investments i
-        WHERE i.id = investment_payments.investment_id AND user_can_access_farm(i.farm_id)
+        WHERE i.id = investment_payments.investment_id AND user_can_access_record(i.user_id, i.farm_id)
       )
     );
 
     DROP POLICY IF EXISTS "investment_payments_delete_isolated" ON investment_payments;
     CREATE POLICY "investment_payments_delete_isolated" ON investment_payments
     FOR DELETE USING (
-      (farm_id IS NOT NULL AND user_can_access_farm(farm_id))
+      user_can_access_record(user_id, farm_id)
       OR EXISTS (
         SELECT 1 FROM investments i
-        WHERE i.id = investment_payments.investment_id AND user_can_access_farm(i.farm_id)
+        WHERE i.id = investment_payments.investment_id AND user_can_access_record(i.user_id, i.farm_id)
       )
     );
   END IF;

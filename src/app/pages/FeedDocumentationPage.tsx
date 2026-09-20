@@ -4,6 +4,7 @@ import {
   ChevronDown, ChevronLeft, ChevronRight,
   Package, BookOpen, Download, FileText, Pencil, Trash2, MoreVertical, Lock, History, Fish, Search, AlertTriangle
 } from "lucide-react";
+import { toast } from "sonner";
 import type { FeedingRecord, FeedEditEntry, Pond, FeedItem, BagOpenLog, FeedRemainingLog } from "../types";
 import { TODAY, toMon, toYr, uid, downloadCSV, openPrintWindow, formatFishStockDate, formatFishStock, fmtStockingDate, isSameDate, FEED_SIZES, FEED_BRANDS, getPondFishStock } from "../data";
 import { Card, PBtn, Pagination, PER_PAGE, StatCard, F, IC, SC, SearchableSelect, Bdg, DateInput, NumInput } from "../shared";
@@ -180,6 +181,27 @@ function FeedDocumentation({
     };
   };
 
+  /* Helper to check current available stock for a Pellet Size across inventory and feedings */
+  const getPelletStock = (size: string, excludeRecordId?: string) => {
+    if (!size) return { availableKg: 0, totalPurchasedKg: 0, totalFedKg: 0, exists: false };
+    const invItems = (inventory || []).filter(f => f && f.size === size);
+    const totalPurchasedKg = invItems.reduce((s, f) => s + (Number(f.totalKg) || (Number(f.bags) * (Number(f.weightPerBag) || 15))), 0);
+    const totalPurchasedBags = invItems.reduce((s, f) => s + (Number(f.bags) || 0), 0);
+    const exists = invItems.length > 0 && (totalPurchasedKg > 0 || totalPurchasedBags > 0);
+
+    const relevantFeeding = (feedingRecords || []).filter(fr => fr && fr.size === size && (excludeRecordId ? fr.id !== excludeRecordId : true));
+    const totalFedKg = relevantFeeding.reduce((s, fr) => s + (Number(fr.total) || ((Number(fr.morning) || 0) + (Number(fr.evening) || 0))), 0);
+    const availableKg = Math.max(0, totalPurchasedKg - totalFedKg);
+
+    return {
+      availableKg,
+      totalPurchasedKg,
+      totalPurchasedBags,
+      totalFedKg,
+      exists
+    };
+  };
+
   /* ── calendar ── */
   const _td = new Date();
   const [viewYear, setViewYear] = useState(_td.getFullYear());
@@ -336,7 +358,7 @@ function FeedDocumentation({
     reason: string;
   };
 
-  /* ── reconRows (selDate only, grouped strictly by Fish Stock + Brand + Pellet Size across all ponds in that stock) ── */
+  /* ── reconRows (selDate only, grouped strictly by Fish Stock + Pellet Size across all ponds in that stock) ── */
   const reconRows = useMemo((): ReconRow[] => {
     const mIdx = MIDX_GLOBAL[selMonLabel] ?? viewMonth;
     const prevDt = new Date(selYear || viewYear, mIdx, (selDay || 1) - 1);
@@ -345,31 +367,35 @@ function FeedDocumentation({
 
     (feedingRecords || []).filter(r => r && isSameDate(r.date, selDate)).forEach(r => {
       const fs = pondToStock(r.pond);
-      const brand = r.brand || (bagLogs || []).find(b => isSameDate(b.date, selDate) && b.size === r.size && normalizeFishStock(b.fishStock) === fs)?.brand || (inventory || []).find(f => f && f.size === r.size)?.brand || "—";
-      keySet.add(`${fs}||${brand}||${r.size || "—"}`);
+      keySet.add(`${fs}||${r.size || "—"}`);
     });
     (bagLogs || []).filter(b => b && isSameDate(b.date, selDate)).forEach(b => {
       const fs = normalizeFishStock(b.fishStock);
-      if (fs && fs !== "—") keySet.add(`${fs}||${b.brand || "—"}||${b.size || "—"}`);
+      if (fs && fs !== "—") keySet.add(`${fs}||${b.size || "—"}`);
     });
     (remainLogs || []).filter(r => r && isSameDate(r.date, selDate)).forEach(r => {
       const fs = normalizeFishStock(r.fishStock);
-      if (fs && fs !== "—") keySet.add(`${fs}||${r.brand || "—"}||${r.size || "—"}`);
+      if (fs && fs !== "—") keySet.add(`${fs}||${r.size || "—"}`);
     });
 
     const rows: ReconRow[] = [];
     for (const compositeKey of Array.from(keySet)) {
       const parts = compositeKey.split("||");
       const fishStock = parts[0];
-      const brand = parts[1];
-      const size = parts[2];
+      const size = parts[1];
       const pondsForStock = (ponds || []).filter(p => p && pondToStock(p.name) === fishStock).map(p => p.name);
+
+      // Resolve brand for this fishStock + size:
+      const brandFromBag = (bagLogs || []).find(b => isSameDate(b.date, selDate) && b.size === size && normalizeFishStock(b.fishStock) === fishStock && b.brand)?.brand;
+      const brandFromRemain = (remainLogs || []).find(r => isSameDate(r.date, selDate) && r.size === size && normalizeFishStock(r.fishStock) === fishStock && r.brand)?.brand;
+      const brandFromFeed = (feedingRecords || []).find(r => isSameDate(r.date, selDate) && r.size === size && pondToStock(r.pond) === fishStock && r.brand)?.brand;
+      const brandFromInv = (inventory || []).find(f => f && f.size === size && f.brand)?.brand;
+      const brand = brandFromBag || brandFromRemain || brandFromFeed || brandFromInv || "—";
 
       const fedRecords = (feedingRecords || []).filter(r =>
         r && isSameDate(r.date, selDate) &&
         r.size === size &&
         (pondsForStock.length === 0 || pondsForStock.includes(r.pond) || pondToStock(r.pond) === fishStock) &&
-        (!r.brand || brand === "—" || r.brand === brand) &&
         (Number(r.total) > 0 || Number(r.morning) > 0 || Number(r.evening) > 0)
       );
       const fedPonds = Array.from(new Set(fedRecords.map(r => r.pond).filter(Boolean)));
@@ -377,14 +403,12 @@ function FeedDocumentation({
       const totalFed = (feedingRecords || []).filter(r =>
         r && isSameDate(r.date, selDate) &&
         r.size === size &&
-        (pondsForStock.length === 0 || pondsForStock.includes(r.pond) || pondToStock(r.pond) === fishStock) &&
-        (!r.brand || brand === "—" || r.brand === brand)
+        (pondsForStock.length === 0 || pondsForStock.includes(r.pond) || pondToStock(r.pond) === fishStock)
       ).reduce((s, r) => s + (Number(r.total) || 0), 0);
 
       const matchingBagLogs = (bagLogs || []).filter(b =>
         b && isSameDate(b.date, selDate) &&
         b.size === size &&
-        (brand === "—" || !b.brand || b.brand === brand) &&
         (!b.fishStock || normalizeFishStock(b.fishStock) === fishStock)
       );
       // If multiple duplicate bag logs exist for the same stock and pallet on this day, use the single session amount
@@ -393,14 +417,12 @@ function FeedDocumentation({
       const carryover = (remainLogs || []).filter(r =>
         r && isSameDate(r.date, prevDate) &&
         r.size === size &&
-        (brand === "—" || !r.brand || r.brand === brand) &&
         normalizeFishStock(r.fishStock) === fishStock
       ).reduce((s, r) => s + (Number(r.remainingKg) || 0), 0);
 
       const recordedRemaining = (remainLogs || []).filter(r =>
         r && isSameDate(r.date, selDate) &&
         r.size === size &&
-        (brand === "—" || !r.brand || r.brand === brand) &&
         normalizeFishStock(r.fishStock) === fishStock
       ).reduce((s, r) => s + (Number(r.remainingKg) || 0), 0);
 
@@ -516,12 +538,29 @@ function FeedDocumentation({
 
   const handleSaveEditAll = () => {
     if (!editRec) return;
+    const newM = Number(editRec.morning) || 0;
+    const newE = Number(editRec.evening) || 0;
+    const toFeed = newM + newE;
+    if (toFeed > 0 && editRec.size) {
+      const stock = getPelletStock(editRec.size, editRec.id);
+      if (!stock.exists) {
+        toast.error(`Pellet size "${editRec.size}" is not available in Feed Inventory.`);
+        return;
+      }
+      if (stock.availableKg <= 0) {
+        toast.error(`Pellet size "${editRec.size}" is empty (0 kg remaining in stock). Cannot log feeding.`);
+        return;
+      }
+      if (toFeed > stock.availableKg) {
+        toast.error(`Insufficient stock for pellet size "${editRec.size}". Available: ${Math.round(stock.availableKg * 10) / 10} kg, requested: ${toFeed} kg.`);
+        return;
+      }
+    }
     const original = (feedingRecords || []).find(r => r.id === editRec.id);
-    const newM = editRec.morning; const newE = editRec.evening;
     const hasChange = newM !== (original?.morning ?? 0) || newE !== (original?.evening ?? 0) || editRec.size !== original?.size;
     const now = new Date().toLocaleString("en", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
     const entry: FeedEditEntry = { originalMorning: original?.morning ?? 0, updatedMorning: newM, originalEvening: original?.evening ?? 0, updatedEvening: newE, editedAt: now, editedBy: currentUser?.name || "—", editedById: currentUser?.email || "" };
-    onEditFeedRecord({ ...editRec, total: newM + newE, editHistory: hasChange ? [...(editRec.editHistory || []), entry] : (editRec.editHistory || []) });
+    onEditFeedRecord({ ...editRec, morning: newM, evening: newE, total: newM + newE, editHistory: hasChange ? [...(editRec.editHistory || []), entry] : (editRec.editHistory || []) });
     setEditRec(null);
   };
 
@@ -884,10 +923,51 @@ function FeedDocumentation({
     if (!filledCount) errs.amounts = "Please enter at least one feeding amount";
     if (!bulkDate) errs.date = "Date is required";
     if (Object.keys(errs).length) { setFeedErr(errs); return; }
+
+    // Validate pellet availability across all rows being logged
+    const requestedPerSize: Record<string, number> = {};
+    for (const r of bulkRows) {
+      const m = Number(r.morning) || 0;
+      const e = Number(r.evening) || 0;
+      if (m > 0 || e > 0) {
+        if (!r.size) {
+          toast.error(`Please select a pellet size for ${r.pondName}`);
+          setFeedErr({ amounts: `Please select a pellet size for ${r.pondName}` });
+          return;
+        }
+        requestedPerSize[r.size] = (requestedPerSize[r.size] || 0) + (m + e);
+      }
+    }
+
+    const dateLabel = toDateLabel(bulkDate);
+    for (const [size, requestedKg] of Object.entries(requestedPerSize)) {
+      const existingForSizeOnDate = (feedingRecords || [])
+        .filter(x => x && (isSameDate(x.date, bulkDate) || x.date === dateLabel) && x.size === size && bulkRows.some(br => br.pondName === x.pond))
+        .reduce((s, x) => s + (Number(x.total) || ((Number(x.morning) || 0) + (Number(x.evening) || 0))), 0);
+
+      const stock = getPelletStock(size);
+      const effectiveAvailable = stock.availableKg + existingForSizeOnDate;
+
+      if (!stock.exists) {
+        toast.error(`Pellet size "${size}" is not available in Feed Inventory. Please add feed stock first.`);
+        setFeedErr({ amounts: `Pellet size "${size}" is not in Feed Inventory. Please add feed stock first.` });
+        return;
+      }
+      if (effectiveAvailable <= 0) {
+        toast.error(`Pellet size "${size}" is completely empty (0 kg remaining in stock). Please add feed stock before feeding.`);
+        setFeedErr({ amounts: `Pellet size "${size}" is completely empty (0 kg remaining in stock).` });
+        return;
+      }
+      if (requestedKg > effectiveAvailable) {
+        toast.error(`Insufficient stock for pellet size "${size}". Available: ${Math.round(effectiveAvailable * 10) / 10} kg, requested: ${requestedKg} kg.`);
+        setFeedErr({ amounts: `Requested ${requestedKg} kg of ${size}, but only ${Math.round(effectiveAvailable * 10) / 10} kg is available in stock.` });
+        return;
+      }
+    }
+
     setFeedErr({});
     setSavingFeed(true);
 
-    const dateLabel = toDateLabel(bulkDate);
     const now = new Date().toLocaleString("en", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
     const recorder = bulkBy.trim() || currentUser?.name || "Admin";
 
@@ -1268,8 +1348,8 @@ function FeedDocumentation({
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {filteredReconRows.map(r => {
-                      const rowKey = `${r.fishStock}||${r.brand}||${r.size}`;
-                      const highlighted = !!(reconFocus && reconFocus.key === `${r.fishStock}__${r.brand}__${r.size}`);
+                      const rowKey = `${r.fishStock}||${r.size}`;
+                      const highlighted = !!(reconFocus && (reconFocus.key === `${r.fishStock}__${r.size}` || reconFocus.key === `${r.fishStock}__${r.brand}__${r.size}`));
                       const sc = STATUS_CFG[r.status] || STATUS_CFG.matched;
                       const bagErr = r.status === "bag_mismatch" || r.status === "multiple_mismatches";
                       const remErr = r.status === "remaining_mismatch" || r.status === "multiple_mismatches";
@@ -1489,39 +1569,39 @@ function FeedDocumentation({
       {/* ── Bulk Feeding Log Modal (Brand removed, Fish Stock under Pond, Auto-Recorded By) ── */}
       {showLog && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-3 sm:p-6" onClick={e => e.target === e.currentTarget && setShowLog(false)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-6xl flex flex-col" style={{ maxHeight: "92vh" }}>
-            <div className="flex items-start justify-between px-6 py-4 border-b border-slate-100 shrink-0">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-6xl flex flex-col overflow-hidden" style={{ maxHeight: "92vh" }}>
+            <div className="flex items-start justify-between px-6 py-4 border-b border-slate-100 bg-white shrink-0 z-20">
               <div>
                 <h2 className="text-lg font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Log Feeding — All Ponds</h2>
                 <p className="text-xs text-slate-400 mt-0.5">Enter morning &amp; evening amounts for each pond. Fish Stock and Stocked Date are tied directly to each pond.</p>
               </div>
               <button onClick={() => setShowLog(false)} className="text-slate-400 hover:text-slate-700 p-1 ml-4 shrink-0"><X size={20} /></button>
             </div>
-            <div className="px-6 py-3 border-b border-slate-100 bg-slate-50 shrink-0 flex flex-wrap gap-4 items-end">
-              <div className="min-w-[160px]">
-                <label className="block text-[11px] font-bold text-slate-600 mb-1 uppercase tracking-wide">Date</label>
-                <DateInput value={bulkDate} onChange={handleBulkDateChange} />
-              </div>
-              <div className="min-w-[220px]">
-                <div className="flex items-center justify-between mb-1">
-                  <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wide">Recorded By</label>
-                  {currentUser?.name && (
-                    <span className="text-[10px] text-green-600 font-medium">Auto-populated</span>
-                  )}
+            <div className="flex-1 overflow-y-auto overflow-x-auto min-h-0">
+              <div className="px-6 py-3 border-b border-slate-100 bg-slate-50 flex flex-wrap gap-4 items-end">
+                <div className="min-w-[160px]">
+                  <label className="block text-[11px] font-bold text-slate-600 mb-1 uppercase tracking-wide">Date</label>
+                  <DateInput value={bulkDate} onChange={handleBulkDateChange} />
                 </div>
-                <input
-                  value={bulkBy}
-                  onChange={e => setBulkBy(e.target.value)}
-                  className={IC}
-                  placeholder={currentUser?.name || "Employee / Admin name"}
-                />
+                <div className="min-w-[220px]">
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wide">Recorded By</label>
+                    {currentUser?.name && (
+                      <span className="text-[10px] text-green-600 font-medium">Auto-populated</span>
+                    )}
+                  </div>
+                  <input
+                    value={bulkBy}
+                    onChange={e => setBulkBy(e.target.value)}
+                    className={IC}
+                    placeholder={currentUser?.name || "Employee / Admin name"}
+                  />
+                </div>
+                <div className="flex items-center gap-2 ml-auto">
+                  <span className="text-xs text-slate-400">Session time:</span>
+                  <span className="text-sm font-semibold text-slate-700 font-['Barlow_Condensed',sans-serif]">{logTime}</span>
+                </div>
               </div>
-              <div className="flex items-center gap-2 ml-auto">
-                <span className="text-xs text-slate-400">Session time:</span>
-                <span className="text-sm font-semibold text-slate-700 font-['Barlow_Condensed',sans-serif]">{logTime}</span>
-              </div>
-            </div>
-            <div className="flex-1 overflow-y-auto overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="sticky top-0 z-30 shadow-xs bg-slate-50">
                   <tr className="bg-slate-50 border-b border-slate-200">
@@ -1562,10 +1642,28 @@ function FeedDocumentation({
                             onChange={e => updateRow(row.pondId, "size", e.target.value)}
                             className={TS}
                           >
-                            {availablePelletSizes.map(s => <option key={s} value={s}>{s}</option>)}
+                            {availablePelletSizes.map(s => {
+                              const stock = getPelletStock(s);
+                              const label = !stock.exists
+                                ? `${s} (Not in stock)`
+                                : stock.availableKg <= 0
+                                  ? `${s} (Empty - 0kg)`
+                                  : `${s} (${Math.round(stock.availableKg * 10) / 10}kg available)`;
+                              return <option key={s} value={s}>{label}</option>;
+                            })}
                             {row.size && !availablePelletSizes.includes(row.size) && <option value={row.size}>{row.size}</option>}
                           </select>
                           {rowAtMax && <p className="text-[10px] font-bold mt-0.5 text-red-600">⚠ Max weight reached</p>}
+                          {(() => {
+                            const stock = getPelletStock(row.size);
+                            if (!stock.exists) {
+                              return <p className="text-[10px] font-bold mt-0.5 text-amber-600">⚠ Not in stock</p>;
+                            }
+                            if (stock.availableKg <= 0) {
+                              return <p className="text-[10px] font-bold mt-0.5 text-red-600">⚠ Empty (0 kg in stock)</p>;
+                            }
+                            return null;
+                          })()}
                         </td>
                         <td className="px-2 py-2.5"><input type="number" value={row.morning} onChange={e => updateRow(row.pondId, "morning", e.target.value)} className={TI} placeholder="0" min="0" step="0.5" /></td>
                         <td className="px-2 py-2.5"><input type="time" value={row.morningTime} onChange={e => updateRow(row.pondId, "morningTime", e.target.value)} className={`${TI} text-xs`} style={{ colorScheme: "light" }} /></td>
@@ -1794,8 +1892,27 @@ function FeedDocumentation({
             <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3">
               <F label="Feed Size (Pallet)">
                 <select value={editRec.size} onChange={e => setEditRec(p => p ? { ...p, size: e.target.value } : p)} className={SC}>
-                  {availablePelletSizes.map(s => <option key={s}>{s}</option>)}
+                  {availablePelletSizes.map(s => {
+                    const stock = getPelletStock(s, editRec.id);
+                    const label = !stock.exists
+                      ? `${s} (Not in stock)`
+                      : stock.availableKg <= 0
+                        ? `${s} (Empty - 0kg)`
+                        : `${s} (${Math.round(stock.availableKg * 10) / 10}kg available)`;
+                    return <option key={s} value={s}>{label}</option>;
+                  })}
+                  {editRec.size && !availablePelletSizes.includes(editRec.size) && <option value={editRec.size}>{editRec.size}</option>}
                 </select>
+                {(() => {
+                  const stock = getPelletStock(editRec.size, editRec.id);
+                  if (!stock.exists) {
+                    return <p className="text-xs font-bold text-amber-600 mt-1">⚠ This pellet size is not in Feed Inventory</p>;
+                  }
+                  if (stock.availableKg <= 0) {
+                    return <p className="text-xs font-bold text-red-600 mt-1">⚠ This pellet size is empty (0 kg remaining in stock)</p>;
+                  }
+                  return <p className="text-xs text-slate-500 mt-1">Stock available: {Math.round(stock.availableKg * 10) / 10} kg</p>;
+                })()}
               </F>
               <div className="grid grid-cols-2 gap-3">
                 <F label="Morning (kg)"><NumInput value={editRec.morning} onChange={v => setEditRec(p => p ? { ...p, morning: Number(v) || 0 } : p)} className={IC} placeholder="0" /></F>

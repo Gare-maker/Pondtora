@@ -221,7 +221,7 @@ const TABLE_ALLOWED_COLUMNS: Record<string, Set<string>> = {
   ]),
   staff_members: new Set([
     "id", "user_id", "staff_auth_id", "name", "email", "phone", "role", "status",
-    "joined_date", "permissions", "farms", "staff_permissions", "created_at", "updated_at"
+    "joined_date", "permissions", "farms", "created_at", "updated_at"
   ]),
   ponds: new Set([
     "id", "user_id", "farm_id", "name", "type", "species", "size_m2", "initial_stock",
@@ -505,13 +505,6 @@ export async function getUserId(): Promise<string> {
     const { data: { session } } = await supabase.auth.getSession();
     if (session?.user?.id && isUuid(session.user.id)) return session.user.id;
   } catch {}
-  try {
-    const raw = localStorage.getItem("pondtora_user_profile");
-    if (raw) {
-      const p = JSON.parse(raw);
-      if (p?.id && isUuid(p.id)) return p.id;
-    }
-  } catch {}
   return "";
 }
 
@@ -521,7 +514,7 @@ export async function getOwnerUserId(): Promise<string> {
 
   // 1. Check if user profile has an ownerId or role
   try {
-    const raw = localStorage.getItem(`pondtora_${currentUid}_user_profile`) || localStorage.getItem("pondtora_user_profile");
+    const raw = localStorage.getItem(`pondtora_${currentUid}_user_profile`);
     if (raw) {
       const p = JSON.parse(raw);
       if (p?.ownerId && isUuid(p.ownerId)) return p.ownerId;
@@ -648,18 +641,31 @@ export async function verifyStaffActionPermission(table: string, action: "canCre
   if (!feature) return;
 
   try {
+    let staffMemberId: string | null = null;
+    const { data: staffRow } = await supabase
+      .from("staff_members")
+      .select("id")
+      .or(`id.eq.${currentUid},staff_auth_id.eq.${currentUid}`)
+      .maybeSingle();
+    if (staffRow?.id) {
+      staffMemberId = staffRow.id;
+    }
+    const queryStaffId = staffMemberId || currentUid;
+
     const { data: permRow } = await supabase
       .from("staff_permissions")
       .select("can_create, can_edit, can_delete, can_view")
-      .eq("staff_id", currentUid)
+      .eq("staff_id", queryStaffId)
       .eq("feature", feature)
       .maybeSingle();
 
     if (permRow) {
-      const allowed = action === "canCreate" ? (permRow.can_create ?? true) : action === "canEdit" ? (permRow.can_edit ?? true) : (permRow.can_delete ?? false);
+      const allowed = action === "canCreate" ? Boolean(permRow.can_create) : action === "canEdit" ? Boolean(permRow.can_edit) : Boolean(permRow.can_delete);
       if (allowed === false) {
         throw new Error(`Unauthorized: You do not have permission to ${action === "canCreate" ? "create" : action === "canEdit" ? "edit" : "delete"} records in ${feature}.`);
       }
+    } else {
+      throw new Error(`Unauthorized: You do not have permission to ${action === "canCreate" ? "create" : action === "canEdit" ? "edit" : "delete"} records in ${feature}.`);
     }
   } catch (err: any) {
     if (err?.message && err.message.startsWith("Unauthorized")) throw err;
@@ -674,10 +680,21 @@ export async function verifyFarmAccess(farmId?: string): Promise<void> {
   const isStaffCaller = ownerUid && ownerUid !== currentUid;
 
   if (isStaffCaller) {
+    let staffMemberId: string | null = null;
+    const { data: staffRow } = await supabase
+      .from("staff_members")
+      .select("id")
+      .or(`id.eq.${currentUid},staff_auth_id.eq.${currentUid}`)
+      .maybeSingle();
+    if (staffRow?.id) {
+      staffMemberId = staffRow.id;
+    }
+    const queryStaffId = staffMemberId || currentUid;
+
     const { data: sfa } = await supabase
       .from("staff_farm_assignments")
       .select("farm_id")
-      .eq("staff_id", currentUid)
+      .eq("staff_id", queryStaffId)
       .eq("farm_id", farmId)
       .maybeSingle();
     if (!sfa) {
@@ -706,6 +723,10 @@ async function dbList<T>(table: string, cacheKey?: string): Promise<T[]> {
   try {
     let query = supabase.from(table).select("*");
 
+    if (TABLE_ALLOWED_COLUMNS[table]?.has("user_id")) {
+      query = query.eq("user_id", effectiveUserId);
+    }
+
     if (table === "farms") {
       if (isStaffCaller) {
         const { data: sfa } = await supabase.from("staff_farm_assignments").select("farm_id").eq("staff_id", userId);
@@ -721,19 +742,11 @@ async function dbList<T>(table: string, cacheKey?: string): Promise<T[]> {
       } else {
         query = query.eq("user_id", userId);
       }
-    } else if (TABLE_ALLOWED_COLUMNS[table]?.has("farm_id")) {
-      let accessibleFarms: string[] = [];
-      if (isStaffCaller) {
-        const { data: sfa } = await supabase.from("staff_farm_assignments").select("farm_id").eq("staff_id", userId);
-        accessibleFarms = (sfa || []).map((r: any) => r.farm_id).filter(isUuid);
-      } else {
-        const { data: uFarms } = await supabase.from("farms").select("id").eq("user_id", userId);
-        accessibleFarms = (uFarms || []).map((r: any) => r.id).filter(isUuid);
-      }
+    } else if (isStaffCaller && TABLE_ALLOWED_COLUMNS[table]?.has("farm_id")) {
+      const { data: sfa } = await supabase.from("staff_farm_assignments").select("farm_id").eq("staff_id", userId);
+      const accessibleFarms = (sfa || []).map((r: any) => r.farm_id).filter(isUuid);
       if (accessibleFarms.length === 0) return [];
       query = query.in("farm_id", accessibleFarms);
-    } else if (TABLE_ALLOWED_COLUMNS[table]?.has("user_id")) {
-      query = query.eq("user_id", effectiveUserId);
     }
 
     const { data, error } = await query;
@@ -750,6 +763,17 @@ async function dbList<T>(table: string, cacheKey?: string): Promise<T[]> {
     }
     return [];
   }
+}
+
+function extractMissingColumn(msg?: string): string | null {
+  if (!msg) return null;
+  const m1 = msg.match(/Could not find the '([^']+)' column/i);
+  if (m1 && m1[1]) return m1[1];
+  const m2 = msg.match(/column\s+(?:[a-zA-Z0-9_]+\.)?"?([a-zA-Z0-9_]+)"?\s+does not exist/i);
+  if (m2 && m2[1]) return m2[1];
+  const m3 = msg.match(/column\s+"?([a-zA-Z0-9_]+)"?\s+of relation/i);
+  if (m3 && m3[1]) return m3[1];
+  return null;
 }
 
 async function dbInsert<T extends { id?: string }>(table: string, item: T, cacheKey?: string): Promise<T> {
@@ -810,12 +834,12 @@ async function dbInsert<T extends { id?: string }>(table: string, item: T, cache
     let { data, error } = await supabase.from(table).upsert(snake).select().maybeSingle();
     // Auto-heal if columns don't exist in user's Postgres schema (e.g. permissions, farms on staff_members)
     let healAttempts = 0;
-    while (error && error.message && error.message.includes("column") && error.message.includes("does not exist") && healAttempts < 6) {
-      healAttempts++;
-      const match = error.message.match(/column "([^"]+)"/);
-      if (match && match[1]) {
-        console.warn(`Column ${match[1]} does not exist on ${table}, stripping and retrying...`);
-        delete snake[match[1]];
+    while (error && error.message && healAttempts < 8) {
+      const missingCol = extractMissingColumn(error.message);
+      if (missingCol && snake[missingCol] !== undefined) {
+        healAttempts++;
+        console.warn(`Column ${missingCol} does not exist on ${table}, stripping and retrying...`);
+        delete snake[missingCol];
         const retry = await supabase.from(table).upsert(snake).select().maybeSingle();
         data = retry.data;
         error = retry.error;
@@ -895,15 +919,23 @@ async function dbUpdate<T extends { id?: string }>(table: string, item: T, cache
 
   try {
     if (targetId) {
-      let { data, error } = await supabase.from(table).update(snake).eq("id", targetId).select().maybeSingle();
+      let updateQuery = supabase.from(table).update(snake).eq("id", targetId);
+      if (TABLE_ALLOWED_COLUMNS[table]?.has("user_id")) {
+        updateQuery = updateQuery.eq("user_id", effectiveUserId);
+      }
+      let { data, error } = await updateQuery.select().maybeSingle();
       let healAttempts = 0;
-      while (error && error.message && error.message.includes("column") && error.message.includes("does not exist") && healAttempts < 6) {
-        healAttempts++;
-        const match = error.message.match(/column "([^"]+)"/);
-        if (match && match[1]) {
-          console.warn(`Column ${match[1]} does not exist on ${table}, stripping and retrying update...`);
-          delete snake[match[1]];
-          const retry = await supabase.from(table).update(snake).eq("id", targetId).select().maybeSingle();
+      while (error && error.message && healAttempts < 8) {
+        const missingCol = extractMissingColumn(error.message);
+        if (missingCol && snake[missingCol] !== undefined) {
+          healAttempts++;
+          console.warn(`Column ${missingCol} does not exist on ${table}, stripping and retrying update...`);
+          delete snake[missingCol];
+          let retryQuery = supabase.from(table).update(snake).eq("id", targetId);
+          if (TABLE_ALLOWED_COLUMNS[table]?.has("user_id")) {
+            retryQuery = retryQuery.eq("user_id", effectiveUserId);
+          }
+          const retry = await retryQuery.select().maybeSingle();
           data = retry.data;
           error = retry.error;
         } else {
@@ -911,7 +943,8 @@ async function dbUpdate<T extends { id?: string }>(table: string, item: T, cache
         }
       }
       if (!data && !error) {
-        // Row might not exist in Supabase yet (saved locally) — insert/upsert it
+        // Row might not exist in Supabase yet (saved locally) — insert/upsert it with ownership
+        snake.user_id = effectiveUserId;
         const upsertRes = await supabase.from(table).upsert({ ...snake, id: targetId }).select().maybeSingle();
         data = upsertRes.data;
         error = upsertRes.error;
@@ -929,11 +962,36 @@ async function dbUpdate<T extends { id?: string }>(table: string, item: T, cache
   }
 }
 
+const TABLE_STORAGE_KEY_MAP: Record<string, string> = {
+  feed_inventory: "inventory",
+  feeding_records: "feeding",
+  bag_open_logs: "bag_logs",
+  feed_remaining_logs: "remain_logs",
+  mortality_entries: "mortality",
+  treatment_records: "treatments",
+  staff_members: "staff",
+  stock_events: "stock_events",
+  reports: "reports",
+  pond_reports: "pond_reports",
+  invoices: "invoices",
+  price_groups: "price_groups",
+  customers: "customers",
+  investors: "investors",
+  investments: "investments",
+  investment_payments: "investment_payments",
+  ponds: "ponds",
+  farms: "farms",
+  expenses: "expenses",
+  revenues: "revenues",
+};
+
 async function dbDelete(table: string, id: string, cacheKey?: string): Promise<{ success: boolean }> {
   await verifyStaffActionPermission(table, "canDelete");
 
   const userId = await getUserId();
   const ownerId = await getOwnerUserId();
+  const effectiveUserId = ownerId || userId;
+  if (!effectiveUserId) throw new Error("Unauthorized: No authenticated user session.");
   const targetId = isUuid(id) ? id : (idMap.get(id) || toUuid(id));
 
   // Staff report protection: submitted staff reports cannot be destroyed
@@ -951,35 +1009,43 @@ async function dbDelete(table: string, id: string, cacheKey?: string): Promise<{
     }
   }
 
-  // Update local cache scoped to current user and owner immediately
-  const updateCacheForUid = (uid: string) => {
-    if (cacheKey) {
-      const cached = getLocalCache(uid) || {};
-      const list = cached[cacheKey] || [];
-      saveLocalCache({ [cacheKey]: list.filter((x: any) => x.id !== id && x.id !== targetId) }, uid);
-    }
-    try {
-      const directKey = `pondtora_${uid}_${table}`;
-      const direct = localStorage.getItem(directKey);
-      if (direct) {
-        const parsed = JSON.parse(direct);
-        if (Array.isArray(parsed)) {
-          localStorage.setItem(directKey, JSON.stringify(parsed.filter((x: any) => x.id !== id && x.id !== targetId)));
-        }
-      }
-    } catch {}
-  };
-
-  if (userId) updateCacheForUid(userId);
-  if (ownerId && ownerId !== userId) updateCacheForUid(ownerId);
-
   try {
+    // Delete strictly by primary key id (UUID)
     const { error } = await supabase.from(table).delete().eq("id", targetId);
-    if (error) console.warn(`Supabase delete from ${table} failed:`, error.message);
-    return { success: !error };
-  } catch (e) {
-    console.warn(`Failed to delete from ${table}:`, e);
-    return { success: false };
+    if (error) {
+      console.error(`Supabase delete from ${table} failed:`, error.message);
+      throw new Error(error.message || `Failed to delete from ${table}`);
+    }
+
+    // Update local cache scoped to current user and owner on successful deletion
+    const updateCacheForUid = (uid: string) => {
+      if (cacheKey) {
+        const cached = getLocalCache(uid) || {};
+        const list = cached[cacheKey] || [];
+        saveLocalCache({ [cacheKey]: list.filter((x: any) => x.id !== id && x.id !== targetId) }, uid);
+      }
+      const keysToClean = new Set([table, TABLE_STORAGE_KEY_MAP[table]].filter(Boolean));
+      keysToClean.forEach(k => {
+        try {
+          const directKey = `pondtora_${uid}_${k}`;
+          const direct = localStorage.getItem(directKey);
+          if (direct) {
+            const parsed = JSON.parse(direct);
+            if (Array.isArray(parsed)) {
+              localStorage.setItem(directKey, JSON.stringify(parsed.filter((x: any) => x.id !== id && x.id !== targetId)));
+            }
+          }
+        } catch {}
+      });
+    };
+
+    if (userId) updateCacheForUid(userId);
+    if (ownerId && ownerId !== userId) updateCacheForUid(ownerId);
+
+    return { success: true };
+  } catch (e: any) {
+    console.error(`Failed to delete from ${table}:`, e);
+    throw e;
   }
 }
 
@@ -1123,16 +1189,31 @@ export const api = {
 
         // Query permissions for this staff member
         const { data: sPermRows } = await safeQuery(supabase.from("staff_permissions").select("*").eq("staff_id", staffMember.id));
-        (sPermRows || []).forEach((p: any) => {
-          staffPermsMap[p.feature] = {
-            canView: p.can_view ?? true,
-            canCreate: p.can_create ?? true,
-            canEdit: p.can_edit ?? true,
-            canDelete: p.can_delete ?? false,
-          };
-        });
+        if (sPermRows && sPermRows.length > 0) {
+          (sPermRows || []).forEach((p: any) => {
+            staffPermsMap[p.feature] = {
+              canView: p.can_view ?? true,
+              canCreate: Boolean(p.can_create),
+              canEdit: Boolean(p.can_edit),
+              canDelete: Boolean(p.can_delete),
+            };
+          });
+        } else if (staffMember.staffPermissions && Object.keys(staffMember.staffPermissions).length > 0) {
+          Object.assign(staffPermsMap, staffMember.staffPermissions);
+        } else if (Array.isArray(staffMember.permissions) && staffMember.permissions.length > 0) {
+          staffMember.permissions.forEach((feat: string) => {
+            staffPermsMap[feat] = {
+              canView: true,
+              canCreate: false,
+              canEdit: false,
+              canDelete: false,
+            };
+          });
+        }
         staffMember.staffPermissions = staffPermsMap;
-        staffMember.permissions = Object.keys(staffPermsMap).filter(k => staffPermsMap[k].canView);
+        if (Object.keys(staffPermsMap).length > 0) {
+          staffMember.permissions = Object.keys(staffPermsMap).filter(k => staffPermsMap[k].canView);
+        }
       } else {
         // OWNER: Strictly fetch farms owned by this user
         const { data: ownerFarms } = await safeQuery(
@@ -1144,7 +1225,16 @@ export const api = {
       accessibleFarmIds = farms.map(f => f.id).filter(isUuid);
       const canStaffView = (feat: string): boolean => !isStaff || (staffPermsMap[feat]?.canView ?? true);
 
-      // 2. Query datasets strictly scoped to accessibleFarmIds and view permissions
+      // 2. Query datasets strictly scoped to effectiveOwnerId and accessibleFarmIds
+      const farmScope = (tbl: string) => {
+        let q = supabase.from(tbl).select("*").eq("user_id", effectiveOwnerId);
+        if (isStaff) {
+          if (accessibleFarmIds.length === 0) return Promise.resolve({ data: [] });
+          q = q.in("farm_id", accessibleFarmIds);
+        }
+        return safeQuery(q);
+      };
+
       const [
         pondsRes, stockRes, invRes, feedRes,
         bagRes, remainRes, expRes, revRes, mortRes, treatRes,
@@ -1152,39 +1242,42 @@ export const api = {
         kqRes, cqRes, krRes, crRes,
         investorsRes, investmentsRes, invPayRes, pondRepRes
       ] = await Promise.all([
-        canStaffView("Pond Management") && accessibleFarmIds.length > 0 ? safeQuery(supabase.from("ponds").select("*").in("farm_id", accessibleFarmIds)) : Promise.resolve({ data: [] }),
-        canStaffView("Pond Management") && accessibleFarmIds.length > 0 ? safeQuery(supabase.from("stock_events").select("*").in("farm_id", accessibleFarmIds)) : Promise.resolve({ data: [] }),
-        canStaffView("Feed Stock") && accessibleFarmIds.length > 0 ? safeQuery(supabase.from("feed_inventory").select("*").in("farm_id", accessibleFarmIds)) : Promise.resolve({ data: [] }),
-        canStaffView("Feeding Records") && accessibleFarmIds.length > 0 ? safeQuery(supabase.from("feeding_records").select("*").in("farm_id", accessibleFarmIds)) : Promise.resolve({ data: [] }),
-        canStaffView("Feed Stock") && accessibleFarmIds.length > 0 ? safeQuery(supabase.from("bag_open_logs").select("*").in("farm_id", accessibleFarmIds)) : Promise.resolve({ data: [] }),
-        canStaffView("Feed Stock") && accessibleFarmIds.length > 0 ? safeQuery(supabase.from("feed_remaining_logs").select("*").in("farm_id", accessibleFarmIds)) : Promise.resolve({ data: [] }),
-        canStaffView("Financial Dashboard") && accessibleFarmIds.length > 0 ? safeQuery(supabase.from("expenses").select("*").in("farm_id", accessibleFarmIds)) : Promise.resolve({ data: [] }),
-        canStaffView("Financial Dashboard") && accessibleFarmIds.length > 0 ? safeQuery(supabase.from("revenues").select("*").in("farm_id", accessibleFarmIds)) : Promise.resolve({ data: [] }),
-        canStaffView("Pond Management") && accessibleFarmIds.length > 0 ? safeQuery(supabase.from("mortality_entries").select("*").in("farm_id", accessibleFarmIds)) : Promise.resolve({ data: [] }),
-        canStaffView("Pond Management") && accessibleFarmIds.length > 0 ? safeQuery(supabase.from("treatment_records").select("*").in("farm_id", accessibleFarmIds)) : Promise.resolve({ data: [] }),
+        canStaffView("Pond Management") ? farmScope("ponds") : Promise.resolve({ data: [] }),
+        canStaffView("Pond Management") ? farmScope("stock_events") : Promise.resolve({ data: [] }),
+        canStaffView("Feed Stock") ? farmScope("feed_inventory") : Promise.resolve({ data: [] }),
+        canStaffView("Feeding Records") ? farmScope("feeding_records") : Promise.resolve({ data: [] }),
+        canStaffView("Feed Stock") ? farmScope("bag_open_logs") : Promise.resolve({ data: [] }),
+        canStaffView("Feed Stock") ? farmScope("feed_remaining_logs") : Promise.resolve({ data: [] }),
+        canStaffView("Financial Dashboard") ? farmScope("expenses") : Promise.resolve({ data: [] }),
+        canStaffView("Financial Dashboard") ? farmScope("revenues") : Promise.resolve({ data: [] }),
+        canStaffView("Pond Management") ? farmScope("mortality_entries") : Promise.resolve({ data: [] }),
+        canStaffView("Pond Management") ? farmScope("treatment_records") : Promise.resolve({ data: [] }),
         !isStaff ? safeQuery(supabase.from("staff_members").select("*").eq("user_id", userId)) : Promise.resolve({ data: staffMember ? [staffMember] : [] }),
         !isStaff && accessibleFarmIds.length > 0 ? safeQuery(supabase.from("staff_farm_assignments").select("*").in("farm_id", accessibleFarmIds)) : Promise.resolve({ data: [] }),
         !isStaff ? safeQuery(supabase.from("staff_permissions").select("*")) : Promise.resolve({ data: [] }),
-        canStaffView("Reports") && accessibleFarmIds.length > 0 ? safeQuery(supabase.from("reports").select("*").in("farm_id", accessibleFarmIds)) : Promise.resolve({ data: [] }),
-        canStaffView("Invoices") && accessibleFarmIds.length > 0 ? safeQuery(supabase.from("customers").select("*").in("farm_id", accessibleFarmIds)) : Promise.resolve({ data: [] }),
-        canStaffView("Invoices") && accessibleFarmIds.length > 0 ? safeQuery(supabase.from("price_groups").select("*").in("farm_id", accessibleFarmIds)) : Promise.resolve({ data: [] }),
-        canStaffView("Invoices") && accessibleFarmIds.length > 0 ? safeQuery(supabase.from("invoices").select("*").in("farm_id", accessibleFarmIds)) : Promise.resolve({ data: [] }),
+        canStaffView("Reports") ? farmScope("reports") : Promise.resolve({ data: [] }),
+        canStaffView("Invoices") ? farmScope("customers") : Promise.resolve({ data: [] }),
+        canStaffView("Invoices") ? farmScope("price_groups") : Promise.resolve({ data: [] }),
+        canStaffView("Invoices") ? farmScope("invoices") : Promise.resolve({ data: [] }),
         safeQuery(supabase.from("invoice_settings").select("*").eq("user_id", effectiveOwnerId)),
         safeQuery(supabase.from("knowledge_questions").select("*")),
         safeQuery(supabase.from("compatibility_questions").select("*")),
         safeQuery(supabase.from("knowledge_results").select("*")),
         safeQuery(supabase.from("compatibility_results").select("*")),
-        canStaffView("Investors") && accessibleFarmIds.length > 0 ? safeQuery(supabase.from("investors").select("*").in("farm_id", accessibleFarmIds)) : Promise.resolve({ data: [] }),
-        canStaffView("Investors") && accessibleFarmIds.length > 0 ? safeQuery(supabase.from("investments").select("*").in("farm_id", accessibleFarmIds)) : Promise.resolve({ data: [] }),
-        canStaffView("Investors") && accessibleFarmIds.length > 0 ? safeQuery(supabase.from("investment_payments").select("*").in("farm_id", accessibleFarmIds)) : Promise.resolve({ data: [] }),
-        canStaffView("Reports") && accessibleFarmIds.length > 0 ? safeQuery(supabase.from("pond_reports").select("*").in("farm_id", accessibleFarmIds)) : Promise.resolve({ data: [] }),
+        canStaffView("Investors") ? farmScope("investors") : Promise.resolve({ data: [] }),
+        canStaffView("Investors") ? farmScope("investments") : Promise.resolve({ data: [] }),
+        canStaffView("Investors") ? farmScope("investment_payments") : Promise.resolve({ data: [] }),
+        canStaffView("Reports") ? farmScope("pond_reports") : Promise.resolve({ data: [] }),
       ]);
 
       const extract = <T,>(res: any, cacheKey: string, mapper: (r: any) => T): T[] => {
         if (res && !res.error && Array.isArray(res.data)) {
           return res.data.map(mapper);
         }
-        if (cached && Array.isArray(cached[cacheKey]) && cached[cacheKey].length > 0) {
+        if (res?.error) {
+          console.warn(`Error extracting ${cacheKey}:`, res.error);
+        }
+        if (cached && Array.isArray(cached[cacheKey]) && cached[cacheKey].length > 0 && res?.error) {
           return cached[cacheKey];
         }
         return (res?.data || []).map(mapper);
@@ -1210,18 +1303,25 @@ export const api = {
           sPermRows.forEach((p: any) => {
             sStaffPerms[p.feature] = {
               canView: p.can_view ?? true,
-              canCreate: p.can_create ?? true,
-              canEdit: p.can_edit ?? true,
-              canDelete: p.can_delete ?? false,
+              canCreate: Boolean(p.can_create),
+              canEdit: Boolean(p.can_edit),
+              canDelete: Boolean(p.can_delete),
             };
           });
           const cachedStaffItem = cachedStaff.find((c: any) => c.id === s.id);
+          const resolvedFarms = (s.farms && s.farms.length > 0) ? s.farms : (sFarms.length > 0 ? sFarms : (cachedStaffItem?.farms || []));
+          const resolvedStaffPerms = (Object.keys(sStaffPerms).length > 0)
+            ? sStaffPerms
+            : ((s.staffPermissions && Object.keys(s.staffPermissions).length > 0) ? s.staffPermissions : (cachedStaffItem?.staffPermissions || {}));
+          const resolvedPerms = (sPerms.length > 0)
+            ? sPerms
+            : ((s.permissions && s.permissions.length > 0) ? s.permissions : (cachedStaffItem?.permissions || []));
           return {
             ...s,
             status: s.status || "Pending",
-            farms: (s.farms && s.farms.length > 0) ? s.farms : (sFarms.length > 0 ? sFarms : (cachedStaffItem?.farms || [])),
-            permissions: (s.permissions && s.permissions.length > 0) ? s.permissions : (sPerms.length > 0 ? sPerms : (cachedStaffItem?.permissions || [])),
-            staffPermissions: (s.staffPermissions && Object.keys(s.staffPermissions).length > 0) ? s.staffPermissions : (Object.keys(sStaffPerms).length > 0 ? sStaffPerms : (cachedStaffItem?.staffPermissions || {})),
+            farms: resolvedFarms,
+            permissions: resolvedPerms,
+            staffPermissions: resolvedStaffPerms,
           };
         });
       } else if (staffMember) {
@@ -1570,6 +1670,7 @@ export const api = {
               owner_id: userId,
               staff_id: staffId,
               permissions: opts.permissions || [],
+              staff_permissions: opts.staffPermissions || {},
               farms: opts.farms || [],
               farm_name: opts.farmName || "",
             },
@@ -1684,7 +1785,10 @@ export const api = {
       };
 
       // 3. Insert/upsert into staff_members table
-      await dbInsert<StaffMember>("staff_members", staffMember, "staffMembers");
+      const cleanStaffMember = { ...staffMember };
+      delete (cleanStaffMember as any).staffPermissions;
+      delete (cleanStaffMember as any).staff_permissions;
+      await dbInsert<StaffMember>("staff_members", cleanStaffMember, "staffMembers");
 
       if (staffAuthId) {
         try {
@@ -1733,16 +1837,31 @@ export const api = {
             return {
               staff_id: staffMember.id,
               feature: feat,
-              can_view: custom?.canView ?? true,
-              can_create: custom?.canCreate ?? true,
-              can_edit: custom?.canEdit ?? true,
-              can_delete: custom?.canDelete ?? false,
+              can_view: custom ? (custom.canView ?? true) : true,
+              can_create: custom ? Boolean(custom.canCreate) : false,
+              can_edit: custom ? Boolean(custom.canEdit) : false,
+              can_delete: custom ? Boolean(custom.canDelete) : false,
             };
           });
           await supabase.from("staff_permissions").insert(permRows);
         } catch (e) {
           console.warn("Could not insert staff_permissions:", e);
         }
+      }
+
+      if (userId) {
+        const cached = getLocalCache(userId) || {};
+        const list = cached.staffMembers || [];
+        saveLocalCache({ staffMembers: [staffMember, ...list.filter((x: any) => x.id !== staffMember.id)] }, userId);
+        try {
+          const direct = localStorage.getItem(`pondtora_${userId}_staff`);
+          if (direct) {
+            const parsed = JSON.parse(direct);
+            if (Array.isArray(parsed)) {
+              localStorage.setItem(`pondtora_${userId}_staff`, JSON.stringify([staffMember, ...parsed.filter((x: any) => x.id !== staffMember.id)]));
+            }
+          }
+        } catch {}
       }
 
       // Also create staff_invitations row for tracking
@@ -1759,7 +1878,11 @@ export const api = {
       return { success: true, staffMember, invitation: null, emailSent, emailError, inviteLink: loginUrl };
     },
     update: async (s: StaffMember, password?: string) => {
-      const res = await dbUpdate<StaffMember>("staff_members", s, "staffMembers");
+      const cleanStaff = { ...s };
+      delete (cleanStaff as any).staffPermissions;
+      delete (cleanStaff as any).staff_permissions;
+
+      const res = await dbUpdate<StaffMember>("staff_members", cleanStaff, "staffMembers");
       const userId = await getUserId();
       const targetId = (s.id && isUuid(s.id)) ? s.id : (idMap.get(s.id) || toUuid(s.id));
 
@@ -1793,29 +1916,49 @@ export const api = {
               );
             }
           }
-        } catch {}
+        } catch (e) {
+          console.warn("Error updating staff_farm_assignments:", e);
+        }
       }
       if (s.permissions !== undefined) {
         try {
           await supabase.from("staff_permissions").delete().eq("staff_id", targetId);
           if (s.permissions.length > 0) {
-            await supabase.from("staff_permissions").insert(
-              s.permissions.map(feat => {
-                const custom = s.staffPermissions?.[feat];
-                return {
-                  staff_id: targetId,
-                  feature: feat,
-                  can_view: custom?.canView ?? true,
-                  can_create: custom?.canCreate ?? true,
-                  can_edit: custom?.canEdit ?? true,
-                  can_delete: custom?.canDelete ?? false,
-                };
-              })
-            );
+            const permRows = s.permissions.map(feat => {
+              const custom = s.staffPermissions?.[feat];
+              return {
+                staff_id: targetId,
+                feature: feat,
+                can_view: custom ? (custom.canView ?? true) : true,
+                can_create: custom ? Boolean(custom.canCreate) : false,
+                can_edit: custom ? Boolean(custom.canEdit) : false,
+                can_delete: custom ? Boolean(custom.canDelete) : false,
+              };
+            });
+            const { error: insErr } = await supabase.from("staff_permissions").insert(permRows);
+            if (insErr) console.warn("Error inserting staff_permissions:", insErr);
+          }
+        } catch (e) {
+          console.warn("Error updating staff_permissions:", e);
+        }
+      }
+
+      if (userId) {
+        const cached = getLocalCache(userId) || {};
+        const list = cached.staffMembers || [];
+        saveLocalCache({ staffMembers: list.map((x: any) => (x.id === s.id || x.id === targetId ? { ...x, ...s } : x)) }, userId);
+        try {
+          const direct = localStorage.getItem(`pondtora_${userId}_staff`);
+          if (direct) {
+            const parsed = JSON.parse(direct);
+            if (Array.isArray(parsed)) {
+              localStorage.setItem(`pondtora_${userId}_staff`, JSON.stringify(parsed.map((x: any) => (x.id === s.id || x.id === targetId ? { ...x, ...s } : x))));
+            }
           }
         } catch {}
       }
-      return res;
+
+      return { ...res, staffPermissions: s.staffPermissions };
     },
     remove: async (id: string) => {
       const userId = await getUserId();
@@ -2017,6 +2160,36 @@ export const api = {
         const d = toValidDbDate(r.date);
         if (d) dbRec.date = d;
       }
+      // Check pellet stock availability
+      if (dbRec.size) {
+        const effectiveUid = (await getOwnerUserId()) || (await getUserId());
+        if (effectiveUid) {
+          const { data: invRows } = await supabase
+            .from("feed_inventory")
+            .select("size, bags, weight_per_bag, total_kg")
+            .eq("user_id", effectiveUid)
+            .eq("size", dbRec.size);
+          const totalPurchasedKg = (invRows || []).reduce((s: number, f: any) => s + (Number(f.total_kg) || (Number(f.bags) * (Number(f.weight_per_bag) || 15))), 0);
+          const totalPurchasedBags = (invRows || []).reduce((s: number, f: any) => s + (Number(f.bags) || 0), 0);
+          if (!invRows || invRows.length === 0 || (totalPurchasedBags <= 0 && totalPurchasedKg <= 0)) {
+            throw new Error(`Pellet size "${dbRec.size}" is out of stock / empty in Feed Inventory. Please purchase and record feed stock before logging feeding.`);
+          }
+          const { data: fedRows } = await supabase
+            .from("feeding_records")
+            .select("morning, evening, total")
+            .eq("user_id", effectiveUid)
+            .eq("size", dbRec.size);
+          const totalFedKg = (fedRows || []).reduce((s: number, fr: any) => s + (Number(fr.total) || ((Number(fr.morning) || 0) + (Number(fr.evening) || 0))), 0);
+          const availableKg = totalPurchasedKg - totalFedKg;
+          if (availableKg <= 0) {
+            throw new Error(`Pellet size "${dbRec.size}" is completely empty (0 kg remaining in stock). Please add feed stock before feeding.`);
+          }
+          const toFeed = (Number(dbRec.morning) || 0) + (Number(dbRec.evening) || 0);
+          if (toFeed > availableKg) {
+            throw new Error(`Insufficient stock for pellet size "${dbRec.size}". Available: ${Math.round(availableKg * 10) / 10} kg, but attempting to feed ${toFeed} kg.`);
+          }
+        }
+      }
       return dbInsert<FeedingRecord>("feeding_records", dbRec as FeedingRecord, "feedingRecords");
     },
     update: async (r: FeedingRecord) => {
@@ -2024,6 +2197,35 @@ export const api = {
       if (r.date) {
         const d = toValidDbDate(r.date);
         if (d) dbRec.date = d;
+      }
+      if (dbRec.size) {
+        const effectiveUid = (await getOwnerUserId()) || (await getUserId());
+        if (effectiveUid) {
+          const { data: invRows } = await supabase
+            .from("feed_inventory")
+            .select("size, bags, weight_per_bag, total_kg")
+            .eq("user_id", effectiveUid)
+            .eq("size", dbRec.size);
+          const totalPurchasedKg = (invRows || []).reduce((s: number, f: any) => s + (Number(f.total_kg) || (Number(f.bags) * (Number(f.weight_per_bag) || 15))), 0);
+          const totalPurchasedBags = (invRows || []).reduce((s: number, f: any) => s + (Number(f.bags) || 0), 0);
+          if (!invRows || invRows.length === 0 || (totalPurchasedBags <= 0 && totalPurchasedKg <= 0)) {
+            throw new Error(`Pellet size "${dbRec.size}" is out of stock / empty in Feed Inventory. Please purchase and record feed stock before logging feeding.`);
+          }
+          const { data: fedRows } = await supabase
+            .from("feeding_records")
+            .select("id, morning, evening, total")
+            .eq("user_id", effectiveUid)
+            .eq("size", dbRec.size);
+          const totalFedKg = (fedRows || []).filter((fr: any) => fr.id !== dbRec.id).reduce((s: number, fr: any) => s + (Number(fr.total) || ((Number(fr.morning) || 0) + (Number(fr.evening) || 0))), 0);
+          const availableKg = totalPurchasedKg - totalFedKg;
+          const toFeed = (Number(dbRec.morning) || 0) + (Number(dbRec.evening) || 0);
+          if (availableKg <= 0) {
+            throw new Error(`Pellet size "${dbRec.size}" is completely empty (0 kg remaining in stock). Please add feed stock before feeding.`);
+          }
+          if (toFeed > availableKg) {
+            throw new Error(`Insufficient stock for pellet size "${dbRec.size}". Available: ${Math.round(availableKg * 10) / 10} kg, but attempting to feed ${toFeed} kg.`);
+          }
+        }
       }
       return dbUpdate<FeedingRecord>("feeding_records", dbRec, "feedingRecords");
     },

@@ -646,7 +646,12 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
                   <td className="px-4 py-3.5 text-slate-500">{fmt(row.costPerBag)}</td>
                   <td className="px-4 py-3.5 font-bold text-green-700 font-['Barlow_Condensed',sans-serif]">{fmt(row.bags*row.costPerBag)}</td>
                   <td className="px-4 py-3.5 text-slate-400 text-xs">{row.supplier||"—"}</td>
-                  <td className="px-4 py-3.5">{canEdit&&(isPurchaseEditable(row.purchaseDate)?<button onClick={()=>setEditPurchase({...row})} className="p-1.5 rounded-lg text-slate-300 hover:text-green-600 hover:bg-green-50 transition-colors" title="Edit"><Pencil size={13}/></button>:<button onClick={()=>alert("This record can only be edited by an Administrator or Manager after 24 hours.")} className="p-1.5 rounded-lg text-slate-200 cursor-not-allowed" title="Locked after 24 hours"><Lock size={13}/></button>)}</td>
+                  <td className="px-4 py-3.5 whitespace-nowrap">
+                    <div className="flex items-center gap-1">
+                      {canEdit&&(isPurchaseEditable(row.purchaseDate)?<button onClick={()=>setEditPurchase({...row})} className="p-1.5 rounded-lg text-slate-300 hover:text-green-600 hover:bg-green-50 transition-colors" title="Edit"><Pencil size={13}/></button>:<button onClick={()=>alert("This record can only be edited by an Administrator or Manager after 24 hours.")} className="p-1.5 rounded-lg text-slate-200 cursor-not-allowed" title="Locked after 24 hours"><Lock size={13}/></button>)}
+                      {canDelete&&<button onClick={()=>{if(confirm(`Are you sure you want to delete this purchase record (${row.brand} ${row.size})?`))onDelete(row.id);}} className="p-1.5 rounded-lg text-slate-300 hover:text-red-600 hover:bg-red-50 transition-colors" title="Delete purchase"><Trash2 size={13}/></button>}
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>
