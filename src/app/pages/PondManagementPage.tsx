@@ -156,7 +156,12 @@ function PondDetail({
   const [editMortEntry,setEditMortEntry]=useState<MortalityEntry|null>(null);
   const [fhMonth,setFhMonth]=useState("All");
 
+  const activeFishStockLabel = pond.status === "Active"
+    ? (pond.fishStock || defaultFishStockLabel)
+    : "";
+
   const unifiedTreatments = useMemo(() => {
+    if (pond.status === "Empty") return [];
     const rawTreatments = treatments.filter(t => t.pondId === pond.id);
     const repTreatments = (pondReports || []).filter(r => r.pondId === pond.id && r.reportType === "treatment");
 
@@ -179,10 +184,14 @@ function PondDetail({
     rawTreatments.forEach(t => {
       const match = repTreatments.find(r => r.treatmentId === t.id || r.id === t.id);
       if (match) matchedReportIds.add(match.id);
+      const fsLabel = match?.fishStockId || t.fishStock || defaultFishStockLabel;
+      if (activeFishStockLabel && t.fishStock && t.fishStock !== activeFishStockLabel && t.fishStock !== pond.species) {
+        return;
+      }
       list.push({
         id: t.id,
         date: t.date,
-        fishStock: match?.fishStockId || defaultFishStockLabel,
+        fishStock: fsLabel,
         medicine: t.medicine,
         cause: t.cause || match?.cause || "—",
         dosage: match?.treatmentDetails || "—",
@@ -196,10 +205,14 @@ function PondDetail({
 
     repTreatments.forEach(r => {
       if (!matchedReportIds.has(r.id)) {
+        const fsLabel = r.fishStockId || defaultFishStockLabel;
+        if (activeFishStockLabel && r.fishStockId && r.fishStockId !== activeFishStockLabel && r.fishStockId !== pond.species) {
+          return;
+        }
         list.push({
           id: r.id,
           date: r.reportDate,
-          fishStock: r.fishStockId || defaultFishStockLabel,
+          fishStock: fsLabel,
           medicine: r.medicine || r.issue || "—",
           cause: r.cause || "—",
           dosage: r.treatmentDetails || "—",
@@ -212,13 +225,20 @@ function PondDetail({
     });
 
     return list.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
-  }, [treatments, pondReports, pond, defaultFishStockLabel]);
+  }, [treatments, pondReports, pond, defaultFishStockLabel, activeFishStockLabel]);
 
   const otherIssues = useMemo(() => {
+    if (pond.status === "Empty") return [];
     return (pondReports || [])
-      .filter(r => r.pondId === pond.id && r.reportType !== "treatment")
+      .filter(r => {
+        if (r.pondId !== pond.id || r.reportType === "treatment") return false;
+        if (activeFishStockLabel && r.fishStockId && r.fishStockId !== activeFishStockLabel && r.fishStockId !== pond.species) {
+          return false;
+        }
+        return true;
+      })
       .sort((a, b) => (b.reportDate || "").localeCompare(a.reportDate || ""));
-  }, [pondReports, pond.id]);
+  }, [pondReports, pond.id, pond.status, activeFishStockLabel, pond.species]);
 
   const handleTreat = async () => {
     if (!treatF.medicine.trim()) return;
@@ -311,10 +331,18 @@ function PondDetail({
       notes: ""
     });
   };
-  const logs=mortality.filter(m=>m.pondId===pond.id);
-  const dead=logs.reduce((s,m)=>s+m.count,0);
-  const mRate=pond.initialStock>0?((dead/pond.initialStock)*100).toFixed(2):"0.00";
-  const history=feedingRecords.filter(r=>r.pond===pond.name);
+  const logs = pond.status === "Empty" ? [] : mortality.filter(m=>m.pondId===pond.id);
+  const dead = logs.reduce((s,m)=>s+m.count,0);
+  const mRate = pond.initialStock>0?((dead/pond.initialStock)*100).toFixed(2):"0.00";
+  const history = pond.status === "Empty"
+    ? []
+    : feedingRecords.filter(r => {
+        if (r.pond !== pond.name) return false;
+        if (r.fishStock && activeFishStockLabel) {
+          return r.fishStock === activeFishStockLabel || r.fishStock === pond.species;
+        }
+        return true;
+      });
   const fhMonths=[...new Set(history.map(r=>r.month))];
   const filtHistory=fhMonth==="All"?history:history.filter(r=>r.month===fhMonth);
   const {sorted:sortedHist,sf:hSf,sd:hSd,toggle:hToggle}=useSort(filtHistory,"date");
@@ -414,7 +442,7 @@ function PondDetail({
           </div>
         </Card>
       ):(
-      <Card className="p-5 bg-gradient-to-br from-emerald-50/70 via-white to-teal-50/40 border-emerald-200/80 shadow-xs">
+      <Card className="p-5 bg-[#edf7f2] border border-[#c6e7d6] shadow-sm rounded-xl">
         <div className="flex items-center justify-between mb-4">
           <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Fish Information</p>
           {canEdit&&pond.status==="Active"&&<button onClick={()=>{setEditFishF({species:pond.species==="—"?"Catfish":pond.species,count:String(pond.currentCount),stockingDate:pond.stockingDate});setShowEditFish(true);}} className="flex items-center gap-1 text-xs text-slate-400 hover:text-green-600 border border-slate-200 hover:border-green-300 rounded-lg px-2 py-1 transition-colors"><Pencil size={11}/> Edit</button>}
@@ -1185,15 +1213,17 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
         <StatCard label="Active" value={String(activePonds)} icon={CheckCircle} hi/>
         <StatCard label="Total Fish" value={totalFish.toLocaleString()} icon={Fish}/>
       </div>
-      <div className="flex flex-wrap gap-2 items-center">
-        <div className="relative"><Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300"/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search…" className={`${IC} pl-8 w-40`}/></div>
-        <div className="flex items-center gap-1.5"><span className="text-xs text-slate-400">Status:</span><select value={fStatus} onChange={e=>setFStatus(e.target.value)} className={`${SC} py-1.5 text-xs w-auto`}>{["All","Active","Empty"].map(o=><option key={o}>{o}</option>)}</select></div>
-      </div>
       {/* Desktop table card */}
       <Card className="hidden md:block">
-        <div className="px-4 py-3.5 border-b border-slate-100 flex items-center justify-between">
-          <p className="text-xs font-bold uppercase tracking-wider text-slate-600">List of Ponds</p>
-          <span className="text-xs text-slate-400">{filteredPonds.length} ponds</span>
+        <div className="px-4 py-3.5 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <p className="text-xs font-bold uppercase tracking-wider text-slate-600">List of Ponds</p>
+            <span className="text-xs text-slate-400 font-normal">({filteredPonds.length} ponds)</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="relative"><Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300"/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search…" className={`${IC} pl-8 w-44 text-xs py-1.5`}/></div>
+            <div className="flex items-center gap-1.5"><span className="text-xs text-slate-400">Status:</span><select value={fStatus} onChange={e=>setFStatus(e.target.value)} className={`${SC} py-1.5 text-xs w-auto`}>{["All","Active","Empty"].map(o=><option key={o}>{o}</option>)}</select></div>
+          </div>
         </div>
         <div className="overflow-x-auto"><table className="w-full text-sm min-w-[700px]">
           <thead><tr className="border-b border-slate-100 bg-slate-50">
@@ -1241,9 +1271,15 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
 
       {/* Mobile card list directly on background */}
       <div className="md:hidden space-y-3">
-        <div className="flex items-center justify-between px-1">
-          <p className="text-xs font-bold uppercase tracking-wider text-slate-600">List of Ponds</p>
-          <span className="text-xs text-slate-400 font-medium">{filteredPonds.length} ponds</span>
+        <div className="px-1 space-y-2">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-bold uppercase tracking-wider text-slate-600">List of Ponds</p>
+            <span className="text-xs text-slate-400 font-medium">{filteredPonds.length} ponds</span>
+          </div>
+          <div className="flex flex-wrap gap-2 items-center">
+            <div className="relative flex-1 min-w-[130px]"><Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300"/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search…" className={`${IC} pl-8 w-full text-xs py-1.5`}/></div>
+            <div className="flex items-center gap-1.5"><span className="text-xs text-slate-400">Status:</span><select value={fStatus} onChange={e=>setFStatus(e.target.value)} className={`${SC} py-1.5 text-xs w-auto`}>{["All","Active","Empty"].map(o=><option key={o}>{o}</option>)}</select></div>
+          </div>
         </div>
         {filteredPonds.length===0&&<p className="text-center text-xs text-slate-400 py-8 bg-white border border-slate-200 rounded-xl">No ponds match filters</p>}
         {filteredPonds.map((p,pIdx)=>{
@@ -1256,12 +1292,9 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
             onTouchEnd={()=>{if(longPressTimer.current)clearTimeout(longPressTimer.current);}}
             onTouchMove={()=>{if(longPressTimer.current){clearTimeout(longPressTimer.current);longPressTimer.current=null;}}}>
             <div className="flex-1 min-w-0 pr-2">
-              <div className="flex items-center gap-1.5 flex-wrap mb-1">
+              <div className="flex items-center gap-2 mb-1">
                 <p className="font-bold text-slate-900 text-sm sm:text-base leading-tight truncate">{p.name}</p>
-                <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-md ${p.category==="Nursery"?"bg-purple-50 text-purple-700 border border-purple-200/60":"bg-teal-50 text-teal-700 border border-teal-200/60"}`}>
-                  {p.category||"Production"}
-                </span>
-                <span className={`inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded-md ${p.status==="Active"?"bg-emerald-50 text-emerald-700 border border-emerald-200/60":"bg-slate-50 text-slate-500 border border-slate-200/60"}`}>
+                <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${p.status==="Active"?"text-emerald-600":"text-slate-400"}`}>
                   <span className={`w-1.5 h-1.5 rounded-full ${p.status==="Active"?"bg-emerald-500":"bg-slate-400"}`}/>
                   {p.status==="Active"?"Active":"Inactive"}
                 </span>

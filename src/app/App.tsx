@@ -226,6 +226,7 @@ function FinancialDashboard({
   stockEvents,
   ponds,
   inventory,
+  bagLogs = [],
   currency = "₦",
   currentUser,
   canCreate = true,
@@ -243,6 +244,7 @@ function FinancialDashboard({
   stockEvents?: StockEvent[];
   ponds?: Pond[];
   inventory?: FeedItem[];
+  bagLogs?: BagOpenLog[];
   currency?: string;
   currentUser?: { name: string; email: string };
   canCreate?: boolean;
@@ -264,6 +266,27 @@ function FinancialDashboard({
   const [dashMenuOpen,setDashMenuOpen]=useState(false);
   const dashMenuRef=useRef<HTMLDivElement>(null);
   const chartScrollRef=useRef<HTMLDivElement>(null);
+  const [chartPopupVisible, setChartPopupVisible] = useState(true);
+
+  useEffect(()=>{
+    const handleScroll = () => {
+      setChartPopupVisible(false);
+    };
+    window.addEventListener("scroll", handleScroll, { capture: true, passive: true });
+    const chartEl = chartScrollRef.current;
+    if (chartEl) {
+      chartEl.addEventListener("scroll", handleScroll, { passive: true });
+    }
+    return () => {
+      window.removeEventListener("scroll", handleScroll, { capture: true });
+      if (chartEl) {
+        chartEl.removeEventListener("scroll", handleScroll);
+      }
+    };
+  }, []);
+
+  const restoreChartPopup = () => setChartPopupVisible(true);
+
   useEffect(()=>{const h=(e:MouseEvent)=>{if(dashMenuRef.current&&!dashMenuRef.current.contains(e.target as Node))setDashMenuOpen(false);};document.addEventListener("mousedown",h);return()=>document.removeEventListener("mousedown",h);},[]);
   const [editExp,setEditExp]=useState<Expense|null>(null);
   const [editRev,setEditRev]=useState<Revenue|null>(null);
@@ -327,8 +350,16 @@ function FinancialDashboard({
   const feedCost=filtExp.filter(e=>e.category==="Feed").reduce((s,e)=>s+e.amount,0);
   const stockCost=filtExp.filter(e=>e.category==="Fish Stock").reduce((s,e)=>s+e.amount,0);
   const maintCost=filtExp.filter(e=>e.category==="Maintenance").reduce((s,e)=>s+e.amount,0);
-  const overhead=filtExp.filter(e=>["Labor","Utilities","General Overhead"].includes(e.category)).reduce((s,e)=>s+e.amount,0);
-  const inventoryValue=(inventory||[]).reduce((s,f)=>s+f.bags*f.costPerBag,0);
+  const inventoryValue = Object.values((inventory || []).reduce<Record<string, { inStock: number; costPerBag: number }>>((acc, f) => {
+    const k = `${f.brand}|${f.size}`;
+    const opened = (bagLogs || []).filter(b => b.brand === f.brand && b.size === f.size).reduce((s, b) => s + (Number(b.bagsOpened) || 0), 0);
+    if (!acc[k]) {
+      const totalPurchased = (inventory || []).filter(item => item.brand === f.brand && item.size === f.size).reduce((s, item) => s + item.bags, 0);
+      const inStock = Math.max(0, totalPurchased - opened);
+      acc[k] = { inStock, costPerBag: f.costPerBag || 0 };
+    }
+    return acc;
+  }, {})).reduce((s, item) => s + (item.inStock * item.costPerBag), 0);
   const pieRows=[
     {name:"Feed",value:feedCost,color:"#0d9488"},
     {name:"Fish Stock",value:stockCost,color:"#3b82f6"},
@@ -477,14 +508,23 @@ function FinancialDashboard({
                     </BarChart>
                   </div>
                   {/* Scrollable bars */}
-                  <div className="overflow-x-auto flex-1 min-w-0" ref={chartScrollRef}>
+                  <div
+                    className={`overflow-x-auto flex-1 min-w-0 ${!chartPopupVisible ? "[&_.recharts-tooltip-wrapper]:!hidden" : ""}`}
+                    ref={chartScrollRef}
+                    onPointerDown={restoreChartPopup}
+                    onMouseMove={restoreChartPopup}
+                    onTouchStart={restoreChartPopup}
+                  >
                     <div style={{minWidth:BAR_MIN_W}}>
                       <ResponsiveContainer width="100%" height={CHART_H}>
                         <BarChart data={chartData} margin={{top:4,right:8,left:0,bottom:0}} barGap={3} barCategoryGap="25%">
                           <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false}/>
                           <XAxis dataKey="month" tick={{fontSize:11,fill:"#94a3b8"}} axisLine={false} tickLine={false} height={X_H}/>
                           <YAxis width={0} domain={[0,niceMax]} tick={false} axisLine={false} tickLine={false}/>
-                          <Tooltip content={(p:any)=><Tip {...p} yFmt={yFmt}/>}/>
+                          <Tooltip
+                            active={chartPopupVisible ? undefined : false}
+                            content={(p:any)=>(chartPopupVisible ? <Tip {...p} yFmt={yFmt}/> : null)}
+                          />
                           <Bar dataKey="Revenue"  name="Revenue"  fill="#00BB58" radius={[4,4,0,0]} isAnimationActive={false}/>
                           <Bar dataKey="Expenses" name="Expenses" fill="#f43f5e" radius={[4,4,0,0]} isAnimationActive={false}/>
                         </BarChart>
@@ -507,18 +547,29 @@ function FinancialDashboard({
           </div>
           {pieRows.length===0?<p className="text-xs text-slate-400 py-4 text-center">No data</p>:(
             <>
-              <ResponsiveContainer width="100%" height={150}>
-                <PieChart>
-                  <Pie data={pieRows} dataKey="value" cx="50%" cy="50%" outerRadius={68} innerRadius={38} isAnimationActive={false}>
-                    {pieRows.map(e=><Cell key={e.name} fill={e.color}/>)}
-                  </Pie>
-                  <Tooltip formatter={(v:any)=>{
-                    const val = Number(v) || 0;
-                    const p = totalExp > 0 ? ((val / totalExp) * 100).toFixed(1) : "0";
-                    return `${fmt(val)} (${p}%)`;
-                  }}/>
-                </PieChart>
-              </ResponsiveContainer>
+              <div
+                className={!chartPopupVisible ? "[&_.recharts-tooltip-wrapper]:!hidden" : ""}
+                onPointerDown={restoreChartPopup}
+                onMouseMove={restoreChartPopup}
+                onTouchStart={restoreChartPopup}
+              >
+                <ResponsiveContainer width="100%" height={150}>
+                  <PieChart>
+                    <Pie data={pieRows} dataKey="value" cx="50%" cy="50%" outerRadius={68} innerRadius={38} isAnimationActive={false}>
+                      {pieRows.map(e=><Cell key={e.name} fill={e.color}/>)}
+                    </Pie>
+                    <Tooltip
+                      active={chartPopupVisible ? undefined : false}
+                      formatter={(v:any)=>{
+                        if (!chartPopupVisible) return ["", ""];
+                        const val = Number(v) || 0;
+                        const p = totalExp > 0 ? ((val / totalExp) * 100).toFixed(1) : "0";
+                        return `${fmt(val)} (${p}%)`;
+                      }}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
               <div className="space-y-1.5 mt-2">
                 {pieRows.map(e => {
                   const pct = totalExp > 0 ? ((e.value / totalExp) * 100).toFixed(1) : "0";
@@ -1133,13 +1184,16 @@ function StaffPage({
                         {globalIdx}
                       </td>
                       <td className="px-4 py-3 sticky left-10 z-10 bg-white border-r border-slate-200 whitespace-nowrap">
-                        <div className="flex items-center gap-2.5">
-                          <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${colorFor(s.id)}`}>
-                            {initials(s.name)}
-                          </div>
-                          <div className="min-w-0">
-                            <p className="font-semibold text-slate-900 leading-tight">{s.name}</p>
-                            <p className="text-[11px] text-slate-400 truncate">{s.role}</p>
+                        <div className="min-w-0">
+                          <p className="font-semibold text-slate-900 leading-tight">{s.name}</p>
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            <span className="text-[11px] text-slate-500 font-medium">{s.role}</span>
+                            {s.joinedDate && (
+                              <>
+                                <span className="text-slate-300">·</span>
+                                <span className="text-[10px] text-slate-400">Joined {s.joinedDate}</span>
+                              </>
+                            )}
                           </div>
                         </div>
                       </td>
@@ -3658,8 +3712,14 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   const accessibleFarms = isOwner ? farms : assignedStaffFarms;
   const hasOneFarmOrNone = accessibleFarms.length <= 1;
 
-  const [kQuestionsState,setKQuestions_]=useState<any[]>(()=>loadLocal("pondtora_k_questions",INIT_K));
-  const [cQuestionsState,setCQuestions_]=useState<any[]>(()=>loadLocal("pondtora_c_questions",INIT_C));
+  const [kQuestionsState,setKQuestions_]=useState<any[]>(()=>{
+    const cached = loadLocal("pondtora_k_questions", INIT_K);
+    return Array.isArray(cached) && cached.length >= 25 ? cached : INIT_K;
+  });
+  const [cQuestionsState,setCQuestions_]=useState<any[]>(()=>{
+    const cached = loadLocal("pondtora_c_questions", INIT_C);
+    return Array.isArray(cached) && cached.length >= 25 ? cached : INIT_C;
+  });
   const [kResultsState,setKResults_]=useState<any[]>(()=>loadLocal("pondtora_k_results",[]));
   const [cResultsState,setCResults_]=useState<any[]>(()=>loadLocal("pondtora_c_results",[]));
 
@@ -3956,13 +4016,12 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     const p=ponds.find(x=>x.id===id);
     if(!p)return;
     const fid=p.farmId||activeFarmId||farms[0]?.id||"";
-    const closed={...p,status:"Empty" as const,currentCount:0,initialStock:0,avgWeight:undefined,stockingDate:"—",stockMonth:"",totalCost:0,species:"—",transferNote:undefined,maxKgByPallet:{},farmId:fid};
+    const stockLabel = p.fishStock || (p.stockingDate && p.stockingDate !== "—" ? fmtStockingDate(p.stockingDate) : (p.species !== "—" ? p.species : "Previous Stock"));
+    const closed={...p,status:"Empty" as const,currentCount:0,initialStock:0,avgWeight:undefined,stockingDate:"—",stockMonth:"",totalCost:0,species:"—",fishStock:undefined,transferNote:undefined,maxKgByPallet:{},farmId:fid};
     setPonds(prev=>prev.map(x=>x.id===id?closed:x));
-    const se:StockEvent={id:crypto.randomUUID(),pondId:id,pondName:p.name,date:TODAY,species:p.species,count:p.currentCount,cost:p.totalCost,type:"Closed" as const,clearedDate:TODAY,farmId:fid};
+    const se:StockEvent={id:crypto.randomUUID(),pondId:id,pondName:p.name,date:TODAY,species:p.species,count:p.currentCount,cost:p.totalCost,type:"Closed" as const,clearedDate:TODAY,farmId:fid,batch:stockLabel};
     setStockEvents(prev=>[...prev,se]);
-    setFeeding(prev=>prev.filter(r=>r.pond!==p.name));
-    setTreatments(prev=>prev.filter(t=>t.pondId!==id));
-    setMortality(prev=>prev.filter(m=>m.pondId!==id));
+    // Historical feeding, treatments, and mortality records are preserved for reporting
     toast.success("Pond cleared");
     try {
       await Promise.all([
@@ -4339,8 +4398,9 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     const toPond=ponds.find(p=>p.id===toId);
     if(!fromPond||!toPond)return;
     const dateLabel=`${toMon(date)} ${new Date(date).getDate()}, ${new Date(date).getFullYear()}`;
-    const clearedFrom:Pond={...fromPond,status:"Empty" as const,currentCount:0,initialStock:0,avgWeight:undefined,stockingDate:"—",stockMonth:"",totalCost:0,species:"—",transferNote:undefined,maxKgByPallet:{}};
-    const filledTo:Pond={...toPond,status:"Active" as const,species:fromPond.species,initialStock:fromPond.initialStock,currentCount:fromPond.currentCount,stockingDate:fromPond.stockingDate,stockMonth:fromPond.stockMonth,totalCost:fromPond.totalCost,maxKgByPallet:fromPond.maxKgByPallet||{},transferNote:`Stock received from ${fromPond.name} on ${dateLabel}`};
+    const stockLabel = fromPond.fishStock || (fromPond.stockingDate && fromPond.stockingDate !== "—" ? fmtStockingDate(fromPond.stockingDate) : fromPond.species);
+    const clearedFrom:Pond={...fromPond,status:"Empty" as const,currentCount:0,initialStock:0,avgWeight:undefined,stockingDate:"—",stockMonth:"",totalCost:0,species:"—",fishStock:undefined,transferNote:undefined,maxKgByPallet:{}};
+    const filledTo:Pond={...toPond,status:"Active" as const,species:fromPond.species,fishStock:stockLabel,initialStock:fromPond.initialStock,currentCount:fromPond.currentCount,stockingDate:fromPond.stockingDate,stockMonth:fromPond.stockMonth,totalCost:fromPond.totalCost,maxKgByPallet:fromPond.maxKgByPallet||{},transferNote:`Stock received from ${fromPond.name} on ${dateLabel}`};
     /* move all pond data */
     setPonds(prev=>prev.map(p=>{
       if(p.id===fromId)return clearedFrom;
@@ -4349,13 +4409,13 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     }));
     api.ponds.update(clearedFrom).catch(console.warn);
     api.ponds.update(filledTo).catch(console.warn);
-    /* remap feeding records from old pond to new pond and persist */
-    const remappedFeeding=feeding.filter(r=>r.pond===fromPond.name).map(r=>({...r,pond:toPond.name}));
-    setFeeding(prev=>prev.map(r=>r.pond===fromPond.name?{...r,pond:toPond.name}:r));
+    /* remap feeding records from old pond to new pond with fishStock and persist */
+    const remappedFeeding=feeding.filter(r=>r.pond===fromPond.name).map(r=>({...r,pond:toPond.name,fishStock:r.fishStock||stockLabel}));
+    setFeeding(prev=>prev.map(r=>r.pond===fromPond.name?{...r,pond:toPond.name,fishStock:r.fishStock||stockLabel}:r));
     remappedFeeding.forEach(r=>api.feeding.update(r).catch(console.warn));
-    /* remap treatments — create copies on destination, persist */
+    /* remap treatments — create copies on destination with fishStock, persist */
     const pondTreatments=treatments.filter(t=>t.pondId===fromId);
-    const remappedTreatments=pondTreatments.map(t=>({...t,id:uid(),pondId:toId,farmId:toPond.farmId||activeFarmId||farms[0]?.id||""}));
+    const remappedTreatments=pondTreatments.map(t=>({...t,id:uid(),pondId:toId,farmId:toPond.farmId||activeFarmId||farms[0]?.id||"",fishStock:t.fishStock||stockLabel}));
     setTreatments(prev=>[...prev.filter(t=>t.pondId!==fromId),...remappedTreatments]);
     remappedTreatments.forEach(t=>api.treatments.create(t).catch(console.warn));
     /* remap pond reports — create copies on destination, persist */
@@ -4365,14 +4425,14 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       id:uid(),
       pondId:toId,
       farmId:toPond.farmId||activeFarmId||farms[0]?.id||"",
-      fishStockId:r.fishStockId||(fromPond.species!=="—"?`${fromPond.species} (${fromPond.stockingDate})`:"Transferred Stock")
+      fishStockId:r.fishStockId||stockLabel
     }));
     setPondReports(prev=>[...prev.filter(r=>r.pondId!==fromId),...remappedReports]);
     remappedReports.forEach(r=>api.pondReports.create(r).catch(console.warn));
     /* remap mortality */
     setMortality(prev=>prev.map(m=>m.pondId===fromId?{...m,pondId:toId}:m));
-    const seTransfer={id:uid(),pondId:toId,pondName:toPond.name,date:dateLabel,species:fromPond.species,count:fromPond.currentCount,cost:fromPond.totalCost,type:"Transfer" as const,fromPond:fromPond.name,farmId:toPond.farmId||activeFarmId||farms[0]?.id||""};
-    const seClosed={id:uid(),pondId:fromId,pondName:fromPond.name,date:dateLabel,species:fromPond.species,count:fromPond.currentCount,cost:fromPond.totalCost,type:"Closed" as const,clearedDate:dateLabel,farmId:toPond.farmId||activeFarmId||farms[0]?.id||""};
+    const seTransfer={id:uid(),pondId:toId,pondName:toPond.name,date:dateLabel,species:fromPond.species,count:fromPond.currentCount,cost:fromPond.totalCost,type:"Transfer" as const,fromPond:fromPond.name,farmId:toPond.farmId||activeFarmId||farms[0]?.id||"",batch:stockLabel};
+    const seClosed={id:uid(),pondId:fromId,pondName:fromPond.name,date:dateLabel,species:fromPond.species,count:fromPond.currentCount,cost:fromPond.totalCost,type:"Closed" as const,clearedDate:dateLabel,farmId:toPond.farmId||activeFarmId||farms[0]?.id||"",batch:stockLabel};
     setStockEvents(prev=>[...prev,seTransfer,seClosed]);
     api.stockEvents.create(seTransfer).catch(console.warn);
     api.stockEvents.create(seClosed).catch(console.warn);
@@ -6124,9 +6184,9 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
             </div>
           ) : (
             <AppErrorBoundary key={active}>
-              {active==="financial"     &&(hasPerm("Financial Dashboard")?<FinancialDashboard expenses={farmExpenses} revenues={farmRevenues} onAddExpense={addExp} onAddRevenue={addRev} onEditExpense={editExp} onEditRevenue={editRev} onDeleteExpense={deleteExp} onDeleteRevenue={deleteRev} stockEvents={stockEvents} ponds={farmPonds} inventory={farmInventory} currency={cs} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}} canCreate={canCreate("Financial Dashboard")} canEdit={canEdit("Financial Dashboard")} canDelete={canDelete("Financial Dashboard")}/>:<AccessDenied/>)}
+              {active==="financial"     &&(hasPerm("Financial Dashboard")?<FinancialDashboard expenses={farmExpenses} revenues={farmRevenues} onAddExpense={addExp} onAddRevenue={addRev} onEditExpense={editExp} onEditRevenue={editRev} onDeleteExpense={deleteExp} onDeleteRevenue={deleteRev} stockEvents={stockEvents} ponds={farmPonds} inventory={farmInventory} bagLogs={farmBagLogs} currency={cs} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}} canCreate={canCreate("Financial Dashboard")} canEdit={canEdit("Financial Dashboard")} canDelete={canDelete("Financial Dashboard")}/>:<AccessDenied/>)}
               {active==="ponds"         &&(hasPerm("Pond Management")?<PondManagementPage ponds={farmPonds} onAddPond={addPond} onClosePond={closePond} onRestockPond={restockPond} onTransfer={transferStock} onNurseryTransfer={nurseryTransfer} mortality={farmMortality} onAddMortality={addMort} onAddCost={addExp} feedingRecords={farmFeeding} stockEvents={stockEvents} treatments={farmTreatments} onAddTreatment={addTreatment} activeFarmId={activeFarmId} onDeletePond={deletePond} onEditFish={editFish} onSetMaxKg={setPondMaxKg} onEditPond={handleEditPond} onScrollTop={()=>mainRef.current?.scrollTo({top:0,behavior:"instant"})} currency={cs} inventory={farmInventory} farms={farms} pondReports={farmPondReports} onAddPondReport={handleAddPondReport} canCreate={canCreate("Pond Management")} canEdit={canEdit("Pond Management")} canDelete={canDelete("Pond Management")}/>:<AccessDenied/>)}
-              {active==="inventory"     &&(hasPerm("Feed Stock")?<FeedInventoryPage inventory={farmInventory} onAdd={addInv} onDelete={delInv} feedingRecords={farmFeeding} bagLogs={farmBagLogs} remainLogs={farmRemainLogs} ponds={farmPonds} onEditBagLog={editBagLog} onEditInv={editInv} currency={cs} canEditLocked={isOwner||currentStaff?.role==="Farm Manager"} canCreate={canCreate("Feed Stock")} canEdit={canEdit("Feed Stock")} canDelete={canDelete("Feed Stock")}/>:<AccessDenied/>)}
+              {active==="inventory"     &&(hasPerm("Feed Stock")?<FeedInventoryPage inventory={farmInventory} onAdd={addInv} onDelete={delInv} feedingRecords={farmFeeding} bagLogs={farmBagLogs} remainLogs={farmRemainLogs} ponds={farmPonds} onEditBagLog={editBagLog} onAddBagLog={addBagLog} onEditInv={editInv} currency={cs} canEditLocked={isOwner||currentStaff?.role==="Farm Manager"} canCreate={canCreate("Feed Stock")} canEdit={canEdit("Feed Stock")} canDelete={canDelete("Feed Stock")}/>:<AccessDenied/>)}
               {active==="documentation" &&(hasPerm("Feeding Records")?<FeedDocumentationPage feedingRecords={farmFeeding} onAddRecord={addFeed} onEditFeedRecord={editFeedRecord} onDeleteRecord={deleteFeedRecord} ponds={farmPonds} inventory={farmInventory} bagLogs={farmBagLogs} onAddBagLog={addBagLog} onEditBagLog={editBagLog} onEditInv={editInv} remainLogs={farmRemainLogs} onAddRemainLog={addRemainLog} onEditRemainLog={editRemainLog} onReconMismatches={onReconMismatches} reconFocus={reconFocus} canEditLocked={isOwner||currentStaff?.role==="Farm Manager"} currentUser={{name:currentStaff?.name||userProfile?.name||"",email:userProfile?.email||""}} canCreate={canCreate("Feeding Records")} canEdit={canEdit("Feeding Records")} canDelete={canDelete("Feeding Records")}/>:<AccessDenied/>)}
               {active==="invoices"      &&(hasPerm("Invoices")?<InvoicesPage ponds={farmPonds} invoices={farmInvoices} customers={farmCustomers} priceGroups={farmPriceGroups} settings={invSettings} onAddInvoice={addInvoice} onEditInvoice={editInvoice} onDeleteInvoice={deleteInvoice} onAddCustomer={addCustomer} onAddPriceGroup={addPriceGroup} onEditPriceGroup={editPriceGroup} onDeletePriceGroup={delPriceGroup} onUpdateSettings={(s)=>{setInvSettings(s);api.invSettings.update(s).catch(console.warn);}} currentUser={userProfile?.name} currency={cs} canCreate={canCreate("Invoices")} canEdit={canEdit("Invoices")} canDelete={canDelete("Invoices")}/>:<AccessDenied/>)}
               {active==="staff"         &&(isOwner?<StaffPage staff={staff} onAdd={addStaff} onEdit={editStaff} onDelete={delStaff} farms={farms.filter(f => f.userId === userProfile?.id || isOwner)} activeFarmId={activeFarmId} ownerEmail={userProfile?.email}/>:<AccessDenied/>)}

@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from "react";
 import {
   Plus, CheckCircle, Layers, Trash2, ChevronDown, ChevronUp,
-  Pencil, Package, Download, FileText, Lock, Calendar, ChevronLeft, ChevronRight, Search, Fish
+  Pencil, Package, Download, FileText, Lock, Calendar, ChevronLeft, ChevronRight, Search, Fish, MinusCircle
 } from "lucide-react";
 import type { FeedItem, BagOpenLog, FeedRemainingLog, Pond } from "../types";
 import { FEED_SIZES, FEED_BRANDS, TODAY, fmt, uid, toMon, toYr, downloadCSV, openPrintWindow, fmtDate, fmtStockingDate, formatFishStock, formatFishStockDate, getPondFishStock } from "../data";
@@ -19,12 +19,16 @@ const DEFAULT_CALC_STANDARDS:{[size:string]:{bagsPerK:number;kgPerBag:number}}={
 };
 
 /* ─── 3. Feed Inventory ─────────────────────────────────────── */
-export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,bagLogs,remainLogs=[],ponds=[],onEditBagLog,onEditInv,currency="₦",canEditLocked,canCreate=true,canEdit=true,canDelete=true}:{inventory:FeedItem[];onAdd:(f:FeedItem)=>void;onDelete:(id:string)=>void;feedingRecords:any[];bagLogs:BagOpenLog[];remainLogs?:FeedRemainingLog[];ponds?:Pond[];onEditBagLog:(b:BagOpenLog)=>void;onEditInv?:(f:FeedItem)=>void;currency?:string;canEditLocked?:boolean;canCreate?:boolean;canEdit?:boolean;canDelete?:boolean;}){
+export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,bagLogs,remainLogs=[],ponds=[],onEditBagLog,onAddBagLog,onEditInv,currency="₦",canEditLocked,canCreate=true,canEdit=true,canDelete=true}:{inventory:FeedItem[];onAdd:(f:FeedItem)=>void;onDelete:(id:string)=>void;feedingRecords:any[];bagLogs:BagOpenLog[];remainLogs?:FeedRemainingLog[];ponds?:Pond[];onEditBagLog:(b:BagOpenLog)=>void;onAddBagLog?:(b:BagOpenLog)=>void;onEditInv?:(f:FeedItem)=>void;currency?:string;canEditLocked?:boolean;canCreate?:boolean;canEdit?:boolean;canDelete?:boolean;}){
   const realTodayFmt=(()=>{const n=new Date();const day=n.getDate();const mon=n.toLocaleString("en-US",{month:"long"});const yr=n.getFullYear();return`${day} ${mon}, ${yr}`;})();
   const isPurchaseEditable=(purchaseDate:string)=>canEditLocked||purchaseDate===realTodayFmt;
   const cs=currency;
   const [tab,setTab]=useState<"stock"|"daily_bags"|"purchases">("stock");
   const [showBuy,setShowBuy]=useState(false);
+  /* deduct feed modal state */
+  const [showDeduct,setShowDeduct]=useState(false);
+  const [deductF,setDeductF]=useState({date:TODAY,brand:"Durante",size:"4.0 mm",bags:"",reason:"Fed to Fish",fishStock:"General Stock",notes:""});
+  const [deductErr,setDeductErr]=useState<Record<string,string>>({});
   /* calculator state */
   const [showCalc,setShowCalc]=useState(false);
   const [calcFish,setCalcFish]=useState("");
@@ -38,6 +42,54 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
   const [fBrand,setFBrand]=useState("All"); const [fSize,setFSize]=useState("All"); const [fMonth,setFMonth]=useState("All");
   const {sorted:sortedInv,sf,sd,toggle}=useSort(inventory,"brand");
   const brands=[...new Set(inventory.map(f=>f.brand))]; const sizes=[...new Set(inventory.map(f=>f.size))]; const months=[...new Set(inventory.map(f=>f.month).filter(Boolean))];
+
+  const getRemainingBags=(brand:string,size:string)=>{
+    const totalPurchased=inventory.filter(f=>f.brand===brand&&f.size===size).reduce((s,f)=>s+f.bags,0);
+    const totalOpened=bagLogs.filter(b=>b.brand===brand&&b.size===size).reduce((s,b)=>s+(Number(b.bagsOpened)||0),0);
+    return Math.max(0,totalPurchased-totalOpened);
+  };
+
+  const openDeductFor=(brand?:string,size?:string)=>{
+    const b=brand||brands[0]||"Durante";
+    const s=size||sizes[0]||"4.0 mm";
+    setDeductF({date:TODAY,brand:b,size:s,bags:"",reason:"Fed to Fish",fishStock:"General Stock",notes:""});
+    setDeductErr({});
+    setShowDeduct(true);
+  };
+
+  const handleDeduct=()=>{
+    const errs:Record<string,string>={};
+    if(!deductF.date)errs.date="Deduction date is required";
+    if(!deductF.bags||Number(deductF.bags)<=0)errs.bags="Please enter valid bags (at least 1)";
+    const rem=getRemainingBags(deductF.brand,deductF.size);
+    if(rem===0){
+      errs.bags=`Cannot deduct: ${deductF.brand} (${deductF.size}) is out of stock.`;
+    }else if(Number(deductF.bags)>rem){
+      errs.bags=`Cannot deduct ${deductF.bags} bags. Only ${rem} bag${rem!==1?"s":""} remaining in stock.`;
+    }
+    if(Object.keys(errs).length){setDeductErr(errs);return;}
+    const matchingInv=inventory.find(f=>f.brand===deductF.brand&&f.size===deductF.size);
+    const wpb=matchingInv?.weightPerBag||15;
+    const bags=Number(deductF.bags);
+    if(onAddBagLog){
+      onAddBagLog({
+        id:uid(),
+        date:fmtDate(deductF.date)||deductF.date,
+        month:toMon(deductF.date),
+        year:toYr(deductF.date),
+        brand:deductF.brand,
+        size:deductF.size,
+        kgPerBag:wpb,
+        bagsOpened:bags,
+        totalKg:bags*wpb,
+        fishStock:deductF.fishStock||"General Stock",
+        reason:deductF.reason||"Inventory Adjustment",
+        notes:deductF.notes||""
+      });
+    }
+    setShowDeduct(false);
+    setDeductErr({});
+  };
   const filtInv=sortedInv.filter(f=>(fBrand==="All"||f.brand===fBrand)&&(fSize==="All"||f.size===fSize)&&(fMonth==="All"||f.month===fMonth));
   const totalBagsPurchased=inventory.reduce((s,f)=>s+f.bags,0);
   const totalBagsOpened=bagLogs.reduce((s,b)=>s+(Number(b.bagsOpened)||0),0);
@@ -79,6 +131,8 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
   });
   const pagedPurchases=[...filtPurchases].reverse().slice((purchasePage-1)*PER_PAGE,purchasePage*PER_PAGE);
   /* daily bags opened tab state */
+  const [historyViewMode, setHistoryViewMode] = useState<"all" | "single_day">("single_day");
+  const [fDailyReason, setFDailyReason] = useState<string>("All");
   const [dailyDate, setDailyDate] = useState(TODAY);
   const [fDailyStock, setFDailyStock] = useState("All");
   const [fDailyBrand, setFDailyBrand] = useState("All");
@@ -120,6 +174,7 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
 
   // Build rows either for single selected day or for all history
   type FeedHistoryRow = {
+    id: string;
     date: string;
     dateFormatted: string;
     fishStock: string;
@@ -131,54 +186,57 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
     kgPerBag: number;
     totalKgOpened: number;
     remainingKg: number;
+    reason: string;
+    notes?: string;
   };
 
   const historyRows: FeedHistoryRow[] = useMemo(() => {
-    const dayBagLogs = (bagLogs || []).filter(b => isSameDate(b.date, dailyDateStr));
-    const dayRemainLogs = (remainLogs || []).filter(r => isSameDate(r.date, dailyDateStr));
-    const dailyMap: Record<string, FeedHistoryRow> = {};
+    const dayBagLogs = (bagLogs || []).filter(b => historyViewMode === "all" ? true : isSameDate(b.date, dailyDateStr));
+    const dayRemainLogs = (remainLogs || []).filter(r => historyViewMode === "all" ? true : isSameDate(r.date, dailyDateStr));
+    const rows: FeedHistoryRow[] = [];
 
-    dayBagLogs.forEach(b => {
+    dayBagLogs.forEach((b, idx) => {
       const stock = (b.fishStock && b.fishStock.trim() && b.fishStock !== "—") ? b.fishStock.trim() : "General Stock";
       const brand = b.brand || "Standard";
       const size = b.size || "4.0 mm";
       const info = getStockInfo(stock);
-      const key = `${info.name.toLowerCase().trim()}__${brand.toLowerCase().trim()}__${size.toLowerCase().trim()}`;
       const bags = Number(b.bagsOpened) || 0;
       const kgPb = Number(b.kgPerBag) || 15;
       const kg = Number(b.totalKg) || (bags * kgPb);
 
-      if (!dailyMap[key]) {
-        dailyMap[key] = {
-          date: b.date,
-          dateFormatted: fmtStockingDate(b.date),
-          fishStock: info.name,
-          stockDate: info.stockDate,
-          ponds: info.ponds,
-          brand,
-          size,
-          bagsOpened: bags,
-          kgPerBag: kgPb,
-          totalKgOpened: kg,
-          remainingKg: 0
-        };
-      } else {
-        // If already entered for this stock + brand + size today, keep single session rather than accumulating duplicate bags
-        dailyMap[key].bagsOpened = bags;
-        dailyMap[key].totalKgOpened = kg;
-      }
+      const remLog = dayRemainLogs.find(r =>
+        isSameDate(r.date, b.date) &&
+        ((r.fishStock || "General Stock") === stock) &&
+        r.brand === brand && r.size === size
+      );
+
+      rows.push({
+        id: b.id || `bag_${idx}`,
+        date: b.date,
+        dateFormatted: fmtStockingDate(b.date),
+        fishStock: info.name,
+        stockDate: info.stockDate,
+        ponds: info.ponds,
+        brand,
+        size,
+        bagsOpened: bags,
+        kgPerBag: kgPb,
+        totalKgOpened: kg,
+        remainingKg: remLog ? (Number(remLog.remainingKg) || 0) : 0,
+        reason: b.reason || "Fed to Fish",
+        notes: b.notes || ""
+      });
     });
 
-    dayRemainLogs.forEach(r => {
+    dayRemainLogs.forEach((r, idx) => {
       const stock = (r.fishStock && r.fishStock.trim() && r.fishStock !== "—") ? r.fishStock.trim() : "General Stock";
       const brand = r.brand || "Standard";
       const size = r.size || "4.0 mm";
-      const info = getStockInfo(stock);
-      const key = `${info.name.toLowerCase().trim()}__${brand.toLowerCase().trim()}__${size.toLowerCase().trim()}`;
-      const rem = Number(r.remainingKg) || 0;
-
-      if (!dailyMap[key]) {
-        dailyMap[key] = {
+      const alreadyHas = rows.some(row => isSameDate(row.date, r.date) && row.fishStock === formatFishStock(stock) && row.brand === brand && row.size === size);
+      if (!alreadyHas) {
+        const info = getStockInfo(stock);
+        rows.push({
+          id: r.id || `rem_${idx}`,
           date: r.date,
           dateFormatted: fmtStockingDate(r.date),
           fishStock: info.name,
@@ -189,30 +247,35 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
           bagsOpened: 0,
           kgPerBag: 15,
           totalKgOpened: 0,
-          remainingKg: rem
-        };
-      } else {
-        dailyMap[key].remainingKg = rem;
+          remainingKg: Number(r.remainingKg) || 0,
+          reason: "Remaining Balance",
+          notes: ""
+        });
       }
     });
 
-    Object.values(dailyMap).forEach(item => {
-      if (item.remainingKg === 0) {
-        const match = (remainLogs || [])
-          .filter(rl => (rl.fishStock === item.fishStock || (!rl.fishStock && item.fishStock === "General Stock")) && rl.brand === item.brand && rl.size === item.size && rl.date <= dailyDateStr)
-          .sort((a,b) => b.date.localeCompare(a.date))[0];
-        if (match) {
-          item.remainingKg = Number(match.remainingKg) || 0;
-        }
-      }
-    });
+    return rows.sort((a,b) => (b.date || "").localeCompare(a.date || ""));
+  }, [bagLogs, remainLogs, dailyDateStr, historyViewMode, ponds]);
 
-    return Object.values(dailyMap).sort((a,b) => {
-      if (a.fishStock !== b.fishStock) return a.fishStock.localeCompare(b.fishStock);
-      if (a.brand !== b.brand) return a.brand.localeCompare(b.brand);
-      return a.size.localeCompare(b.size);
-    });
-  }, [bagLogs, remainLogs, dailyDateStr, ponds]);
+  const getReasonBadge = (reason?: string) => {
+    switch (reason) {
+      case "Fed to Fish":
+        return <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold bg-blue-50 text-blue-700 border border-blue-200">Fed to Fish</span>;
+      case "Damaged / Spoiled":
+        return <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">Damaged / Spoiled</span>;
+      case "Expired / Discarded":
+        return <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold bg-red-50 text-red-700 border border-red-200">Expired</span>;
+      case "Inventory Adjustment":
+        return <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold bg-purple-50 text-purple-700 border border-purple-200">Adjustment</span>;
+      case "Transferred to Other Farm / Pond":
+      case "Transferred":
+        return <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">Transferred</span>;
+      case "Remaining Balance":
+        return <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold bg-slate-100 text-slate-600 border border-slate-200">Balance Log</span>;
+      default:
+        return <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold bg-slate-100 text-slate-700 border border-slate-200">{reason || "Usage"}</span>;
+    }
+  };
 
   const allDailyStocks = [...new Set([
     ...historyRows.map(r => r.fishStock),
@@ -226,6 +289,7 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
     ...historyRows.map(r => r.size),
     ...FEED_SIZES
   ])];
+  const allDailyReasons = ["Fed to Fish", "Damaged / Spoiled", "Expired / Discarded", "Inventory Adjustment", "Transferred to Other Farm / Pond", "Other Removal"];
 
   const filteredDailyRows = historyRows.filter(r => {
     if (fDailyStock !== "All" && r.fishStock !== fDailyStock) return false;
@@ -253,10 +317,11 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
       <div className="sticky top-0 z-10 bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Feed Stock</h1>
-          <p className="text-xs text-slate-400 mt-0.5">Manage purchased feed stock, track daily bags opened, and view usage.</p>
+          <p className="text-xs text-slate-400 mt-0.5">Manage purchased feed stock, track removals and daily bags opened, and view usage.</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <button onClick={()=>{setShowCalc(true);setCalcStep("input");setShowCustomize(false);}} className="px-3 py-1.5 text-xs font-semibold text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 hover:border-slate-300 transition-colors flex items-center gap-1.5 bg-white"><Layers size={12}/> Feed Requirement Calculator</button>
+          {canCreate&&<button onClick={()=>openDeductFor()} className="px-3 py-1.5 text-xs font-semibold text-red-700 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100 transition-colors flex items-center gap-1.5"><MinusCircle size={13}/> Deduct Feed</button>}
           {canCreate&&<PBtn onClick={()=>setShowBuy(true)} sm><Plus size={13}/> Add Purchased Feed</PBtn>}
         </div>
       </div>
@@ -267,7 +332,7 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
       <div className="flex gap-1 bg-slate-200/90 border border-slate-300/70 p-1 rounded-xl w-fit shadow-2xs">
         {([
           ["stock", "Stock"],
-          ["daily_bags", "Daily Bags Opened"],
+          ["daily_bags", "Removal & Usage History"],
           ["purchases", "Purchase History"]
         ] as const).map(([t, label]) => (
           <button
@@ -285,7 +350,7 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
         {tab === "stock"
           ? "Current active feed stock and inventory levels."
           : tab === "daily_bags"
-          ? "Daily feed bags opened and remaining kg tracked per fish stock, brand, and pellet."
+          ? "Complete record of feed deducted, bags opened, why removed, and remaining kg."
           : "Complete record of all feed purchases."}
       </p>
       {tab==="stock"&&(
@@ -302,7 +367,8 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
             <SH label="Size" field="size" sf={sf} sd={sd} onSort={toggle}/>
             <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider whitespace-nowrap">Bags in Stock</th>
             <SH label="Kg Per Bag" field="weightPerBag" sf={sf} sd={sd} onSort={toggle}/>
-            <SH label="Total Kg" field="totalKg" sf={sf} sd={sd} onSort={toggle}/>
+            <SH label="Total Kg Remaining" field="totalKg" sf={sf} sd={sd} onSort={toggle}/>
+            <th className="text-right px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider whitespace-nowrap">Action</th>
           </tr></thead>
           <tbody className="divide-y divide-slate-50">
             {(()=>{
@@ -314,18 +380,46 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
                 return acc;
               },{}));
               return merged.length===0
-                ?[<tr key="empty"><td colSpan={6} className="text-center text-xs text-slate-400 py-8">No items match filters</td></tr>]
+                ?[<tr key="empty"><td colSpan={7} className="text-center text-xs text-slate-400 py-8">No items match filters</td></tr>]
                 :merged.map((row,i)=>{
-                  const opened=bagLogs.filter(b=>b.brand===row.brand&&b.size===row.size).reduce((s,b)=>s+b.bagsOpened,0);
+                  const opened=bagLogs.filter(b=>b.brand===row.brand&&b.size===row.size).reduce((s,b)=>s+(Number(b.bagsOpened)||0),0);
                   const inStock=Math.max(0,row.bags-opened);
                   return(
                     <tr key={row.id+i} className="hover:bg-slate-50 transition-colors">
                       <td className="px-4 py-3.5 text-slate-300 text-xs font-mono sticky left-0 z-10 bg-white">{i+1}</td>
                       <td className="px-4 py-3.5 font-semibold text-slate-900 sticky left-10 z-10 bg-white border-r border-slate-100">{row.brand}</td>
                       <td className="px-4 py-3.5"><Bdg label={row.size} color="blue"/></td>
-                      <td className="px-4 py-3.5"><span className={`font-bold ${inStock===0?"text-red-500":inStock<=3?"text-amber-500":"text-green-700"}`}>{inStock}</span></td>
+                      <td className="px-4 py-3.5">
+                        {inStock === 0 ? (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-bold bg-red-50 text-red-700 border border-red-200">
+                            <span className="w-1.5 h-1.5 rounded-full bg-red-500"></span>
+                            0 bags (Out of stock)
+                          </span>
+                        ) : inStock <= 3 ? (
+                          <span className="inline-flex items-center gap-1.5 text-sm font-bold text-amber-600">
+                            {inStock} bags
+                            <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-amber-50 text-amber-600 border border-amber-200">Low</span>
+                          </span>
+                        ) : (
+                          <span className="text-sm font-bold text-green-700">{inStock} bags</span>
+                        )}
+                      </td>
                       <td className="px-4 py-3.5 text-slate-500">{row.weightPerBag}kg</td>
-                      <td className="px-4 py-3.5 font-semibold">{inStock * row.weightPerBag}kg</td>
+                      <td className="px-4 py-3.5 font-semibold">
+                        {inStock === 0 ? <span className="text-xs text-slate-400 font-mono">0 kg</span> : `${inStock * row.weightPerBag}kg`}
+                      </td>
+                      <td className="px-4 py-3.5 text-right whitespace-nowrap">
+                        {canCreate && (
+                          <button
+                            onClick={() => openDeductFor(row.brand, row.size)}
+                            disabled={inStock <= 0}
+                            className="px-2.5 py-1 text-xs font-semibold rounded-lg border border-slate-200 hover:border-slate-300 hover:bg-slate-50 text-slate-700 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1 ml-auto"
+                            title={inStock <= 0 ? "Out of stock" : "Deduct / Remove feed"}
+                          >
+                            <MinusCircle size={12}/> Deduct
+                          </button>
+                        )}
+                      </td>
                     </tr>
                   );
                 });
@@ -344,10 +438,10 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
             },{}));
             if(merged.length===0)return[<p key="empty" className="text-center text-xs text-slate-400 py-8">No items match filters</p>];
             return merged.map((row,i)=>{
-              const opened=bagLogs.filter(b=>b.brand===row.brand&&b.size===row.size).reduce((s,b)=>s+b.bagsOpened,0);
+              const opened=bagLogs.filter(b=>b.brand===row.brand&&b.size===row.size).reduce((s,b)=>s+(Number(b.bagsOpened)||0),0);
               const inStock=Math.max(0,row.bags-opened);
               return(
-                <div key={row.id+i} className="bg-white border border-slate-200 rounded-xl px-4 py-3 flex items-center justify-between">
+                <div key={row.id+i} className="bg-white border border-slate-200 rounded-xl px-4 py-3 flex items-center justify-between gap-3">
                   <div className="flex items-center gap-3 min-w-0">
                     <span className="text-xs text-slate-300 font-mono w-5 shrink-0">{i+1}</span>
                     <div className="min-w-0">
@@ -356,7 +450,24 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
                     </div>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
-                    <span className={`text-sm font-bold ${inStock===0?"text-red-500":inStock<=3?"text-amber-500":"text-green-700"}`}>{inStock} bags</span>
+                    {inStock === 0 ? (
+                      <span className="text-xs font-bold px-2 py-0.5 rounded-md bg-red-50 text-red-700 border border-red-200">
+                        0 bags (Out of stock)
+                      </span>
+                    ) : (
+                      <span className={`text-sm font-bold ${inStock<=3?"text-amber-600":"text-green-700"}`}>
+                        {inStock} bags
+                      </span>
+                    )}
+                    {inStock > 0 && canCreate && (
+                      <button
+                        onClick={()=>openDeductFor(row.brand, row.size)}
+                        className="px-2 py-1 text-xs font-semibold rounded-md border border-slate-200 hover:bg-slate-50 text-slate-700 flex items-center gap-1"
+                        title="Deduct feed"
+                      >
+                        <MinusCircle size={12}/> Deduct
+                      </button>
+                    )}
                   </div>
                 </div>
               );
@@ -369,26 +480,47 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
           {/* Top Date bar & filters */}
           <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-4 rounded-xl border border-slate-200">
             <div className="flex items-center gap-2 flex-wrap">
-              <button onClick={()=>shiftDailyDate(-1)} className="p-2 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-600 transition-colors" title="Previous Day"><ChevronLeft size={16}/></button>
-              <div className="flex items-center gap-2">
-                <Calendar size={16} className="text-green-600"/>
-                <input type="date" value={dailyDate} onChange={e=>{setDailyDate(e.target.value);setDailyPage(1);}} className="text-sm font-bold text-slate-800 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-green-500" style={{ colorScheme: "light" }}/>
+              <div className="flex items-center rounded-lg border border-slate-200 bg-slate-50 p-0.5">
+                <button
+                  type="button"
+                  onClick={() => { setHistoryViewMode("single_day"); setDailyPage(1); }}
+                  className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-colors ${historyViewMode === "single_day" ? "bg-white text-slate-900 shadow-2xs" : "text-slate-500 hover:text-slate-800"}`}
+                >
+                  By Date
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setHistoryViewMode("all"); setDailyPage(1); }}
+                  className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-colors ${historyViewMode === "all" ? "bg-white text-slate-900 shadow-2xs" : "text-slate-500 hover:text-slate-800"}`}
+                >
+                  All History
+                </button>
               </div>
-              <button onClick={()=>shiftDailyDate(1)} className="p-2 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-600 transition-colors" title="Next Day"><ChevronRight size={16}/></button>
-              {dailyDate!==TODAY&&(
-                <button onClick={()=>{setDailyDate(TODAY);setDailyPage(1);}} className="px-2.5 py-1.5 text-xs font-semibold text-green-700 bg-green-50 border border-green-200 rounded-lg hover:bg-green-100 transition-colors">Today</button>
+
+              {historyViewMode === "single_day" && (
+                <>
+                  <button onClick={()=>shiftDailyDate(-1)} className="p-2 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-600 transition-colors" title="Previous Day"><ChevronLeft size={16}/></button>
+                  <div className="flex items-center gap-2">
+                    <Calendar size={16} className="text-green-600"/>
+                    <input type="date" value={dailyDate} onChange={e=>{setDailyDate(e.target.value);setDailyPage(1);}} className="text-sm font-bold text-slate-800 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-green-500" style={{ colorScheme: "light" }}/>
+                  </div>
+                  <button onClick={()=>shiftDailyDate(1)} className="p-2 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-600 transition-colors" title="Next Day"><ChevronRight size={16}/></button>
+                  {dailyDate!==TODAY&&(
+                    <button onClick={()=>{setDailyDate(TODAY);setDailyPage(1);}} className="px-2.5 py-1.5 text-xs font-semibold text-green-700 bg-green-50 border border-green-200 rounded-lg hover:bg-green-100 transition-colors">Today</button>
+                  )}
+                </>
               )}
             </div>
             <div className="flex items-center gap-2 flex-wrap">
-              <button onClick={()=>downloadCSV(`feed-stock-history-${dailyDate}.csv`,["#","Date","Fish Stock (Stock Date)","Brand","Pellet Size","Bags Opened","Kg/Bag","KG Deducted","Remaining KG in Stock"],filteredDailyRows.map((r,i)=>[i+1,r.date,`${r.fishStock}${r.stockDate&&r.stockDate!=="—"?` (${r.stockDate})`:""}`,r.brand,r.size,r.bagsOpened,r.kgPerBag,r.totalKgOpened,r.remainingKg]))} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 text-xs font-semibold hover:border-green-400 hover:text-green-600 transition-colors"><Download size={12}/> CSV</button>
-              <button onClick={()=>openPrintWindow(`Feed Stock History Report — ${fmtStockingDate(dailyDate)}`,["#","Date","Fish Stock (Stock Date)","Brand","Pellet Size","Bags Opened","Kg/Bag","KG Deducted","Remaining KG in Stock"],filteredDailyRows.map((r,i)=>[i+1,r.date,`${r.fishStock}${r.stockDate&&r.stockDate!=="—"?` (${r.stockDate})`:""}`,r.brand,r.size,`${r.bagsOpened} bag${r.bagsOpened!==1?"s":""}`,`${r.kgPerBag}kg`,`${r.totalKgOpened}kg`,`${r.remainingKg}kg`]),`Feed Bags Opened & Remaining Log (${fmtStockingDate(dailyDate)})`)} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 text-xs font-semibold hover:border-green-400 hover:text-green-600 transition-colors"><FileText size={12}/> Print</button>
+              <button onClick={()=>downloadCSV(`feed-removal-history-${historyViewMode==="all"?"all":dailyDate}.csv`,["#","Date","Reason / Why","Fish Stock (Stock Date)","Brand","Pellet Size","Bags Deducted","Kg/Bag","KG Deducted","Notes"],filteredDailyRows.map((r,i)=>[i+1,r.date,r.reason||"Usage",`${r.fishStock}${r.stockDate&&r.stockDate!=="—"?` (${r.stockDate})`:""}`,r.brand,r.size,r.bagsOpened,r.kgPerBag,r.totalKgOpened,r.notes||""]))} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 text-xs font-semibold hover:border-green-400 hover:text-green-600 transition-colors"><Download size={12}/> CSV</button>
+              <button onClick={()=>openPrintWindow(`Feed Stock Removal & Usage Report — ${historyViewMode==="all"?"All History":fmtStockingDate(dailyDate)}`,["#","Date","Reason / Why","Fish Stock (Stock Date)","Brand","Pellet Size","Bags Deducted","Kg/Bag","KG Deducted","Notes"],filteredDailyRows.map((r,i)=>[i+1,r.date,r.reason||"Usage",`${r.fishStock}${r.stockDate&&r.stockDate!=="—"?` (${r.stockDate})`:""}`,r.brand,r.size,`${r.bagsOpened} bag${r.bagsOpened!==1?"s":""}`,`${r.kgPerBag}kg`,`${r.totalKgOpened}kg`,r.notes||"—"]),`Feed Stock Removal & Usage Log (${historyViewMode==="all"?"All History":fmtStockingDate(dailyDate)})`)} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 text-xs font-semibold hover:border-green-400 hover:text-green-600 transition-colors"><FileText size={12}/> Print</button>
             </div>
           </div>
 
-          {/* KPI Stat Cards for that Day */}
+          {/* KPI Stat Cards */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <StatCard label="Bags Opened" value={`${dayTotalBags} bag${dayTotalBags!==1?"s":""}`} sub={`On ${fmtStockingDate(dailyDate)}`} icon={Package} hi/>
-            <StatCard label="KG Deducted" value={`${dayTotalKgOpened}kg`} sub="Opened feed weight" icon={Layers}/>
+            <StatCard label="Bags Deducted" value={`${dayTotalBags} bag${dayTotalBags!==1?"s":""}`} sub={historyViewMode==="all" ? "All recorded deductions" : `On ${fmtStockingDate(dailyDate)}`} icon={Package} hi/>
+            <StatCard label="KG Deducted" value={`${dayTotalKgOpened}kg`} sub="Deducted feed weight" icon={Layers}/>
             <StatCard label="Remaining in Opened Bags" value={`${dayTotalRemainingKg}kg`} sub="Across active stocks" icon={CheckCircle}/>
             <StatCard label="Fish Stocks Active" value={String(dayTotalStocksCount)} sub="Stocks recorded" icon={Fish}/>
           </div>
@@ -397,7 +529,14 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
           <div className="flex flex-wrap gap-2 items-center">
             <div className="relative">
               <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300"/>
-              <input value={dailySearch} onChange={e=>{setDailySearch(e.target.value);setDailyPage(1);}} placeholder="Search stock, date, brand…" className={`${IC} pl-8 w-52 text-xs`}/>
+              <input value={dailySearch} onChange={e=>{setDailySearch(e.target.value);setDailyPage(1);}} placeholder="Search reason, stock, brand, notes…" className={`${IC} pl-8 w-56 text-xs`}/>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-slate-400">Reason:</span>
+              <select value={fDailyReason} onChange={e=>{setFDailyReason(e.target.value);setDailyPage(1);}} className={`${SC} py-1.5 text-xs w-auto`}>
+                <option value="All">All Reasons</option>
+                {allDailyReasons.map(r=><option key={r} value={r}>{r}</option>)}
+              </select>
             </div>
             <div className="flex items-center gap-1.5">
               <span className="text-xs text-slate-400">Stock:</span>
@@ -426,33 +565,38 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
           <Card className="hidden md:block">
             <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between">
               <div>
-                <p className="text-xs font-bold uppercase tracking-wider text-slate-700">Feed Stock History &amp; Bags Opened Log</p>
-                <p className="text-xs text-slate-400 mt-0.5">Date, Fish Stock (with Stock Date), Brand, Pellet Size, Bags Opened, KG Deducted, and Remaining KG.</p>
+                <p className="text-xs font-bold uppercase tracking-wider text-slate-700">Feed Stock Removal &amp; Usage History</p>
+                <p className="text-xs text-slate-400 mt-0.5">Track what was deducted, when, why (reason &amp; notes), and remaining kg.</p>
               </div>
               <span className="text-xs text-slate-400">{filteredDailyRows.length} record{filteredDailyRows.length!==1?"s":""}</span>
             </div>
             <div className="overflow-x-auto">
-              <table className="w-full text-sm min-w-[800px]">
+              <table className="w-full text-sm min-w-[850px]">
                 <thead>
                   <tr className="border-b border-slate-100 bg-slate-50">
                     <th className="px-4 py-3 text-[11px] text-slate-400 w-10 sticky left-0 z-20 bg-slate-50">#</th>
                     <th className="text-left px-4 py-3 text-[11px] text-slate-600 uppercase tracking-wider whitespace-nowrap sticky left-10 z-20 bg-slate-50 border-r border-slate-200">Date</th>
+                    <th className="text-left px-4 py-3 text-[11px] text-slate-600 uppercase tracking-wider whitespace-nowrap">Reason / Why</th>
                     <th className="text-left px-4 py-3 text-[11px] text-slate-600 uppercase tracking-wider">Fish Stock</th>
                     <th className="text-left px-4 py-3 text-[11px] text-slate-600 uppercase tracking-wider">Brand</th>
                     <th className="text-left px-4 py-3 text-[11px] text-slate-600 uppercase tracking-wider">Pellet Size</th>
-                    <th className="text-right px-4 py-3 text-[11px] text-slate-600 uppercase tracking-wider">Bags Opened</th>
+                    <th className="text-right px-4 py-3 text-[11px] text-slate-600 uppercase tracking-wider">Bags Deducted</th>
                     <th className="text-right px-4 py-3 text-[11px] text-slate-600 uppercase tracking-wider">KG Deducted</th>
-                    <th className="text-right px-4 py-3 text-[11px] text-slate-600 uppercase tracking-wider">Remaining KG in Stock</th>
+                    <th className="text-left px-4 py-3 text-[11px] text-slate-600 uppercase tracking-wider">Notes</th>
+                    <th className="text-right px-4 py-3 text-[11px] text-slate-600 uppercase tracking-wider">Remaining KG</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
                   {filteredDailyRows.length===0?(
-                    <tr><td colSpan={8} className="text-center text-xs text-slate-400 py-10">No feed bags opened or recorded. Log opened bags from Feeding Records to populate history.</td></tr>
+                    <tr><td colSpan={10} className="text-center text-xs text-slate-400 py-10">No feed removal or usage history recorded. Use the "Deduct Feed" button or log opened bags to track removals.</td></tr>
                   ):filteredDailyRows.slice((dailyPage-1)*PER_PAGE, dailyPage*PER_PAGE).map((r,i)=>(
-                    <tr key={`${r.date}__${r.fishStock}__${r.brand}__${r.size}__${i}`} className="hover:bg-slate-50 transition-colors">
+                    <tr key={`${r.id}__${i}`} className="hover:bg-slate-50 transition-colors">
                       <td className="px-4 py-3.5 text-slate-300 text-xs font-mono sticky left-0 z-10 bg-white">{(dailyPage-1)*PER_PAGE+i+1}</td>
                       <td className="px-4 py-3.5 sticky left-10 z-10 bg-white border-r border-slate-100 whitespace-nowrap">
                         <span className="font-semibold text-slate-700 text-xs">{r.date}</span>
+                      </td>
+                      <td className="px-4 py-3.5 whitespace-nowrap">
+                        {getReasonBadge(r.reason)}
                       </td>
                       <td className="px-4 py-3.5">
                         <div className="flex items-center gap-2">
@@ -472,6 +616,7 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
                       <td className="px-4 py-3.5"><Bdg label={r.size} color="blue"/></td>
                       <td className="px-4 py-3.5 text-right font-bold text-slate-900">{r.bagsOpened > 0 ? `${r.bagsOpened} bag${r.bagsOpened!==1?"s":""}` : "—"}</td>
                       <td className="px-4 py-3.5 text-right font-bold text-green-700 font-['Barlow_Condensed',sans-serif] text-base">{r.totalKgOpened > 0 ? `${r.totalKgOpened}kg` : "—"}</td>
+                      <td className="px-4 py-3.5 text-xs text-slate-500 max-w-[200px] truncate" title={r.notes || ""}>{r.notes || "—"}</td>
                       <td className="px-4 py-3.5 text-right">
                         <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold font-['Barlow_Condensed',sans-serif] ${r.remainingKg>0?"bg-amber-100 text-amber-900 border border-amber-200":"bg-slate-100 text-slate-500"}`}>
                           {r.remainingKg}kg
@@ -483,9 +628,10 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
                 {filteredDailyRows.length>0&&(
                   <tfoot>
                     <tr className="bg-slate-50 font-bold border-t-2 border-slate-200 text-slate-800">
-                      <td colSpan={5} className="px-4 py-3 text-right text-xs uppercase tracking-wider text-slate-500">Total:</td>
+                      <td colSpan={6} className="px-4 py-3 text-right text-xs uppercase tracking-wider text-slate-500">Total:</td>
                       <td className="px-4 py-3 text-right text-slate-900">{dayTotalBags} bags</td>
                       <td className="px-4 py-3 text-right text-green-700 text-base font-['Barlow_Condensed',sans-serif]">{dayTotalKgOpened}kg</td>
+                      <td/>
                       <td className="px-4 py-3 text-right text-amber-800 text-base font-['Barlow_Condensed',sans-serif]">{dayTotalRemainingKg}kg</td>
                     </tr>
                   </tfoot>
@@ -498,13 +644,16 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
           <div className="md:hidden space-y-2.5">
             {filteredDailyRows.length===0?(
               <div className="bg-white border border-slate-200 rounded-xl p-6 text-center text-xs text-slate-400">
-                No feed stock history recorded.
+                No feed removal or usage history recorded.
               </div>
             ):filteredDailyRows.map((r,i)=>(
-              <div key={i} className="bg-white border border-slate-200 rounded-xl p-4 space-y-2.5 shadow-xs">
+              <div key={r.id || i} className="bg-white border border-slate-200 rounded-xl p-4 space-y-2.5 shadow-xs">
                 <div className="flex items-start justify-between gap-2">
                   <div>
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{r.date}</span>
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{r.date}</span>
+                      {getReasonBadge(r.reason)}
+                    </div>
                     <p className="text-sm font-bold text-slate-900 leading-tight">{r.fishStock}</p>
                     {r.stockDate && r.stockDate !== "—" && (
                       <p className="text-xs text-slate-500 font-normal leading-tight mt-0.5">{r.stockDate}</p>
@@ -514,10 +663,15 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
                 </div>
                 <div className="grid grid-cols-2 gap-2 text-xs border-t border-slate-100 pt-2">
                   <div><span className="text-slate-400">Brand: </span><strong className="text-slate-700">{r.brand}</strong></div>
-                  <div><span className="text-slate-400">Bags Opened: </span><strong className="text-slate-900">{r.bagsOpened} bags</strong></div>
+                  <div><span className="text-slate-400">Bags Deducted: </span><strong className="text-slate-900">{r.bagsOpened} bags</strong></div>
                   <div><span className="text-slate-400">KG Deducted: </span><strong className="text-green-700 font-bold">{r.totalKgOpened}kg</strong></div>
                   <div><span className="text-slate-400">Remaining: </span><strong className="text-amber-800 font-bold">{r.remainingKg}kg</strong></div>
                 </div>
+                {r.notes && (
+                  <p className="text-xs text-slate-500 bg-slate-50 rounded-lg p-2 border border-slate-100 italic">
+                    Note: {r.notes}
+                  </p>
+                )}
               </div>
             ))}
           </div>
@@ -809,6 +963,131 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
         <F label="Supplier"><input value={buyF.supplier} onChange={e=>setBuyF(p=>({...p,supplier:e.target.value}))} className={IC} placeholder="Supplier name"/></F>
         <div className="flex gap-2 pt-1"><PBtn onClick={handleBuy}><Plus size={14}/> Save Purchase</PBtn><button onClick={()=>{setShowBuy(false);setBuyErr({});}} className="px-4 py-2 text-sm text-slate-400">Cancel</button></div>
       </Modal>}
+      {showDeduct && (
+        <Modal title="Deduct / Remove Feed Stock" onClose={() => { setShowDeduct(false); setDeductErr({}); }} wide>
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <F label="Date of Deduction">
+                  <DateInput value={deductF.date} onChange={v => { setDeductF(p => ({ ...p, date: v })); if (v) setDeductErr(p => ({ ...p, date: "" })); }}/>
+                </F>
+                {deductErr.date && <p className="text-xs text-red-500 mt-1">{deductErr.date}</p>}
+              </div>
+              <F label="Feed Brand">
+                <SearchableSelect
+                  value={deductF.brand}
+                  onChange={v => {
+                    setDeductF(p => ({ ...p, brand: v }));
+                    setDeductErr({});
+                  }}
+                  options={brands.length ? brands : FEED_BRANDS}
+                  placeholder="Select brand…"
+                />
+              </F>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <F label="Feed Size (Pellet)">
+                <select
+                  value={deductF.size}
+                  onChange={e => {
+                    setDeductF(p => ({ ...p, size: e.target.value }));
+                    setDeductErr({});
+                  }}
+                  className={SC}
+                >
+                  {(sizes.length ? sizes : FEED_SIZES).map(s => <option key={s}>{s}</option>)}
+                </select>
+              </F>
+              <div>
+                <F label="Bags to Deduct">
+                  <NumInput
+                    allowDecimal={false}
+                    value={deductF.bags}
+                    onChange={v => {
+                      setDeductF(p => ({ ...p, bags: v }));
+                      if (v && Number(v) > 0) setDeductErr(p => ({ ...p, bags: "" }));
+                    }}
+                    className={`${SC}${deductErr.bags ? " border-red-400 focus:ring-red-200" : ""}`}
+                    placeholder="0"
+                  />
+                </F>
+                {deductErr.bags && <p className="text-xs text-red-500 mt-1">{deductErr.bags}</p>}
+              </div>
+            </div>
+
+            {/* Current Stock info banner */}
+            {(() => {
+              const rem = getRemainingBags(deductF.brand, deductF.size);
+              return (
+                <div className={`p-3 rounded-xl border text-xs flex items-center justify-between ${
+                  rem === 0
+                    ? "bg-red-50 border-red-200 text-red-700"
+                    : rem <= 3
+                    ? "bg-amber-50 border-amber-200 text-amber-800"
+                    : "bg-green-50 border-green-200 text-green-800"
+                }`}>
+                  <div>
+                    <span className="font-semibold">{deductF.brand} ({deductF.size})</span>: Currently available in stock:
+                  </div>
+                  <div className="font-bold text-sm">
+                    {rem === 0 ? "0 bags (Out of stock)" : `${rem} bag${rem !== 1 ? "s" : ""} remaining`}
+                  </div>
+                </div>
+              );
+            })()}
+
+            <div className="grid grid-cols-2 gap-3">
+              <F label="Reason for Removal">
+                <select
+                  value={deductF.reason}
+                  onChange={e => setDeductF(p => ({ ...p, reason: e.target.value }))}
+                  className={SC}
+                >
+                  <option value="Fed to Fish">Fed to Fish</option>
+                  <option value="Damaged / Spoiled">Damaged / Spoiled</option>
+                  <option value="Expired / Discarded">Expired / Discarded</option>
+                  <option value="Inventory Adjustment">Inventory Adjustment</option>
+                  <option value="Transferred to Other Farm / Pond">Transferred to Other Farm / Pond</option>
+                  <option value="Other Removal">Other Removal</option>
+                </select>
+              </F>
+              <F label="Fish Stock / Destination">
+                <select
+                  value={deductF.fishStock}
+                  onChange={e => setDeductF(p => ({ ...p, fishStock: e.target.value }))}
+                  className={SC}
+                >
+                  <option value="General Stock">General Stock</option>
+                  {[...new Set(ponds.filter(p => p.status === "Active" || (p.species && p.species !== "—")).map(p => getPondFishStock(p)).filter(Boolean))].map(s => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+              </F>
+            </div>
+
+            <F label="Notes / Why Deducted (Optional)">
+              <input
+                value={deductF.notes}
+                onChange={e => setDeductF(p => ({ ...p, notes: e.target.value }))}
+                className={IC}
+                placeholder="e.g. Sacks torn during transport, discarded after water leak, manual feed adjustment…"
+              />
+            </F>
+
+            <div className="flex gap-2 pt-2 border-t border-slate-100">
+              <PBtn onClick={handleDeduct}>
+                <MinusCircle size={14}/> Confirm Deduction
+              </PBtn>
+              <button
+                onClick={() => { setShowDeduct(false); setDeductErr({}); }}
+                className="px-4 py-2 text-sm text-slate-400 hover:text-slate-600"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }

@@ -17,25 +17,7 @@ export const INIT_FARMS:Farm[]=[
   {id:"FARM-001",name:"Aqua Laguna Station",city:"Lagos",state:"Lagos",country:"Nigeria"},
 ];
 
-export const INIT_K = [
-  {id:"KQ-1",text:"How many times a day should fingerlings typically be fed?",category:"Fish Feeding",options:["Once a day","Twice a day","Three times a day","Four times a day"],correctIndex:2},
-  {id:"KQ-2",text:"What is the ideal dissolved oxygen level for tilapia ponds?",category:"Water Quality Management",options:["1–2 mg/L","3–4 mg/L","5–7 mg/L","8–10 mg/L"],correctIndex:2},
-  {id:"KQ-3",text:"Which is a common sign of fish disease?",category:"Fish Health",options:["Active feeding","Swimming near surface gasping","Normal schooling","Bright coloration"],correctIndex:1},
-  {id:"KQ-4",text:"What is the primary purpose of water flow-through in pond systems?",category:"Water Flow-Through System",options:["Cool the pond","Remove waste and replenish oxygen","Increase water temperature","Reduce feed consumption"],correctIndex:1},
-  {id:"KQ-5",text:"How should unused feed bags be stored?",category:"Inventory Management",options:["On wet ground","In a dry, cool, ventilated area","In direct sunlight","Near chemicals"],correctIndex:1},
-  {id:"KQ-6",text:"What does the term 'FCR' stand for?",category:"Fish Feeding",options:["Feed Consumption Rate","Feed Conversion Ratio","Fish Count Record","Farm Cost Report"],correctIndex:1},
-  {id:"KQ-7",text:"Which equipment is used to measure dissolved oxygen in pond water?",category:"Equipment Operation",options:["Refractometer","DO meter","pH meter","Thermometer"],correctIndex:1},
-];
-
-export const INIT_C = [
-  {id:"CQ-1",text:"When there is a disagreement with a colleague, you typically:",category:"Communication",options:["Avoid the conversation","Listen to understand their perspective","Report it immediately","Argue until they agree"],correctIndex:1},
-  {id:"CQ-2",text:"If assigned a task you have never done before, you would:",category:"Adaptability",options:["Refuse until trained","Ask for help and attempt it step by step","Do it exactly as your previous job","Wait for someone else"],correctIndex:1},
-  {id:"CQ-3",text:"When you notice an issue outside your responsibility, you:",category:"Initiative",options:["Ignore it","Report it to the appropriate person","Wait until asked","Handle it quietly"],correctIndex:1},
-  {id:"CQ-4",text:"Working under pressure with tight deadlines, you:",category:"Stress Management",options:["Panic and make mistakes","Prioritize tasks and stay focused","Give up","Work slower than normal"],correctIndex:1},
-  {id:"CQ-5",text:"If you discovered a team member taking farm supplies for personal use, you would:",category:"Integrity",options:["Ignore it","Report to a supervisor","Join in if needed","Tell colleagues only"],correctIndex:1},
-  {id:"CQ-6",text:"When given constructive criticism by your supervisor, you:",category:"Emotional Intelligence",options:["Get defensive","Listen and apply the feedback","Feel discouraged for weeks","Complain to coworkers"],correctIndex:1},
-  {id:"CQ-7",text:"When your team is short-handed for a physically demanding task, you:",category:"Physical Readiness",options:["Wait for more staff","Step in and help","Suggest they hire someone","Pretend not to notice"],correctIndex:1},
-];
+export { INIT_K, INIT_C } from "./questionsData";
 
 export const FINANCIAL_DATA: Record<number, MonthData[]> = {
   2025: [
