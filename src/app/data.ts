@@ -107,8 +107,17 @@ export const INIT_MORT: MortalityEntry[] = [
 ];
 
 /* ─── Utils ─────────────────────────────────────────────────── */
-export const fmt  = (n:number) => "₦"+n.toLocaleString();
-export const yFmt = (v:number) => v>=1000000?`₦${(v/1000000).toFixed(1)}M`:v>=1000?`₦${(v/1000).toFixed(0)}K`:`₦${v}`;
+export const fmt  = (n: any) => {
+  if (n === null || n === undefined) return "₦0";
+  const num = typeof n === "number" ? n : Number(n);
+  return isNaN(num) ? "₦0" : "₦" + num.toLocaleString();
+};
+export const yFmt = (v: any) => {
+  if (v === null || v === undefined) return "₦0";
+  const num = typeof v === "number" ? v : Number(v);
+  if (isNaN(num)) return "₦0";
+  return num >= 1000000 ? `₦${(num / 1000000).toFixed(1)}M` : num >= 1000 ? `₦${(num / 1000).toFixed(0)}K` : `₦${num}`;
+};
 export const uid = (): string => {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
     return crypto.randomUUID();

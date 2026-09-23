@@ -331,36 +331,31 @@ function FinancialDashboard({
   const MONTHS_12=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
   const getRowMonth = (r: { month?: string; date?: string }) => (r.month || (r.date ? toMon(r.date) : "")).trim();
   const getRowYear = (r: { year?: number; date?: string }) => Number(r.year) || (r.date ? toYr(r.date) : new Date().getFullYear());
-  const yearRevs=revenues.filter(r=>getRowYear(r)===selYear);
-  const yearExps=expenses.filter(e=>getRowYear(e)===selYear);
-  const filtExp=expenses.filter(e=>{
-    if(customApplied&&customStart&&customEnd){return e.date>=customStart&&e.date<=customEnd;}
+  const safeExpenses = Array.isArray(expenses) ? expenses : [];
+  const safeRevenues = Array.isArray(revenues) ? revenues : [];
+  const safeInventory = Array.isArray(inventory) ? inventory : [];
+
+  const yearRevs=safeRevenues.filter(r=>getRowYear(r)===selYear);
+  const yearExps=safeExpenses.filter(e=>getRowYear(e)===selYear);
+  const filtExp=safeExpenses.filter(e=>{
+    if(customApplied&&customStart&&customEnd){return Boolean(e.date && e.date>=customStart&&e.date<=customEnd);}
     const m=getRowMonth(e);const y=getRowYear(e);
     return dashFilterMonth==="All"?y===dashFilterYear:m.toLowerCase()===dashFilterMonth.toLowerCase()&&y===dashFilterYear;
   });
-  const filtRev=revenues.filter(r=>{
-    if(customApplied&&customStart&&customEnd){return r.date>=customStart&&r.date<=customEnd;}
+  const filtRev=safeRevenues.filter(r=>{
+    if(customApplied&&customStart&&customEnd){return Boolean(r.date && r.date>=customStart&&r.date<=customEnd);}
     const m=getRowMonth(r);const y=getRowYear(r);
     return dashFilterMonth==="All"?y===dashFilterYear:m.toLowerCase()===dashFilterMonth.toLowerCase()&&y===dashFilterYear;
   });
   // Real stats from filtered data
-  const totalRev=filtRev.reduce((s,r)=>s+r.amount,0);
-  const totalExp=filtExp.reduce((s,e)=>s+e.amount,0);
+  const totalRev=filtRev.reduce((s,r)=>s+(Number(r.amount)||0),0);
+  const totalExp=filtExp.reduce((s,e)=>s+(Number(e.amount)||0),0);
   const netProfit=totalRev-totalExp;
-  const feedCost=filtExp.filter(e=>e.category==="Feed").reduce((s,e)=>s+e.amount,0);
-  const stockCost=filtExp.filter(e=>e.category==="Fish Stock").reduce((s,e)=>s+e.amount,0);
-  const maintCost=filtExp.filter(e=>e.category==="Maintenance").reduce((s,e)=>s+e.amount,0);
-  const overhead=filtExp.filter(e=>["Labor","Utilities","General Overhead","Overhead"].includes(e.category)).reduce((s,e)=>s+e.amount,0);
-  const inventoryValue = Object.values((inventory || []).reduce<Record<string, { inStock: number; costPerBag: number }>>((acc, f) => {
-    const k = `${f.brand}|${f.size}`;
-    if (!acc[k]) {
-      const opened = (bagLogs || []).filter(b => b.brand === f.brand && b.size === f.size).reduce((s, b) => s + (Number(b.bagsOpened) || 0), 0);
-      const totalPurchased = (inventory || []).filter(item => item.brand === f.brand && item.size === f.size).reduce((s, item) => s + item.bags, 0);
-      const inStock = Math.max(0, totalPurchased - opened);
-      acc[k] = { inStock, costPerBag: f.costPerBag || 0 };
-    }
-    return acc;
-  }, {})).reduce((s, item) => s + (item.inStock * item.costPerBag), 0);
+  const feedCost=filtExp.filter(e=>e.category==="Feed").reduce((s,e)=>s+(Number(e.amount)||0),0);
+  const stockCost=filtExp.filter(e=>e.category==="Fish Stock").reduce((s,e)=>s+(Number(e.amount)||0),0);
+  const maintCost=filtExp.filter(e=>e.category==="Maintenance").reduce((s,e)=>s+(Number(e.amount)||0),0);
+  const overhead=filtExp.filter(e=>["Labor","Utilities","General Overhead","Overhead"].includes(e.category)).reduce((s,e)=>s+(Number(e.amount)||0),0);
+  const inventoryValue=(safeInventory||[]).reduce((s,f)=>s+((Number(f.bags)||0)*(Number(f.costPerBag)||0)),0);
   const pieRows=[
     {name:"Feed",value:feedCost,color:"#0d9488"},
     {name:"Fish Stock",value:stockCost,color:"#3b82f6"},
@@ -491,9 +486,9 @@ function FinancialDashboard({
             <div className="relative"><select value={selYear} onChange={e=>{setSelYear(Number(e.target.value));}} className="text-xs border border-slate-200 rounded-lg px-3 py-1.5 bg-white text-slate-700 font-semibold focus:outline-none focus:ring-2 focus:ring-green-300 appearance-none pr-7 cursor-pointer">{DASH_YEARS.map(y=><option key={y} value={y}>{y}</option>)}</select><ChevronDown size={11} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"/></div>
           </div>
           {(()=>{
-            const maxVal=Math.max(...chartData.map(d=>Math.max(d.Revenue,d.Expenses)),1);
-            const mag=Math.pow(10,Math.floor(Math.log10(maxVal)));
-            const niceMax=Math.ceil(maxVal/mag)*mag;
+            const maxVal=Math.max(1, ...chartData.map(d=>Math.max(Number(d.Revenue)||0, Number(d.Expenses)||0)));
+            const mag=Math.pow(10, Math.max(0, Math.floor(Math.log10(maxVal))));
+            const niceMax=Math.ceil(maxVal/(mag || 1))*(mag || 1);
             const CHART_H=240;
             const X_H=24;
             const YAXIS_W=54;
@@ -1162,14 +1157,15 @@ function StaffPage({
             <table className="w-full text-sm min-w-[780px]">
               <thead>
                 <tr className="border-b border-slate-100 bg-slate-50">
-                  <th className="px-4 py-3 text-[11px] text-slate-400 w-10 text-center sticky left-0 z-20 bg-slate-50">#</th>
-                  <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider sticky left-10 z-20 bg-slate-50 border-r border-slate-200 whitespace-nowrap min-w-[180px]">
+                  <th className="px-4 py-3 text-[11px] text-slate-400 w-10 text-center">#</th>
+                  <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider whitespace-nowrap">
                     Staff Name
                   </th>
-                  <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider">Status</th>
-                  <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider">Role</th>
-                  <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider">Email</th>
-                  <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider">Phone</th>
+                  <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider whitespace-nowrap">Status</th>
+                  <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider whitespace-nowrap">Role</th>
+                  <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider whitespace-nowrap">Date Joined</th>
+                  <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider whitespace-nowrap">Email</th>
+                  <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider whitespace-nowrap">Phone</th>
                   <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider">Farms</th>
                   <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider">Permissions</th>
                   <th className="text-right px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider">Actions</th>
@@ -1181,22 +1177,11 @@ function StaffPage({
                   const assignedFarms=(farms||[]).filter(f=>s.farms?.includes(f.id));
                   return(
                     <tr key={s.id} className="hover:bg-slate-50/70 transition-colors">
-                      <td className="px-4 py-3 text-slate-400 text-xs text-center sticky left-0 z-10 bg-white">
+                      <td className="px-4 py-3 text-slate-400 text-xs text-center">
                         {globalIdx}
                       </td>
-                      <td className="px-4 py-3 sticky left-10 z-10 bg-white border-r border-slate-200 whitespace-nowrap">
-                        <div className="min-w-0">
-                          <p className="font-semibold text-slate-900 leading-tight">{s.name}</p>
-                          <div className="flex items-center gap-1.5 mt-0.5">
-                            <span className="text-[11px] text-slate-500 font-medium">{s.role}</span>
-                            {s.joinedDate && (
-                              <>
-                                <span className="text-slate-300">·</span>
-                                <span className="text-[10px] text-slate-400">Joined {s.joinedDate}</span>
-                              </>
-                            )}
-                          </div>
-                        </div>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <p className="font-semibold text-slate-900 leading-tight">{s.name}</p>
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">
                         <button
@@ -1214,6 +1199,13 @@ function StaffPage({
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">
                         <Bdg label={s.role} color={s.role==="Director"?"purple":s.role==="Admin"?"teal":"blue"}/>
+                      </td>
+                      <td className="px-4 py-3 text-slate-600 text-xs whitespace-nowrap">
+                        {s.joinedDate ? (
+                          <span>{s.joinedDate}</span>
+                        ) : (
+                          <span className="text-slate-300">—</span>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-slate-600 font-mono text-xs whitespace-nowrap">
                         <span className="flex items-center gap-1.5"><Mail size={12} className="text-slate-400"/>{s.email}</span>
@@ -3674,7 +3666,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
 
   /* ── Permission derivation & farm scoping ── */
   const currentStaff = staff.find(s => (s.staffAuthId && userProfile?.id && s.staffAuthId === userProfile.id) || (s.email && userProfile?.email && s.email.trim().toLowerCase() === userProfile.email.trim().toLowerCase()));
-  const isStaff = userProfile?.role === "staff" || Boolean((userProfile as any)?.ownerId) || (Boolean(currentStaff) && currentStaff?.role !== "Admin" && currentStaff?.role !== "Director" && userProfile?.role !== "owner");
+  const isStaff = (userProfile?.role === "staff" || Boolean((userProfile as any)?.ownerId)) && currentStaff?.role !== "Admin" && currentStaff?.role !== "Director";
   const isOwner = !isStaff;
 
   const staffPermsMap: Record<string,{canView:boolean;canCreate:boolean;canEdit:boolean;canDelete:boolean}> =
