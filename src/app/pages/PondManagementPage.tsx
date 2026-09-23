@@ -1213,18 +1213,35 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
         <StatCard label="Active" value={String(activePonds)} icon={CheckCircle} hi/>
         <StatCard label="Total Fish" value={totalFish.toLocaleString()} icon={Fish}/>
       </div>
-      {/* Desktop table card */}
-      <Card className="hidden md:block">
-        <div className="px-4 py-3.5 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <p className="text-xs font-bold uppercase tracking-wider text-slate-600">List of Ponds</p>
-            <span className="text-xs text-slate-400 font-normal">({filteredPonds.length} ponds)</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="relative"><Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300"/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search…" className={`${IC} pl-8 w-44 text-xs py-1.5`}/></div>
-            <div className="flex items-center gap-1.5"><span className="text-xs text-slate-400">Status:</span><select value={fStatus} onChange={e=>setFStatus(e.target.value)} className={`${SC} py-1.5 text-xs w-auto`}>{["All","Active","Empty"].map(o=><option key={o}>{o}</option>)}</select></div>
-          </div>
+      {/* List of Ponds Heading */}
+      <div className="flex items-center justify-between px-1 mt-4">
+        <div className="flex items-center gap-2">
+          <p className="text-xs font-bold uppercase tracking-wider text-slate-700">List of Ponds</p>
+          <span className="text-xs text-slate-400 font-normal">({filteredPonds.length} ponds)</span>
         </div>
+      </div>
+
+      {/* Search and Filter */}
+      <div className="flex flex-wrap gap-2.5 items-center px-1 mt-3">
+        <div className="relative flex-1 sm:flex-none">
+          <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300"/>
+          <input
+            value={search}
+            onChange={e=>setSearch(e.target.value)}
+            placeholder="Search ponds…"
+            className={`${IC} pl-8 w-full sm:w-56 text-xs py-1.5`}
+          />
+        </div>
+        <div className="flex items-center gap-1.5">
+          <span className="text-xs text-slate-400">Status:</span>
+          <select value={fStatus} onChange={e=>setFStatus(e.target.value)} className={`${SC} py-1.5 text-xs w-auto`}>
+            {["All","Active","Empty"].map(o=><option key={o}>{o}</option>)}
+          </select>
+        </div>
+      </div>
+
+      {/* Desktop table card */}
+      <Card className="hidden md:block mt-4">
         <div className="overflow-x-auto"><table className="w-full text-sm min-w-[700px]">
           <thead><tr className="border-b border-slate-100 bg-slate-50">
             <th className="px-4 py-3 text-[11px] text-slate-400 w-10 sticky left-0 z-20 bg-slate-50">#</th>
@@ -1270,17 +1287,7 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
       </Card>
 
       {/* Mobile card list directly on background */}
-      <div className="md:hidden space-y-3">
-        <div className="px-1 space-y-2">
-          <div className="flex items-center justify-between">
-            <p className="text-xs font-bold uppercase tracking-wider text-slate-600">List of Ponds</p>
-            <span className="text-xs text-slate-400 font-medium">{filteredPonds.length} ponds</span>
-          </div>
-          <div className="flex flex-wrap gap-2 items-center">
-            <div className="relative flex-1 min-w-[130px]"><Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300"/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search…" className={`${IC} pl-8 w-full text-xs py-1.5`}/></div>
-            <div className="flex items-center gap-1.5"><span className="text-xs text-slate-400">Status:</span><select value={fStatus} onChange={e=>setFStatus(e.target.value)} className={`${SC} py-1.5 text-xs w-auto`}>{["All","Active","Empty"].map(o=><option key={o}>{o}</option>)}</select></div>
-          </div>
-        </div>
+      <div className="md:hidden space-y-3 mt-4">
         {filteredPonds.length===0&&<p className="text-center text-xs text-slate-400 py-8 bg-white border border-slate-200 rounded-xl">No ponds match filters</p>}
         {filteredPonds.map((p,pIdx)=>{
           const isNearBottom=pIdx>=filteredPonds.length-2;

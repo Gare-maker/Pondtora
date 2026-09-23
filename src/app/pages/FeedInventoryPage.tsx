@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from "react";
 import {
   Plus, CheckCircle, Layers, Trash2, ChevronDown, ChevronUp,
-  Pencil, Package, Download, FileText, Lock, Calendar, ChevronLeft, ChevronRight, Search, Fish, MinusCircle
+  Pencil, Package, Download, FileText, Lock, Calendar, ChevronLeft, ChevronRight, Search, Fish
 } from "lucide-react";
 import type { FeedItem, BagOpenLog, FeedRemainingLog, Pond } from "../types";
 import { FEED_SIZES, FEED_BRANDS, TODAY, fmt, uid, toMon, toYr, downloadCSV, openPrintWindow, fmtDate, fmtStockingDate, formatFishStock, formatFishStockDate, getPondFishStock } from "../data";
@@ -19,16 +19,12 @@ const DEFAULT_CALC_STANDARDS:{[size:string]:{bagsPerK:number;kgPerBag:number}}={
 };
 
 /* ─── 3. Feed Inventory ─────────────────────────────────────── */
-export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,bagLogs,remainLogs=[],ponds=[],onEditBagLog,onAddBagLog,onEditInv,currency="₦",canEditLocked,canCreate=true,canEdit=true,canDelete=true}:{inventory:FeedItem[];onAdd:(f:FeedItem)=>void;onDelete:(id:string)=>void;feedingRecords:any[];bagLogs:BagOpenLog[];remainLogs?:FeedRemainingLog[];ponds?:Pond[];onEditBagLog:(b:BagOpenLog)=>void;onAddBagLog?:(b:BagOpenLog)=>void;onEditInv?:(f:FeedItem)=>void;currency?:string;canEditLocked?:boolean;canCreate?:boolean;canEdit?:boolean;canDelete?:boolean;}){
+export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,bagLogs,remainLogs=[],ponds=[],onEditBagLog,onEditInv,currency="₦",canEditLocked,canCreate=true,canEdit=true,canDelete=true}:{inventory:FeedItem[];onAdd:(f:FeedItem)=>void;onDelete:(id:string)=>void;feedingRecords:any[];bagLogs:BagOpenLog[];remainLogs?:FeedRemainingLog[];ponds?:Pond[];onEditBagLog:(b:BagOpenLog)=>void;onEditInv?:(f:FeedItem)=>void;currency?:string;canEditLocked?:boolean;canCreate?:boolean;canEdit?:boolean;canDelete?:boolean;}){
   const realTodayFmt=(()=>{const n=new Date();const day=n.getDate();const mon=n.toLocaleString("en-US",{month:"long"});const yr=n.getFullYear();return`${day} ${mon}, ${yr}`;})();
   const isPurchaseEditable=(purchaseDate:string)=>canEditLocked||purchaseDate===realTodayFmt;
   const cs=currency;
   const [tab,setTab]=useState<"stock"|"daily_bags"|"purchases">("stock");
   const [showBuy,setShowBuy]=useState(false);
-  /* deduct feed modal state */
-  const [showDeduct,setShowDeduct]=useState(false);
-  const [deductF,setDeductF]=useState({date:TODAY,brand:"Durante",size:"4.0 mm",bags:"",reason:"Fed to Fish",fishStock:"General Stock",notes:""});
-  const [deductErr,setDeductErr]=useState<Record<string,string>>({});
   /* calculator state */
   const [showCalc,setShowCalc]=useState(false);
   const [calcFish,setCalcFish]=useState("");
@@ -42,54 +38,6 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
   const [fBrand,setFBrand]=useState("All"); const [fSize,setFSize]=useState("All"); const [fMonth,setFMonth]=useState("All");
   const {sorted:sortedInv,sf,sd,toggle}=useSort(inventory,"brand");
   const brands=[...new Set(inventory.map(f=>f.brand))]; const sizes=[...new Set(inventory.map(f=>f.size))]; const months=[...new Set(inventory.map(f=>f.month).filter(Boolean))];
-
-  const getRemainingBags=(brand:string,size:string)=>{
-    const totalPurchased=inventory.filter(f=>f.brand===brand&&f.size===size).reduce((s,f)=>s+f.bags,0);
-    const totalOpened=bagLogs.filter(b=>b.brand===brand&&b.size===size).reduce((s,b)=>s+(Number(b.bagsOpened)||0),0);
-    return Math.max(0,totalPurchased-totalOpened);
-  };
-
-  const openDeductFor=(brand?:string,size?:string)=>{
-    const b=brand||brands[0]||"Durante";
-    const s=size||sizes[0]||"4.0 mm";
-    setDeductF({date:TODAY,brand:b,size:s,bags:"",reason:"Fed to Fish",fishStock:"General Stock",notes:""});
-    setDeductErr({});
-    setShowDeduct(true);
-  };
-
-  const handleDeduct=()=>{
-    const errs:Record<string,string>={};
-    if(!deductF.date)errs.date="Deduction date is required";
-    if(!deductF.bags||Number(deductF.bags)<=0)errs.bags="Please enter valid bags (at least 1)";
-    const rem=getRemainingBags(deductF.brand,deductF.size);
-    if(rem===0){
-      errs.bags=`Cannot deduct: ${deductF.brand} (${deductF.size}) is out of stock.`;
-    }else if(Number(deductF.bags)>rem){
-      errs.bags=`Cannot deduct ${deductF.bags} bags. Only ${rem} bag${rem!==1?"s":""} remaining in stock.`;
-    }
-    if(Object.keys(errs).length){setDeductErr(errs);return;}
-    const matchingInv=inventory.find(f=>f.brand===deductF.brand&&f.size===deductF.size);
-    const wpb=matchingInv?.weightPerBag||15;
-    const bags=Number(deductF.bags);
-    if(onAddBagLog){
-      onAddBagLog({
-        id:uid(),
-        date:fmtDate(deductF.date)||deductF.date,
-        month:toMon(deductF.date),
-        year:toYr(deductF.date),
-        brand:deductF.brand,
-        size:deductF.size,
-        kgPerBag:wpb,
-        bagsOpened:bags,
-        totalKg:bags*wpb,
-        fishStock:deductF.fishStock||"General Stock",
-        reason:deductF.reason||"Inventory Adjustment",
-        notes:deductF.notes||""
-      });
-    }
-    setShowDeduct(false);
-    setDeductErr({});
-  };
   const filtInv=sortedInv.filter(f=>(fBrand==="All"||f.brand===fBrand)&&(fSize==="All"||f.size===fSize)&&(fMonth==="All"||f.month===fMonth));
   const totalBagsPurchased=inventory.reduce((s,f)=>s+f.bags,0);
   const totalBagsOpened=bagLogs.reduce((s,b)=>s+(Number(b.bagsOpened)||0),0);
@@ -321,7 +269,6 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <button onClick={()=>{setShowCalc(true);setCalcStep("input");setShowCustomize(false);}} className="px-3 py-1.5 text-xs font-semibold text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50 hover:border-slate-300 transition-colors flex items-center gap-1.5 bg-white"><Layers size={12}/> Feed Requirement Calculator</button>
-          {canCreate&&<button onClick={()=>openDeductFor()} className="px-3 py-1.5 text-xs font-semibold text-red-700 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100 transition-colors flex items-center gap-1.5"><MinusCircle size={13}/> Deduct Feed</button>}
           {canCreate&&<PBtn onClick={()=>setShowBuy(true)} sm><Plus size={13}/> Add Purchased Feed</PBtn>}
         </div>
       </div>
@@ -368,7 +315,6 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
             <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider whitespace-nowrap">Bags in Stock</th>
             <SH label="Kg Per Bag" field="weightPerBag" sf={sf} sd={sd} onSort={toggle}/>
             <SH label="Total Kg Remaining" field="totalKg" sf={sf} sd={sd} onSort={toggle}/>
-            <th className="text-right px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider whitespace-nowrap">Action</th>
           </tr></thead>
           <tbody className="divide-y divide-slate-50">
             {(()=>{
@@ -380,7 +326,7 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
                 return acc;
               },{}));
               return merged.length===0
-                ?[<tr key="empty"><td colSpan={7} className="text-center text-xs text-slate-400 py-8">No items match filters</td></tr>]
+                ?[<tr key="empty"><td colSpan={6} className="text-center text-xs text-slate-400 py-8">No items match filters</td></tr>]
                 :merged.map((row,i)=>{
                   const opened=bagLogs.filter(b=>b.brand===row.brand&&b.size===row.size).reduce((s,b)=>s+(Number(b.bagsOpened)||0),0);
                   const inStock=Math.max(0,row.bags-opened);
@@ -407,18 +353,6 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
                       <td className="px-4 py-3.5 text-slate-500">{row.weightPerBag}kg</td>
                       <td className="px-4 py-3.5 font-semibold">
                         {inStock === 0 ? <span className="text-xs text-slate-400 font-mono">0 kg</span> : `${inStock * row.weightPerBag}kg`}
-                      </td>
-                      <td className="px-4 py-3.5 text-right whitespace-nowrap">
-                        {canCreate && (
-                          <button
-                            onClick={() => openDeductFor(row.brand, row.size)}
-                            disabled={inStock <= 0}
-                            className="px-2.5 py-1 text-xs font-semibold rounded-lg border border-slate-200 hover:border-slate-300 hover:bg-slate-50 text-slate-700 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1 ml-auto"
-                            title={inStock <= 0 ? "Out of stock" : "Deduct / Remove feed"}
-                          >
-                            <MinusCircle size={12}/> Deduct
-                          </button>
-                        )}
                       </td>
                     </tr>
                   );
@@ -458,15 +392,6 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
                       <span className={`text-sm font-bold ${inStock<=3?"text-amber-600":"text-green-700"}`}>
                         {inStock} bags
                       </span>
-                    )}
-                    {inStock > 0 && canCreate && (
-                      <button
-                        onClick={()=>openDeductFor(row.brand, row.size)}
-                        className="px-2 py-1 text-xs font-semibold rounded-md border border-slate-200 hover:bg-slate-50 text-slate-700 flex items-center gap-1"
-                        title="Deduct feed"
-                      >
-                        <MinusCircle size={12}/> Deduct
-                      </button>
                     )}
                   </div>
                 </div>
@@ -963,131 +888,6 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
         <F label="Supplier"><input value={buyF.supplier} onChange={e=>setBuyF(p=>({...p,supplier:e.target.value}))} className={IC} placeholder="Supplier name"/></F>
         <div className="flex gap-2 pt-1"><PBtn onClick={handleBuy}><Plus size={14}/> Save Purchase</PBtn><button onClick={()=>{setShowBuy(false);setBuyErr({});}} className="px-4 py-2 text-sm text-slate-400">Cancel</button></div>
       </Modal>}
-      {showDeduct && (
-        <Modal title="Deduct / Remove Feed Stock" onClose={() => { setShowDeduct(false); setDeductErr({}); }} wide>
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <F label="Date of Deduction">
-                  <DateInput value={deductF.date} onChange={v => { setDeductF(p => ({ ...p, date: v })); if (v) setDeductErr(p => ({ ...p, date: "" })); }}/>
-                </F>
-                {deductErr.date && <p className="text-xs text-red-500 mt-1">{deductErr.date}</p>}
-              </div>
-              <F label="Feed Brand">
-                <SearchableSelect
-                  value={deductF.brand}
-                  onChange={v => {
-                    setDeductF(p => ({ ...p, brand: v }));
-                    setDeductErr({});
-                  }}
-                  options={brands.length ? brands : FEED_BRANDS}
-                  placeholder="Select brand…"
-                />
-              </F>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <F label="Feed Size (Pellet)">
-                <select
-                  value={deductF.size}
-                  onChange={e => {
-                    setDeductF(p => ({ ...p, size: e.target.value }));
-                    setDeductErr({});
-                  }}
-                  className={SC}
-                >
-                  {(sizes.length ? sizes : FEED_SIZES).map(s => <option key={s}>{s}</option>)}
-                </select>
-              </F>
-              <div>
-                <F label="Bags to Deduct">
-                  <NumInput
-                    allowDecimal={false}
-                    value={deductF.bags}
-                    onChange={v => {
-                      setDeductF(p => ({ ...p, bags: v }));
-                      if (v && Number(v) > 0) setDeductErr(p => ({ ...p, bags: "" }));
-                    }}
-                    className={`${SC}${deductErr.bags ? " border-red-400 focus:ring-red-200" : ""}`}
-                    placeholder="0"
-                  />
-                </F>
-                {deductErr.bags && <p className="text-xs text-red-500 mt-1">{deductErr.bags}</p>}
-              </div>
-            </div>
-
-            {/* Current Stock info banner */}
-            {(() => {
-              const rem = getRemainingBags(deductF.brand, deductF.size);
-              return (
-                <div className={`p-3 rounded-xl border text-xs flex items-center justify-between ${
-                  rem === 0
-                    ? "bg-red-50 border-red-200 text-red-700"
-                    : rem <= 3
-                    ? "bg-amber-50 border-amber-200 text-amber-800"
-                    : "bg-green-50 border-green-200 text-green-800"
-                }`}>
-                  <div>
-                    <span className="font-semibold">{deductF.brand} ({deductF.size})</span>: Currently available in stock:
-                  </div>
-                  <div className="font-bold text-sm">
-                    {rem === 0 ? "0 bags (Out of stock)" : `${rem} bag${rem !== 1 ? "s" : ""} remaining`}
-                  </div>
-                </div>
-              );
-            })()}
-
-            <div className="grid grid-cols-2 gap-3">
-              <F label="Reason for Removal">
-                <select
-                  value={deductF.reason}
-                  onChange={e => setDeductF(p => ({ ...p, reason: e.target.value }))}
-                  className={SC}
-                >
-                  <option value="Fed to Fish">Fed to Fish</option>
-                  <option value="Damaged / Spoiled">Damaged / Spoiled</option>
-                  <option value="Expired / Discarded">Expired / Discarded</option>
-                  <option value="Inventory Adjustment">Inventory Adjustment</option>
-                  <option value="Transferred to Other Farm / Pond">Transferred to Other Farm / Pond</option>
-                  <option value="Other Removal">Other Removal</option>
-                </select>
-              </F>
-              <F label="Fish Stock / Destination">
-                <select
-                  value={deductF.fishStock}
-                  onChange={e => setDeductF(p => ({ ...p, fishStock: e.target.value }))}
-                  className={SC}
-                >
-                  <option value="General Stock">General Stock</option>
-                  {[...new Set(ponds.filter(p => p.status === "Active" || (p.species && p.species !== "—")).map(p => getPondFishStock(p)).filter(Boolean))].map(s => (
-                    <option key={s} value={s}>{s}</option>
-                  ))}
-                </select>
-              </F>
-            </div>
-
-            <F label="Notes / Why Deducted (Optional)">
-              <input
-                value={deductF.notes}
-                onChange={e => setDeductF(p => ({ ...p, notes: e.target.value }))}
-                className={IC}
-                placeholder="e.g. Sacks torn during transport, discarded after water leak, manual feed adjustment…"
-              />
-            </F>
-
-            <div className="flex gap-2 pt-2 border-t border-slate-100">
-              <PBtn onClick={handleDeduct}>
-                <MinusCircle size={14}/> Confirm Deduction
-              </PBtn>
-              <button
-                onClick={() => { setShowDeduct(false); setDeductErr({}); }}
-                className="px-4 py-2 text-sm text-slate-400 hover:text-slate-600"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        </Modal>
-      )}
     </div>
   );
 }
