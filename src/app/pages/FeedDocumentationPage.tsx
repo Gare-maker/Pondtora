@@ -755,14 +755,27 @@ function FeedDocumentation({
 
       const normalizedStock = normalizeFishStock(r.fishStock).toLowerCase().trim();
       const normalizedBrand = (r.brand || "").toLowerCase().trim();
-      const normalizedSize = r.size.toLowerCase().trim();
+      const normalizedSize = (r.size || "").toLowerCase().trim();
       const stockSizeKey = `${normalizedStock}__${normalizedBrand}__${normalizedSize}`;
 
-      // Duplicate check: prevent duplicate rows within the same form submission
+      // Duplicate check within form
       if (formStockSizeKeys.has(stockSizeKey)) {
-        errs[`dup_${idx}`] = `Duplicate entry in form: Fish Stock "${r.fishStock}" with ${r.brand} (${r.size}) has already been entered above. Please combine the bag count into one row.`;
+        errs[`dup_${idx}`] = "This has already been logged for this brand, fish stock, and pallet size.";
+        errs.entries = "This has already been logged for this brand, fish stock, and pallet size.";
       }
       formStockSizeKeys.add(stockSizeKey);
+
+      // Duplicate check against saved bagLogs on that date (excluding record being edited)
+      const isDupInSaved = (bagLogs || []).some(existing => {
+        if (r.id && existing.id === r.id) return false;
+        if (!isSameDate(existing.date, bagsDate) && !isSameDate(existing.date, dateLabel)) return false;
+        const exKey = `${normalizeFishStock(existing.fishStock || "").toLowerCase().trim()}__${(existing.brand || "").toLowerCase().trim()}__${(existing.size || "").toLowerCase().trim()}`;
+        return exKey === stockSizeKey;
+      });
+      if (isDupInSaved) {
+        errs[`dup_${idx}`] = "This has already been logged for this brand, fish stock, and pallet size.";
+        errs.entries = "This has already been logged for this brand, fish stock, and pallet size.";
+      }
 
       const requestedBags = Number(r.qty) || 0;
       if (requestedBags <= 0 || r.qty.trim() === "") {
@@ -2240,28 +2253,68 @@ function FeedDocumentation({
               <button onClick={() => setShowRemainModal(false)} className="text-slate-400 hover:text-slate-700 p-1 ml-4 shrink-0"><X size={20} /></button>
             </div>
             <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3">
-              {remainRows.map((row, i) => (
-                <div key={i} className="p-4 border border-slate-200 rounded-xl bg-slate-50 relative space-y-3">
-                  {remainRows.length > 1 && <button type="button" onClick={() => removeRemainRow(i)} className="absolute top-3 right-3 p-1 rounded text-slate-300 hover:text-red-400 transition-colors"><X size={13} /></button>}
-                  <div className="grid grid-cols-2 gap-3">
-                    <F label="Feed Brand">
-                      <SearchableSelect value={row.brand} onChange={v => { updateRemainRow(i, "brand", v); const szs = invSizesForBrand(v); if (szs.length > 0 && !szs.includes(row.size)) updateRemainRow(i, "size", szs[0]); }} options={invBrands} placeholder="Select brand…" />
+              {remainRows.map((row, i) => {
+                const normStock = normalizeFishStock(row.fishStock).toLowerCase().trim();
+                const normBrand = (row.brand || "").toLowerCase().trim();
+                const normSize = (row.size || "").toLowerCase().trim();
+                const key = `${normBrand}__${normStock}__${normSize}`;
+
+                const isDupInForm = remainRows.findIndex((other, idx) =>
+                  idx < i &&
+                  normalizeFishStock(other.fishStock).toLowerCase().trim() === normStock &&
+                  (other.brand || "").toLowerCase().trim() === normBrand &&
+                  (other.size || "").toLowerCase().trim() === normSize
+                ) !== -1;
+
+                const isDupInSaved = (remainLogs || []).some(existing => {
+                  if (row.id && existing.id === row.id) return false;
+                  if (!isSameDate(existing.date, selDate)) return false;
+                  const exKey = `${(existing.brand || "").toLowerCase().trim()}__${normalizeFishStock(existing.fishStock || "").toLowerCase().trim()}__${(existing.size || "").toLowerCase().trim()}`;
+                  return exKey === key;
+                });
+
+                return (
+                  <div key={i} className={`p-4 border rounded-xl relative space-y-3 ${isDupInForm || isDupInSaved ? "border-red-300 bg-red-50/40" : "border-slate-200 bg-slate-50"}`}>
+                    {remainRows.length > 1 && <button type="button" onClick={() => removeRemainRow(i)} className="absolute top-3 right-3 p-1 rounded text-slate-300 hover:text-red-400 transition-colors"><X size={13} /></button>}
+                    <div className="grid grid-cols-2 gap-3">
+                      <F label="Feed Brand">
+                        <SearchableSelect value={row.brand} onChange={v => { updateRemainRow(i, "brand", v); const szs = invSizesForBrand(v); if (szs.length > 0 && !szs.includes(row.size)) updateRemainRow(i, "size", szs[0]); }} options={invBrands} placeholder="Select brand…" />
+                      </F>
+                      <F label="Pellet Size">
+                        <select value={row.size} onChange={e => updateRemainRow(i, "size", e.target.value)} className={SC}>{invSizesForBrand(row.brand).map(s => <option key={s}>{s}</option>)}</select>
+                      </F>
+                    </div>
+                    <F label="Fish Stock">
+                      <select value={row.fishStock} onChange={e => updateRemainRow(i, "fishStock", e.target.value)} className={SC}>
+                        <option value="">Select fish stock…</option>
+                        {activeFishStockOptions.map(opt => <option key={opt.name} value={opt.name}>{opt.label}</option>)}
+                      </select>
                     </F>
-                    <F label="Pellet Size">
-                      <select value={row.size} onChange={e => updateRemainRow(i, "size", e.target.value)} className={SC}>{invSizesForBrand(row.brand).map(s => <option key={s}>{s}</option>)}</select>
+                    <F label="Remaining Feed (kg)">
+                      <input type="number" min="0" step="0.1" value={row.remainingKg} onChange={e => updateRemainRow(i, "remainingKg", e.target.value)} className={IC} placeholder="e.g. 3.5" />
                     </F>
+
+                    {isDupInForm && (
+                      <div className="flex items-start gap-2 text-xs font-semibold text-amber-800 bg-amber-100/90 px-3.5 py-2.5 rounded-xl border border-amber-300">
+                        <AlertTriangle size={15} className="text-amber-600 shrink-0 mt-0.5" />
+                        <div>
+                          <p className="font-bold text-amber-900">Duplicate in this form</p>
+                          <p className="text-[11px] text-amber-700 font-normal mt-0.5">
+                            <strong>{row.fishStock}</strong> ({row.brand} {row.size}) has already been entered above. Please combine or edit that entry.
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
+                    {isDupInSaved && !row.id && (
+                      <div className="flex items-start gap-2 text-xs font-semibold text-red-700 bg-red-100/90 px-3.5 py-2 rounded-lg border border-red-300">
+                        <AlertTriangle size={14} className="shrink-0 mt-0.5 text-red-600" />
+                        <span>This has already been logged for this brand, fish stock, and pallet size on {selDate}.</span>
+                      </div>
+                    )}
                   </div>
-                  <F label="Fish Stock">
-                    <select value={row.fishStock} onChange={e => updateRemainRow(i, "fishStock", e.target.value)} className={SC}>
-                      <option value="">Select fish stock…</option>
-                      {activeFishStockOptions.map(opt => <option key={opt.name} value={opt.name}>{opt.label}</option>)}
-                    </select>
-                  </F>
-                  <F label="Remaining Feed (kg)">
-                    <input type="number" min="0" step="0.1" value={row.remainingKg} onChange={e => updateRemainRow(i, "remainingKg", e.target.value)} className={IC} placeholder="e.g. 3.5" />
-                  </F>
-                </div>
-              ))}
+                );
+              })}
               <button type="button" onClick={addRemainRow} className="flex items-center gap-1.5 text-xs text-green-600 font-semibold hover:text-green-700 transition-colors py-1"><Plus size={13} /> Add another entry</button>
             </div>
             {remainValidErr && <div className="mx-6 mb-2 px-4 py-2.5 rounded-xl bg-red-50 border border-red-200 text-xs text-red-600 font-medium">{remainValidErr}</div>}
