@@ -4299,14 +4299,20 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   const addBagLog=async(b:BagOpenLog)=>{
     const fid=b.farmId||activeFarmId||farms[0]?.id||"";
     const farmBag:BagOpenLog={...b,id:isUuid(b.id)?b.id:crypto.randomUUID(),farmId:fid};
-    setBagLogs(prev=>[farmBag,...prev]);
-    api.bagLogs.create(farmBag).catch(console.warn);
-    toast.success("Bags logged");
+    const existing=bagLogs.find(x=>x.id===farmBag.id || (isSameDate(x.date,farmBag.date)&&x.brand===farmBag.brand&&x.size===farmBag.size&&(x.fishStock||"")===(farmBag.fishStock||"")&&(!x.farmId||x.farmId===farmBag.farmId)));
+    if(existing){
+      const updated={...existing,bagsOpened:farmBag.bagsOpened,totalKg:farmBag.totalKg,kgPerBag:farmBag.kgPerBag,farmId:farmBag.farmId};
+      setBagLogs(prev=>prev.map(x=>x.id===existing.id?updated:x));
+      api.bagLogs.update(updated).catch(console.warn);
+    } else {
+      setBagLogs(prev=>[farmBag,...prev]);
+      api.bagLogs.create(farmBag).catch(console.warn);
+    }
   };
-  const editBagLog=(b:BagOpenLog)=>{
+  const editBagLog=async(b:BagOpenLog)=>{
     const farmBag:BagOpenLog={...b,farmId:b.farmId||activeFarmId||farms[0]?.id||""};
     setBagLogs(prev=>prev.map(x=>x.id===farmBag.id?farmBag:x));
-    api.bagLogs.update(farmBag).catch(console.warn);
+    await api.bagLogs.update(farmBag).catch(console.warn);
   };
   const addRemainLog=async(r:FeedRemainingLog)=>{
     const fid=r.farmId||activeFarmId||farms[0]?.id||"";

@@ -621,9 +621,25 @@ function FeedDocumentation({
     return getBagsLoggedTodayForStockAndSize(stockName, palletSize, checkDate) > 0;
   };
 
+  const getIsoDateForSelDate = (targetDate: string): string => {
+    if (!targetDate) return TODAY;
+    if (/^\d{4}-\d{2}-\d{2}/.test(targetDate)) {
+      return targetDate.slice(0, 10);
+    }
+    const parts = targetDate.trim().split(" ");
+    if (parts.length >= 2) {
+      const mIdx = MIDX_GLOBAL[parts[0]];
+      const d = parseInt(parts[1], 10);
+      if (mIdx !== undefined && !isNaN(d)) {
+        return `${viewYear}-${String(mIdx + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+      }
+    }
+    return TODAY;
+  };
+
   /* ── bags opened modal state ── */
   const [bagsDate, setBagsDate] = useState(TODAY);
-  type BagRow = { fishStock: string; brand: string; size: string; kgPerBag: number; qty: string };
+  type BagRow = { id?: string; fishStock: string; brand: string; size: string; kgPerBag: number; qty: string };
   const blankBagRow = (targetDate?: string): BagRow => {
     const fs = activeFishStockOptions[0]?.name || "";
     const b = invBrands[0] || "";
@@ -632,14 +648,65 @@ function FeedDocumentation({
     const inv = (inventory || []).find(f => f && f.brand === b && f.size === defSize);
     return { fishStock: fs, brand: b, size: defSize, kgPerBag: inv?.weightPerBag || 15, qty: "" };
   };
+
+  const getBagRowsForDate = (checkDate: string): BagRow[] => {
+    const dateLabel = toDateLabel(checkDate);
+    const existing = (bagLogs || []).filter(b => b && (isSameDate(b.date, checkDate) || isSameDate(b.date, dateLabel) || isSameDate(b.date, selDate)));
+    if (existing.length > 0) {
+      return existing.map(b => {
+        const brand = b.brand || invBrands[0] || "";
+        const size = b.size || (invSizesForBrand(brand)[0] || "");
+        const inv = (inventory || []).find(f => f && f.brand === brand && f.size === size);
+        const kgPb = Number(b.kgPerBag) || inv?.weightPerBag || 15;
+        return {
+          id: b.id,
+          fishStock: b.fishStock || (activeFishStockOptions[0]?.name || ""),
+          brand: brand,
+          size: size,
+          kgPerBag: kgPb,
+          qty: b.bagsOpened != null && b.bagsOpened > 0 ? String(b.bagsOpened) : (b.bagsOpened === 0 ? "0" : "")
+        };
+      });
+    }
+    return [blankBagRow(checkDate)];
+  };
+
   const [bagRows, setBagRows] = useState<BagRow[]>([]);
   const openBagsModal = () => {
-    const initialDate = /^\d{4}-\d{2}-\d{2}/.test(TODAY) ? TODAY : getTodayStr();
+    const initialDate = getIsoDateForSelDate(selDate);
     setBagsDate(initialDate);
-    setBagRows([blankBagRow(initialDate)]);
+    setBagRows(getBagRowsForDate(initialDate));
     setBagsErr({});
     setShowBagsModal(true);
   };
+
+  const handleBagsDateChange = (newDate: string) => {
+    setBagsDate(newDate);
+    if (newDate) {
+      setBagsErr({});
+      const dateLabel = toDateLabel(newDate);
+      const existing = (bagLogs || []).filter(b => b && (isSameDate(b.date, newDate) || isSameDate(b.date, dateLabel)));
+      if (existing.length > 0) {
+        setBagRows(existing.map(b => {
+          const brand = b.brand || invBrands[0] || "";
+          const size = b.size || (invSizesForBrand(brand)[0] || "");
+          const inv = (inventory || []).find(f => f && f.brand === brand && f.size === size);
+          const kgPb = Number(b.kgPerBag) || inv?.weightPerBag || 15;
+          return {
+            id: b.id,
+            fishStock: b.fishStock || (activeFishStockOptions[0]?.name || ""),
+            brand: brand,
+            size: size,
+            kgPerBag: kgPb,
+            qty: b.bagsOpened != null && b.bagsOpened > 0 ? String(b.bagsOpened) : (b.bagsOpened === 0 ? "0" : "")
+          };
+        }));
+      } else {
+        setBagRows([blankBagRow(newDate)]);
+      }
+    }
+  };
+
   const addBagRow = () => setBagRows(prev => [...prev, blankBagRow()]);
   const removeBagRow = (i: number) => setBagRows(prev => prev.filter((_, idx) => idx !== i));
   const updateBagRow = (i: number, k: keyof BagRow, v: string) => setBagRows(prev => prev.map((r, idx) => {
@@ -662,9 +729,9 @@ function FeedDocumentation({
   }));
   const filledBagRows = bagRows.filter(r => Number(r.qty) > 0);
 
-  const handleSaveBags = () => {
+  const handleSaveBags = async () => {
     const errs: Record<string, string> = {};
-    if (!filledBagRows.length) errs.entries = "Please enter at least one bags-opened entry";
+    if (!bagRows.length) errs.entries = "Please enter at least one bags-opened entry";
     if (!bagsDate) errs.date = "Date is required";
 
     const dateLabel = toDateLabel(bagsDate);
@@ -672,7 +739,7 @@ function FeedDocumentation({
     // Track combinations within the form to prevent duplicate rows in single submission
     const formStockSizeKeys = new Set<string>();
 
-    filledBagRows.forEach((r, idx) => {
+    bagRows.forEach((r, idx) => {
       if (!r.fishStock) {
         errs[`fs_${idx}`] = "Fish Stock is required";
         return;
@@ -687,21 +754,22 @@ function FeedDocumentation({
       }
 
       const normalizedStock = normalizeFishStock(r.fishStock).toLowerCase().trim();
+      const normalizedBrand = (r.brand || "").toLowerCase().trim();
       const normalizedSize = r.size.toLowerCase().trim();
-      const stockSizeKey = `${normalizedStock}__${normalizedSize}`;
+      const stockSizeKey = `${normalizedStock}__${normalizedBrand}__${normalizedSize}`;
 
       // Duplicate check: prevent duplicate rows within the same form submission
       if (formStockSizeKeys.has(stockSizeKey)) {
-        errs[`dup_${idx}`] = `Duplicate entry in form: Fish Stock "${r.fishStock}" with pellet size "${r.size}" has already been entered above. Please combine the bag count into one row.`;
+        errs[`dup_${idx}`] = `Duplicate entry in form: Fish Stock "${r.fishStock}" with ${r.brand} (${r.size}) has already been entered above. Please combine the bag count into one row.`;
       }
       formStockSizeKeys.add(stockSizeKey);
 
       const requestedBags = Number(r.qty) || 0;
-      if (requestedBags <= 0) {
-        errs[`qty_${idx}`] = "Enter valid bags quantity";
+      if (requestedBags <= 0 || r.qty.trim() === "") {
+        errs[`qty_${idx}`] = "Enter valid bags quantity (at least 1)";
         return;
       }
-      const avail = getStockAvailable(r.brand, r.size);
+      const avail = getStockAvailable(r.brand, r.size, r.id);
       if (requestedBags > avail.remainingBags || (requestedBags * r.kgPerBag) > avail.remainingKg) {
         errs[`stock_${idx}`] = `Insufficient stock for ${r.brand} ${r.size}. Available: ${avail.remainingBags} bag${avail.remainingBags !== 1 ? "s" : ""} (${avail.remainingKg}kg), requested: ${requestedBags} bag${requestedBags !== 1 ? "s" : ""} (${requestedBags * r.kgPerBag}kg).`;
       }
@@ -709,24 +777,61 @@ function FeedDocumentation({
 
     if (Object.keys(errs).length) { setBagsErr(errs); return; }
     setBagsErr({});
-    filledBagRows.forEach(r => {
-      const n = Number(r.qty);
-      onAddBagLog({
-        id: uid(),
-        date: dateLabel,
-        month: toMon(bagsDate),
-        year: toYr(bagsDate),
-        brand: r.brand,
-        size: r.size,
-        kgPerBag: r.kgPerBag,
-        bagsOpened: n,
-        totalKg: n * r.kgPerBag,
-        fishStock: normalizeFishStock(r.fishStock) || undefined
-      });
-    });
-    setSelDate(dateLabel);
-    setDocTab("bags");
-    setShowBagsModal(false);
+
+    try {
+      for (const r of bagRows) {
+        const n = Number(r.qty);
+        if (r.id) {
+          const existingRec = (bagLogs || []).find(x => x.id === r.id);
+          if (existingRec && onEditBagLog) {
+            await onEditBagLog({
+              ...existingRec,
+              date: dateLabel,
+              month: toMon(bagsDate),
+              year: toYr(bagsDate),
+              brand: r.brand,
+              size: r.size,
+              kgPerBag: r.kgPerBag,
+              bagsOpened: n,
+              totalKg: n * r.kgPerBag,
+              fishStock: normalizeFishStock(r.fishStock) || undefined
+            });
+          } else {
+            await onAddBagLog({
+              id: r.id,
+              date: dateLabel,
+              month: toMon(bagsDate),
+              year: toYr(bagsDate),
+              brand: r.brand,
+              size: r.size,
+              kgPerBag: r.kgPerBag,
+              bagsOpened: n,
+              totalKg: n * r.kgPerBag,
+              fishStock: normalizeFishStock(r.fishStock) || undefined
+            });
+          }
+        } else {
+          await onAddBagLog({
+            id: uid(),
+            date: dateLabel,
+            month: toMon(bagsDate),
+            year: toYr(bagsDate),
+            brand: r.brand,
+            size: r.size,
+            kgPerBag: r.kgPerBag,
+            bagsOpened: n,
+            totalKg: n * r.kgPerBag,
+            fishStock: normalizeFishStock(r.fishStock) || undefined
+          });
+        }
+      }
+      toast.success("Opened bags logged");
+      setSelDate(dateLabel);
+      setDocTab("bags");
+      setShowBagsModal(false);
+    } catch (err: any) {
+      setBagsErr({ entries: err?.message || "Failed to save bags log" });
+    }
   };
 
   /* ── merged bags rows for display ── */
@@ -1882,12 +1987,12 @@ function FeedDocumentation({
             <div className="px-6 py-3 border-b border-slate-100 bg-slate-50 shrink-0">
               <div className="min-w-[160px] max-w-[200px]">
                 <label className="block text-[11px] font-bold text-slate-600 mb-1 uppercase tracking-wide">Date</label>
-                <DateInput value={bagsDate} onChange={v => { setBagsDate(v); if (v) setBagsErr(p => ({ ...p, date: "" })); }} />
+                <DateInput value={bagsDate} onChange={handleBagsDateChange} />
               </div>
             </div>
             <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3">
               {bagRows.map((row, i) => {
-                const avail = getStockAvailable(row.brand, row.size);
+                const avail = getStockAvailable(row.brand, row.size, row.id);
                 const requestedBags = Number(row.qty) || 0;
                 const requestedKg = requestedBags * row.kgPerBag;
                 const isOverStock = requestedBags > avail.remainingBags;
@@ -1973,6 +2078,7 @@ function FeedDocumentation({
                       const isDupInForm = bagRows.findIndex((other, idx) =>
                         idx < i &&
                         normalizeFishStock(other.fishStock).toLowerCase().trim() === normalizeFishStock(row.fishStock).toLowerCase().trim() &&
+                        (other.brand || "").toLowerCase().trim() === (row.brand || "").toLowerCase().trim() &&
                         other.size.toLowerCase().trim() === row.size.toLowerCase().trim()
                       ) !== -1;
 
@@ -1983,13 +2089,13 @@ function FeedDocumentation({
                             <div>
                               <p className="font-bold text-amber-900">Duplicate in this form</p>
                               <p className="text-[11px] text-amber-700 font-normal mt-0.5">
-                                <strong>{row.fishStock}</strong> with pellet size <strong>{row.size}</strong> is already entered above. Please combine the bags count into one row.
+                                <strong>{row.fishStock}</strong> ({row.brand} {row.size}) is already entered above. Please combine the bags count into one row.
                               </p>
                             </div>
                           </div>
                         );
                       }
-                      if (previouslyOpened > 0) {
+                      if (previouslyOpened > 0 && !row.id) {
                         return (
                           <div className="flex items-center gap-2 text-xs text-slate-600 bg-blue-50 px-3 py-2 rounded-lg border border-blue-200">
                             <Package size={13} className="text-blue-500 shrink-0" />
