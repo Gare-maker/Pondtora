@@ -2104,7 +2104,7 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
                 className="w-full sm:w-auto px-8 py-4 rounded-full bg-slate-900/90 hover:bg-slate-800 text-white font-bold text-sm uppercase tracking-wider border border-slate-700 hover:border-emerald-500/50 shadow-lg transition-all hover:scale-105 active:scale-95 flex items-center justify-center gap-2"
               >
                 <LogIn size={16} className="text-emerald-400" />
-                <span>Log In</span>
+                <span>Sign In</span>
               </button>
               <button
                 onClick={() => scrollTo("solutions")}
