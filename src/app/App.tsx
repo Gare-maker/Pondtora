@@ -355,7 +355,25 @@ function FinancialDashboard({
   const stockCost=filtExp.filter(e=>e.category==="Fish Stock").reduce((s,e)=>s+(Number(e.amount)||0),0);
   const maintCost=filtExp.filter(e=>e.category==="Maintenance").reduce((s,e)=>s+(Number(e.amount)||0),0);
   const overhead=filtExp.filter(e=>["Labor","Utilities","General Overhead","Overhead"].includes(e.category)).reduce((s,e)=>s+(Number(e.amount)||0),0);
-  const inventoryValue=(safeInventory||[]).reduce((s,f)=>s+((Number(f.bags)||0)*(Number(f.costPerBag)||0)),0);
+  // Feed Inventory Value: calculates the cost value of remaining in-stock feed (total purchased bags minus opened bags)
+  const totalPurchasedBags = (safeInventory || []).reduce((s, f) => s + (Number(f.bags) || 0), 0);
+  const totalOpenedBags = (bagLogs || []).reduce((s, b) => s + (Number(b.bagsOpened) || 0), 0);
+  const totalBagsInStock = Math.max(0, totalPurchasedBags - totalOpenedBags);
+
+  const inventoryValue = Object.values((safeInventory || []).reduce<Record<string, { brand: string; size: string; bags: number; totalCost: number }>>((acc, f) => {
+    const k = `${f.brand}|${f.size}`;
+    if (!acc[k]) acc[k] = { brand: f.brand, size: f.size, bags: 0, totalCost: 0 };
+    const b = Number(f.bags) || 0;
+    const c = Number(f.costPerBag) || 0;
+    acc[k].bags += b;
+    acc[k].totalCost += b * c;
+    return acc;
+  }, {})).reduce((s, group) => {
+    const opened = (bagLogs || []).filter(b => b.brand === group.brand && b.size === group.size).reduce((sb, b) => sb + (Number(b.bagsOpened) || 0), 0);
+    const inStock = Math.max(0, group.bags - opened);
+    const avgCost = group.bags > 0 ? group.totalCost / group.bags : 0;
+    return s + (inStock * avgCost);
+  }, 0);
   const pieRows=[
     {name:"Feed",value:feedCost,color:"#0d9488"},
     {name:"Fish Stock",value:stockCost,color:"#3b82f6"},
@@ -477,7 +495,7 @@ function FinancialDashboard({
         <StatCard label="Fish Stock Costs" value={fmt(stockCost)} icon={Fish}/>
         <StatCard label="Maintenance"      value={fmt(maintCost)} icon={Calculator}/>
         <StatCard label="Labor + Overhead" value={fmt(overhead)}  icon={Layers}/>
-        <StatCard label="Feed Inventory Value"  value={fmt(inventoryValue)} sub={`${(inventory||[]).length} items`} icon={Package}/>
+        <StatCard label="Feed Inventory Value"  value={fmt(inventoryValue)} sub={`${totalBagsInStock} bags in stock`} icon={Package}/>
       </div>
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         <Card className="lg:col-span-2 p-5">
@@ -1157,8 +1175,8 @@ function StaffPage({
             <table className="w-full text-sm min-w-[780px]">
               <thead>
                 <tr className="border-b border-slate-100 bg-slate-50">
-                  <th className="px-4 py-3 text-[11px] text-slate-400 w-10 text-center">#</th>
-                  <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider whitespace-nowrap">
+                  <th className="px-3 py-3 text-[11px] text-slate-400 w-12 min-w-[48px] max-w-[48px] text-center sticky left-0 z-20 bg-slate-50 border-r border-slate-200">#</th>
+                  <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider whitespace-nowrap sticky left-12 z-20 bg-slate-50 border-r border-slate-200 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.06)]">
                     Staff Name
                   </th>
                   <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider whitespace-nowrap">Status</th>
@@ -1176,11 +1194,11 @@ function StaffPage({
                   const globalIdx=(staffPage-1)*PER_PAGE+idx+1;
                   const assignedFarms=(farms||[]).filter(f=>s.farms?.includes(f.id));
                   return(
-                    <tr key={s.id} className="hover:bg-slate-50/70 transition-colors">
-                      <td className="px-4 py-3 text-slate-400 text-xs text-center">
+                    <tr key={s.id} className="hover:bg-slate-50/70 transition-colors group">
+                      <td className="px-3 py-3 text-slate-400 text-xs text-center w-12 min-w-[48px] max-w-[48px] sticky left-0 z-10 bg-white group-hover:bg-slate-50 border-r border-slate-100">
                         {globalIdx}
                       </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
+                      <td className="px-4 py-3 whitespace-nowrap sticky left-12 z-10 bg-white group-hover:bg-slate-50 border-r border-slate-100 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.06)]">
                         <p className="font-semibold text-slate-900 leading-tight">{s.name}</p>
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">

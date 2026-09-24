@@ -52,7 +52,20 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
     const inStock=Math.max(0,row.bags-opened);
     return s+(inStock*row.wpb);
   },0);
-  const invValue=inventory.reduce((s,f)=>s+f.bags*f.costPerBag,0);
+  const invValue = Object.values(inventory.reduce<Record<string, { brand: string; size: string; bags: number; totalCost: number }>>((acc, f) => {
+    const k = `${f.brand}|${f.size}`;
+    if (!acc[k]) acc[k] = { brand: f.brand, size: f.size, bags: 0, totalCost: 0 };
+    const b = Number(f.bags) || 0;
+    const c = Number(f.costPerBag) || 0;
+    acc[k].bags += b;
+    acc[k].totalCost += b * c;
+    return acc;
+  }, {})).reduce((s, group) => {
+    const opened = bagLogs.filter(b => b.brand === group.brand && b.size === group.size).reduce((sb, b) => sb + (Number(b.bagsOpened) || 0), 0);
+    const inStock = Math.max(0, group.bags - opened);
+    const avgCost = group.bags > 0 ? group.totalCost / group.bags : 0;
+    return s + (inStock * avgCost);
+  }, 0);
   const handleBuy=()=>{
     const errs:Record<string,string>={};
     if(!buyF.bags||Number(buyF.bags)<=0)errs.bags="Bags purchased is required";
@@ -260,9 +273,10 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
           {canCreate&&<PBtn onClick={()=>setShowBuy(true)} sm><Plus size={13}/> Add Purchased Feed</PBtn>}
         </div>
       </div>
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
         <StatCard label="Total Bags" value={String(totalBagsInStock)} sub={`${totalBagsOpened} opened · ${totalBagsPurchased} purchased`} icon={Package} hi/>
         <StatCard label="Total Kg" value={`${totalKgInStock}kg`} sub="in stock" icon={Layers}/>
+        <StatCard label="Feed Inventory Value" value={`${currency}${Math.round(invValue).toLocaleString()}`} sub={`${totalBagsInStock} bags in stock`} icon={Package}/>
       </div>
       <div className="flex gap-1 bg-slate-200/90 border border-slate-300/70 p-1 rounded-xl w-fit shadow-2xs">
         {([

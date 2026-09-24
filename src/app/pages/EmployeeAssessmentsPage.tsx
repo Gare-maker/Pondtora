@@ -881,8 +881,8 @@ export default function EmployeeAssessmentsPage({
             <div className="overflow-x-auto">
               <table className="w-full text-sm min-w-[640px]">
                 <thead><tr className="border-b border-slate-100 bg-slate-50">
-                  <th className="px-4 py-3 text-[11px] text-slate-400 font-semibold w-10 text-center">#</th>
-                  <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider sticky left-0 z-10 bg-slate-50">Candidate Name</th>
+                  <th className="px-3 py-3 text-[11px] text-slate-400 font-semibold w-12 min-w-[48px] max-w-[48px] text-center sticky left-0 z-20 bg-slate-50 border-r border-slate-200">#</th>
+                  <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider sticky left-12 z-20 bg-slate-50 border-r border-slate-200 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.06)] whitespace-nowrap">Candidate Name</th>
                   <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider">Email</th>
                   <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider">Phone</th>
                   <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider">Overall Score</th>
@@ -895,9 +895,9 @@ export default function EmployeeAssessmentsPage({
                     const col=recColor(r.recommendation);
                     const scoreCls=r.overallScore>=80?"text-green-600":r.overallScore>=65?"text-blue-600":r.overallScore>=50?"text-amber-600":"text-red-600";
                     return(
-                      <tr key={r.id} className="hover:bg-slate-50 transition-colors">
-                        <td className="px-4 py-3.5 text-xs text-slate-400 text-center">{(cPage-1)*PER_PAGE+i+1}</td>
-                        <td className="px-4 py-3.5 font-semibold text-slate-800 sticky left-0 bg-white">{r.name}</td>
+                      <tr key={r.id} className="hover:bg-slate-50 transition-colors group">
+                        <td className="px-3 py-3.5 text-xs text-slate-400 text-center w-12 min-w-[48px] max-w-[48px] sticky left-0 z-10 bg-white group-hover:bg-slate-50 border-r border-slate-100">{(cPage-1)*PER_PAGE+i+1}</td>
+                        <td className="px-4 py-3.5 font-semibold text-slate-800 sticky left-12 z-10 bg-white group-hover:bg-slate-50 border-r border-slate-100 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.06)] whitespace-nowrap">{r.name}</td>
                         <td className="px-4 py-3.5 text-slate-500 text-xs">{r.email}</td>
                         <td className="px-4 py-3.5 text-slate-500 text-xs">{r.phone}</td>
                         <td className="px-4 py-3.5">
@@ -932,8 +932,8 @@ export default function EmployeeAssessmentsPage({
             <div className="overflow-x-auto">
               <table className="w-full text-sm min-w-[680px]">
                 <thead><tr className="border-b border-slate-100 bg-slate-50">
-                  <th className="px-4 py-3 text-[11px] text-slate-400 font-semibold w-10 text-center">#</th>
-                  <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider sticky left-0 z-10 bg-slate-50">Candidate Name</th>
+                  <th className="px-3 py-3 text-[11px] text-slate-400 font-semibold w-12 min-w-[48px] max-w-[48px] text-center sticky left-0 z-20 bg-slate-50 border-r border-slate-200">#</th>
+                  <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider sticky left-12 z-20 bg-slate-50 border-r border-slate-200 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.06)] whitespace-nowrap">Candidate Name</th>
                   <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider">Email</th>
                   <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider">Phone</th>
                   <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider">Score</th>
@@ -944,9 +944,9 @@ export default function EmployeeAssessmentsPage({
                 <tbody className="divide-y divide-slate-50">
                   {kSlice.length===0&&<tr><td colSpan={8} className="text-center text-xs text-slate-400 py-8">{kSearch?"No results match your search.":"No knowledge test results yet."}</td></tr>}
                   {kSlice.map((r,i)=>(
-                    <tr key={r.id} className="hover:bg-slate-50 transition-colors">
-                      <td className="px-4 py-3.5 text-xs text-slate-400 text-center">{(kPage-1)*PER_PAGE+i+1}</td>
-                      <td className="px-4 py-3.5 font-semibold text-slate-800 sticky left-0 bg-white">{r.name}</td>
+                    <tr key={r.id} className="hover:bg-slate-50 transition-colors group">
+                      <td className="px-3 py-3.5 text-xs text-slate-400 text-center w-12 min-w-[48px] max-w-[48px] sticky left-0 z-10 bg-white group-hover:bg-slate-50 border-r border-slate-100">{(kPage-1)*PER_PAGE+i+1}</td>
+                      <td className="px-4 py-3.5 font-semibold text-slate-800 sticky left-12 z-10 bg-white group-hover:bg-slate-50 border-r border-slate-100 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.06)] whitespace-nowrap">{r.name}</td>
                       <td className="px-4 py-3.5 text-slate-500 text-xs">{r.email}</td>
                       <td className="px-4 py-3.5 text-slate-500 text-xs">{r.phone}</td>
                       <td className="px-4 py-3.5 text-sm font-bold font-['Barlow_Condensed',sans-serif] text-slate-700">{r.overallScore}%</td>
