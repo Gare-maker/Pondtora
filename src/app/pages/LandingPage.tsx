@@ -2638,6 +2638,10 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
                   <img
                     src={kunleAvatar}
                     alt="Kunle Adebayo"
+                    loading="eager"
+                    decoding="async"
+                    width={48}
+                    height={48}
                     className="w-12 h-12 rounded-full object-cover ring-2 ring-emerald-500/30 shrink-0 shadow-sm"
                   />
                   <div>
@@ -2666,6 +2670,10 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
                   <img
                     src={folakeAvatar}
                     alt="Folake Nnamdi"
+                    loading="eager"
+                    decoding="async"
+                    width={48}
+                    height={48}
                     className="w-12 h-12 rounded-full object-cover ring-2 ring-blue-500/30 shrink-0 shadow-sm"
                   />
                   <div>
@@ -2694,6 +2702,10 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
                   <img
                     src={tariqAvatar}
                     alt="Tariq Ibrahim"
+                    loading="eager"
+                    decoding="async"
+                    width={48}
+                    height={48}
                     className="w-12 h-12 rounded-full object-cover ring-2 ring-purple-500/30 shrink-0 shadow-sm"
                   />
                   <div>
