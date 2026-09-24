@@ -9,12 +9,15 @@ import {
   Layers, Calculator, Pencil, Trash2, History, AlertCircle, Smartphone,
   Monitor, Columns, Send, Lock, Power, Award, HelpCircle, Phone,
   Mail, CheckSquare, DollarSign, SlidersHorizontal, Bell, ChevronsLeft,
-  ChevronLeft, Landmark
+  ChevronLeft, Landmark, LogIn
 } from "lucide-react";
 import pondtoraLogo from "../../imports/loo-2.svg";
 import heroFarmImg from "../../assets/images/african_fish_farm_hero.jpg";
 import panoFarmImg from "../../assets/images/commercial_catfish_farm.jpg";
 import nurseryPondImg from "../../assets/images/african_nursery_ponds.jpg";
+import kunleAvatar from "../../assets/images/kunle_adebayo.jpg";
+import folakeAvatar from "../../assets/images/folake_nnamdi.jpg";
+import tariqAvatar from "../../assets/images/tariq_ibrahim.jpg";
 import {
   EVERY_PLAN_INCLUDES,
   useDynamicPlans,
@@ -2088,7 +2091,7 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
           </FadeIn>
 
           <FadeIn delay={300}>
-            <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
+            <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-4 max-w-md sm:max-w-none mx-auto">
               <button
                 onClick={onSignup}
                 className="w-full sm:w-auto px-8 py-4 rounded-full bg-[#00bb58] hover:bg-[#00a84e] text-white font-bold text-sm uppercase tracking-wider shadow-xl shadow-emerald-500/20 transition-all hover:scale-105 active:scale-95 flex items-center justify-center gap-2 group"
@@ -2097,8 +2100,15 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
                 <ArrowRight size={16} className="group-hover:translate-x-1 transition-transform" />
               </button>
               <button
+                onClick={onLogin}
+                className="w-full sm:w-auto px-8 py-4 rounded-full bg-slate-900/90 hover:bg-slate-800 text-white font-bold text-sm uppercase tracking-wider border border-slate-700 hover:border-emerald-500/50 shadow-lg transition-all hover:scale-105 active:scale-95 flex items-center justify-center gap-2"
+              >
+                <LogIn size={16} className="text-emerald-400" />
+                <span>Log In</span>
+              </button>
+              <button
                 onClick={() => scrollTo("solutions")}
-                className="w-full sm:w-auto px-8 py-4 rounded-full bg-slate-900/80 hover:bg-slate-800 text-white font-bold text-sm uppercase tracking-wider border border-slate-700 transition-all hover:scale-105 active:scale-95 flex items-center justify-center gap-2"
+                className="w-full sm:w-auto px-7 py-4 rounded-full bg-slate-950/60 hover:bg-slate-900 text-slate-300 hover:text-white font-semibold text-sm uppercase tracking-wider border border-slate-800 hover:border-slate-700 transition-all hover:scale-105 active:scale-95 flex items-center justify-center gap-2"
               >
                 <Monitor size={16} className="text-emerald-400" />
                 <span>Explore App Showcase</span>
@@ -2625,9 +2635,11 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
                   </p>
                 </div>
                 <div className="mt-6 pt-4 border-t border-slate-200/60 flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-emerald-100 text-emerald-800 font-bold flex items-center justify-center text-sm">
-                    KA
-                  </div>
+                  <img
+                    src={kunleAvatar}
+                    alt="Kunle Adebayo"
+                    className="w-12 h-12 rounded-full object-cover ring-2 ring-emerald-500/30 shrink-0 shadow-sm"
+                  />
                   <div>
                     <p className="font-bold text-slate-900 text-sm font-['Barlow_Condensed',sans-serif]">
                       Kunle Adebayo
@@ -2651,9 +2663,11 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
                   </p>
                 </div>
                 <div className="mt-6 pt-4 border-t border-slate-200/60 flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-blue-100 text-blue-800 font-bold flex items-center justify-center text-sm">
-                    FN
-                  </div>
+                  <img
+                    src={folakeAvatar}
+                    alt="Folake Nnamdi"
+                    className="w-12 h-12 rounded-full object-cover ring-2 ring-blue-500/30 shrink-0 shadow-sm"
+                  />
                   <div>
                     <p className="font-bold text-slate-900 text-sm font-['Barlow_Condensed',sans-serif]">
                       Folake Nnamdi
@@ -2677,9 +2691,11 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
                   </p>
                 </div>
                 <div className="mt-6 pt-4 border-t border-slate-200/60 flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-purple-100 text-purple-800 font-bold flex items-center justify-center text-sm">
-                    TI
-                  </div>
+                  <img
+                    src={tariqAvatar}
+                    alt="Tariq Ibrahim"
+                    className="w-12 h-12 rounded-full object-cover ring-2 ring-purple-500/30 shrink-0 shadow-sm"
+                  />
                   <div>
                     <p className="font-bold text-slate-900 text-sm font-['Barlow_Condensed',sans-serif]">
                       Tariq Ibrahim
