@@ -336,6 +336,22 @@ export function objToSnake(obj: Record<string, any>, userId?: string, table?: st
       out["pond_id"] = pid;
     }
   }
+  if (out["investor_id"] !== undefined) {
+    const iid = typeof out["investor_id"] === "string" ? out["investor_id"].trim() : "";
+    if (!iid || iid === "—" || iid === "default") {
+      delete out["investor_id"];
+    } else {
+      out["investor_id"] = isUuid(iid) ? iid : (idMap.get(iid) || toUuid(iid));
+    }
+  }
+  if (out["investment_id"] !== undefined) {
+    const invId = typeof out["investment_id"] === "string" ? out["investment_id"].trim() : "";
+    if (!invId || invId === "—" || invId === "default") {
+      delete out["investment_id"];
+    } else {
+      out["investment_id"] = isUuid(invId) ? invId : (idMap.get(invId) || toUuid(invId));
+    }
+  }
 
   // Whitelist columns if table definition exists to prevent Postgres schema rejection
   if (table && TABLE_ALLOWED_COLUMNS[table]) {
@@ -792,6 +808,8 @@ function extractMissingColumn(msg?: string): string | null {
   if (m2 && m2[1]) return m2[1];
   const m3 = msg.match(/column\s+"?([a-zA-Z0-9_]+)"?\s+of relation/i);
   if (m3 && m3[1]) return m3[1];
+  const m4 = msg.match(/null value in column "([^"]+)" of relation/i);
+  if (m4 && m4[1]) return m4[1];
   return null;
 }
 
@@ -2446,7 +2464,32 @@ export const api = {
   // ── Investors ─────────────────────────────────────────────────────────────
   investors: {
     list: () => dbList<Investor>("investors", "investors"),
-    create: (item: Investor) => dbInsert<Investor>("investors", item, "investors"),
+    create: async (item: Investor) => {
+      const dbInv: any = { ...item };
+      const userId = await getUserId();
+      if (userId) {
+        dbInv.userId = userId;
+        try {
+          const { data: prof } = await supabase.from("user_profiles").select("id").eq("id", userId).maybeSingle();
+          if (!prof) {
+            const { data: { user } } = await supabase.auth.getUser();
+            const meta = user?.user_metadata || {};
+            await supabase.from("user_profiles").upsert({
+              id: userId,
+              name: meta.name || user?.email?.split("@")[0] || "Farm Owner",
+              farm_name: meta.farm_name || "My Farm",
+              email: user?.email || "",
+              country: meta.country || "Nigeria",
+              currency_symbol: meta.currency_symbol || "₦",
+              currency_code: meta.currency_code || "NGN",
+              role: meta.role || "owner",
+              status: "Active"
+            }, { onConflict: "id" });
+          }
+        } catch {}
+      }
+      return dbInsert<Investor>("investors", dbInv as Investor, "investors");
+    },
     update: (item: Investor) => dbUpdate<Investor>("investors", item, "investors"),
     remove: (id: string) => dbDelete("investors", id, "investors"),
   },
@@ -2454,16 +2497,66 @@ export const api = {
   // ── Investments ───────────────────────────────────────────────────────────
   investments: {
     list: () => dbList<Investment>("investments", "investments"),
-    create: (item: Investment) => dbInsert<Investment>("investments", item, "investments"),
-    update: (item: Investment) => dbUpdate<Investment>("investments", item, "investments"),
+    create: async (item: Investment) => {
+      const dbInv: any = { ...item };
+      dbInv.amountInvested = Number(item.amountInvested) || 0;
+      dbInv.investorPercentage = Number(item.investorPercentage) || 0;
+      dbInv.expectedReturn = Number(item.expectedReturn) || 0;
+      dbInv.totalAmountDue = Number(item.totalAmountDue) || 0;
+      if (item.monthlyReturn !== undefined) dbInv.monthlyReturn = Number(item.monthlyReturn) || 0;
+      if (item.amountReceivedByBusiness !== undefined) dbInv.amountReceivedByBusiness = Number(item.amountReceivedByBusiness) || 0;
+      if (item.totalInvestorValue !== undefined) dbInv.totalInvestorValue = Number(item.totalInvestorValue) || 0;
+      if (item.durationMonths !== undefined) dbInv.durationMonths = parseInt(String(item.durationMonths), 10) || 12;
+      if (item.numberOfPayments !== undefined) dbInv.numberOfPayments = parseInt(String(item.numberOfPayments), 10) || 1;
+      dbInv.startDate = item.startDate ? toValidDbDate(item.startDate) || null : null;
+      dbInv.dueDate = item.dueDate ? toValidDbDate(item.dueDate) || null : null;
+      if (item.maturityDate) dbInv.maturityDate = toValidDbDate(item.maturityDate) || null;
+      return dbInsert<Investment>("investments", dbInv as Investment, "investments");
+    },
+    update: async (item: Investment) => {
+      const dbInv: any = { ...item };
+      if (item.amountInvested !== undefined) dbInv.amountInvested = Number(item.amountInvested) || 0;
+      if (item.investorPercentage !== undefined) dbInv.investorPercentage = Number(item.investorPercentage) || 0;
+      if (item.expectedReturn !== undefined) dbInv.expectedReturn = Number(item.expectedReturn) || 0;
+      if (item.totalAmountDue !== undefined) dbInv.totalAmountDue = Number(item.totalAmountDue) || 0;
+      if (item.monthlyReturn !== undefined) dbInv.monthlyReturn = Number(item.monthlyReturn) || 0;
+      if (item.amountReceivedByBusiness !== undefined) dbInv.amountReceivedByBusiness = Number(item.amountReceivedByBusiness) || 0;
+      if (item.totalInvestorValue !== undefined) dbInv.totalInvestorValue = Number(item.totalInvestorValue) || 0;
+      if (item.durationMonths !== undefined) dbInv.durationMonths = parseInt(String(item.durationMonths), 10) || 12;
+      if (item.numberOfPayments !== undefined) dbInv.numberOfPayments = parseInt(String(item.numberOfPayments), 10) || 1;
+      if (item.startDate) dbInv.startDate = toValidDbDate(item.startDate) || null;
+      if (item.dueDate) dbInv.dueDate = toValidDbDate(item.dueDate) || null;
+      if (item.maturityDate) dbInv.maturityDate = toValidDbDate(item.maturityDate) || null;
+      return dbUpdate<Investment>("investments", dbInv as Investment, "investments");
+    },
     remove: (id: string) => dbDelete("investments", id, "investments"),
   },
 
   // ── Investment Payments ───────────────────────────────────────────────────
   investmentPayments: {
     list: () => dbList<InvestmentPayment>("investment_payments", "investmentPayments"),
-    create: (item: InvestmentPayment) => dbInsert<InvestmentPayment>("investment_payments", item, "investmentPayments"),
-    update: (item: InvestmentPayment) => dbUpdate<InvestmentPayment>("investment_payments", item, "investmentPayments"),
+    create: async (item: InvestmentPayment) => {
+      const dbPay: any = { ...item };
+      dbPay.amountDue = Number(item.amountDue) || 0;
+      dbPay.scheduledAmount = Number(item.scheduledAmount ?? item.amountDue) || 0;
+      dbPay.amountPaid = Number(item.amountPaid) || 0;
+      dbPay.remainingAmount = Number(item.remainingAmount ?? (dbPay.amountDue - dbPay.amountPaid)) || 0;
+      dbPay.dueDate = item.dueDate ? toValidDbDate(item.dueDate) || null : null;
+      if (item.paymentDate) dbPay.paymentDate = toValidDbDate(item.paymentDate) || null;
+      if (item.paidDate) dbPay.paidDate = toValidDbDate(item.paidDate) || null;
+      return dbInsert<InvestmentPayment>("investment_payments", dbPay as InvestmentPayment, "investmentPayments");
+    },
+    update: async (item: InvestmentPayment) => {
+      const dbPay: any = { ...item };
+      if (item.amountDue !== undefined) dbPay.amountDue = Number(item.amountDue) || 0;
+      if (item.scheduledAmount !== undefined) dbPay.scheduledAmount = Number(item.scheduledAmount) || 0;
+      if (item.amountPaid !== undefined) dbPay.amountPaid = Number(item.amountPaid) || 0;
+      if (item.remainingAmount !== undefined) dbPay.remainingAmount = Number(item.remainingAmount) || 0;
+      if (item.dueDate) dbPay.dueDate = toValidDbDate(item.dueDate) || null;
+      if (item.paymentDate) dbPay.paymentDate = toValidDbDate(item.paymentDate) || null;
+      if (item.paidDate) dbPay.paidDate = toValidDbDate(item.paidDate) || null;
+      return dbUpdate<InvestmentPayment>("investment_payments", dbPay as InvestmentPayment, "investmentPayments");
+    },
     remove: (id: string) => dbDelete("investment_payments", id, "investmentPayments"),
   },
 

@@ -5648,154 +5648,235 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   const farmPondReports=pondReports.filter(r=>matchesFarm(r.farmId));
   const farmInvestors=investors.filter(inv=>!inv.farmId||matchesFarm(inv.farmId));
 
-  const handleAddInvestor=async(inv:Investor,investment:Investment,payments:InvestmentPayment[])=>{
+  const handleAddInvestor = async (inv: Investor, investment: Investment, payments: InvestmentPayment[]) => {
     if (!canCreate("Investors")) {
       toast.error("You do not have permission to add investors.");
       return;
     }
-    const fid=activeFarmId||farms[0]?.id||"";
-    const cleanInvestor:Investor={...inv,id:isUuid(inv.id)?inv.id:crypto.randomUUID(),farmId:fid};
-    setInvestors(prev=>[cleanInvestor,...prev]);
+    const fid = activeFarmId || farms[0]?.id || "";
+
+    // Duplicate Check: Same investor name AND same start date or due date
+    const nameNorm = (inv.fullName || "").trim().toLowerCase();
+    const isDuplicate = investors.some(existingInv => {
+      if (!existingInv || !existingInv.fullName) return false;
+      const sameName = existingInv.fullName.trim().toLowerCase() === nameNorm;
+      if (!sameName) return false;
+      const existingInvs = investments.filter(i => i.investorId === existingInv.id);
+      return existingInvs.some(i => i.startDate === investment.startDate || (investment.dueDate && i.dueDate === investment.dueDate));
+    });
+
+    if (isDuplicate) {
+      toast.error(`An investment for "${inv.fullName}" with start date ${investment.startDate} already exists.`);
+      return;
+    }
+
+    const cleanInvestor: Investor = { ...inv, id: isUuid(inv.id) ? inv.id : crypto.randomUUID(), farmId: fid };
+    const nextInvestors = [cleanInvestor, ...investors];
+    setInvestors(nextInvestors);
+
+    let nextInvestments = investments;
+    let nextPayments = investmentPayments;
+
+    if (investment && (investment.amountInvested > 0 || investment.investmentName)) {
+      const cleanInvestment: Investment = {
+        ...investment,
+        id: isUuid(investment.id) ? investment.id : crypto.randomUUID(),
+        investorId: cleanInvestor.id,
+        farmId: fid,
+      };
+      nextInvestments = [cleanInvestment, ...investments];
+      setInvestments(nextInvestments);
+
+      if (payments && payments.length > 0) {
+        const cleanPayments = payments.map(p => ({
+          ...p,
+          id: isUuid(p.id) ? p.id : crypto.randomUUID(),
+          investmentId: cleanInvestment.id,
+          farmId: fid,
+        }));
+        nextPayments = [...cleanPayments, ...investmentPayments];
+        setInvestmentPayments(nextPayments);
+      }
+    }
+
+    // Synchronize to localStorage immediately
+    if (userProfile?.id) {
+      const uids = [userProfile.id];
+      if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) uids.push(userProfile.ownerId);
+      uids.forEach(u => {
+        saveLocal(`pondtora_${u}_investors`, nextInvestors);
+        saveLocal(`pondtora_${u}_investments`, nextInvestments);
+        saveLocal(`pondtora_${u}_investment_payments`, nextPayments);
+      });
+    }
+
+    // Persist to Supabase
     try {
       await api.investors.create(cleanInvestor);
-    } catch(err:any) {
-      console.warn("Investor create sync error:", err);
-    }
-
-    if(investment && (investment.amountInvested > 0 || investment.investmentName)){
-      const cleanInvestment:Investment={...investment,id:isUuid(investment.id)?investment.id:crypto.randomUUID(),investorId:cleanInvestor.id,farmId:fid};
-      setInvestments(prev=>[cleanInvestment,...prev]);
-      try {
-        await api.investments.create(cleanInvestment);
-      } catch(err:any) {
-        console.warn("Investment create sync error:", err);
-      }
-
-      if(payments && payments.length > 0){
-        const cleanPayments = payments.map(p=>({...p,id:isUuid(p.id)?p.id:crypto.randomUUID(),investmentId:cleanInvestment.id,farmId:fid}));
-        setInvestmentPayments(prev=>[...cleanPayments,...prev]);
-        for(const p of cleanPayments){
-          api.investmentPayments.create(p).catch(console.warn);
+      if (investment && (investment.amountInvested > 0 || investment.investmentName)) {
+        const cleanInvestment = nextInvestments.find(i => i.investorId === cleanInvestor.id);
+        if (cleanInvestment) {
+          await api.investments.create(cleanInvestment);
+          const invPayments = nextPayments.filter(p => p.investmentId === cleanInvestment.id);
+          for (const p of invPayments) {
+            await api.investmentPayments.create(p).catch(err => {
+              console.warn("Investment payment create sync notice:", err);
+            });
+          }
         }
       }
+    } catch (err: any) {
+      console.warn("Investor backend sync notice:", err);
     }
-    toast.success("Investor recorded successfully");
+    toast.success("Investor and investment recorded successfully");
   };
 
-  const handleEditInvestor=async(inv:Investor)=>{
+  const handleEditInvestor = async (inv: Investor) => {
     if (!canEdit("Investors")) {
       toast.error("You do not have permission to edit investors.");
       return;
     }
-    setInvestors(prev=>prev.map(i=>i.id===inv.id?inv:i));
+    const nextInvestors = investors.map(i => i.id === inv.id ? inv : i);
+    setInvestors(nextInvestors);
+
+    if (userProfile?.id) {
+      const uids = [userProfile.id];
+      if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) uids.push(userProfile.ownerId);
+      uids.forEach(u => saveLocal(`pondtora_${u}_investors`, nextInvestors));
+    }
+
     try {
       await api.investors.update(inv);
       toast.success("Investor updated");
-    } catch(err:any) {
+    } catch (err: any) {
       console.error("Failed to update investor:", err);
       toast.error("Saved locally — sync error");
     }
   };
 
-  const handleEditInvestment=async(inv:Investment)=>{
+  const handleEditInvestment = async (inv: Investment) => {
     if (!canEdit("Investors")) {
       toast.error("You do not have permission to edit investments.");
       return;
     }
-    setInvestments(prev=>prev.map(i=>i.id===inv.id?inv:i));
+    const nextInvestments = investments.map(i => i.id === inv.id ? inv : i);
+    setInvestments(nextInvestments);
+
+    if (userProfile?.id) {
+      const uids = [userProfile.id];
+      if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) uids.push(userProfile.ownerId);
+      uids.forEach(u => saveLocal(`pondtora_${u}_investments`, nextInvestments));
+    }
+
     try {
       await api.investments.update(inv);
       toast.success("Investment updated");
-    } catch(err:any) {
+    } catch (err: any) {
       console.error("Failed to update investment:", err);
       toast.error("Saved locally — sync error");
     }
   };
 
-  const handleDeleteInvestor=async(id:string)=>{
+  const handleDeleteInvestor = async (id: string) => {
     if (!canDelete("Investors")) {
       toast.error("You do not have permission to delete investors.");
       return;
     }
-    const prevInvestors=investors;
-    const prevInvestments=investments;
-    const prevPayments=investmentPayments;
+    const prevInvestors = investors;
+    const prevInvestments = investments;
+    const prevPayments = investmentPayments;
 
-    const nextInvestors = prevInvestors.filter(i=>i.id!==id);
+    const nextInvestors = prevInvestors.filter(i => i.id !== id);
     setInvestors(nextInvestors);
-    const toDelInvIds=investments.filter(i=>i.investorId===id).map(i=>i.id);
-    const nextInvestments = prevInvestments.filter(i=>i.investorId!==id);
+    const toDelInvIds = investments.filter(i => i.investorId === id).map(i => i.id);
+    const nextInvestments = prevInvestments.filter(i => i.investorId !== id);
     setInvestments(nextInvestments);
-    const nextPayments = prevPayments.filter(p=>!toDelInvIds.includes(p.investmentId));
+    const nextPayments = prevPayments.filter(p => !toDelInvIds.includes(p.investmentId));
     setInvestmentPayments(nextPayments);
 
     markDeletedId(id);
-    toDelInvIds.forEach(invId=>markDeletedId(invId));
+    toDelInvIds.forEach(invId => markDeletedId(invId));
 
-    if(userProfile?.id){
-      try{saveUserLocal(userProfile.id,"investors","investors",nextInvestors);}catch{}
-      try{saveUserLocal(userProfile.id,"investments","investments",nextInvestments);}catch{}
-      try{saveUserLocal(userProfile.id,"investment_payments","investmentPayments",nextPayments);}catch{}
+    if (userProfile?.id) {
+      const uids = [userProfile.id];
+      if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) uids.push(userProfile.ownerId);
+      uids.forEach(u => {
+        saveLocal(`pondtora_${u}_investors`, nextInvestors);
+        saveLocal(`pondtora_${u}_investments`, nextInvestments);
+        saveLocal(`pondtora_${u}_investment_payments`, nextPayments);
+      });
     }
 
     try {
       await api.investors.remove(id);
       toast.success("Investor deleted");
-    } catch(err:any) {
+    } catch (err: any) {
       console.error("Failed to delete investor:", err);
       unmarkDeletedId(id);
-      toDelInvIds.forEach(invId=>unmarkDeletedId(invId));
+      toDelInvIds.forEach(invId => unmarkDeletedId(invId));
       setInvestors(prevInvestors);
       setInvestments(prevInvestments);
       setInvestmentPayments(prevPayments);
-      if(userProfile?.id){
-        try{saveUserLocal(userProfile.id,"investors","investors",prevInvestors);}catch{}
-        try{saveUserLocal(userProfile.id,"investments","investments",prevInvestments);}catch{}
-        try{saveUserLocal(userProfile.id,"investment_payments","investmentPayments",prevPayments);}catch{}
+      if (userProfile?.id) {
+        const uids = [userProfile.id];
+        if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) uids.push(userProfile.ownerId);
+        uids.forEach(u => {
+          saveLocal(`pondtora_${u}_investors`, prevInvestors);
+          saveLocal(`pondtora_${u}_investments`, prevInvestments);
+          saveLocal(`pondtora_${u}_investment_payments`, prevPayments);
+        });
       }
       toast.error(err?.message || "Failed to delete investor. Kept visible.");
     }
   };
 
-  const deletePondReport=async(id:string)=>{
+  const deletePondReport = async (id: string) => {
     if (!canDelete("Pond Management")) {
       toast.error("You do not have permission to delete pond reports.");
       return;
     }
-    const previous=pondReports;
-    setPondReports(prev=>prev.filter(pr=>pr.id!==id));
+    const previous = pondReports;
+    setPondReports(prev => prev.filter(pr => pr.id !== id));
     markDeletedId(id);
-    if(userProfile?.id){try{saveUserLocal(userProfile.id,"pond_reports","pondReports",previous.filter(pr=>pr.id!==id));}catch{}}
+    if (userProfile?.id) {
+      try { saveLocal(`pondtora_${userProfile.id}_pond_reports`, previous.filter(pr => pr.id !== id)); } catch {}
+    }
     try {
       await api.pondReports.remove(id);
       toast.success("Pond report deleted");
-    } catch(err:any) {
+    } catch (err: any) {
       console.error("Failed to delete pond report:", err);
       unmarkDeletedId(id);
       setPondReports(previous);
-      if(userProfile?.id){try{saveUserLocal(userProfile.id,"pond_reports","pondReports",previous);}catch{}}
+      if (userProfile?.id) {
+        try { saveLocal(`pondtora_${userProfile.id}_pond_reports`, previous); } catch {}
+      }
       toast.error(err?.message || "Failed to delete pond report. Kept visible.");
     }
   };
 
-  const deleteReport=async(id:string)=>{
-    const rep=reports.find(r=>r.id===id);
-    if(rep && (rep.isStaffSubmission || rep.authorRole === "staff" || rep.createdByRole === "staff")) {
+  const deleteReport = async (id: string) => {
+    const rep = reports.find(r => r.id === id);
+    if (rep && (rep.isStaffSubmission || rep.authorRole === "staff" || rep.createdByRole === "staff")) {
       toast.error("Submitted staff reports are official records and cannot be deleted.");
       return;
     }
-    const previous=reports;
-    setReports(prev=>prev.filter(r=>r.id!==id));
+    const previous = reports;
+    setReports(prev => prev.filter(r => r.id !== id));
     markDeletedId(id);
-    if(userProfile?.id){try{saveUserLocal(userProfile.id,"reports","reports",previous.filter(r=>r.id!==id));}catch{}}
+    if (userProfile?.id) {
+      try { saveLocal(`pondtora_${userProfile.id}_reports`, previous.filter(r => r.id !== id)); } catch {}
+    }
     try {
       await api.reports.remove(id);
       toast.success("Report deleted");
-    } catch(err:any) {
+    } catch (err: any) {
       console.error("Failed to delete report:", err);
       unmarkDeletedId(id);
       setReports(previous);
-      if(userProfile?.id){try{saveUserLocal(userProfile.id,"reports","reports",previous);}catch{}}
+      if (userProfile?.id) {
+        try { saveLocal(`pondtora_${userProfile.id}_reports`, previous); } catch {}
+      }
       toast.error(err?.message || "Failed to delete report. Kept visible.");
     }
   };
@@ -5831,15 +5912,26 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     setInvestmentPayments(nextPayments);
 
     // Sync parent investment status based on all payments
+    let nextInvestments = investments;
     const parentInv = investments.find(i => i.id === cleanPay.investmentId);
     if (parentInv) {
       const invPayments = nextPayments.filter(p => p.investmentId === parentInv.id);
       const newInvStatus = deriveInvestmentStatus(parentInv, invPayments);
       if (newInvStatus !== parentInv.status) {
         const updatedInv: Investment = { ...parentInv, status: newInvStatus, updatedAt: new Date().toISOString() };
-        setInvestments(prev => prev.map(i => i.id === parentInv.id ? updatedInv : i));
+        nextInvestments = investments.map(i => i.id === parentInv.id ? updatedInv : i);
+        setInvestments(nextInvestments);
         api.investments.update(updatedInv).catch(console.warn);
       }
+    }
+
+    if (userProfile?.id) {
+      const uids = [userProfile.id];
+      if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) uids.push(userProfile.ownerId);
+      uids.forEach(u => {
+        saveLocal(`pondtora_${u}_investment_payments`, nextPayments);
+        saveLocal(`pondtora_${u}_investments`, nextInvestments);
+      });
     }
 
     try {
@@ -5877,16 +5969,26 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     const nextPayments = investmentPayments.map(x => x.id === paymentId ? updated : x);
     setInvestmentPayments(nextPayments);
 
-    // Sync parent investment status
+    let nextInvestments = investments;
     const parentInv = investments.find(i => i.id === p.investmentId);
     if (parentInv) {
       const invPayments = nextPayments.filter(item => item.investmentId === parentInv.id);
       const newInvStatus = deriveInvestmentStatus(parentInv, invPayments);
       if (newInvStatus !== parentInv.status) {
         const updatedInv: Investment = { ...parentInv, status: newInvStatus, updatedAt: new Date().toISOString() };
-        setInvestments(prev => prev.map(i => i.id === parentInv.id ? updatedInv : i));
+        nextInvestments = investments.map(i => i.id === parentInv.id ? updatedInv : i);
+        setInvestments(nextInvestments);
         api.investments.update(updatedInv).catch(console.warn);
       }
+    }
+
+    if (userProfile?.id) {
+      const uids = [userProfile.id];
+      if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) uids.push(userProfile.ownerId);
+      uids.forEach(u => {
+        saveLocal(`pondtora_${u}_investment_payments`, nextPayments);
+        saveLocal(`pondtora_${u}_investments`, nextInvestments);
+      });
     }
 
     try {

@@ -119,7 +119,7 @@ export default function InvestorsPage({
     numberOfPayments: "12",
     startDate: TODAY,
     dueDate: "",
-    principalRepayment: "Original principal capital returned at maturity",
+    principalRepayment: "Principal capital returned at maturity",
     farmId: activeFarmId || farms[0]?.id || "",
     pondId: "",
     fishStockId: "",
@@ -212,7 +212,7 @@ export default function InvestorsPage({
     return deriveInvestmentStatus(activeInvestment, investmentPayments);
   }, [activeInvestment, investmentPayments]);
 
-  // ── 9 Dashboard KPI Metrics ──
+  // ── 4 Core KPI Stat Cards ──
   const stats = useMemo(() => {
     return calculateInvestmentDashboardStats(investments, payments, investors, TODAY);
   }, [investments, payments, investors]);
@@ -351,7 +351,7 @@ export default function InvestorsPage({
       numberOfPayments: String(inv?.numberOfPayments || "12"),
       startDate: inv?.startDate || TODAY,
       dueDate: inv?.dueDate || "",
-      principalRepayment: inv?.principalRepayment || "Original principal capital returned at maturity",
+      principalRepayment: inv?.principalRepayment || "Principal capital returned at maturity",
       farmId: inv?.farmId || activeFarmId || farms[0]?.id || "",
       pondId: inv?.pondId || "",
       fishStockId: inv?.fishStockId || "",
@@ -384,7 +384,7 @@ export default function InvestorsPage({
     if (editForm.paymentMethod === "principal_plus_return") {
       totalAmountDue = editPrincipalPlusReturn;
     } else if (editForm.paymentMethod === "return_upfront") {
-      totalAmountDue = editAmt; // Principal returned at maturity
+      totalAmountDue = editAmt;
     }
 
     const updatedInvestor: Investor = {
@@ -459,7 +459,8 @@ export default function InvestorsPage({
   // Handle Add Investor
   const handleCreateInvestor = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!addForm.fullName.trim()) {
+    const nameTrimmed = addForm.fullName.trim();
+    if (!nameTrimmed) {
       toast.error("Investor full name is required");
       return;
     }
@@ -484,6 +485,20 @@ export default function InvestorsPage({
       return;
     }
 
+    // ── DUPLICATE VALIDATION: Do not allow logging same investor name and start/due date twice ──
+    const nameLower = nameTrimmed.toLowerCase();
+    const existingInvestorWithSameName = investors.find(i => i.fullName?.trim().toLowerCase() === nameLower);
+    if (existingInvestorWithSameName) {
+      const existingInvs = investments.filter(inv => inv.investorId === existingInvestorWithSameName.id);
+      const hasDuplicateDate = existingInvs.some(
+        inv => isSameDate(inv.startDate, addForm.startDate) || isSameDate(inv.dueDate, addForm.dueDate)
+      );
+      if (hasDuplicateDate) {
+        toast.error(`An investment for "${nameTrimmed}" with date ${addForm.startDate} already exists. Duplicate entry blocked.`);
+        return;
+      }
+    }
+
     const investorId = uid();
     const investmentId = uid();
 
@@ -497,7 +512,7 @@ export default function InvestorsPage({
     const newInvestor: Investor = {
       id: investorId,
       farmId: addForm.farmId,
-      fullName: addForm.fullName.trim(),
+      fullName: nameTrimmed,
       phone: addForm.phone.trim(),
       email: addForm.email.trim() || undefined,
       status: "Active",
@@ -546,7 +561,6 @@ export default function InvestorsPage({
 
     try {
       await onAddInvestor(newInvestor, newInvestment, generatedPayments);
-      toast.success("Investor and payment schedule created successfully");
       setShowAddModal(false);
       setAddForm({
         fullName: "",
@@ -560,7 +574,7 @@ export default function InvestorsPage({
         numberOfPayments: "12",
         startDate: TODAY,
         dueDate: "",
-        principalRepayment: "Original principal capital returned at maturity",
+        principalRepayment: "Principal capital returned at maturity",
         farmId: activeFarmId || farms[0]?.id || "",
         pondId: "",
         fishStockId: "",
@@ -636,7 +650,6 @@ export default function InvestorsPage({
 
     try {
       await onRecordPayment(updatedPayment);
-      toast.success(`Payment of ${currency}${payAmt.toLocaleString()} recorded successfully`);
       setShowRecordPaymentModal(false);
     } catch (err: any) {
       console.error(err);
@@ -686,10 +699,10 @@ export default function InvestorsPage({
           ) : (
             <div>
               <h1 className="text-2xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] tracking-wide">
-                Investment Management & Payment Structures
+                Investors
               </h1>
               <p className="text-xs text-slate-500 mt-0.5">
-                Automated return calculations, multi-structure schedules, payment tracking, and due notifications
+                Manage farm investors, return structures, payment schedules, and payouts
               </p>
             </div>
           )}
@@ -698,90 +711,42 @@ export default function InvestorsPage({
         <div className="flex items-center gap-2">
           {canCreate && (
             <PBtn sm onClick={() => setShowAddModal(true)}>
-              <Plus size={14} /> Add Investment
+              <Plus size={14} /> Add Investor
             </PBtn>
           )}
         </div>
       </div>
 
-      {/* ── 9 DASHBOARD KPI METRICS ── */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-        {/* Total Investment */}
+      {/* ── 4 KEY DASHBOARD STAT CARDS ── */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
         <StatCard
-          label="Total Investment"
+          label="Total Investors"
+          value={String(stats.totalInvestors)}
+          sub={`${stats.activeInvestmentsCount} active · ${stats.completedInvestmentsCount} completed`}
+          icon={User}
+          color="blue"
+        />
+        <StatCard
+          label="Total Money Invested"
           value={`${currency}${stats.totalInvestment.toLocaleString()}`}
-          sub={`${stats.totalInvestors} total investors`}
+          sub="Capital recorded"
           icon={TrendingUp}
           color="green"
         />
-
-        {/* Total Return */}
         <StatCard
-          label="Total Return"
-          value={`${currency}${stats.totalReturn.toLocaleString()}`}
-          sub="Agreed returns"
-          icon={Sparkles}
-          color="blue"
-        />
-
-        {/* Total Paid */}
-        <StatCard
-          label="Total Paid"
+          label="Total Paid Out"
           value={`${currency}${stats.totalPaid.toLocaleString()}`}
           sub="Disbursed to date"
           icon={CheckCircle2}
           color="purple"
         />
-
-        {/* Total Remaining */}
         <StatCard
-          label="Total Remaining"
+          label="Outstanding Payments"
           value={`${currency}${stats.totalRemaining.toLocaleString()}`}
-          sub="Outstanding obligations"
+          sub={stats.dueTodayCount > 0 ? `${stats.dueTodayCount} due today` : stats.overdueCount > 0 ? `${stats.overdueCount} overdue` : "Remaining obligations"}
           icon={Clock}
-          color="amber"
+          color={stats.overdueCount > 0 ? "red" : stats.dueTodayCount > 0 ? "amber" : "amber"}
         />
-
-        {/* Due Today */}
-        <StatCard
-          label="Due Today"
-          value={stats.dueTodayCount > 0 ? `${stats.dueTodayCount} (${currency}${stats.dueTodayAmount.toLocaleString()})` : "0"}
-          sub={stats.dueTodayCount > 0 ? "Requires action today" : "No payments due today"}
-          icon={AlertCircle}
-          color={stats.dueTodayCount > 0 ? "red" : "gray"}
-        />
-      </div>
-
-      {/* Secondary Status & Schedule Indicator Bar */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs">
-        <div className="bg-white border border-slate-200/80 rounded-xl p-2.5 flex items-center justify-between">
-          <span className="text-slate-500 font-medium">Active Investments:</span>
-          <span className="font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-lg border border-emerald-200">
-            {stats.activeInvestmentsCount}
-          </span>
-        </div>
-        <div className="bg-white border border-slate-200/80 rounded-xl p-2.5 flex items-center justify-between">
-          <span className="text-slate-500 font-medium">Completed:</span>
-          <span className="font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-lg border border-blue-200">
-            {stats.completedInvestmentsCount}
-          </span>
-        </div>
-        <div className="bg-white border border-slate-200/80 rounded-xl p-2.5 flex items-center justify-between">
-          <span className="text-slate-500 font-medium">Upcoming (7 Days):</span>
-          <span className="font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-lg border border-amber-200">
-            {stats.upcomingCount} ({currency}{stats.upcomingAmount.toLocaleString()})
-          </span>
-        </div>
-        <div className="bg-white border border-slate-200/80 rounded-xl p-2.5 flex items-center justify-between">
-          <span className="text-slate-500 font-medium">Overdue Payments:</span>
-          <span className={`font-bold px-2 py-0.5 rounded-lg border ${
-            stats.overdueCount > 0
-              ? "text-red-700 bg-red-50 border-red-200"
-              : "text-slate-600 bg-slate-50 border-slate-200"
-          }`}>
-            {stats.overdueCount} ({currency}{stats.overdueAmount.toLocaleString()})
-          </span>
-        </div>
       </div>
 
       {/* ── VIEW SWITCH: LIST VS DETAILS ── */}
@@ -798,7 +763,7 @@ export default function InvestorsPage({
                 <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input
                   type="text"
-                  placeholder="Search investors, phone, payment structure, farm, pond..."
+                  placeholder="Search investors, phone, structure, farm, pond..."
                   value={searchQuery}
                   onChange={e => setSearchQuery(e.target.value)}
                   className="w-full pl-9 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-green-400"
@@ -868,7 +833,7 @@ export default function InvestorsPage({
               </div>
 
               <div>
-                <label className="text-[11px] font-semibold text-slate-500 mb-1 block">Maturity / Due Date</label>
+                <label className="text-[11px] font-semibold text-slate-500 mb-1 block">Due Date / Maturity</label>
                 <div className="flex items-center gap-1">
                   <input
                     type="date"
@@ -895,11 +860,11 @@ export default function InvestorsPage({
             {filteredInvestors.length === 0 ? (
               <Card className="p-8 text-center bg-white shadow-xs">
                 <Landmark size={36} className="mx-auto text-slate-300 mb-2" />
-                <p className="font-semibold text-sm text-slate-700">No investments found</p>
+                <p className="font-semibold text-sm text-slate-700">No investors found</p>
                 <p className="text-xs text-slate-400 mt-1">
                   {searchQuery || statusFilter !== "All"
                     ? "Try adjusting your filters or search terms."
-                    : "Click '+ Add Investment' above to record your first farm investment."}
+                    : "Click '+ Add Investor' above to record your first farm investor."}
                 </p>
               </Card>
             ) : (
@@ -921,7 +886,7 @@ export default function InvestorsPage({
                     onClick={() => setSelectedInvestorId(item.id)}
                     className="p-4 bg-white shadow-xs border border-slate-200/80 cursor-pointer hover:border-green-300 transition-all"
                   >
-                    <div className="flex items-start justify-between gap-2 mb-2.5">
+                    <div className="flex items-start justify-between gap-2 mb-2">
                       <div>
                         <h4 className="font-bold text-slate-900 text-sm font-['Barlow_Condensed',sans-serif] tracking-wide">
                           {item.fullName}
@@ -942,7 +907,7 @@ export default function InvestorsPage({
 
                     <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100 text-xs">
                       <div>
-                        <span className="text-slate-400 text-[10px] block">Investment Capital</span>
+                        <span className="text-slate-400 text-[10px] block">Invested Capital</span>
                         <span className="font-bold text-slate-900">{currency}{item.totalInvested.toLocaleString()}</span>
                       </div>
                       <div>
@@ -969,7 +934,7 @@ export default function InvestorsPage({
                     <div className="flex items-center justify-between pt-2.5 mt-2.5 border-t border-slate-50 text-[11px] text-slate-500">
                       <span className="truncate max-w-[200px]">{item.farmName} {item.pondName !== "—" ? `· ${item.pondName}` : ""}</span>
                       <span className="text-green-600 font-semibold flex items-center gap-0.5 shrink-0">
-                        Details & Schedule <ChevronRight size={13} />
+                        Details <ChevronRight size={13} />
                       </span>
                     </div>
                   </Card>
@@ -981,16 +946,17 @@ export default function InvestorsPage({
           {/* ── Desktop Investor Table ── */}
           <Card className="hidden sm:block overflow-hidden bg-white shadow-xs">
             <div className="overflow-x-auto">
-              <table className="w-full text-xs min-w-[1000px]">
+              <table className="w-full text-xs min-w-[950px]">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200/80 text-slate-500 uppercase tracking-wider font-semibold text-[11px]">
                     <th className="text-left px-4 py-3">Investor</th>
                     <th className="text-left px-4 py-3 whitespace-nowrap min-w-[130px]">Phone Number</th>
                     <th className="text-left px-4 py-3">Payment Structure</th>
                     <th className="text-right px-4 py-3">Investment</th>
-                    <th className="text-center px-4 py-3">Return %</th>
+                    <th className="text-center px-4 py-3">%</th>
                     <th className="text-right px-4 py-3">Total Return</th>
-                    <th className="text-left px-4 py-3">Next Due</th>
+                    <th className="text-left px-4 py-3">Start Date</th>
+                    <th className="text-left px-4 py-3">Due / Maturity</th>
                     <th className="text-right px-4 py-3">Paid</th>
                     <th className="text-right px-4 py-3">Outstanding</th>
                     <th className="text-center px-4 py-3">Status</th>
@@ -1000,13 +966,13 @@ export default function InvestorsPage({
                 <tbody className="divide-y divide-slate-100 text-slate-700">
                   {filteredInvestors.length === 0 ? (
                     <tr>
-                      <td colSpan={11} className="text-center py-12 text-slate-400">
+                      <td colSpan={12} className="text-center py-12 text-slate-400">
                         <Landmark size={36} className="mx-auto text-slate-200 mb-2" />
-                        <p className="font-semibold text-sm">No investments found</p>
+                        <p className="font-semibold text-sm">No investors found</p>
                         <p className="text-xs text-slate-400 mt-0.5">
                           {searchQuery || statusFilter !== "All"
                             ? "Try adjusting your filters or search terms."
-                            : "Click '+ Add Investment' above to record your first farm investment."}
+                            : "Click '+ Add Investor' above to record your first farm investor."}
                         </p>
                       </td>
                     </tr>
@@ -1029,29 +995,39 @@ export default function InvestorsPage({
                           onClick={() => setSelectedInvestorId(item.id)}
                           className="hover:bg-slate-50/80 cursor-pointer transition-colors group"
                         >
-                          {/* Investor Name */}
+                          {/* Investor Name & Location */}
                           <td className="px-4 py-3 font-semibold text-slate-900 group-hover:text-green-700 transition-colors">
-                            <div className="font-medium text-sm">{item.fullName}</div>
-                            {item.email && (
-                              <div className="text-[10px] text-slate-400 font-normal">{item.email}</div>
-                            )}
+                            <div className="font-bold text-sm text-slate-900">{item.fullName}</div>
+                            <div className="flex items-center gap-1.5 text-[11px] text-slate-500 font-normal mt-0.5">
+                              <span>{item.farmName}</span>
+                              {item.pondName !== "—" && <span>· {item.pondName}</span>}
+                              {item.email && <span className="text-slate-400">· {item.email}</span>}
+                            </div>
                           </td>
 
                           {/* Phone */}
-                          <td className="px-4 py-3 font-mono text-slate-600 whitespace-nowrap min-w-[130px]">
+                          <td className="px-4 py-3 font-mono text-slate-700 whitespace-nowrap min-w-[130px] font-medium">
                             {item.phone}
                           </td>
 
                           {/* Structure */}
                           <td className="px-4 py-3">
-                            <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-slate-100 text-slate-800 border border-slate-200">
+                            <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-800 border border-slate-200">
                               {item.paymentMethodLabel}
                             </span>
-                            {item.investment?.paymentMethod === "monthly_return" && item.investment.monthlyReturn && (
-                              <div className="text-[10px] text-slate-500 mt-0.5">
-                                {currency}{item.investment.monthlyReturn.toLocaleString()}/mo
+                            {item.investment?.paymentMethod === "monthly_return" && item.investment.monthlyReturn ? (
+                              <div className="text-[10px] text-slate-500 mt-0.5 font-medium">
+                                {currency}{item.investment.monthlyReturn.toLocaleString()}/mo ({item.investment.numberOfPayments || item.investment.durationMonths || 12} payments)
                               </div>
-                            )}
+                            ) : item.investment?.paymentMethod === "principal_plus_return" ? (
+                              <div className="text-[10px] text-slate-500 mt-0.5 font-medium">
+                                Lump sum on maturity
+                              </div>
+                            ) : item.investment?.paymentMethod === "return_upfront" ? (
+                              <div className="text-[10px] text-slate-500 mt-0.5 font-medium">
+                                Return upfront · Capital at maturity
+                              </div>
+                            ) : null}
                           </td>
 
                           {/* Investment */}
@@ -1071,18 +1047,16 @@ export default function InvestorsPage({
                             {currency}{item.totalReturn.toLocaleString()}
                           </td>
 
-                          {/* Next Due */}
-                          <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
-                            {item.nextPayment ? (
-                              <div>
-                                <span className="font-medium text-slate-900">{item.nextPayment.dueDate}</span>
-                                <div className="text-[10px] text-slate-400">
-                                  {currency}{(item.nextPayment.amountDue - item.nextPayment.amountPaid).toLocaleString()}
-                                </div>
-                              </div>
-                            ) : (
-                              <span className="text-slate-400">All Settled</span>
-                            )}
+                          {/* Start Date */}
+                          <td className="px-4 py-3 text-slate-600 whitespace-nowrap font-mono text-[11px]">
+                            {item.investment?.startDate || "—"}
+                          </td>
+
+                          {/* Due Date */}
+                          <td className="px-4 py-3 whitespace-nowrap font-mono text-[11px]">
+                            <span className={item.derivedStatus === "Overdue" ? "text-red-600 font-bold" : item.derivedStatus === "Payment Due" ? "text-amber-600 font-bold" : "text-slate-600"}>
+                              {item.investment?.dueDate || "—"}
+                            </span>
                           </td>
 
                           {/* Paid */}
@@ -1240,7 +1214,7 @@ export default function InvestorsPage({
                       </span>
                     </div>
                     <div className="flex justify-between py-1 border-b border-slate-50">
-                      <span className="text-slate-400">Installment Count</span>
+                      <span className="text-slate-400">Installments</span>
                       <span className="font-semibold text-slate-900">
                         {activeInvestment?.numberOfPayments || activeInvestment?.durationMonths || 12} payments
                       </span>
@@ -1257,7 +1231,7 @@ export default function InvestorsPage({
                 {activeInvestment?.paymentMethod === "principal_plus_return" && (
                   <>
                     <div className="flex justify-between py-1 border-b border-slate-50">
-                      <span className="text-slate-400">Payment / Maturity Date</span>
+                      <span className="text-slate-400">Payment Date</span>
                       <span className="font-bold text-slate-900">{activeInvestment?.dueDate}</span>
                     </div>
                     <div className="flex justify-between py-1 border-b border-slate-50">
@@ -1297,7 +1271,7 @@ export default function InvestorsPage({
                   <span className="font-semibold text-slate-900">{activeInvestment?.startDate || "—"}</span>
                 </div>
                 <div className="flex justify-between py-1">
-                  <span className="text-slate-400">End / Maturity Date</span>
+                  <span className="text-slate-400">Maturity Date</span>
                   <span className="font-semibold text-slate-900">{activeInvestment?.dueDate || "—"}</span>
                 </div>
               </div>
@@ -1348,7 +1322,7 @@ export default function InvestorsPage({
             <div className="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between">
               <div>
                 <h3 className="text-sm font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">
-                  Automated Payment Schedule & Payout Tracking
+                  Payment Schedule & History
                 </h3>
                 <p className="text-[11px] text-slate-400">
                   Scheduled payment dates, installment obligations, amounts paid, and permanent payout records
@@ -1461,9 +1435,9 @@ export default function InvestorsPage({
          ADD INVESTOR & PAYMENT STRUCTURE MODAL
       ═══════════════════════════════════════════════════════════════════ */}
       {showAddModal && (
-        <Modal title="Add New Investment & Payment Structure" onClose={() => setShowAddModal(false)} wide>
+        <Modal title="Add New Investor & Investment" onClose={() => setShowAddModal(false)} wide>
           <form onSubmit={handleCreateInvestor} className="space-y-4">
-            {/* ── Section 1: Investor Information ── */}
+            {/* ── Section 1: Investor Profile ── */}
             <div>
               <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">1. Investor Profile</p>
               <div className="space-y-2.5">
@@ -1502,9 +1476,9 @@ export default function InvestorsPage({
               </div>
             </div>
 
-            {/* ── Section 2: Payment Method Selector ── */}
+            {/* ── Section 2: Payment Structure Selector ── */}
             <div className="pt-2 border-t border-slate-100">
-              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">2. Investment Payment Structure</p>
+              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">2. Payment Method / Structure</p>
               
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 mb-3">
                 {/* Option 1: Monthly Return */}
@@ -1522,7 +1496,7 @@ export default function InvestorsPage({
                     {addForm.paymentMethod === "monthly_return" && <CheckCircle2 size={14} className="text-emerald-600" />}
                   </div>
                   <p className="text-[11px] text-slate-500 leading-tight">
-                    Agreed return is divided into monthly installments throughout the duration.
+                    Agreed return divided into monthly installments across investment period.
                   </p>
                 </button>
 
@@ -1541,7 +1515,7 @@ export default function InvestorsPage({
                     {addForm.paymentMethod === "principal_plus_return" && <CheckCircle2 size={14} className="text-emerald-600" />}
                   </div>
                   <p className="text-[11px] text-slate-500 leading-tight">
-                    Original investment plus entire agreed return paid together on selected maturity date.
+                    Original capital plus full return paid on one selected maturity date.
                   </p>
                 </button>
 
@@ -1565,9 +1539,9 @@ export default function InvestorsPage({
                 </button>
               </div>
 
-              {/* ── Form Fields Based on Selected Structure ── */}
+              {/* ── Form Inputs by Structure ── */}
               <div className="space-y-3">
-                {/* Structure 1: Monthly Return Fields */}
+                {/* Structure 1: Monthly Return */}
                 {addForm.paymentMethod === "monthly_return" && (
                   <div className="space-y-3">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
@@ -1579,7 +1553,7 @@ export default function InvestorsPage({
                           placeholder="e.g. 1000000"
                         />
                       </F>
-                      <F label="Agreed Return (%)" required>
+                      <F label="Return (%)" required>
                         <NumInput
                           value={addForm.investorPercentage}
                           onChange={v => setAddForm(p => ({ ...p, investorPercentage: v }))}
@@ -1635,7 +1609,7 @@ export default function InvestorsPage({
                         value={addForm.principalRepayment}
                         onChange={e => setAddForm(p => ({ ...p, principalRepayment: e.target.value }))}
                         className={IC}
-                        placeholder="e.g. ₦1,000,000 principal returned separately at end of tenure"
+                        placeholder="e.g. Principal capital returned at maturity"
                       />
                     </F>
 
@@ -1643,20 +1617,24 @@ export default function InvestorsPage({
                     {addAmt > 0 && addPct > 0 && (
                       <div className="p-3 bg-emerald-50/80 border border-emerald-200 rounded-xl space-y-1.5 text-xs">
                         <div className="flex justify-between text-slate-700">
-                          <span>Investment Amount:</span>
+                          <span>Investment:</span>
                           <span className="font-bold">{currency}{addAmt.toLocaleString()}</span>
                         </div>
                         <div className="flex justify-between text-slate-700">
-                          <span>Agreed Return ({addPct}%):</span>
+                          <span>Return:</span>
+                          <span className="font-bold text-emerald-700">{addPct}%</span>
+                        </div>
+                        <div className="flex justify-between text-slate-700">
+                          <span>Total Return:</span>
                           <span className="font-bold text-emerald-700">{currency}{addReturnAmt.toLocaleString()}</span>
                         </div>
                         <div className="flex justify-between text-slate-700">
-                          <span>Duration & Payments:</span>
-                          <span className="font-semibold">{addForm.durationMonths} months · {addNumPayments} payments</span>
+                          <span>Duration:</span>
+                          <span>{addForm.durationMonths} months</span>
                         </div>
                         <div className="flex justify-between text-emerald-800 font-bold border-t border-emerald-200/70 pt-1">
                           <span>Monthly Return:</span>
-                          <span className="text-sm font-bold text-emerald-700">{currency}{addMonthlyReturn.toLocaleString()} / month</span>
+                          <span className="text-sm font-bold text-emerald-700">{currency}{addMonthlyReturn.toLocaleString()}</span>
                         </div>
                         <div className="flex justify-between text-slate-800 font-bold">
                           <span>Total Investment Value:</span>
@@ -1667,7 +1645,7 @@ export default function InvestorsPage({
                   </div>
                 )}
 
-                {/* Structure 2: Principal + Return on Date Fields */}
+                {/* Structure 2: Principal + Return on Date */}
                 {addForm.paymentMethod === "principal_plus_return" && (
                   <div className="space-y-3">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
@@ -1708,27 +1686,35 @@ export default function InvestorsPage({
                     {addAmt > 0 && addPct > 0 && (
                       <div className="p-3 bg-emerald-50/80 border border-emerald-200 rounded-xl space-y-1.5 text-xs">
                         <div className="flex justify-between text-slate-700">
-                          <span>Investment Principal:</span>
+                          <span>Investment:</span>
                           <span className="font-bold">{currency}{addAmt.toLocaleString()}</span>
                         </div>
                         <div className="flex justify-between text-slate-700">
-                          <span>Return ({addPct}%):</span>
+                          <span>Return:</span>
+                          <span className="font-bold text-emerald-700">{addPct}%</span>
+                        </div>
+                        <div className="flex justify-between text-slate-700">
+                          <span>Return Amount:</span>
                           <span className="font-bold text-emerald-700">{currency}{addReturnAmt.toLocaleString()}</span>
                         </div>
                         <div className="flex justify-between text-slate-700">
                           <span>Payment Date:</span>
-                          <span className="font-semibold">{addForm.dueDate || "—"}</span>
+                          <span>{addForm.dueDate || "—"}</span>
                         </div>
                         <div className="flex justify-between text-emerald-800 font-bold border-t border-emerald-200/70 pt-1">
-                          <span>Total Amount Due at Maturity:</span>
+                          <span>Total Amount Due:</span>
                           <span className="text-sm font-bold text-emerald-700">{currency}{addPrincipalPlusReturn.toLocaleString()}</span>
+                        </div>
+                        <div className="flex justify-between text-slate-700">
+                          <span>Status:</span>
+                          <span className="font-semibold text-emerald-600">Active</span>
                         </div>
                       </div>
                     )}
                   </div>
                 )}
 
-                {/* Structure 3: Return Paid Upfront Fields */}
+                {/* Structure 3: Return Paid Upfront */}
                 {addForm.paymentMethod === "return_upfront" && (
                   <div className="space-y-3">
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
@@ -1769,11 +1755,15 @@ export default function InvestorsPage({
                     {addAmt > 0 && addPct > 0 && (
                       <div className="p-3 bg-emerald-50/80 border border-emerald-200 rounded-xl space-y-1.5 text-xs">
                         <div className="flex justify-between text-slate-700">
-                          <span>Investment Value (Face Value):</span>
+                          <span>Investment Value:</span>
                           <span className="font-bold">{currency}{addAmt.toLocaleString()}</span>
                         </div>
                         <div className="flex justify-between text-slate-700">
-                          <span>Return Paid Upfront ({addPct}%):</span>
+                          <span>Return:</span>
+                          <span className="font-bold text-emerald-700">{addPct}%</span>
+                        </div>
+                        <div className="flex justify-between text-slate-700">
+                          <span>Return Paid Upfront:</span>
                           <span className="font-bold text-emerald-700">{currency}{addReturnAmt.toLocaleString()}</span>
                         </div>
                         <div className="flex justify-between text-slate-700">
@@ -1781,7 +1771,7 @@ export default function InvestorsPage({
                           <span className="font-bold text-blue-700">{currency}{addAmountReceivedByBusiness.toLocaleString()}</span>
                         </div>
                         <div className="flex justify-between text-slate-700">
-                          <span>Maturity Payment (Principal):</span>
+                          <span>Maturity Payment:</span>
                           <span className="font-bold text-slate-900">{currency}{addAmt.toLocaleString()}</span>
                         </div>
                         <div className="flex justify-between text-emerald-800 font-bold border-t border-emerald-200/70 pt-1">
@@ -1863,7 +1853,7 @@ export default function InvestorsPage({
                 type="submit"
                 className="px-5 py-2 bg-[#00BB58] hover:bg-[#009e4a] text-white text-xs font-bold rounded-xl shadow-xs transition-colors"
               >
-                Save Investment & Generate Schedule
+                Save Investor & Schedule
               </button>
             </div>
           </form>
@@ -1967,7 +1957,7 @@ export default function InvestorsPage({
       ═══════════════════════════════════════════════════════════════════ */}
       {showEditInvestmentModal && (
         <Modal
-          title="Edit Investment Agreement & Profile"
+          title="Edit Investment & Investor Profile"
           onClose={() => setShowEditInvestmentModal(false)}
           wide
         >

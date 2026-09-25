@@ -49,6 +49,30 @@ BEGIN
 END;
 $$;
 
+CREATE OR REPLACE FUNCTION user_can_access_owner_data(p_user_id UUID, p_farm_id UUID DEFAULT NULL)
+RETURNS BOOLEAN LANGUAGE sql SECURITY DEFINER STABLE AS $$
+  SELECT (auth.uid() = p_user_id)
+  OR is_admin()
+  OR (p_farm_id IS NOT NULL AND user_can_access_farm(p_farm_id))
+  OR EXISTS (
+    SELECT 1 FROM staff_members sm
+    WHERE (sm.staff_auth_id = auth.uid() OR LOWER(sm.email) = LOWER(COALESCE(auth.jwt()->>'email', '')))
+    AND sm.user_id = p_user_id
+    AND (
+      p_farm_id IS NULL
+      OR EXISTS (
+        SELECT 1 FROM staff_farm_assignments sfa
+        WHERE sfa.staff_id = sm.id AND sfa.farm_id = p_farm_id
+      )
+    )
+  )
+  OR EXISTS (
+    SELECT 1 FROM staff_members sm
+    WHERE sm.user_id = auth.uid()
+      AND (sm.staff_auth_id = p_user_id OR sm.id = p_user_id)
+  );
+$$;
+
 -- ── 1. Investors Table ─────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS investors (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
