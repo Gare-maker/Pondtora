@@ -737,9 +737,11 @@ export default function InvestorsPage({
               <PBtn sm outline onClick={() => openRecordPayment()}>
                 <Receipt size={14} /> Record Payment
               </PBtn>
-              <PBtn sm onClick={() => setShowAddModal(true)}>
-                <Plus size={14} /> Add Investor
-              </PBtn>
+              {!selectedInvestorId && (
+                <PBtn sm onClick={() => setShowAddModal(true)}>
+                  <Plus size={14} /> Add Investor
+                </PBtn>
+              )}
             </>
           )}
         </div>
@@ -944,19 +946,11 @@ export default function InvestorsPage({
            INVESTOR DETAILS & PAYMENT SCHEDULE VIEW (CLEAN & UNCLUTTERED)
         ═══════════════════════════════════════════════════════════════════ */
         <div className="space-y-4">
-          {/* Header Bar */}
-          <div className="flex flex-wrap items-center justify-between gap-3 bg-white border border-slate-200/80 rounded-2xl p-4 shadow-xs">
-            <div className="flex items-center gap-3">
-              <button
-                type="button"
-                onClick={() => setSelectedInvestorId(null)}
-                className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200/80 text-slate-700 transition-colors"
-                title="Back to Investors List"
-              >
-                <ChevronLeft size={18} />
-              </button>
+          {/* Header Bar / Investor Profile Card */}
+          <div className="bg-white border border-slate-200/80 rounded-2xl p-4 sm:p-5 shadow-xs">
+            <div className="flex items-start justify-between gap-3">
               <div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <h2 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">
                     {selectedInvestor?.fullName}
                   </h2>
@@ -973,7 +967,7 @@ export default function InvestorsPage({
                     }
                   />
                 </div>
-                <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500 mt-0.5">
+                <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500 mt-1">
                   <span className="flex items-center gap-1 font-mono">
                     <Phone size={12} className="text-slate-400" /> {selectedInvestor?.phone}
                   </span>
@@ -982,36 +976,46 @@ export default function InvestorsPage({
                       <Mail size={12} className="text-slate-400" /> {selectedInvestor.email}
                     </span>
                   )}
-                  <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200 font-semibold text-[11px]">
-                    {formatPaymentMethod(activeInvestment?.paymentMethod)}
-                  </span>
                 </div>
+              </div>
+
+              {/* Payment Structure Badge on Top Right Edge */}
+              <div className="shrink-0">
+                <span className="px-2.5 py-1 rounded-lg bg-slate-100 text-slate-700 border border-slate-200 font-semibold text-xs tracking-tight">
+                  {formatPaymentMethod(activeInvestment?.paymentMethod)}
+                </span>
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
-              {canCreate && (
-                <PBtn sm onClick={() => openRecordPayment()}>
-                  <Receipt size={14} /> Record Payment
-                </PBtn>
-              )}
-              {canEdit && (
-                <PBtn sm outline onClick={openEditInvestmentModal}>
-                  <Edit3 size={14} /> Edit
-                </PBtn>
-              )}
-              {canDelete && onDeleteInvestor && (
-                <PBtn sm danger onClick={async () => {
-                  if (confirm(`Delete investor "${selectedInvestor?.fullName}" and all associated payment schedules?`)) {
-                    await onDeleteInvestor(selectedInvestor!.id);
-                    setSelectedInvestorId(null);
-                    toast.success("Investor deleted");
-                  }
-                }}>
-                  <Trash2 size={14} /> Delete
-                </PBtn>
-              )}
-            </div>
+            {/* Divider + Full-Width Edit & Delete Row */}
+            {(canEdit || (canDelete && onDeleteInvestor)) && (
+              <div className="pt-3.5 border-t border-slate-100 mt-3.5 flex items-center gap-2.5 w-full">
+                {canEdit && (
+                  <button
+                    type="button"
+                    onClick={openEditInvestmentModal}
+                    className="flex-1 py-2 px-3 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors"
+                  >
+                    <Edit3 size={14} className="text-slate-500" /> Edit Investor & Investment
+                  </button>
+                )}
+                {canDelete && onDeleteInvestor && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (confirm(`Delete investor "${selectedInvestor?.fullName}" and all associated payment schedules?`)) {
+                        await onDeleteInvestor(selectedInvestor!.id);
+                        setSelectedInvestorId(null);
+                        toast.success("Investor deleted");
+                      }
+                    }}
+                    className="flex-1 py-2 px-3 rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors"
+                  >
+                    <Trash2 size={14} className="text-rose-600" /> Delete Investor
+                  </button>
+                )}
+              </div>
+            )}
           </div>
 
           {/* ── Clean Investment Overview Presentation ── */}
@@ -1087,11 +1091,6 @@ export default function InvestorsPage({
                     : "Scheduled payout date and payment records"}
                 </p>
               </div>
-              {canCreate && (
-                <PBtn sm outline onClick={() => openRecordPayment()}>
-                  <Plus size={14} /> Record Payment
-                </PBtn>
-              )}
             </div>
 
             <div className="overflow-x-auto">
@@ -1150,14 +1149,6 @@ export default function InvestorsPage({
                                     title="Mark period as fully paid"
                                   >
                                     Mark Paid
-                                  </button>
-                                )}
-                                {canCreate && (
-                                  <button
-                                    onClick={() => openRecordPayment(p)}
-                                    className="px-2.5 py-1 text-[11px] bg-white hover:bg-slate-50 text-slate-700 font-semibold rounded-lg border border-slate-200 transition-colors"
-                                  >
-                                    Record
                                   </button>
                                 )}
                               </>
