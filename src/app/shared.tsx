@@ -6,7 +6,7 @@ import { COUNTRIES } from "./data";
 
 /* ─── Shared UI ─────────────────────────────────────────────── */
 export function Card({children,className="",onClick}:{children:ReactNode;className?:string;onClick?:()=>void}){
-  return <div onClick={onClick} className={`bg-white border border-slate-200 rounded-xl ${className}`}>{children}</div>;
+  return <div onClick={onClick} className={`bg-white border border-slate-200/60 rounded-xl ${className}`}>{children}</div>;
 }
 export function Bdg({label,color}:{label:string;color:"green"|"red"|"amber"|"blue"|"gray"|"teal"|"purple"}){
   const m={green:"bg-green-50 text-green-700 border-green-200",teal:"bg-green-100 text-green-800 border-green-300",red:"bg-red-50 text-red-700 border-red-200",amber:"bg-amber-50 text-amber-700 border-amber-200",blue:"bg-blue-50 text-blue-700 border-blue-200",gray:"bg-slate-50 text-slate-600 border-slate-200",purple:"bg-purple-50 text-purple-700 border-purple-200"};
@@ -37,14 +37,14 @@ export const PER_PAGE=10;
 export type StatCardColor = "green" | "blue" | "purple" | "amber" | "teal" | "rose" | "indigo" | "gray";
 
 const STAT_COLOR_STYLES: Record<StatCardColor, { bg: string; border: string; text: string }> = {
-  green: { bg: "bg-emerald-50", border: "border-emerald-200/80", text: "text-emerald-600" },
-  blue: { bg: "bg-blue-50", border: "border-blue-200/80", text: "text-blue-600" },
-  purple: { bg: "bg-purple-50", border: "border-purple-200/80", text: "text-purple-600" },
-  amber: { bg: "bg-amber-50", border: "border-amber-200/80", text: "text-amber-600" },
-  teal: { bg: "bg-teal-50", border: "border-teal-200/80", text: "text-teal-600" },
-  rose: { bg: "bg-rose-50", border: "border-rose-200/80", text: "text-rose-600" },
-  indigo: { bg: "bg-indigo-50", border: "border-indigo-200/80", text: "text-indigo-600" },
-  gray: { bg: "bg-slate-50", border: "border-slate-200/80", text: "text-slate-500" },
+  green: { bg: "bg-emerald-50", border: "border-emerald-200/60", text: "text-emerald-600" },
+  blue: { bg: "bg-blue-50", border: "border-blue-200/60", text: "text-blue-600" },
+  purple: { bg: "bg-purple-50", border: "border-purple-200/60", text: "text-purple-600" },
+  amber: { bg: "bg-amber-50", border: "border-amber-200/60", text: "text-amber-600" },
+  teal: { bg: "bg-teal-50", border: "border-teal-200/60", text: "text-teal-600" },
+  rose: { bg: "bg-rose-50", border: "border-rose-200/60", text: "text-rose-600" },
+  indigo: { bg: "bg-indigo-50", border: "border-indigo-200/60", text: "text-indigo-600" },
+  gray: { bg: "bg-slate-50", border: "border-slate-200/60", text: "text-slate-500" },
 };
 
 const AUTO_PALETTE: StatCardColor[] = ["blue", "green", "purple", "amber", "teal", "indigo", "rose"];

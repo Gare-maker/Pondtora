@@ -2540,22 +2540,24 @@ function SubscriptionPage({
   ];
 
   const BillingToggle = ({ yearly, setYearly }: { yearly: boolean; setYearly: (v: boolean) => void }) => (
-    <div className="inline-flex items-center gap-3 bg-slate-100 rounded-full p-1">
+    <div className="inline-flex items-center gap-1.5 bg-slate-200/90 border border-slate-300/80 rounded-full p-1 shadow-2xs">
       <button
+        type="button"
         onClick={() => setYearly(false)}
         className={`px-4 py-1.5 rounded-full text-sm font-semibold transition-all ${
-          !yearly ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"
+          !yearly ? "bg-white text-slate-900 shadow-sm border border-slate-200/80 font-bold" : "text-slate-600 hover:text-slate-900"
         }`}
       >
         Monthly
       </button>
       <button
+        type="button"
         onClick={() => setYearly(true)}
         className={`flex items-center gap-2 px-4 py-1.5 rounded-full text-sm font-semibold transition-all ${
-          yearly ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"
+          yearly ? "bg-white text-slate-900 shadow-sm border border-slate-200/80 font-bold" : "text-slate-600 hover:text-slate-900"
         }`}
       >
-        Yearly <span className="bg-green-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none">Save 20%</span>
+        Yearly <span className="bg-green-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none">Save 20%</span>
       </button>
     </div>
   );
@@ -2661,19 +2663,21 @@ function SubscriptionPage({
       </div>
 
       {/* Tab switcher */}
-      <div className="flex gap-1 bg-slate-100 p-1 rounded-xl w-fit mx-auto">
+      <div className="flex gap-1 bg-slate-200/90 border border-slate-300/80 p-1 rounded-xl w-fit mx-auto shadow-2xs">
         <button
+          type="button"
           onClick={() => setSubTab("single")}
           className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all ${
-            subTab === "single" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-800"
+            subTab === "single" ? "bg-white text-slate-900 shadow-sm border border-slate-200/80 font-bold" : "text-slate-600 hover:text-slate-900"
           }`}
         >
           Single Farm
         </button>
         <button
+          type="button"
           onClick={() => setSubTab("multi")}
           className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all ${
-            subTab === "multi" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-800"
+            subTab === "multi" ? "bg-white text-slate-900 shadow-sm border border-slate-200/80 font-bold" : "text-slate-600 hover:text-slate-900"
           }`}
         >
           Multiple Farms {(farmCount || 1) > 1 && <span className="ml-1 text-[10px] bg-green-100 text-green-700 font-bold px-1.5 py-0.5 rounded-full">{farmCount}</span>}

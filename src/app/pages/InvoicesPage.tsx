@@ -10,6 +10,21 @@ export default function InvoicesPage({ponds,invoices,customers,priceGroups,setti
   const [search,setSearch]=useState(""); const [fPond,setFPond]=useState("All"); const [fStatus,setFStatus]=useState("All"); const [fMethod,setFMethod]=useState("All"); const [sortDir,setSortDir]=useState<SortDir>("desc");
   const invYears=[...new Set(invoices.map(i=>i.invoiceDate.slice(0,4)))].sort((a,b)=>b.localeCompare(a));
   const [fYear,setFYear]=useState("All"); const [fMonth,setFMonth]=useState("All"); const [fDay,setFDay]=useState("All");
+  const [showMobileFilters, setShowMobileFilters] = useState(false);
+
+  const activeFilterCount = (search ? 1 : 0) + (fPond !== "All" ? 1 : 0) + (fStatus !== "All" ? 1 : 0) + (fMethod !== "All" ? 1 : 0) + (fYear !== "All" ? 1 : 0) + (fMonth !== "All" ? 1 : 0) + (fDay !== "All" ? 1 : 0);
+
+  const handleResetFilters = () => {
+    setSearch("");
+    setFPond("All");
+    setFStatus("All");
+    setFMethod("All");
+    setFYear("All");
+    setFMonth("All");
+    setFDay("All");
+    setSortDir("desc");
+    setInvPage(1);
+  };
 
   const [invMenuOpen,setInvMenuOpen]=useState(false);
   const [invPage,setInvPage]=useState(1);
@@ -195,8 +210,10 @@ export default function InvoicesPage({ponds,invoices,customers,priceGroups,setti
         </div>
       </div>
 
-      {/* ── Date filter ── */}
-      <DateFilter year={fYear} month={fMonth} day={fDay} onYear={v=>{setFYear(v);if(v==="All"){setFMonth("All");setFDay("All");}}} onMonth={setFMonth} onDay={setFDay} onReset={()=>{setFYear("All");setFMonth("All");setFDay("All");}} dates={invoices.map(i=>i.invoiceDate)}/>
+      {/* ── Desktop Date filter ── */}
+      <div className="hidden md:block">
+        <DateFilter year={fYear} month={fMonth} day={fDay} onYear={v=>{setFYear(v);if(v==="All"){setFMonth("All");setFDay("All");}}} onMonth={setFMonth} onDay={setFDay} onReset={()=>{setFYear("All");setFMonth("All");setFDay("All");}} dates={invoices.map(i=>i.invoiceDate)}/>
+      </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <StatCard label="Total Invoices"    value={String(statsSource.length)} icon={FileText}/>
@@ -211,7 +228,46 @@ export default function InvoicesPage({ponds,invoices,customers,priceGroups,setti
         <StatCard label="Marked as Error"    value={String(invoices.filter(i=>i.status==="Error").length)} icon={AlertCircle}/>
       </div>
 
-      <Card className="p-3">
+      {/* ── Mobile Filter Trigger Bar (Single Consolidated Filter Button) ── */}
+      <div className="md:hidden flex items-center gap-2">
+        <div className="relative flex-1">
+          <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300"/>
+          <input
+            value={search}
+            onChange={e => { setSearch(e.target.value); setInvPage(1); }}
+            placeholder="Search invoice # or customer…"
+            className={`${IC} pl-8 py-2 text-xs w-full`}
+          />
+        </div>
+        <button
+          onClick={() => setShowMobileFilters(true)}
+          className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold border transition-all shrink-0 ${
+            activeFilterCount > 0
+              ? "bg-green-50 border-green-300 text-green-700 shadow-2xs font-bold"
+              : "bg-white border-slate-200 text-slate-700 hover:bg-slate-50"
+          }`}
+        >
+          <Filter size={13} className={activeFilterCount > 0 ? "text-green-600" : "text-slate-500"} />
+          <span>Filters</span>
+          {activeFilterCount > 0 && (
+            <span className="w-5 h-5 rounded-full bg-green-600 text-white text-[10px] flex items-center justify-center font-bold">
+              {activeFilterCount}
+            </span>
+          )}
+        </button>
+        {activeFilterCount > 0 && (
+          <button
+            onClick={handleResetFilters}
+            className="px-2.5 py-2 text-xs font-semibold text-slate-500 hover:text-red-600 hover:bg-red-50 border border-slate-200 rounded-xl transition-colors shrink-0"
+            title="Reset Filters"
+          >
+            Reset
+          </button>
+        )}
+      </div>
+
+      {/* ── Desktop Filters Bar ── */}
+      <Card className="hidden md:block p-3">
         <div className="flex flex-wrap gap-2 items-center">
           <div className="relative flex-1 min-w-[180px]"><Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300"/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search invoice # or customer…" className={`${IC} pl-8`}/></div>
           <div className="flex items-center gap-1.5"><span className="text-xs text-slate-400">Pond:</span><select value={fPond} onChange={e=>setFPond(e.target.value)} className={`${SC} py-1.5 text-xs w-auto`}><option>All</option>{ponds.map(p=><option key={p.id}>{p.name}</option>)}</select></div>
@@ -664,6 +720,141 @@ export default function InvoicesPage({ponds,invoices,customers,priceGroups,setti
             </div>
           </div>
         </div>
+      )}
+      {/* ── Mobile Filters Bottom Sheet Modal ── */}
+      {showMobileFilters && (
+        <Modal
+          title="Invoice Filters"
+          onClose={() => setShowMobileFilters(false)}
+          maxW="max-w-md"
+        >
+          <div className="space-y-4 py-1">
+            {/* Search */}
+            <F label="Search Invoice # or Customer">
+              <div className="relative">
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" />
+                <input
+                  value={search}
+                  onChange={e => { setSearch(e.target.value); setInvPage(1); }}
+                  placeholder="e.g. INV-2026 or Customer Name"
+                  className={`${IC} pl-8`}
+                />
+              </div>
+            </F>
+
+            {/* Status */}
+            <F label="Invoice Status">
+              <select
+                value={fStatus}
+                onChange={e => { setFStatus(e.target.value); setInvPage(1); }}
+                className={SC}
+              >
+                <option value="All">All Statuses</option>
+                {INV_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </F>
+
+            {/* Date Filters */}
+            <div className="space-y-1.5">
+              <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wide">Date Filter</label>
+              <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <span className="text-[10px] text-slate-400 block mb-0.5 font-medium">Year</span>
+                  <select
+                    value={fYear}
+                    onChange={e => {
+                      const v = e.target.value;
+                      setFYear(v);
+                      if (v === "All") { setFMonth("All"); setFDay("All"); }
+                      setInvPage(1);
+                    }}
+                    className={`${SC} text-xs py-1.5`}
+                  >
+                    <option value="All">All</option>
+                    {invYears.map(y => <option key={y} value={y}>{y}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-400 block mb-0.5 font-medium">Month</span>
+                  <select
+                    value={fMonth}
+                    onChange={e => { setFMonth(e.target.value); setInvPage(1); }}
+                    className={`${SC} text-xs py-1.5`}
+                  >
+                    <option value="All">All</option>
+                    {DMONTHS_S.map(m => <option key={m} value={m}>{m}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-400 block mb-0.5 font-medium">Day</span>
+                  <select
+                    value={fDay}
+                    onChange={e => { setFDay(e.target.value); setInvPage(1); }}
+                    className={`${SC} text-xs py-1.5`}
+                  >
+                    <option value="All">All</option>
+                    {Array.from({ length: 31 }, (_, i) => String(i + 1).padStart(2, "0")).map(d => (
+                      <option key={d} value={d}>{d}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            {/* Pond */}
+            <F label="Pond">
+              <select
+                value={fPond}
+                onChange={e => { setFPond(e.target.value); setInvPage(1); }}
+                className={SC}
+              >
+                <option value="All">All Ponds</option>
+                {ponds.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
+              </select>
+            </F>
+
+            {/* Payment Method */}
+            <F label="Payment Method">
+              <select
+                value={fMethod}
+                onChange={e => { setFMethod(e.target.value); setInvPage(1); }}
+                className={SC}
+              >
+                <option value="All">All Methods</option>
+                {PAYMENT_METHODS.map(m => <option key={m} value={m}>{m}</option>)}
+              </select>
+            </F>
+
+            {/* Sort */}
+            <F label="Sort By Date">
+              <select
+                value={sortDir}
+                onChange={e => setSortDir(e.target.value as SortDir)}
+                className={SC}
+              >
+                <option value="desc">Newest First</option>
+                <option value="asc">Oldest First</option>
+              </select>
+            </F>
+
+            {/* Actions */}
+            <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-3">
+              <button
+                type="button"
+                onClick={handleResetFilters}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-red-600 hover:bg-red-50 border border-slate-200 rounded-xl transition-colors"
+              >
+                Reset All Filters
+              </button>
+              <PBtn
+                onClick={() => setShowMobileFilters(false)}
+                className="flex-1 justify-center"
+              >
+                Apply Filters ({filtInvoices.length})
+              </PBtn>
+            </div>
+          </div>
+        </Modal>
       )}
     </div>
   );

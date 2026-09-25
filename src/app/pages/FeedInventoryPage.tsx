@@ -231,10 +231,7 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
     ...historyRows.map(r => r.fishStock),
     ...ponds.filter(p => p.species && p.species !== "—").map(p => p.stockingDate && p.stockingDate !== "—" ? fmtStockingDate(p.stockingDate) : p.species)
   ])].filter(Boolean);
-  const allDailyBrands = [...new Set([
-    ...historyRows.map(r => r.brand),
-    ...FEED_BRANDS
-  ])];
+  const allDailyBrands = [...new Set(inventory.map(f => f.brand).filter(Boolean))].sort();
   const allDailySizes = [...new Set([
     ...historyRows.map(r => r.size),
     ...FEED_SIZES
@@ -273,10 +270,9 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
           {canCreate&&<PBtn onClick={()=>setShowBuy(true)} sm><Plus size={13}/> Add Purchased Feed</PBtn>}
         </div>
       </div>
-      <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+      <div className="grid grid-cols-2 gap-3">
         <StatCard label="Total Bags" value={String(totalBagsInStock)} sub={`${totalBagsOpened} opened · ${totalBagsPurchased} purchased`} icon={Package} hi/>
         <StatCard label="Total Kg" value={`${totalKgInStock}kg`} sub="in stock" icon={Layers}/>
-        <StatCard label="Feed Inventory Value" value={`${currency}${Math.round(invValue).toLocaleString()}`} sub={`${totalBagsInStock} bags in stock`} icon={Package}/>
       </div>
       <div className="flex gap-1 bg-slate-200/90 border border-slate-300/70 p-1 rounded-xl w-fit shadow-2xs">
         {([

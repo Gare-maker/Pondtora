@@ -1292,7 +1292,7 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
         {filteredPonds.map((p,pIdx)=>{
           const isNearBottom=pIdx>=filteredPonds.length-2;
           return(
-          <div key={p.id} className="bg-white border border-slate-200/90 rounded-xl p-3.5 flex items-center justify-between hover:border-green-300 hover:shadow-xs active:bg-slate-50 transition-all cursor-pointer shadow-2xs"
+          <div key={p.id} className="bg-white border border-slate-200/60 rounded-xl p-3.5 flex items-center justify-between hover:border-green-300 hover:shadow-xs active:bg-slate-50 transition-all cursor-pointer shadow-xs"
             onClick={()=>setDetailId(p.id)}
             onContextMenu={e=>{e.preventDefault();setPondMobileMenu(p.id);}}
             onTouchStart={()=>{longPressTimer.current=setTimeout(()=>setPondMobileMenu(p.id),750);}}

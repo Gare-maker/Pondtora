@@ -136,7 +136,9 @@ export default function InvestorsPage({
 
   // Record Payment Form State
   const [payForm, setPayForm] = useState({
+    investorId: "",
     paymentId: "",
+    paymentPeriod: "",
     paymentDate: TODAY,
     amountPaid: "",
     paymentMethod: "Bank Transfer",
@@ -561,24 +563,33 @@ export default function InvestorsPage({
     }
   };
 
-  // Open Record Payment Modal
-  const openRecordPayment = (targetPayment?: InvestmentPayment) => {
+  // Open Record Payment Modal (Can be triggered anytime from list or details)
+  const openRecordPayment = (targetPayment?: InvestmentPayment, targetInvestorId?: string) => {
+    const invId = targetInvestorId || selectedInvestorId || (targetPayment ? investments.find(i => i.id === targetPayment.investmentId)?.investorId : "") || investors[0]?.id || "";
+    const invInvestments = investments.filter(i => i.investorId === invId);
+    const primaryInv = invInvestments[0];
+    const invPayments = primaryInv ? payments.filter(p => p.investmentId === primaryInv.id) : [];
+
     if (targetPayment) {
       setPaymentTargetPeriod(targetPayment);
-      const remaining = Math.max(0, targetPayment.amountDue - targetPayment.amountPaid);
+      const remaining = Math.max(0, (Number(targetPayment.amountDue) || 0) - (Number(targetPayment.amountPaid) || 0));
       setPayForm({
+        investorId: invId,
         paymentId: targetPayment.id,
+        paymentPeriod: targetPayment.paymentPeriod || "",
         paymentDate: TODAY,
         amountPaid: remaining > 0 ? remaining.toString() : targetPayment.amountDue.toString(),
         paymentMethod: targetPayment.paymentMethod || "Bank Transfer",
         notes: targetPayment.notes || "",
       });
     } else {
-      const firstUnpaid = investmentPayments.find(p => p.amountPaid < p.amountDue) || investmentPayments[0];
+      const firstUnpaid = invPayments.find(p => (Number(p.amountPaid) || 0) < (Number(p.amountDue) || 0));
       setPaymentTargetPeriod(firstUnpaid || null);
-      const remaining = firstUnpaid ? Math.max(0, firstUnpaid.amountDue - firstUnpaid.amountPaid) : 0;
+      const remaining = firstUnpaid ? Math.max(0, (Number(firstUnpaid.amountDue) || 0) - (Number(firstUnpaid.amountPaid) || 0)) : 0;
       setPayForm({
+        investorId: invId,
         paymentId: firstUnpaid?.id || "",
+        paymentPeriod: firstUnpaid?.paymentPeriod || "Payout",
         paymentDate: TODAY,
         amountPaid: remaining > 0 ? remaining.toString() : "",
         paymentMethod: "Bank Transfer",
@@ -591,45 +602,81 @@ export default function InvestorsPage({
   // Submit Record Payment
   const handleSavePayment = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!paymentTargetPeriod) {
-      toast.error("No payment schedule period selected");
-      return;
-    }
     const payAmt = Number(payForm.amountPaid);
     if (isNaN(payAmt) || payAmt <= 0) {
       toast.error("Please enter a valid amount paid");
       return;
     }
 
-    const currentPaid = paymentTargetPeriod.amountPaid || 0;
-    const newTotalPaid = currentPaid + payAmt;
-    const due = paymentTargetPeriod.amountDue;
-    const newRemaining = Math.max(0, due - newTotalPaid);
-    const derivedStatus = derivePaymentStatus({
-      ...paymentTargetPeriod,
-      amountPaid: newTotalPaid,
-      amountDue: due,
-    });
+    const invId = payForm.investorId || selectedInvestorId || investors[0]?.id;
+    const invInvestments = investments.filter(i => i.investorId === invId);
+    const primaryInv = invInvestments[0];
+    const fid = primaryInv?.farmId || activeFarmId || farms[0]?.id || "";
 
-    const updatedPayment: InvestmentPayment = {
-      ...paymentTargetPeriod,
-      amountPaid: newTotalPaid,
-      remainingAmount: newRemaining,
-      paymentDate: payForm.paymentDate || TODAY,
-      paidDate: derivedStatus === "Paid" ? (payForm.paymentDate || TODAY) : paymentTargetPeriod.paidDate,
-      paymentMethod: payForm.paymentMethod,
-      status: derivedStatus,
-      notes: payForm.notes.trim() || paymentTargetPeriod.notes,
-      recordedBy: currentUser?.name || "Admin",
-      updatedAt: new Date().toISOString(),
-    };
+    if (paymentTargetPeriod) {
+      const currentPaid = Number(paymentTargetPeriod.amountPaid) || 0;
+      const newTotalPaid = currentPaid + payAmt;
+      const due = Number(paymentTargetPeriod.amountDue) || 0;
+      const newRemaining = Math.max(0, due - newTotalPaid);
+      const derivedStatus = derivePaymentStatus({
+        ...paymentTargetPeriod,
+        amountPaid: newTotalPaid,
+        amountDue: due,
+      });
 
-    try {
-      await onRecordPayment(updatedPayment);
-      setShowRecordPaymentModal(false);
-    } catch (err: any) {
-      console.error(err);
-      toast.error(err?.message || "Failed to record payment");
+      const updatedPayment: InvestmentPayment = {
+        ...paymentTargetPeriod,
+        farmId: fid,
+        amountPaid: newTotalPaid,
+        remainingAmount: newRemaining,
+        paymentDate: payForm.paymentDate || TODAY,
+        paidDate: derivedStatus === "Paid" ? (payForm.paymentDate || TODAY) : paymentTargetPeriod.paidDate,
+        paymentMethod: payForm.paymentMethod,
+        status: derivedStatus,
+        notes: payForm.notes.trim() || paymentTargetPeriod.notes,
+        recordedBy: currentUser?.name || "Admin",
+        updatedAt: new Date().toISOString(),
+      };
+
+      try {
+        await onRecordPayment(updatedPayment);
+        setShowRecordPaymentModal(false);
+      } catch (err: any) {
+        console.error(err);
+        toast.error(err?.message || "Failed to record payment");
+      }
+    } else if (primaryInv) {
+      // Record unscheduled/ad-hoc payment anytime
+      const newPayment: InvestmentPayment = {
+        id: uid(),
+        farmId: fid,
+        investmentId: primaryInv.id,
+        dueDate: payForm.paymentDate || TODAY,
+        paymentDate: payForm.paymentDate || TODAY,
+        paidDate: payForm.paymentDate || TODAY,
+        paymentPeriod: payForm.paymentPeriod.trim() || `Payout on ${payForm.paymentDate || TODAY}`,
+        paymentType: "Ad-hoc Payout",
+        amountDue: payAmt,
+        scheduledAmount: payAmt,
+        amountPaid: payAmt,
+        remainingAmount: 0,
+        paymentMethod: payForm.paymentMethod,
+        status: "Paid",
+        notes: payForm.notes.trim() || undefined,
+        recordedBy: currentUser?.name || "Admin",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      try {
+        await onRecordPayment(newPayment);
+        setShowRecordPaymentModal(false);
+      } catch (err: any) {
+        console.error(err);
+        toast.error(err?.message || "Failed to record payment");
+      }
+    } else {
+      toast.error("No active investment found for this investor. Please add an investment first.");
     }
   };
 
@@ -656,8 +703,8 @@ export default function InvestorsPage({
 
   return (
     <div className="p-4 sm:p-6 space-y-5 w-full font-['Barlow',sans-serif]">
-      {/* ── Top Header / Breadcrumbs ── */}
-      <div className="sticky top-0 z-10 bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 flex flex-wrap items-center justify-between gap-3 border-b border-slate-200/60 mb-2">
+      {/* ── Top Header / Breadcrumbs (No bottom divider) ── */}
+      <div className="sticky top-0 z-10 bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           {selectedInvestorId ? (
             <div className="flex items-center gap-2">
@@ -686,43 +733,16 @@ export default function InvestorsPage({
 
         <div className="flex items-center gap-2">
           {canCreate && (
-            <PBtn sm onClick={() => setShowAddModal(true)}>
-              <Plus size={14} /> Add Investor
-            </PBtn>
+            <>
+              <PBtn sm outline onClick={() => openRecordPayment()}>
+                <Receipt size={14} /> Record Payment
+              </PBtn>
+              <PBtn sm onClick={() => setShowAddModal(true)}>
+                <Plus size={14} /> Add Investor
+              </PBtn>
+            </>
           )}
         </div>
-      </div>
-
-      {/* ── 4 KEY DASHBOARD STAT CARDS ── */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
-        <StatCard
-          label="Total Investors"
-          value={String(stats.totalInvestors)}
-          sub={`${stats.activeInvestmentsCount} active · ${stats.completedInvestmentsCount} completed`}
-          icon={User}
-          color="blue"
-        />
-        <StatCard
-          label="Total Money Invested"
-          value={`${currency}${stats.totalInvestment.toLocaleString()}`}
-          sub="Capital recorded"
-          icon={TrendingUp}
-          color="green"
-        />
-        <StatCard
-          label="Total Paid Out"
-          value={`${currency}${stats.totalPaid.toLocaleString()}`}
-          sub="Disbursed to date"
-          icon={CheckCircle2}
-          color="purple"
-        />
-        <StatCard
-          label="Outstanding Payments"
-          value={`${currency}${stats.totalRemaining.toLocaleString()}`}
-          sub={stats.dueTodayCount > 0 ? `${stats.dueTodayCount} due today` : stats.overdueCount > 0 ? `${stats.overdueCount} overdue` : "Remaining obligations"}
-          icon={Clock}
-          color={stats.overdueCount > 0 ? "red" : stats.dueTodayCount > 0 ? "amber" : "amber"}
-        />
       </div>
 
       {/* ── VIEW SWITCH: LIST VS DETAILS ── */}
@@ -731,6 +751,37 @@ export default function InvestorsPage({
            MAIN INVESTOR TABLE VIEW
         ═══════════════════════════════════════════════════════════════════ */
         <div className="space-y-3.5">
+          {/* ── 4 KEY DASHBOARD STAT CARDS (Main List Only) ── */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
+            <StatCard
+              label="Total Investors"
+              value={String(stats.totalInvestors)}
+              sub={`${stats.activeInvestmentsCount} active · ${stats.completedInvestmentsCount} completed`}
+              icon={User}
+              color="blue"
+            />
+            <StatCard
+              label="Total Money Invested"
+              value={`${currency}${stats.totalInvestment.toLocaleString()}`}
+              sub="Capital recorded"
+              icon={TrendingUp}
+              color="green"
+            />
+            <StatCard
+              label="Total Paid Out"
+              value={`${currency}${stats.totalPaid.toLocaleString()}`}
+              sub="Disbursed to date"
+              icon={CheckCircle2}
+              color="purple"
+            />
+            <StatCard
+              label="Outstanding Payments"
+              value={`${currency}${stats.totalRemaining.toLocaleString()}`}
+              sub={stats.dueTodayCount > 0 ? `${stats.dueTodayCount} due today` : stats.overdueCount > 0 ? `${stats.overdueCount} overdue` : "Remaining obligations"}
+              icon={Clock}
+              color={stats.overdueCount > 0 ? "red" : stats.dueTodayCount > 0 ? "amber" : "amber"}
+            />
+          </div>
           {/* ── Search and Active/Completed Filters Only ── */}
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-white p-3 rounded-2xl border border-slate-200/80 shadow-xs">
             {/* Search Bar */}
@@ -1562,6 +1613,37 @@ export default function InvestorsPage({
       {showRecordPaymentModal && (
         <Modal title="Record Investor Payout" onClose={() => setShowRecordPaymentModal(false)}>
           <form onSubmit={handleSavePayment} className="space-y-3.5">
+            {!selectedInvestorId && (
+              <F label="Select Investor" required>
+                <select
+                  value={payForm.investorId}
+                  onChange={e => {
+                    const newId = e.target.value;
+                    const invInvs = investments.filter(i => i.investorId === newId);
+                    const pInv = invInvs[0];
+                    const pPays = pInv ? payments.filter(p => p.investmentId === pInv.id) : [];
+                    const firstUnpaid = pPays.find(p => (Number(p.amountPaid) || 0) < (Number(p.amountDue) || 0));
+                    setPaymentTargetPeriod(firstUnpaid || null);
+                    const rem = firstUnpaid ? Math.max(0, (Number(firstUnpaid.amountDue) || 0) - (Number(firstUnpaid.amountPaid) || 0)) : 0;
+                    setPayForm(p => ({
+                      ...p,
+                      investorId: newId,
+                      paymentId: firstUnpaid?.id || "",
+                      paymentPeriod: firstUnpaid?.paymentPeriod || "Payout",
+                      amountPaid: rem > 0 ? String(rem) : p.amountPaid,
+                    }));
+                  }}
+                  className={SC}
+                >
+                  {investors.map(inv => (
+                    <option key={inv.id} value={inv.id}>
+                      {inv.fullName} ({inv.phone})
+                    </option>
+                  ))}
+                </select>
+              </F>
+            )}
+
             {paymentTargetPeriod && (
               <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs space-y-1">
                 <div className="flex justify-between">
@@ -1585,6 +1667,18 @@ export default function InvestorsPage({
                   <span>{currency}{Math.max(0, paymentTargetPeriod.amountDue - paymentTargetPeriod.amountPaid).toLocaleString()}</span>
                 </div>
               </div>
+            )}
+
+            {!paymentTargetPeriod && (
+              <F label="Period / Description (Optional)">
+                <input
+                  type="text"
+                  placeholder="e.g. Interim Return, Month 1 Payout..."
+                  value={payForm.paymentPeriod}
+                  onChange={e => setPayForm(p => ({ ...p, paymentPeriod: e.target.value }))}
+                  className={IC}
+                />
+              </F>
             )}
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
