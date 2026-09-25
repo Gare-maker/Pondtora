@@ -258,7 +258,15 @@ export default function InvestorsPage({
 
       const totalInvested = invList.reduce((s, i) => s + (Number(i.amountInvested) || 0), 0);
       const totalReturn = invList.reduce((s, i) => s + (Number(i.expectedReturn) || 0), 0);
-      const totalDue = invPayments.reduce((s, p) => s + (Number(p.amountDue) || 0), 0) || (primaryInv ? Number(primaryInv.totalAmountDue) || 0 : 0);
+      const scheduledDue = invPayments.reduce((s, p) => s + (Number(p.amountDue) || 0), 0);
+      const fallbackDue = primaryInv
+        ? (Number(primaryInv.totalAmountDue) || (
+            primaryInv.paymentMethod === "monthly_return"
+              ? (Number(primaryInv.expectedReturn) || totalReturn)
+              : (Number(primaryInv.amountInvested) || totalInvested) + (Number(primaryInv.expectedReturn) || totalReturn)
+          ))
+        : 0;
+      const totalDue = scheduledDue > 0 ? scheduledDue : fallbackDue;
       const totalPaid = invPayments.reduce((s, p) => s + (Number(p.amountPaid) || 0), 0);
       const outstanding = Math.max(0, totalDue - totalPaid);
 
@@ -1492,13 +1500,25 @@ export default function InvestorsPage({
               <div>
                 <span className="text-slate-400 text-[11px] block">Total Paid Out</span>
                 <span className="font-bold text-purple-700 text-base">
-                  {currency}{investmentPayments.reduce((s, p) => s + (p.amountPaid || 0), 0).toLocaleString()}
+                  {currency}{investmentPayments.reduce((s, p) => s + (Number(p.amountPaid) || 0), 0).toLocaleString()}
                 </span>
               </div>
               <div>
                 <span className="text-slate-400 text-[11px] block">Outstanding Balance</span>
                 <span className="font-bold text-amber-700 text-base">
-                  {currency}{Math.max(0, investmentPayments.reduce((s, p) => s + (p.amountDue || 0), 0) - investmentPayments.reduce((s, p) => s + (p.amountPaid || 0), 0)).toLocaleString()}
+                  {currency}{(() => {
+                    const scheduledDue = investmentPayments.reduce((s, p) => s + (Number(p.amountDue) || 0), 0);
+                    const totalPaid = investmentPayments.reduce((s, p) => s + (Number(p.amountPaid) || 0), 0);
+                    const fallbackDue = activeInvestment
+                      ? (Number(activeInvestment.totalAmountDue) || (
+                          activeInvestment.paymentMethod === "monthly_return"
+                            ? (Number(activeInvestment.expectedReturn) || 0)
+                            : (Number(activeInvestment.amountInvested) || 0) + (Number(activeInvestment.expectedReturn) || 0)
+                        ))
+                      : 0;
+                    const due = scheduledDue > 0 ? scheduledDue : fallbackDue;
+                    return Math.max(0, due - totalPaid).toLocaleString();
+                  })()}
                 </span>
               </div>
             </div>
@@ -1586,8 +1606,8 @@ export default function InvestorsPage({
                         <tr key={p.id} className="hover:bg-slate-50/70 transition-colors">
                           <td className="px-4 py-3 font-mono text-slate-700 font-medium whitespace-nowrap">{p.dueDate}</td>
                           <td className="px-4 py-3 font-semibold text-slate-900">{p.paymentPeriod}</td>
-                          <td className="px-4 py-3 text-right font-bold text-slate-900">{currency}{p.amountDue.toLocaleString()}</td>
-                          <td className="px-4 py-3 text-right font-bold text-purple-700">{currency}{p.amountPaid.toLocaleString()}</td>
+                          <td className="px-4 py-3 text-right font-bold text-slate-900">{currency}{(Number(p.amountDue) || 0).toLocaleString()}</td>
+                          <td className="px-4 py-3 text-right font-bold text-purple-700">{currency}{(Number(p.amountPaid) || 0).toLocaleString()}</td>
                           <td className="px-4 py-3 text-slate-500 whitespace-nowrap font-mono">{p.paymentDate || p.paidDate || "—"}</td>
                           <td className="px-4 py-3 text-center">
                             <Bdg label={derivedStatus} color={statusColor as any} />
@@ -2215,15 +2235,15 @@ export default function InvestorsPage({
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-500">Scheduled Due:</span>
-                  <span className="font-bold text-slate-900">{currency}{paymentTargetPeriod.amountDue.toLocaleString()}</span>
+                  <span className="font-bold text-slate-900">{currency}{(Number(paymentTargetPeriod.amountDue) || 0).toLocaleString()}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-500">Already Paid:</span>
-                  <span className="font-semibold text-purple-700">{currency}{paymentTargetPeriod.amountPaid.toLocaleString()}</span>
+                  <span className="font-semibold text-purple-700">{currency}{(Number(paymentTargetPeriod.amountPaid) || 0).toLocaleString()}</span>
                 </div>
                 <div className="flex justify-between font-bold text-amber-700 border-t border-slate-200 pt-1">
                   <span>Balance Due:</span>
-                  <span>{currency}{Math.max(0, paymentTargetPeriod.amountDue - paymentTargetPeriod.amountPaid).toLocaleString()}</span>
+                  <span>{currency}{Math.max(0, (Number(paymentTargetPeriod.amountDue) || 0) - (Number(paymentTargetPeriod.amountPaid) || 0)).toLocaleString()}</span>
                 </div>
               </div>
             )}

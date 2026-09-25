@@ -289,9 +289,30 @@ export function calculateInvestmentDashboardStats(
   const totalReturn = investments.reduce((sum, inv) => sum + (Number(inv.expectedReturn) || 0), 0);
   
   const totalPaid = payments.reduce((sum, p) => sum + (Number(p.amountPaid) || 0), 0);
-  const totalScheduled = payments.reduce((sum, p) => sum + (Number(p.amountDue) || 0), 0);
-  const totalInvestmentDue = investments.reduce((sum, inv) => sum + (Number(inv.totalAmountDue) || (Number(inv.amountInvested) || 0) + (Number(inv.expectedReturn) || 0)), 0);
-  const totalObligations = totalScheduled > 0 ? totalScheduled : totalInvestmentDue;
+  
+  let totalObligations = 0;
+  investments.forEach(inv => {
+    const invPayments = payments.filter(p => p.investmentId === inv.id);
+    if (invPayments.length > 0) {
+      const scheduledForInv = invPayments.reduce((s, p) => s + (Number(p.amountDue) || 0), 0);
+      totalObligations += scheduledForInv;
+    } else {
+      const dueForInv = Number(inv.totalAmountDue) || (
+        inv.paymentMethod === "monthly_return"
+          ? (Number(inv.expectedReturn) || 0)
+          : (Number(inv.amountInvested) || 0) + (Number(inv.expectedReturn) || 0)
+      );
+      totalObligations += dueForInv;
+    }
+  });
+
+  const matchedPaymentIds = new Set(investments.flatMap(inv => payments.filter(p => p.investmentId === inv.id).map(p => p.id)));
+  payments.forEach(p => {
+    if (!matchedPaymentIds.has(p.id)) {
+      totalObligations += Number(p.amountDue) || 0;
+    }
+  });
+
   const totalRemaining = Math.max(0, totalObligations - totalPaid);
 
   let upcomingCount = 0;
@@ -322,7 +343,7 @@ export function calculateInvestmentDashboardStats(
   const activeInvestmentsCount = investments.filter(inv => {
     const invPayments = payments.filter(p => p.investmentId === inv.id);
     const st = deriveInvestmentStatus(inv, invPayments, todayStr);
-    return st === "Active" || st === "Payment Due" || st === "Partially Paid";
+    return st === "Active" || st === "Payment Due" || st === "Partially Paid" || st === "Overdue";
   }).length;
 
   const completedInvestmentsCount = investments.filter(inv => {
