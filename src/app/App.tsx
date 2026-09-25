@@ -5647,10 +5647,10 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   const farmCustomers=customers.filter(c=>matchesFarm(c.farmId));
   const farmPriceGroups=priceGroups.filter(g=>matchesFarm(g.farmId));
   const farmInvoices=invoices.filter(i=>matchesFarm(i.farmId,i.pond));
-  const farmInvestments=investments.filter(i=>matchesFarm(i.farmId));
-  const farmPayments=investmentPayments.filter(p=>matchesFarm(p.farmId));
-  const farmPondReports=pondReports.filter(r=>matchesFarm(r.farmId));
   const farmInvestors=investors.filter(inv=>!inv.farmId||matchesFarm(inv.farmId));
+  const farmInvestments=investments.filter(i=>matchesFarm(i.farmId) || (!i.farmId && farmInvestors.some(inv => inv.id === i.investorId)));
+  const farmPayments=investmentPayments.filter(p=>matchesFarm(p.farmId) || (!p.farmId && farmInvestments.some(inv => inv.id === p.investmentId)));
+  const farmPondReports=pondReports.filter(r=>matchesFarm(r.farmId));
 
   const handleAddInvestor = async (inv: Investor, investment: Investment, payments: InvestmentPayment[]) => {
     if (!canCreate("Investors")) {
@@ -5732,7 +5732,6 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     } catch (err: any) {
       console.warn("Investor backend sync notice:", err);
     }
-    toast.success("Investor and investment recorded successfully");
   };
 
   const handleEditInvestor = async (inv: Investor) => {
@@ -5758,7 +5757,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     }
   };
 
-  const handleEditInvestment = async (inv: Investment) => {
+  const handleEditInvestment = async (inv: Investment, newPayments?: InvestmentPayment[]) => {
     if (!canEdit("Investors")) {
       toast.error("You do not have permission to edit investments.");
       return;
@@ -5766,14 +5765,45 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     const nextInvestments = investments.map(i => i.id === inv.id ? inv : i);
     setInvestments(nextInvestments);
 
+    let nextPayments = investmentPayments;
+    if (newPayments && newPayments.length > 0) {
+      const fid = inv.farmId || activeFarmId || farms[0]?.id || "";
+      const cleanNewPayments = newPayments.map(p => ({
+        ...p,
+        id: isUuid(p.id) ? p.id : crypto.randomUUID(),
+        investmentId: inv.id,
+        farmId: fid,
+      }));
+      nextPayments = [
+        ...investmentPayments.filter(p => p.investmentId !== inv.id),
+        ...cleanNewPayments,
+      ];
+      setInvestmentPayments(nextPayments);
+    }
+
     if (userProfile?.id) {
       const uids = [userProfile.id];
       if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) uids.push(userProfile.ownerId);
-      uids.forEach(u => saveLocal(`pondtora_${u}_investments`, nextInvestments));
+      uids.forEach(u => {
+        saveLocal(`pondtora_${u}_investments`, nextInvestments);
+        if (newPayments && newPayments.length > 0) {
+          saveLocal(`pondtora_${u}_investment_payments`, nextPayments);
+        }
+      });
     }
 
     try {
       await api.investments.update(inv);
+      if (newPayments && newPayments.length > 0) {
+        const oldPayments = investmentPayments.filter(p => p.investmentId === inv.id);
+        for (const op of oldPayments) {
+          await api.investmentPayments.remove(op.id).catch(() => {});
+        }
+        const updatedInvPayments = nextPayments.filter(p => p.investmentId === inv.id);
+        for (const np of updatedInvPayments) {
+          await api.investmentPayments.create(np).catch(() => {});
+        }
+      }
       toast.success("Investment updated");
     } catch (err: any) {
       console.error("Failed to update investment:", err);

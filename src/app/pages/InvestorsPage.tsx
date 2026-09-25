@@ -1,11 +1,12 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import {
   Landmark, Search, Plus, Filter, ChevronLeft, Calendar,
   DollarSign, CheckCircle2, Clock, AlertCircle, Phone, Mail,
   TrendingUp, CreditCard, Droplets, Fish, ArrowUpRight,
   MoreVertical, Check, Edit3, Trash2, ArrowDownRight,
   Receipt, User, FileText, ChevronRight, AlertTriangle,
-  Layers, ArrowRight, ShieldCheck, Sparkles, RefreshCw
+  Layers, ArrowRight, ShieldCheck, Sparkles, RefreshCw,
+  Printer, Download, X, ExternalLink
 } from "lucide-react";
 import type {
   Farm, Pond, StockEvent, Investor, Investment, InvestmentPayment,
@@ -45,7 +46,7 @@ interface InvestorsPageProps {
   canDelete?: boolean;
   onAddInvestor: (investor: Investor, investment: Investment, payments: InvestmentPayment[]) => Promise<void>;
   onEditInvestor: (investor: Investor) => Promise<void>;
-  onEditInvestment: (investment: Investment) => Promise<void>;
+  onEditInvestment: (investment: Investment, newPayments?: InvestmentPayment[]) => Promise<void>;
   onDeleteInvestor: (investorId: string) => Promise<void>;
   onRecordPayment: (payment: InvestmentPayment) => Promise<void>;
   onMarkPaymentPaid: (paymentId: string) => Promise<void>;
@@ -85,6 +86,18 @@ export default function InvestorsPage({
   const [showRecordPaymentModal, setShowRecordPaymentModal] = useState(false);
   const [paymentTargetPeriod, setPaymentTargetPeriod] = useState<InvestmentPayment | null>(null);
   const [showEditInvestmentModal, setShowEditInvestmentModal] = useState(false);
+  const [showEditPaymentModal, setShowEditPaymentModal] = useState(false);
+  const [editingPayment, setEditingPayment] = useState<InvestmentPayment | null>(null);
+
+  // Post-Creation Success & Receipt Modal State
+  const [createdSuccessData, setCreatedSuccessData] = useState<{
+    investor: Investor;
+    investment: Investment;
+    payments: InvestmentPayment[];
+  } | null>(null);
+
+  // Delete Confirmation State
+  const [investorToDelete, setInvestorToDelete] = useState<Investor | null>(null);
 
   // Add Investor Form State
   const [addForm, setAddForm] = useState<{
@@ -123,7 +136,7 @@ export default function InvestorsPage({
 
   // Calculate default due date when start date or duration changes for monthly_return
   useEffect(() => {
-    if (addForm.startDate && addForm.durationMonths && addForm.paymentMethod === "monthly_return") {
+    if (addForm.startDate && addForm.durationMonths && addForm.paymentMethod === "monthly_return" && !addForm.dueDate) {
       try {
         const d = new Date(addForm.startDate);
         const months = parseInt(addForm.durationMonths, 10) || 12;
@@ -132,14 +145,16 @@ export default function InvestorsPage({
         setAddForm(p => ({ ...p, dueDate: autoDue, numberOfPayments: String(months) }));
       } catch {}
     }
-  }, [addForm.startDate, addForm.durationMonths, addForm.paymentMethod]);
+  }, [addForm.startDate, addForm.durationMonths]);
 
-  // Record Payment Form State
+  // Record / Edit Payment Form State
   const [payForm, setPayForm] = useState({
     investorId: "",
     paymentId: "",
     paymentPeriod: "",
+    dueDate: TODAY,
     paymentDate: TODAY,
+    amountDue: "",
     amountPaid: "",
     paymentMethod: "Bank Transfer",
     notes: "",
@@ -181,6 +196,25 @@ export default function InvestorsPage({
     pondId: "",
     fishStockId: "",
   });
+
+  // Scroll to top when changing investor views
+  const scrollToTop = () => {
+    try {
+      window.scrollTo({ top: 0, behavior: "instant" });
+      const mainEl = document.querySelector("main");
+      if (mainEl) mainEl.scrollTo({ top: 0, behavior: "instant" });
+    } catch {}
+  };
+
+  const handleSelectInvestor = (id: string) => {
+    setSelectedInvestorId(id);
+    scrollToTop();
+  };
+
+  const handleBackToList = () => {
+    setSelectedInvestorId(null);
+    scrollToTop();
+  };
 
   // Selected investor & associated records
   const selectedInvestor = useMemo(() => {
@@ -260,7 +294,6 @@ export default function InvestorsPage({
   // Filtered Investors (Only Search + Active / Completed tabs)
   const filteredInvestors = useMemo(() => {
     return enrichedInvestors.filter(item => {
-      // Search query
       const q = searchQuery.toLowerCase().trim();
       const matchesSearch =
         !q ||
@@ -272,7 +305,6 @@ export default function InvestorsPage({
 
       if (!matchesSearch) return false;
 
-      // Status Filter: Active vs Completed
       if (statusFilter === "Active") {
         if (item.derivedStatus === "Completed") return false;
       } else if (statusFilter === "Completed") {
@@ -311,6 +343,240 @@ export default function InvestorsPage({
   const availablePondsForEdit = useMemo(() => {
     return ponds.filter(p => p.farmId === (editForm.farmId || activeFarmId));
   }, [ponds, editForm.farmId, activeFarmId]);
+
+  // ── Print / Download Official Investment Receipt ──
+  const printInvestorReceipt = (
+    invTarget?: Investor | null,
+    investmentTarget?: Investment | null,
+    paymentsTarget?: InvestmentPayment[]
+  ) => {
+    const inv = invTarget || selectedInvestor;
+    if (!inv) {
+      toast.error("No investor data available to generate receipt");
+      return;
+    }
+
+    const primaryInv = investmentTarget || investments.find(i => i.investorId === inv.id) || activeInvestment;
+    const invPayments = paymentsTarget || (primaryInv ? payments.filter(p => p.investmentId === primaryInv.id) : investmentPayments);
+    const farmObj = farms.find(f => f.id === (primaryInv?.farmId || inv.farmId)) || farms[0];
+    const farmName = farmObj?.name || "Pondtora Farm";
+    const farmLocation = farmObj?.city ? `${farmObj.city}${farmObj.state ? `, ${farmObj.state}` : ""}` : (farmObj?.country || "Nigeria");
+
+    const amountInvested = Number(primaryInv?.amountInvested) || 0;
+    const agreedPercentage = Number(primaryInv?.investorPercentage) || 0;
+    const expectedReturn = Number(primaryInv?.expectedReturn) || calculateReturnAmount(amountInvested, agreedPercentage);
+    const totalDue = Number(primaryInv?.totalAmountDue) || (primaryInv?.paymentMethod === "principal_plus_return" ? calculatePrincipalPlusReturn(amountInvested, expectedReturn) : expectedReturn);
+    const totalPaid = invPayments.reduce((s, p) => s + (Number(p.amountPaid) || 0), 0);
+    const outstanding = Math.max(0, totalDue - totalPaid);
+    const receiptRef = `INV-${inv.fullName.replace(/[^A-Za-z0-9]/g, "").slice(0, 3).toUpperCase()}-${(primaryInv?.id || inv.id).slice(0, 8).toUpperCase()}`;
+
+    const paymentRowsHtml = (invPayments && invPayments.length > 0)
+      ? invPayments.map((p, idx) => {
+          const isPaid = (Number(p.amountPaid) || 0) >= (Number(p.amountDue) || 0) && (Number(p.amountDue) || 0) > 0;
+          return `
+            <tr style="border-bottom: 1px solid #e2e8f0; font-size: 11px;">
+              <td style="padding: 8px 10px; text-align: left; color: #475569;">#${idx + 1}</td>
+              <td style="padding: 8px 10px; text-align: left; font-weight: 600; color: #0f172a;">${p.paymentPeriod || "Installment"}</td>
+              <td style="padding: 8px 10px; text-align: left; font-family: monospace; color: #334155;">${p.dueDate || "—"}</td>
+              <td style="padding: 8px 10px; text-align: right; font-weight: bold; color: #0f172a;">${currency}${Number(p.amountDue || 0).toLocaleString()}</td>
+              <td style="padding: 8px 10px; text-align: right; font-weight: bold; color: ${isPaid ? '#047857' : '#64748b'};">${currency}${Number(p.amountPaid || 0).toLocaleString()}</td>
+              <td style="padding: 8px 10px; text-align: center; color: #475569; font-family: monospace;">${p.paymentDate || p.paidDate || "—"}</td>
+              <td style="padding: 8px 10px; text-align: center;">
+                <span style="display: inline-block; padding: 2px 8px; border-radius: 9999px; font-size: 10px; font-weight: bold; background: ${isPaid ? '#dcfce7; color: #166534;' : '#fef3c7; color: #92400e;'}">
+                  ${p.status || (isPaid ? 'Paid' : 'Due')}
+                </span>
+              </td>
+            </tr>
+          `;
+        }).join("")
+      : `
+        <tr>
+          <td colspan="7" style="padding: 16px; text-align: center; color: #94a3b8; font-size: 12px;">
+            Single lump-sum maturity payout obligation recorded on ${primaryInv?.dueDate || "Maturity"}
+          </td>
+        </tr>
+      `;
+
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <title>Investment Receipt — ${inv.fullName}</title>
+        <style>
+          * { box-sizing: border-box; margin: 0; padding: 0; }
+          body { font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif; background: #fff; color: #0f172a; padding: 28px; line-height: 1.4; }
+          .receipt-box { max-width: 800px; margin: 0 auto; border: 1px solid #cbd5e1; border-radius: 12px; padding: 28px; background: #fff; }
+          .header-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+          .brand-title { font-size: 22px; font-weight: 800; color: #00BB58; letter-spacing: -0.5px; }
+          .receipt-title { font-size: 14px; font-weight: 800; color: #0f172a; text-transform: uppercase; letter-spacing: 1px; text-align: right; }
+          .meta-text { font-size: 11px; color: #64748b; }
+          .divider { border: 0; border-top: 2px solid #00BB58; margin: 16px 0; }
+          .section-title { font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 8px; }
+          .grid-2 { width: 100%; border-collapse: collapse; margin-bottom: 16px; }
+          .grid-2 td { width: 50%; vertical-align: top; padding-right: 12px; }
+          .info-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; }
+          .info-row { display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 12px; }
+          .info-label { color: #64748b; font-size: 11px; }
+          .info-value { font-weight: 600; color: #0f172a; }
+          .summary-card { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 14px; margin: 16px 0; }
+          .schedule-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+          .schedule-table th { background: #f1f5f9; padding: 8px 10px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: #475569; border-bottom: 1px solid #cbd5e1; }
+          .footer-section { margin-top: 28px; padding-top: 16px; border-top: 1px dashed #cbd5e1; }
+          .signature-table { width: 100%; border-collapse: collapse; margin-top: 32px; }
+          .signature-line { border-top: 1px solid #94a3b8; width: 80%; margin-top: 40px; }
+          @media print {
+            body { padding: 0; background: #fff; }
+            .receipt-box { border: none; padding: 0; }
+            @page { size: A4 portrait; margin: 12mm; }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="receipt-box">
+          <table class="header-table">
+            <tr>
+              <td>
+                <div class="brand-title">${farmName}</div>
+                <div class="meta-text">${farmLocation} · Farm Investor Management</div>
+              </td>
+              <td style="text-align: right;">
+                <div class="receipt-title">Investment Certificate & Receipt</div>
+                <div class="meta-text" style="font-family: monospace; font-weight: bold; color: #0f172a; margin-top: 2px;">${receiptRef}</div>
+                <div class="meta-text">Issue Date: ${TODAY}</div>
+              </td>
+            </tr>
+          </table>
+
+          <hr class="divider" />
+
+          <!-- Investor & Farm Info -->
+          <table class="grid-2">
+            <tr>
+              <td>
+                <div class="section-title">Investor Details</div>
+                <div class="info-card">
+                  <div class="info-row"><span class="info-label">Full Name:</span><span class="info-value">${inv.fullName}</span></div>
+                  <div class="info-row"><span class="info-label">Phone:</span><span class="info-value" style="font-family: monospace;">${inv.phone}</span></div>
+                  <div class="info-row"><span class="info-label">Email:</span><span class="info-value">${inv.email || "—"}</span></div>
+                  <div class="info-row"><span class="info-label">Status:</span><span class="info-value" style="color: #00BB58;">${inv.status || "Active"}</span></div>
+                </div>
+              </td>
+              <td>
+                <div class="section-title">Investment Structure</div>
+                <div class="info-card">
+                  <div class="info-row"><span class="info-label">Payment Method:</span><span class="info-value">${formatPaymentMethod(primaryInv?.paymentMethod)}</span></div>
+                  <div class="info-row"><span class="info-label">Start Date:</span><span class="info-value" style="font-family: monospace;">${primaryInv?.startDate || TODAY}</span></div>
+                  <div class="info-row"><span class="info-label">Maturity Date:</span><span class="info-value" style="font-family: monospace;">${primaryInv?.dueDate || "—"}</span></div>
+                  <div class="info-row"><span class="info-label">Duration:</span><span class="info-value">${primaryInv?.duration || (primaryInv?.durationMonths ? `${primaryInv.durationMonths} months` : "12 months")}</span></div>
+                </div>
+              </td>
+            </tr>
+          </table>
+
+          <!-- Financial Terms Box -->
+          <div class="summary-card">
+            <div class="section-title" style="color: #166534; margin-bottom: 8px;">Financial Overview</div>
+            <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+              <tr>
+                <td style="padding: 4px 8px; width: 25%;">
+                  <span class="info-label" style="display: block;">Capital Invested</span>
+                  <strong style="font-size: 16px; color: #0f172a;">${currency}${amountInvested.toLocaleString()}</strong>
+                </td>
+                <td style="padding: 4px 8px; width: 25%;">
+                  <span class="info-label" style="display: block;">Agreed Return Rate</span>
+                  <strong style="font-size: 16px; color: #047857;">${agreedPercentage}% (${currency}${expectedReturn.toLocaleString()})</strong>
+                </td>
+                <td style="padding: 4px 8px; width: 25%;">
+                  <span class="info-label" style="display: block;">Total Paid to Date</span>
+                  <strong style="font-size: 16px; color: #6b21a8;">${currency}${totalPaid.toLocaleString()}</strong>
+                </td>
+                <td style="padding: 4px 8px; width: 25%;">
+                  <span class="info-label" style="display: block;">Outstanding Balance</span>
+                  <strong style="font-size: 16px; color: #b45309;">${currency}${outstanding.toLocaleString()}</strong>
+                </td>
+              </tr>
+            </table>
+          </div>
+
+          <!-- Schedule & Payout History Table -->
+          <div class="section-title">Schedule of Payments & Installments</div>
+          <table class="schedule-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Period / Description</th>
+                <th>Due Date</th>
+                <th style="text-align: right;">Amount Due</th>
+                <th style="text-align: right;">Amount Paid</th>
+                <th style="text-align: center;">Paid Date</th>
+                <th style="text-align: center;">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${paymentRowsHtml}
+            </tbody>
+          </table>
+
+          <!-- Agreement notes -->
+          ${primaryInv?.principalRepayment || primaryInv?.notes || inv.notes ? `
+            <div style="margin-top: 16px; padding: 10px 12px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 11px; color: #475569;">
+              <strong>Terms & Agreement Notes:</strong> ${primaryInv?.principalRepayment || primaryInv?.notes || inv.notes}
+            </div>
+          ` : ""}
+
+          <!-- Footer / Signatures -->
+          <div class="footer-section">
+            <p style="font-size: 10px; color: #64748b; text-align: center;">
+              This certificate confirms the official investment registration in the Pondtora Farm System. All disbursements are tracked securely.
+            </p>
+            <table class="signature-table">
+              <tr>
+                <td style="width: 50%; text-align: center;">
+                  <div class="signature-line" style="margin: 30px auto 4px auto;"></div>
+                  <div style="font-size: 11px; font-weight: 700; color: #0f172a;">${inv.fullName}</div>
+                  <div style="font-size: 10px; color: #64748b;">Investor Signature</div>
+                </td>
+                <td style="width: 50%; text-align: center;">
+                  <div class="signature-line" style="margin: 30px auto 4px auto;"></div>
+                  <div style="font-size: 11px; font-weight: 700; color: #0f172a;">${farmName}</div>
+                  <div style="font-size: 10px; color: #64748b;">Authorized Representative & Stamp</div>
+                </td>
+              </tr>
+            </table>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+
+    // Trigger browser print/PDF
+    const iframe = document.createElement("iframe");
+    Object.assign(iframe.style, { position: "fixed", left: "-9999px", top: "-9999px", width: "1px", height: "1px", border: "none", visibility: "hidden" });
+    document.body.appendChild(iframe);
+    const doc = iframe.contentWindow?.document;
+    if (doc) {
+      doc.open();
+      doc.write(htmlContent);
+      doc.close();
+      const doPrint = () => {
+        try {
+          iframe.contentWindow?.print();
+        } catch (e) {
+          console.error("Print receipt error:", e);
+        }
+        setTimeout(() => {
+          if (document.body.contains(iframe)) document.body.removeChild(iframe);
+        }, 3000);
+      };
+      if (iframe.contentDocument?.readyState === "complete") {
+        doPrint();
+      } else {
+        iframe.onload = doPrint;
+        setTimeout(doPrint, 800);
+      }
+    }
+  };
 
   // Open Edit Investment Modal
   const openEditInvestmentModal = () => {
@@ -375,60 +641,50 @@ export default function InvestorsPage({
       updatedAt: new Date().toISOString(),
     };
 
-    const updatedInvestment: Investment = activeInvestment
-      ? {
-          ...activeInvestment,
-          farmId: editForm.farmId,
-          pondId: editForm.pondId || undefined,
-          fishStockId: editForm.fishStockId || undefined,
-          paymentMethod: editForm.paymentMethod,
-          amountInvested: editAmt,
-          investorPercentage: editPct,
-          expectedReturn: editReturnAmt,
-          totalAmountDue,
-          monthlyReturn: editForm.paymentMethod === "monthly_return" ? editMonthlyReturn : undefined,
-          duration: `${editForm.durationMonths} months`,
-          durationMonths: parseInt(editForm.durationMonths, 10) || 12,
-          numberOfPayments: editForm.paymentMethod === "monthly_return" ? editNumPayments : 1,
-          amountReceivedByBusiness: editForm.paymentMethod === "return_upfront" ? editAmountReceivedByBusiness : editAmt,
-          totalInvestorValue: editTotalInvestorValue,
-          principalRepayment: editForm.principalRepayment,
-          startDate: editForm.startDate,
-          dueDate: editForm.dueDate,
-          maturityDate: editForm.dueDate,
-          updatedAt: new Date().toISOString(),
-        }
-      : {
-          id: uid(),
-          investorId: selectedInvestor.id,
-          farmId: editForm.farmId,
-          pondId: editForm.pondId || undefined,
-          fishStockId: editForm.fishStockId || undefined,
-          paymentMethod: editForm.paymentMethod,
-          amountInvested: editAmt,
-          investorPercentage: editPct,
-          expectedReturn: editReturnAmt,
-          totalAmountDue,
-          monthlyReturn: editForm.paymentMethod === "monthly_return" ? editMonthlyReturn : undefined,
-          duration: `${editForm.durationMonths} months`,
-          durationMonths: parseInt(editForm.durationMonths, 10) || 12,
-          numberOfPayments: editForm.paymentMethod === "monthly_return" ? editNumPayments : 1,
-          amountReceivedByBusiness: editForm.paymentMethod === "return_upfront" ? editAmountReceivedByBusiness : editAmt,
-          totalInvestorValue: editTotalInvestorValue,
-          principalRepayment: editForm.principalRepayment,
-          startDate: editForm.startDate,
-          dueDate: editForm.dueDate,
-          maturityDate: editForm.dueDate,
-          status: "Active",
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        };
+    const targetInvId = activeInvestment?.id || uid();
+    const updatedInvestment: Investment = {
+      id: targetInvId,
+      investorId: selectedInvestor.id,
+      farmId: editForm.farmId,
+      pondId: editForm.pondId || undefined,
+      fishStockId: editForm.fishStockId || undefined,
+      paymentMethod: editForm.paymentMethod,
+      amountInvested: editAmt,
+      investorPercentage: editPct,
+      expectedReturn: editReturnAmt,
+      totalAmountDue,
+      monthlyReturn: editForm.paymentMethod === "monthly_return" ? editMonthlyReturn : undefined,
+      duration: `${editForm.durationMonths} months`,
+      durationMonths: parseInt(editForm.durationMonths, 10) || 12,
+      numberOfPayments: editForm.paymentMethod === "monthly_return" ? editNumPayments : 1,
+      amountReceivedByBusiness: editForm.paymentMethod === "return_upfront" ? editAmountReceivedByBusiness : editAmt,
+      totalInvestorValue: editTotalInvestorValue,
+      principalRepayment: editForm.principalRepayment,
+      startDate: editForm.startDate,
+      dueDate: editForm.dueDate,
+      maturityDate: editForm.dueDate,
+      status: editForm.status,
+      updatedAt: new Date().toISOString(),
+    };
+
+    // Regenerate schedule if terms / structure changed
+    const regeneratedPayments = generateInvestmentSchedule({
+      investmentId: targetInvId,
+      farmId: editForm.farmId,
+      paymentMethod: editForm.paymentMethod,
+      investmentAmount: editAmt,
+      returnPercentage: editPct,
+      startDate: editForm.startDate || TODAY,
+      dueDate: editForm.dueDate,
+      durationMonths: parseInt(editForm.durationMonths, 10) || 12,
+      numberOfPayments: editNumPayments,
+    });
 
     try {
       await onEditInvestor(updatedInvestor);
-      await onEditInvestment(updatedInvestment);
-      toast.success("Investment updated successfully");
+      await onEditInvestment(updatedInvestment, regeneratedPayments);
       setShowEditInvestmentModal(false);
+      toast.success("Investment updated successfully. You can download the updated receipt.");
     } catch (err: any) {
       toast.error(err?.message || "Failed to update investment");
     }
@@ -461,20 +717,6 @@ export default function InvestorsPage({
     if (!addForm.farmId) {
       toast.error("Farm selection is required");
       return;
-    }
-
-    // ── DUPLICATE VALIDATION: Do not allow logging same investor name and start/due date twice ──
-    const nameLower = nameTrimmed.toLowerCase();
-    const existingInvestorWithSameName = investors.find(i => i.fullName?.trim().toLowerCase() === nameLower);
-    if (existingInvestorWithSameName) {
-      const existingInvs = investments.filter(inv => inv.investorId === existingInvestorWithSameName.id);
-      const hasDuplicateDate = existingInvs.some(
-        inv => isSameDate(inv.startDate, addForm.startDate) || isSameDate(inv.dueDate, addForm.dueDate)
-      );
-      if (hasDuplicateDate) {
-        toast.error(`An investment for "${nameTrimmed}" with date ${addForm.startDate} already exists. Duplicate entry blocked.`);
-        return;
-      }
     }
 
     const investorId = uid();
@@ -540,6 +782,16 @@ export default function InvestorsPage({
     try {
       await onAddInvestor(newInvestor, newInvestment, generatedPayments);
       setShowAddModal(false);
+      toast.success("Investor record and investment schedule created successfully!");
+
+      // Open Post-Creation Success & Receipt Modal
+      setCreatedSuccessData({
+        investor: newInvestor,
+        investment: newInvestment,
+        payments: generatedPayments,
+      });
+
+      // Reset form
       setAddForm({
         fullName: "",
         phone: "",
@@ -563,7 +815,7 @@ export default function InvestorsPage({
     }
   };
 
-  // Open Record Payment Modal (Can be triggered anytime from list or details)
+  // Open Record Payment Modal
   const openRecordPayment = (targetPayment?: InvestmentPayment, targetInvestorId?: string) => {
     const invId = targetInvestorId || selectedInvestorId || (targetPayment ? investments.find(i => i.id === targetPayment.investmentId)?.investorId : "") || investors[0]?.id || "";
     const invInvestments = investments.filter(i => i.investorId === invId);
@@ -577,8 +829,10 @@ export default function InvestorsPage({
         investorId: invId,
         paymentId: targetPayment.id,
         paymentPeriod: targetPayment.paymentPeriod || "",
+        dueDate: targetPayment.dueDate || TODAY,
         paymentDate: TODAY,
-        amountPaid: remaining > 0 ? remaining.toString() : targetPayment.amountDue.toString(),
+        amountDue: String(targetPayment.amountDue || ""),
+        amountPaid: remaining > 0 ? String(remaining) : String(targetPayment.amountDue || ""),
         paymentMethod: targetPayment.paymentMethod || "Bank Transfer",
         notes: targetPayment.notes || "",
       });
@@ -590,13 +844,83 @@ export default function InvestorsPage({
         investorId: invId,
         paymentId: firstUnpaid?.id || "",
         paymentPeriod: firstUnpaid?.paymentPeriod || "Payout",
+        dueDate: firstUnpaid?.dueDate || TODAY,
         paymentDate: TODAY,
-        amountPaid: remaining > 0 ? remaining.toString() : "",
+        amountDue: firstUnpaid ? String(firstUnpaid.amountDue) : "",
+        amountPaid: remaining > 0 ? String(remaining) : "",
         paymentMethod: "Bank Transfer",
         notes: "",
       });
     }
     setShowRecordPaymentModal(true);
+  };
+
+  // Open Edit Recorded Payment Modal
+  const openEditRecordedPayment = (payment: InvestmentPayment) => {
+    setEditingPayment(payment);
+    setPayForm({
+      investorId: selectedInvestorId || "",
+      paymentId: payment.id,
+      paymentPeriod: payment.paymentPeriod || "",
+      dueDate: payment.dueDate || TODAY,
+      paymentDate: payment.paymentDate || payment.paidDate || TODAY,
+      amountDue: String(payment.amountDue || ""),
+      amountPaid: String(payment.amountPaid ?? payment.amountDue),
+      paymentMethod: payment.paymentMethod || "Bank Transfer",
+      notes: payment.notes || "",
+    });
+    setShowEditPaymentModal(true);
+  };
+
+  // Save Edit Payment
+  const handleSaveEditPayment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingPayment) return;
+    const dueAmt = Number(payForm.amountDue);
+    const paidAmt = Number(payForm.amountPaid);
+
+    if (isNaN(dueAmt) || dueAmt < 0) {
+      toast.error("Please enter a valid amount due");
+      return;
+    }
+    if (isNaN(paidAmt) || paidAmt < 0) {
+      toast.error("Please enter a valid amount paid");
+      return;
+    }
+
+    const newRemaining = Math.max(0, dueAmt - paidAmt);
+    const derivedStatus = derivePaymentStatus({
+      ...editingPayment,
+      amountDue: dueAmt,
+      amountPaid: paidAmt,
+    });
+
+    const updatedPayment: InvestmentPayment = {
+      ...editingPayment,
+      paymentPeriod: payForm.paymentPeriod.trim() || editingPayment.paymentPeriod,
+      dueDate: payForm.dueDate || editingPayment.dueDate,
+      amountDue: dueAmt,
+      scheduledAmount: dueAmt,
+      amountPaid: paidAmt,
+      remainingAmount: newRemaining,
+      paymentDate: payForm.paymentDate || TODAY,
+      paidDate: derivedStatus === "Paid" ? (payForm.paymentDate || TODAY) : editingPayment.paidDate,
+      paymentMethod: payForm.paymentMethod,
+      status: derivedStatus,
+      notes: payForm.notes.trim() || undefined,
+      recordedBy: currentUser?.name || "Admin",
+      updatedAt: new Date().toISOString(),
+    };
+
+    try {
+      await onRecordPayment(updatedPayment);
+      setShowEditPaymentModal(false);
+      setEditingPayment(null);
+      toast.success("Payment record updated successfully");
+    } catch (err: any) {
+      console.error(err);
+      toast.error(err?.message || "Failed to update payment");
+    }
   };
 
   // Submit Record Payment
@@ -646,7 +970,6 @@ export default function InvestorsPage({
         toast.error(err?.message || "Failed to record payment");
       }
     } else if (primaryInv) {
-      // Record unscheduled/ad-hoc payment anytime
       const newPayment: InvestmentPayment = {
         id: uid(),
         farmId: fid,
@@ -701,21 +1024,37 @@ export default function InvestorsPage({
     }
   };
 
+  // Execute Delete Investor
+  const executeDeleteInvestor = async (inv: Investor) => {
+    try {
+      await onDeleteInvestor(inv.id);
+      if (selectedInvestorId === inv.id) {
+        setSelectedInvestorId(null);
+        scrollToTop();
+      }
+      setInvestorToDelete(null);
+      toast.success(`Investor "${inv.fullName}" deleted successfully`);
+    } catch (err: any) {
+      console.error(err);
+      toast.error(err?.message || "Failed to delete investor");
+    }
+  };
+
   return (
     <div className="p-4 sm:p-6 space-y-5 w-full font-['Barlow',sans-serif]">
-      {/* ── Top Header / Breadcrumbs (No bottom divider) ── */}
+      {/* ── Top Header / Breadcrumbs ── */}
       <div className="sticky top-0 z-10 bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 min-w-0">
           {selectedInvestorId ? (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 min-w-0">
               <button
-                onClick={() => setSelectedInvestorId(null)}
-                className="flex items-center gap-1 text-sm font-semibold text-green-700 hover:text-green-800 hover:underline transition-colors"
+                onClick={handleBackToList}
+                className="flex items-center gap-1 text-xs sm:text-sm font-semibold text-green-700 hover:text-green-800 hover:underline transition-colors shrink-0"
               >
                 <ChevronLeft size={16} /> Investors
               </button>
               <span className="text-slate-300">/</span>
-              <h1 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">
+              <h1 className="text-lg sm:text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] truncate">
                 {selectedInvestor?.fullName}
               </h1>
             </div>
@@ -731,16 +1070,29 @@ export default function InvestorsPage({
           )}
         </div>
 
-        <div className="flex items-center gap-2">
+        {/* Action Buttons: Strict equal height & truncation on mobile */}
+        <div className="flex items-center gap-2 shrink-0">
           {canCreate && (
             <>
-              <PBtn sm outline onClick={() => openRecordPayment()}>
-                <Receipt size={14} /> Record Payment
-              </PBtn>
+              <button
+                type="button"
+                onClick={() => openRecordPayment()}
+                className="h-9 px-3 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors shrink-0 shadow-xs max-w-[140px] sm:max-w-none"
+                title="Record Investor Payment"
+              >
+                <Receipt size={14} className="shrink-0 text-slate-600" />
+                <span className="truncate">Record Payment</span>
+              </button>
               {!selectedInvestorId && (
-                <PBtn sm onClick={() => setShowAddModal(true)}>
-                  <Plus size={14} /> Add Investor
-                </PBtn>
+                <button
+                  type="button"
+                  onClick={() => setShowAddModal(true)}
+                  className="h-9 px-3 rounded-xl bg-[#00BB58] hover:bg-[#009e4a] text-white text-xs font-bold flex items-center justify-center gap-1.5 transition-colors shrink-0 shadow-xs max-w-[130px] sm:max-w-none"
+                  title="Add New Investor"
+                >
+                  <Plus size={14} className="shrink-0 text-white" />
+                  <span className="truncate">Add Investor</span>
+                </button>
               )}
             </>
           )}
@@ -753,7 +1105,7 @@ export default function InvestorsPage({
            MAIN INVESTOR TABLE VIEW
         ═══════════════════════════════════════════════════════════════════ */
         <div className="space-y-3.5">
-          {/* ── 4 KEY DASHBOARD STAT CARDS (Main List Only) ── */}
+          {/* ── 4 KEY DASHBOARD STAT CARDS ── */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
             <StatCard
               label="Total Investors"
@@ -784,6 +1136,7 @@ export default function InvestorsPage({
               color={stats.overdueCount > 0 ? "red" : stats.dueTodayCount > 0 ? "amber" : "amber"}
             />
           </div>
+
           {/* ── Search and Active/Completed Filters Only ── */}
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-white p-3 rounded-2xl border border-slate-200/80 shadow-xs">
             {/* Search Bar */}
@@ -839,10 +1192,9 @@ export default function InvestorsPage({
           {/* ── Main Investors Table (Names Sticky to Left) ── */}
           <Card className="overflow-hidden bg-white shadow-xs border border-slate-200/80 rounded-2xl">
             <div className="overflow-x-auto">
-              <table className="w-full text-xs min-w-[680px]">
+              <table className="w-full text-xs min-w-[720px]">
                 <thead>
                   <tr className="bg-slate-50/90 border-b border-slate-200/80 text-slate-500 uppercase tracking-wider font-semibold text-[11px]">
-                    {/* Sticky Investor Name Column */}
                     <th className="text-left px-4 py-3 sticky left-0 bg-slate-50 z-20 shadow-[2px_0_6px_-2px_rgba(0,0,0,0.06)] border-r border-slate-200/70 min-w-[180px] sm:min-w-[220px]">
                       Investor Name
                     </th>
@@ -850,7 +1202,7 @@ export default function InvestorsPage({
                     <th className="text-right px-4 py-3">Amount Invested</th>
                     <th className="text-left px-4 py-3">Due Date</th>
                     <th className="text-center px-4 py-3">Status</th>
-                    <th className="px-3 py-3 w-10 text-right"></th>
+                    <th className="px-3 py-3 w-24 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-slate-700">
@@ -882,11 +1234,13 @@ export default function InvestorsPage({
                       return (
                         <tr
                           key={item.id}
-                          onClick={() => setSelectedInvestorId(item.id)}
                           className="hover:bg-slate-50/80 cursor-pointer transition-colors group"
                         >
                           {/* Sticky Name Column */}
-                          <td className="px-4 py-3 font-semibold text-slate-900 sticky left-0 bg-white group-hover:bg-slate-50 z-10 shadow-[2px_0_6px_-2px_rgba(0,0,0,0.06)] border-r border-slate-100 min-w-[180px] sm:min-w-[220px] transition-colors">
+                          <td
+                            onClick={() => handleSelectInvestor(item.id)}
+                            className="px-4 py-3 font-semibold text-slate-900 sticky left-0 bg-white group-hover:bg-slate-50 z-10 shadow-[2px_0_6px_-2px_rgba(0,0,0,0.06)] border-r border-slate-100 min-w-[180px] sm:min-w-[220px] transition-colors"
+                          >
                             <div className="font-bold text-sm text-slate-900 group-hover:text-green-700 transition-colors">
                               {item.fullName}
                             </div>
@@ -897,19 +1251,19 @@ export default function InvestorsPage({
                           </td>
 
                           {/* Payment Structure */}
-                          <td className="px-4 py-3">
+                          <td onClick={() => handleSelectInvestor(item.id)} className="px-4 py-3">
                             <span className="inline-block px-2 py-0.5 rounded text-[11px] font-semibold bg-slate-100 text-slate-800 border border-slate-200">
                               {item.paymentMethodLabel}
                             </span>
                           </td>
 
                           {/* Amount Invested */}
-                          <td className="px-4 py-3 text-right font-bold text-slate-900 text-sm">
+                          <td onClick={() => handleSelectInvestor(item.id)} className="px-4 py-3 text-right font-bold text-slate-900 text-sm">
                             {currency}{item.totalInvested.toLocaleString()}
                           </td>
 
                           {/* Due Date */}
-                          <td className="px-4 py-3 whitespace-nowrap font-mono text-[11px]">
+                          <td onClick={() => handleSelectInvestor(item.id)} className="px-4 py-3 whitespace-nowrap font-mono text-[11px]">
                             <span
                               className={
                                 item.derivedStatus === "Overdue"
@@ -924,13 +1278,46 @@ export default function InvestorsPage({
                           </td>
 
                           {/* Status */}
-                          <td className="px-4 py-3 text-center">
+                          <td onClick={() => handleSelectInvestor(item.id)} className="px-4 py-3 text-center">
                             <Bdg label={item.derivedStatus} color={statusColor as any} />
                           </td>
 
-                          {/* Arrow Link */}
-                          <td className="px-3 py-3 text-right text-slate-300 group-hover:text-green-600 transition-colors">
-                            <ChevronRight size={16} />
+                          {/* Action Buttons (Print Receipt + Delete) */}
+                          <td className="px-3 py-3 text-right whitespace-nowrap">
+                            <div className="flex items-center justify-end gap-1">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  printInvestorReceipt(item);
+                                }}
+                                className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                                title="Download / Print Investment Receipt"
+                              >
+                                <Download size={14} />
+                              </button>
+                              {canDelete && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setInvestorToDelete(item);
+                                  }}
+                                  className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                                  title="Delete Investor"
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => handleSelectInvestor(item.id)}
+                                className="p-1.5 rounded-lg text-slate-300 group-hover:text-green-600 transition-colors"
+                                title="View Details"
+                              >
+                                <ChevronRight size={16} />
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       );
@@ -943,7 +1330,7 @@ export default function InvestorsPage({
         </div>
       ) : (
         /* ═══════════════════════════════════════════════════════════════════
-           INVESTOR DETAILS & PAYMENT SCHEDULE VIEW (CLEAN & UNCLUTTERED)
+           INVESTOR DETAILS & PAYMENT SCHEDULE VIEW
         ═══════════════════════════════════════════════════════════════════ */
         <div className="space-y-4">
           {/* Header Bar / Investor Profile Card */}
@@ -979,7 +1366,7 @@ export default function InvestorsPage({
                 </div>
               </div>
 
-              {/* Payment Structure Badge on Top Right Edge */}
+              {/* Payment Structure Badge */}
               <div className="shrink-0">
                 <span className="px-2.5 py-1 rounded-lg bg-slate-100 text-slate-700 border border-slate-200 font-semibold text-xs tracking-tight">
                   {formatPaymentMethod(activeInvestment?.paymentMethod)}
@@ -987,38 +1374,48 @@ export default function InvestorsPage({
               </div>
             </div>
 
-            {/* Divider + Full-Width Edit & Delete Row */}
-            {(canEdit || (canDelete && onDeleteInvestor)) && (
-              <div className="pt-3.5 border-t border-slate-100 mt-3.5 flex items-center gap-2.5 w-full">
-                {canEdit && (
-                  <button
-                    type="button"
-                    onClick={openEditInvestmentModal}
-                    className="flex-1 py-2 px-3 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors"
-                  >
-                    <Edit3 size={14} className="text-slate-500" /> Edit Investor & Investment
-                  </button>
-                )}
-                {canDelete && onDeleteInvestor && (
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      if (confirm(`Delete investor "${selectedInvestor?.fullName}" and all associated payment schedules?`)) {
-                        await onDeleteInvestor(selectedInvestor!.id);
-                        setSelectedInvestorId(null);
-                        toast.success("Investor deleted");
-                      }
-                    }}
-                    className="flex-1 py-2 px-3 rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors"
-                  >
-                    <Trash2 size={14} className="text-rose-600" /> Delete Investor
-                  </button>
-                )}
-              </div>
-            )}
+            {/* Divider + Mobile-Equal-Height Action Buttons Row with Truncation */}
+            <div className="pt-3.5 border-t border-slate-100 mt-3.5 grid grid-cols-3 gap-2 w-full">
+              {/* Button 1: Download Receipt */}
+              <button
+                type="button"
+                onClick={() => printInvestorReceipt()}
+                className="h-9 px-2 sm:px-3 rounded-xl border border-blue-200 bg-blue-50/60 hover:bg-blue-100/70 text-blue-700 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors min-w-0 overflow-hidden"
+                title="Download / Print Investment Agreement Receipt"
+              >
+                <Download size={14} className="shrink-0 text-blue-600" />
+                <span className="truncate">Download Receipt</span>
+              </button>
+
+              {/* Button 2: Edit Investor & Investment */}
+              {canEdit ? (
+                <button
+                  type="button"
+                  onClick={openEditInvestmentModal}
+                  className="h-9 px-2 sm:px-3 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors min-w-0 overflow-hidden"
+                  title="Edit Investor Profile & Investment Schedule"
+                >
+                  <Edit3 size={14} className="shrink-0 text-slate-500" />
+                  <span className="truncate">Edit Investor</span>
+                </button>
+              ) : <div />}
+
+              {/* Button 3: Delete Investor */}
+              {canDelete && (
+                <button
+                  type="button"
+                  onClick={() => selectedInvestor && setInvestorToDelete(selectedInvestor)}
+                  className="h-9 px-2 sm:px-3 rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors min-w-0 overflow-hidden"
+                  title="Delete Investor Record"
+                >
+                  <Trash2 size={14} className="shrink-0 text-rose-600" />
+                  <span className="truncate">Delete Investor</span>
+                </button>
+              )}
+            </div>
           </div>
 
-          {/* ── Clean Investment Overview Presentation ── */}
+          {/* ── Investment Overview Presentation ── */}
           <Card className="p-4 sm:p-5 bg-white shadow-xs border border-slate-200/80 rounded-2xl">
             <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">
               Investment Overview
@@ -1078,7 +1475,7 @@ export default function InvestorsPage({
             </div>
           </Card>
 
-          {/* ── Basic & Clean Payment Schedule Table ── */}
+          {/* ── Payment Schedule Table with Edit Payment Functionality ── */}
           <Card className="overflow-hidden bg-white shadow-xs border border-slate-200/80 rounded-2xl">
             <div className="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between">
               <div>
@@ -1094,7 +1491,7 @@ export default function InvestorsPage({
             </div>
 
             <div className="overflow-x-auto">
-              <table className="w-full text-xs min-w-[650px]">
+              <table className="w-full text-xs min-w-[700px]">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200/80 text-slate-500 uppercase tracking-wider font-semibold text-[11px]">
                     <th className="text-left px-4 py-2.5">Due Date</th>
@@ -1103,7 +1500,7 @@ export default function InvestorsPage({
                     <th className="text-right px-4 py-2.5">Amount Paid</th>
                     <th className="text-left px-4 py-2.5">Paid Date</th>
                     <th className="text-center px-4 py-2.5">Status</th>
-                    <th className="text-right px-4 py-2.5">Action</th>
+                    <th className="text-right px-4 py-2.5">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-slate-700">
@@ -1140,22 +1537,25 @@ export default function InvestorsPage({
                             <Bdg label={derivedStatus} color={statusColor as any} />
                           </td>
                           <td className="px-4 py-3 text-right space-x-1.5 whitespace-nowrap">
-                            {!isPaid ? (
-                              <>
-                                {canEdit && (
-                                  <button
-                                    onClick={() => handleQuickMarkPaid(p)}
-                                    className="px-2.5 py-1 text-[11px] bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-semibold rounded-lg border border-emerald-200 transition-colors"
-                                    title="Mark period as fully paid"
-                                  >
-                                    Mark Paid
-                                  </button>
-                                )}
-                              </>
-                            ) : (
-                              <span className="text-emerald-600 text-[11px] font-semibold inline-flex items-center gap-1">
-                                <CheckCircle2 size={13} /> Paid
-                              </span>
+                            {canEdit && (
+                              <button
+                                type="button"
+                                onClick={() => openEditRecordedPayment(p)}
+                                className="px-2.5 py-1 text-[11px] bg-slate-50 hover:bg-slate-100 text-slate-700 font-semibold rounded-lg border border-slate-200 transition-colors inline-flex items-center gap-1"
+                                title="Edit this payment record"
+                              >
+                                <Edit3 size={11} className="text-slate-500" /> Edit
+                              </button>
+                            )}
+                            {!isPaid && canEdit && (
+                              <button
+                                type="button"
+                                onClick={() => handleQuickMarkPaid(p)}
+                                className="px-2.5 py-1 text-[11px] bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-semibold rounded-lg border border-emerald-200 transition-colors"
+                                title="Mark period as fully paid"
+                              >
+                                Mark Paid
+                              </button>
                             )}
                           </td>
                         </tr>
@@ -1166,6 +1566,121 @@ export default function InvestorsPage({
               </table>
             </div>
           </Card>
+        </div>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════════════
+         POST-CREATION SUCCESS & RECEIPT DOWNLOAD MODAL
+      ═══════════════════════════════════════════════════════════════════ */}
+      {createdSuccessData && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full p-6 text-center space-y-4 border border-slate-100">
+            <div className="w-14 h-14 rounded-2xl bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto shadow-xs">
+              <Sparkles size={28} />
+            </div>
+
+            <div>
+              <h3 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">
+                Investor & Investment Created!
+              </h3>
+              <p className="text-xs text-slate-500 mt-1">
+                Record saved automatically. You can now download the investment receipt to send to the investor.
+              </p>
+            </div>
+
+            <div className="p-3.5 bg-slate-50 border border-slate-200/80 rounded-2xl text-left text-xs space-y-1.5">
+              <div className="flex justify-between">
+                <span className="text-slate-500">Investor:</span>
+                <span className="font-bold text-slate-900">{createdSuccessData.investor.fullName}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Capital Invested:</span>
+                <span className="font-bold text-slate-900">{currency}{Number(createdSuccessData.investment.amountInvested).toLocaleString()}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Agreed Return:</span>
+                <span className="font-bold text-emerald-700">{createdSuccessData.investment.investorPercentage}%</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Payment Structure:</span>
+                <span className="font-semibold text-slate-800">{formatPaymentMethod(createdSuccessData.investment.paymentMethod)}</span>
+              </div>
+            </div>
+
+            <div className="space-y-2 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  printInvestorReceipt(
+                    createdSuccessData.investor,
+                    createdSuccessData.investment,
+                    createdSuccessData.payments
+                  );
+                }}
+                className="w-full h-10 bg-[#00BB58] hover:bg-[#009e4a] text-white font-bold text-xs rounded-xl shadow-xs flex items-center justify-center gap-2 transition-colors"
+              >
+                <Download size={15} /> Download / Print Investment Receipt
+              </button>
+
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const targetId = createdSuccessData.investor.id;
+                    setCreatedSuccessData(null);
+                    handleSelectInvestor(targetId);
+                  }}
+                  className="h-9 border border-slate-200 hover:bg-slate-50 text-slate-700 font-semibold text-xs rounded-xl transition-colors"
+                >
+                  View Details
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCreatedSuccessData(null)}
+                  className="h-9 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs rounded-xl transition-colors"
+                >
+                  Done
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════════════
+         DELETE INVESTOR CONFIRMATION MODAL
+      ═══════════════════════════════════════════════════════════════════ */}
+      {investorToDelete && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-sm w-full p-6 text-center space-y-4 border border-rose-100">
+            <div className="w-12 h-12 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center mx-auto">
+              <Trash2 size={24} />
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">
+                Delete Investor Record?
+              </h3>
+              <p className="text-xs text-slate-500 mt-1">
+                Are you sure you want to delete <strong>"{investorToDelete.fullName}"</strong>? All associated investments and payment schedules will be permanently removed.
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setInvestorToDelete(null)}
+                className="h-9 border border-slate-200 text-slate-700 font-semibold text-xs rounded-xl hover:bg-slate-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => executeDeleteInvestor(investorToDelete)}
+                className="h-9 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-xl transition-colors shadow-xs"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -1351,7 +1866,6 @@ export default function InvestorsPage({
                       />
                     </F>
 
-                    {/* Structure 1 Live Preview Banner */}
                     {addAmt > 0 && addPct > 0 && (
                       <div className="p-3 bg-emerald-50/80 border border-emerald-200 rounded-xl space-y-1.5 text-xs">
                         <div className="flex justify-between text-slate-700">
@@ -1420,7 +1934,6 @@ export default function InvestorsPage({
                       </F>
                     </div>
 
-                    {/* Structure 2 Live Preview Banner */}
                     {addAmt > 0 && addPct > 0 && (
                       <div className="p-3 bg-emerald-50/80 border border-emerald-200 rounded-xl space-y-1.5 text-xs">
                         <div className="flex justify-between text-slate-700">
@@ -1489,7 +2002,6 @@ export default function InvestorsPage({
                       </F>
                     </div>
 
-                    {/* Structure 3 Live Preview Banner */}
                     {addAmt > 0 && addPct > 0 && (
                       <div className="p-3 bg-emerald-50/80 border border-emerald-200 rounded-xl space-y-1.5 text-xs">
                         <div className="flex justify-between text-slate-700">
@@ -1727,6 +2239,100 @@ export default function InvestorsPage({
                 className="px-5 py-2 bg-green-600 hover:bg-green-700 text-white text-xs font-bold rounded-xl shadow-xs"
               >
                 Save Payout Record
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════════════
+         EDIT RECORDED PAYMENT MODAL
+      ═══════════════════════════════════════════════════════════════════ */}
+      {showEditPaymentModal && editingPayment && (
+        <Modal title="Edit Recorded Payment" onClose={() => setShowEditPaymentModal(false)}>
+          <form onSubmit={handleSaveEditPayment} className="space-y-3.5">
+            <F label="Period / Description" required>
+              <input
+                type="text"
+                required
+                value={payForm.paymentPeriod}
+                onChange={e => setPayForm(p => ({ ...p, paymentPeriod: e.target.value }))}
+                className={IC}
+                placeholder="e.g. Month 1 Return"
+              />
+            </F>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <F label="Due Date" required>
+                <DateInput
+                  value={payForm.dueDate}
+                  onChange={v => setPayForm(p => ({ ...p, dueDate: v }))}
+                />
+              </F>
+
+              <F label="Date Paid / Transaction Date">
+                <DateInput
+                  value={payForm.paymentDate}
+                  onChange={v => setPayForm(p => ({ ...p, paymentDate: v }))}
+                />
+              </F>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <F label="Scheduled / Amount Due (₦)" required>
+                <NumInput
+                  value={payForm.amountDue}
+                  onChange={v => setPayForm(p => ({ ...p, amountDue: v }))}
+                  className={IC}
+                />
+              </F>
+
+              <F label="Amount Paid (₦)" required>
+                <NumInput
+                  value={payForm.amountPaid}
+                  onChange={v => setPayForm(p => ({ ...p, amountPaid: v }))}
+                  className={IC}
+                />
+              </F>
+            </div>
+
+            <F label="Payment Method" required>
+              <select
+                value={payForm.paymentMethod}
+                onChange={e => setPayForm(p => ({ ...p, paymentMethod: e.target.value }))}
+                className={SC}
+              >
+                <option value="Bank Transfer">Bank Transfer</option>
+                <option value="Cash">Cash</option>
+                <option value="POS">POS</option>
+                <option value="Cheque">Cheque</option>
+                <option value="Other">Other</option>
+              </select>
+            </F>
+
+            <F label="Payment Notes / Transaction Reference">
+              <textarea
+                rows={2}
+                placeholder="e.g. Transfer receipt reference, bank payout details..."
+                value={payForm.notes}
+                onChange={e => setPayForm(p => ({ ...p, notes: e.target.value }))}
+                className={IC}
+              />
+            </F>
+
+            <div className="pt-3 border-t border-slate-100 flex gap-2 justify-end">
+              <button
+                type="button"
+                onClick={() => setShowEditPaymentModal(false)}
+                className="px-4 py-2 border border-slate-200 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="px-5 py-2 bg-green-600 hover:bg-green-700 text-white text-xs font-bold rounded-xl shadow-xs"
+              >
+                Save Payment Changes
               </button>
             </div>
           </form>
