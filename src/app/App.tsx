@@ -937,6 +937,22 @@ function StaffPage({
     "Notifications": { canView: false, canCreate: false, canEdit: false, canDelete: false },
   };
 
+  // Deduplicate farms by name & id to prevent duplicated farm items in selection list
+  const uniqueFarms = useMemo(() => {
+    if (!farms) return [];
+    const seenNames = new Set<string>();
+    const seenIds = new Set<string>();
+    return farms.filter(f => {
+      if (!f || !f.id) return false;
+      const norm = (f.name || "").trim().toLowerCase();
+      if (seenIds.has(f.id)) return false;
+      if (norm && seenNames.has(norm)) return false;
+      seenIds.add(f.id);
+      if (norm) seenNames.add(norm);
+      return true;
+    });
+  }, [farms]);
+
   const [form, setForm] = useState({
     name: "",
     email: "",
@@ -945,7 +961,7 @@ function StaffPage({
     role: "Feeding Staff",
     permissions: ["Feeding Records", "Feed Stock"] as string[],
     staffPermissions: { ...DEFAULT_STAFF_ACTION_PERMS } as Record<string, { canView: boolean; canCreate: boolean; canEdit: boolean; canDelete: boolean }>,
-    farms: (farms && farms.length === 1) ? [farms[0].id] : [] as string[],
+    farms: (uniqueFarms && uniqueFarms.length === 1) ? [uniqueFarms[0].id] : [] as string[],
   });
   const [inviteErr, setInviteErr] = useState<Record<string, string>>({});
   const initials = (name: string) => name.split(" ").map(w => w[0] || "").join("").toUpperCase().slice(0, 2) || "?";
@@ -953,7 +969,7 @@ function StaffPage({
   const colorFor = (id: string) => colors[id.charCodeAt(0) % colors.length];
 
   const openInviteModal = () => {
-    const defaultFarms = (farms && farms.length === 1) ? [farms[0].id] : [];
+    const defaultFarms = (uniqueFarms && uniqueFarms.length === 1) ? [uniqueFarms[0].id] : [];
     const autoPass = generateStaffPassword();
     setForm({
       name: "",
@@ -1015,10 +1031,10 @@ function StaffPage({
     // If only 1 farm exists, it must be auto-selected.
     // If multiple farms exist, user must select at least one.
     let assignedFarms = [...form.farms];
-    if (farms && farms.length === 1) {
-      assignedFarms = [farms[0].id];
+    if (uniqueFarms && uniqueFarms.length === 1) {
+      assignedFarms = [uniqueFarms[0].id];
     }
-    if (!farms || farms.length === 0) {
+    if (!uniqueFarms || uniqueFarms.length === 0) {
       errs.farms = "No farms available. Please create a farm before inviting staff.";
     } else if (assignedFarms.length === 0) {
       errs.farms = "Assigning a farm is required. Please select at least one farm.";
@@ -1078,7 +1094,7 @@ function StaffPage({
       role: "Feeding Staff",
       permissions: ["Feeding Records", "Feed Stock"],
       staffPermissions: { ...DEFAULT_STAFF_ACTION_PERMS },
-      farms: (farms && farms.length === 1) ? [farms[0].id] : [],
+      farms: (uniqueFarms && uniqueFarms.length === 1) ? [uniqueFarms[0].id] : [],
     });
     setShowInvite(false);
   };
@@ -1419,14 +1435,14 @@ function StaffPage({
 
         {/* 1. Farm Assignment — comes BEFORE permissions (hierarchy) */}
         <F label="1. Farm Assignment *">
-          {(!farms || farms.length === 0) ? (
+          {(!uniqueFarms || uniqueFarms.length === 0) ? (
             <p className="text-xs text-amber-700 bg-amber-50 p-2.5 rounded-xl border border-amber-200">
               No farms found. Please create a farm first before inviting staff.
             </p>
           ) : (
             <div className={`border rounded-xl p-3 space-y-2 ${inviteErr.farms ? "border-red-400 bg-red-50/20" : "border-slate-200"}`}>
-              {farms.map(f => {
-                const isOnlyOne = farms.length === 1;
+              {uniqueFarms.map(f => {
+                const isOnlyOne = uniqueFarms.length === 1;
                 const isChecked = isOnlyOne || form.farms.includes(f.id);
                 return (
                   <label key={f.id} className={`flex items-center gap-2 ${isOnlyOne ? "cursor-default" : "cursor-pointer"}`}>
@@ -1549,9 +1565,9 @@ function StaffPage({
         <F label="Role"><select value={editMember.role} onChange={e=>setEditMember(p=>p?{...p,role:e.target.value}:p)} className={SC}>{STAFF_ROLES_ALL.map(r=><option key={r}>{r}</option>)}</select></F>
 
         {/* 1. Farm Assignment — comes BEFORE permissions */}
-        {farms&&farms.length>0&&<F label="1. Farm Assignment">
+        {uniqueFarms&&uniqueFarms.length>0&&<F label="1. Farm Assignment">
           <div className="border border-slate-200 rounded-xl p-3 space-y-1.5">
-            {farms.map(f=>(
+            {uniqueFarms.map(f=>(
               <label key={f.id} className="flex items-center gap-2 cursor-pointer">
                 <input type="checkbox" checked={(editMember.farms||[]).includes(f.id)} onChange={()=>{const fids=(editMember.farms||[]);setEditMember(p=>p?{...p,farms:fids.includes(f.id)?fids.filter(x=>x!==f.id):[...fids,f.id]}:p);}} className="custom-check w-4 h-4 appearance-none border border-slate-300 rounded bg-white checked:bg-green-600 checked:border-green-600 transition-colors cursor-pointer"/>
                 <span className="text-xs text-slate-700 font-medium">{f.name}</span>
@@ -4629,7 +4645,18 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       ? d.farms
       : (userProfile?.id ? loadUserLocal(userProfile.id, "farms", "farms", []) : [])).filter((f: Farm) => !isDeletedId(f.id));
 
-    const resolvedFarms = rawFarms;
+    // Deduplicate farms by unique ID and name to prevent duplicate farms accumulating in state
+    const seenFarmIds = new Set<string>();
+    const seenFarmNames = new Set<string>();
+    const resolvedFarms = rawFarms.filter((f: Farm) => {
+      if (!f || !f.id) return false;
+      const norm = (f.name || "").trim().toLowerCase();
+      if (seenFarmIds.has(f.id)) return false;
+      if (norm && seenFarmNames.has(norm)) return false;
+      seenFarmIds.add(f.id);
+      if (norm) seenFarmNames.add(norm);
+      return true;
+    });
 
     const pondsData: Pond[] = (Array.isArray(d.ponds)
       ? d.ponds

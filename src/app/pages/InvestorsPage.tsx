@@ -26,8 +26,10 @@ import {
   deriveInvestmentStatus,
   formatPaymentMethod,
   calculateInvestmentDashboardStats,
+  generateInvestorReceiptHtml,
   roundCurrency,
 } from "../../lib/investmentUtils";
+import { api } from "../../lib/api";
 
 interface InvestorsPageProps {
   investors: Investor[];
@@ -88,6 +90,23 @@ export default function InvestorsPage({
   const [showEditInvestmentModal, setShowEditInvestmentModal] = useState(false);
   const [showEditPaymentModal, setShowEditPaymentModal] = useState(false);
   const [editingPayment, setEditingPayment] = useState<InvestmentPayment | null>(null);
+
+  // Visual Certificate Preview Modal State
+  const [previewReceiptData, setPreviewReceiptData] = useState<{
+    investor: Investor;
+    investment: Investment | null;
+    payments: InvestmentPayment[];
+  } | null>(null);
+
+  // Email Receipt State
+  const [sendingEmail, setSendingEmail] = useState(false);
+  const [showEmailModal, setShowEmailModal] = useState(false);
+  const [emailModalData, setEmailModalData] = useState<{
+    investor: Investor;
+    investment: Investment | null;
+    payments: InvestmentPayment[];
+    email: string;
+  } | null>(null);
 
   // Post-Creation Success & Receipt Modal State
   const [createdSuccessData, setCreatedSuccessData] = useState<{
@@ -352,7 +371,7 @@ export default function InvestorsPage({
     return ponds.filter(p => p.farmId === (editForm.farmId || activeFarmId));
   }, [ponds, editForm.farmId, activeFarmId]);
 
-  // ── Print / Download Official Investment Receipt ──
+  // ── Print / Save PDF Investment Receipt ──
   const printInvestorReceipt = (
     invTarget?: Investor | null,
     investmentTarget?: Investment | null,
@@ -370,258 +389,22 @@ export default function InvestorsPage({
     const farmName = farmObj?.name || "Pondtora Farm";
     const farmLocation = farmObj?.city ? `${farmObj.city}${farmObj.state ? `, ${farmObj.state}` : ""}` : (farmObj?.country || "Nigeria");
 
-    const amountInvested = Number(primaryInv?.amountInvested) || 0;
-    const agreedPercentage = Number(primaryInv?.investorPercentage) || 0;
-    const expectedReturn = Number(primaryInv?.expectedReturn) || calculateReturnAmount(amountInvested, agreedPercentage);
-    const totalDue = Number(primaryInv?.totalAmountDue) || (primaryInv?.paymentMethod === "principal_plus_return" ? calculatePrincipalPlusReturn(amountInvested, expectedReturn) : expectedReturn);
-    const totalPaid = invPayments.reduce((s, p) => s + (Number(p.amountPaid) || 0), 0);
-    const outstanding = Math.max(0, totalDue - totalPaid);
-    const receiptRef = `INV-${inv.fullName.replace(/[^A-Za-z0-9]/g, "").slice(0, 3).toUpperCase()}-${(primaryInv?.id || inv.id).slice(0, 8).toUpperCase()}`;
+    const receiptResult = generateInvestorReceiptHtml({
+      investor: inv,
+      investment: primaryInv,
+      payments: invPayments,
+      farmName,
+      farmLocation,
+      currency,
+    });
 
-    // Structure specific metrics
-    const paymentMethod = primaryInv?.paymentMethod || "monthly_return";
-    let structureMetricsHtml = "";
-    if (paymentMethod === "monthly_return") {
-      const mReturn = Number(primaryInv?.monthlyReturn) || calculateMonthlyReturn(expectedReturn, primaryInv?.numberOfPayments || 12);
-      structureMetricsHtml = `
-        <div style="display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed #e2e8f0; font-size: 12px;">
-          <span style="color: #64748b;">Monthly Return Installment:</span>
-          <strong style="color: #047857;">${currency}${mReturn.toLocaleString()} / month</strong>
-        </div>
-        <div style="display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed #e2e8f0; font-size: 12px;">
-          <span style="color: #64748b;">Total Expected Return:</span>
-          <strong style="color: #047857;">${currency}${expectedReturn.toLocaleString()}</strong>
-        </div>
-        <div style="display: flex; justify-content: space-between; padding: 4px 0; font-size: 12px;">
-          <span style="color: #64748b;">Total Investor Value at Maturity:</span>
-          <strong style="color: #0f172a;">${currency}${(Number(primaryInv?.totalInvestorValue) || (amountInvested + expectedReturn)).toLocaleString()}</strong>
-        </div>
-      `;
-    } else if (paymentMethod === "principal_plus_return") {
-      const pPlusR = Number(primaryInv?.totalAmountDue) || calculatePrincipalPlusReturn(amountInvested, expectedReturn);
-      structureMetricsHtml = `
-        <div style="display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed #e2e8f0; font-size: 12px;">
-          <span style="color: #64748b;">Agreed Return Amount:</span>
-          <strong style="color: #047857;">${currency}${expectedReturn.toLocaleString()} (${agreedPercentage}%)</strong>
-        </div>
-        <div style="display: flex; justify-content: space-between; padding: 4px 0; font-size: 12px;">
-          <span style="color: #64748b;">Full Payout on Maturity (Principal + Return):</span>
-          <strong style="color: #0f172a; font-size: 14px;">${currency}${pPlusR.toLocaleString()}</strong>
-        </div>
-      `;
-    } else {
-      const netReceived = Number(primaryInv?.amountReceivedByBusiness) || calculateAmountReceivedByBusiness(amountInvested, expectedReturn);
-      structureMetricsHtml = `
-        <div style="display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed #e2e8f0; font-size: 12px;">
-          <span style="color: #64748b;">Upfront Return Deducted:</span>
-          <strong style="color: #047857;">${currency}${expectedReturn.toLocaleString()} (${agreedPercentage}%)</strong>
-        </div>
-        <div style="display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed #e2e8f0; font-size: 12px;">
-          <span style="color: #64748b;">Net Amount Received by Farm:</span>
-          <strong style="color: #1d4ed8;">${currency}${netReceived.toLocaleString()}</strong>
-        </div>
-        <div style="display: flex; justify-content: space-between; padding: 4px 0; font-size: 12px;">
-          <span style="color: #64748b;">Maturity Capital Return:</span>
-          <strong style="color: #0f172a;">${currency}${amountInvested.toLocaleString()}</strong>
-        </div>
-      `;
-    }
-
-    const paymentRowsHtml = (invPayments && invPayments.length > 0)
-      ? invPayments.map((p, idx) => {
-          const isPaid = (Number(p.amountPaid) || 0) >= (Number(p.amountDue) || 0) && (Number(p.amountDue) || 0) > 0;
-          return `
-            <tr style="border-bottom: 1px solid #e2e8f0; font-size: 11px;">
-              <td style="padding: 8px 10px; text-align: left; color: #475569;">#${idx + 1}</td>
-              <td style="padding: 8px 10px; text-align: left; font-weight: 600; color: #0f172a;">${p.paymentPeriod || "Installment"}</td>
-              <td style="padding: 8px 10px; text-align: left; font-family: monospace; color: #334155;">${p.dueDate || "—"}</td>
-              <td style="padding: 8px 10px; text-align: right; font-weight: bold; color: #0f172a;">${currency}${Number(p.amountDue || 0).toLocaleString()}</td>
-              <td style="padding: 8px 10px; text-align: right; font-weight: bold; color: ${isPaid ? '#047857' : '#64748b'};">${currency}${Number(p.amountPaid || 0).toLocaleString()}</td>
-              <td style="padding: 8px 10px; text-align: center; color: #475569; font-family: monospace;">${p.paymentDate || p.paidDate || "—"}</td>
-              <td style="padding: 8px 10px; text-align: center;">
-                <span style="display: inline-block; padding: 2px 8px; border-radius: 9999px; font-size: 10px; font-weight: bold; background: ${isPaid ? '#dcfce7; color: #166534;' : '#fef3c7; color: #92400e;'}">
-                  ${p.status || (isPaid ? 'Paid' : 'Due')}
-                </span>
-              </td>
-            </tr>
-          `;
-        }).join("")
-      : `
-        <tr>
-          <td colspan="7" style="padding: 16px; text-align: center; color: #94a3b8; font-size: 12px;">
-            Single lump-sum maturity payout obligation recorded on ${primaryInv?.dueDate || "Maturity"}
-          </td>
-        </tr>
-      `;
-
-    const htmlContent = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <meta charset="utf-8">
-        <title>Investment Receipt — ${inv.fullName}</title>
-        <style>
-          * { box-sizing: border-box; margin: 0; padding: 0; }
-          body { font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif; background: #fff; color: #0f172a; padding: 28px; line-height: 1.4; }
-          .receipt-box { max-width: 820px; margin: 0 auto; border: 1px solid #cbd5e1; border-radius: 12px; padding: 28px; background: #fff; }
-          .header-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
-          .brand-title { font-size: 22px; font-weight: 800; color: #00BB58; letter-spacing: -0.5px; }
-          .receipt-title { font-size: 14px; font-weight: 800; color: #0f172a; text-transform: uppercase; letter-spacing: 1px; text-align: right; }
-          .meta-text { font-size: 11px; color: #64748b; }
-          .divider { border: 0; border-top: 2px solid #00BB58; margin: 16px 0; }
-          .section-title { font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 8px; }
-          .grid-2 { width: 100%; border-collapse: collapse; margin-bottom: 16px; }
-          .grid-2 td { width: 50%; vertical-align: top; padding-right: 12px; }
-          .info-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; }
-          .info-row { display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 12px; }
-          .info-label { color: #64748b; font-size: 11px; }
-          .info-value { font-weight: 600; color: #0f172a; }
-          .summary-card { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 14px; margin: 16px 0; }
-          .structure-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; margin: 14px 0; }
-          .schedule-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-          .schedule-table th { background: #f1f5f9; padding: 8px 10px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: #475569; border-bottom: 1px solid #cbd5e1; }
-          .footer-section { margin-top: 28px; padding-top: 16px; border-top: 1px dashed #cbd5e1; }
-          .signature-table { width: 100%; border-collapse: collapse; margin-top: 32px; }
-          .signature-line { border-top: 1px solid #94a3b8; width: 80%; margin-top: 40px; }
-          @media print {
-            body { padding: 0; background: #fff; }
-            .receipt-box { border: none; padding: 0; }
-            @page { size: A4 portrait; margin: 12mm; }
-          }
-        </style>
-      </head>
-      <body>
-        <div class="receipt-box">
-          <table class="header-table">
-            <tr>
-              <td>
-                <div class="brand-title">${farmName}</div>
-                <div class="meta-text">${farmLocation} · Farm Investor Management</div>
-              </td>
-              <td style="text-align: right;">
-                <div class="receipt-title">Investment Certificate & Receipt</div>
-                <div class="meta-text" style="font-family: monospace; font-weight: bold; color: #0f172a; margin-top: 2px;">${receiptRef}</div>
-                <div class="meta-text">Issue Date: ${TODAY}</div>
-              </td>
-            </tr>
-          </table>
-
-          <hr class="divider" />
-
-          <!-- Investor & Structure Info -->
-          <table class="grid-2">
-            <tr>
-              <td>
-                <div class="section-title">Investor Details</div>
-                <div class="info-card">
-                  <div class="info-row"><span class="info-label">Full Name:</span><span class="info-value">${inv.fullName}</span></div>
-                  <div class="info-row"><span class="info-label">Phone:</span><span class="info-value" style="font-family: monospace;">${inv.phone}</span></div>
-                  <div class="info-row"><span class="info-label">Email:</span><span class="info-value">${inv.email || "—"}</span></div>
-                  <div class="info-row"><span class="info-label">Status:</span><span class="info-value" style="color: #00BB58;">${inv.status || "Active"}</span></div>
-                </div>
-              </td>
-              <td>
-                <div class="section-title">Investment Terms & Dates</div>
-                <div class="info-card">
-                  <div class="info-row"><span class="info-label">Payment Method:</span><span class="info-value">${formatPaymentMethod(primaryInv?.paymentMethod)}</span></div>
-                  <div class="info-row"><span class="info-label">Start Date:</span><span class="info-value" style="font-family: monospace;">${primaryInv?.startDate || TODAY}</span></div>
-                  <div class="info-row"><span class="info-label">Maturity Date:</span><span class="info-value" style="font-family: monospace;">${primaryInv?.dueDate || "—"}</span></div>
-                  <div class="info-row"><span class="info-label">Duration:</span><span class="info-value">${primaryInv?.duration || (primaryInv?.durationMonths ? `${primaryInv.durationMonths} months` : "12 months")}</span></div>
-                </div>
-              </td>
-            </tr>
-          </table>
-
-          <!-- Financial Terms Box -->
-          <div class="summary-card">
-            <div class="section-title" style="color: #166534; margin-bottom: 8px;">Financial Overview</div>
-            <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
-              <tr>
-                <td style="padding: 4px 8px; width: 25%;">
-                  <span class="info-label" style="display: block;">Capital Invested</span>
-                  <strong style="font-size: 16px; color: #0f172a;">${currency}${amountInvested.toLocaleString()}</strong>
-                </td>
-                <td style="padding: 4px 8px; width: 25%;">
-                  <span class="info-label" style="display: block;">Agreed Return Rate</span>
-                  <strong style="font-size: 16px; color: #047857;">${agreedPercentage}% (${currency}${expectedReturn.toLocaleString()})</strong>
-                </td>
-                <td style="padding: 4px 8px; width: 25%;">
-                  <span class="info-label" style="display: block;">Total Paid to Date</span>
-                  <strong style="font-size: 16px; color: #6b21a8;">${currency}${totalPaid.toLocaleString()}</strong>
-                </td>
-                <td style="padding: 4px 8px; width: 25%;">
-                  <span class="info-label" style="display: block;">Outstanding Balance</span>
-                  <strong style="font-size: 16px; color: #b45309;">${currency}${outstanding.toLocaleString()}</strong>
-                </td>
-              </tr>
-            </table>
-          </div>
-
-          <!-- Structure Specific Breakdown -->
-          <div class="structure-box">
-            <div class="section-title">Structure Breakdown: ${formatPaymentMethod(primaryInv?.paymentMethod)}</div>
-            ${structureMetricsHtml}
-          </div>
-
-          <!-- Schedule & Payout History Table -->
-          <div class="section-title">Schedule of Payments & Installments</div>
-          <table class="schedule-table">
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>Period / Description</th>
-                <th>Due Date</th>
-                <th style="text-align: right;">Amount Due</th>
-                <th style="text-align: right;">Amount Paid</th>
-                <th style="text-align: center;">Paid Date</th>
-                <th style="text-align: center;">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${paymentRowsHtml}
-            </tbody>
-          </table>
-
-          <!-- Agreement notes -->
-          ${primaryInv?.principalRepayment || primaryInv?.notes || inv.notes ? `
-            <div style="margin-top: 16px; padding: 10px 12px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 11px; color: #475569;">
-              <strong>Terms & Agreement Notes:</strong> ${primaryInv?.principalRepayment || primaryInv?.notes || inv.notes}
-            </div>
-          ` : ""}
-
-          <!-- Footer / Signatures -->
-          <div class="footer-section">
-            <p style="font-size: 10px; color: #64748b; text-align: center;">
-              This certificate confirms the official investment registration in the Pondtora Farm System. All disbursements are tracked securely.
-            </p>
-            <table class="signature-table">
-              <tr>
-                <td style="width: 50%; text-align: center;">
-                  <div class="signature-line" style="margin: 30px auto 4px auto;"></div>
-                  <div style="font-size: 11px; font-weight: 700; color: #0f172a;">${inv.fullName}</div>
-                  <div style="font-size: 10px; color: #64748b;">Investor Signature</div>
-                </td>
-                <td style="width: 50%; text-align: center;">
-                  <div class="signature-line" style="margin: 30px auto 4px auto;"></div>
-                  <div style="font-size: 11px; font-weight: 700; color: #0f172a;">${farmName}</div>
-                  <div style="font-size: 10px; color: #64748b;">Authorized Representative & Stamp</div>
-                </td>
-              </tr>
-            </table>
-          </div>
-        </div>
-      </body>
-      </html>
-    `;
-
-    // Trigger browser print/PDF
     const iframe = document.createElement("iframe");
     Object.assign(iframe.style, { position: "fixed", left: "-9999px", top: "-9999px", width: "1px", height: "1px", border: "none", visibility: "hidden" });
     document.body.appendChild(iframe);
     const doc = iframe.contentWindow?.document;
     if (doc) {
       doc.open();
-      doc.write(htmlContent);
+      doc.write(receiptResult.html);
       doc.close();
       const doPrint = () => {
         try {
@@ -639,6 +422,106 @@ export default function InvestorsPage({
         iframe.onload = doPrint;
         setTimeout(doPrint, 800);
       }
+    }
+  };
+
+  // ── Open Interactive On-Screen Certificate Preview ──
+  const openReceiptPreview = (
+    invTarget?: Investor | null,
+    investmentTarget?: Investment | null,
+    paymentsTarget?: InvestmentPayment[]
+  ) => {
+    const inv = invTarget || selectedInvestor;
+    if (!inv) {
+      toast.error("No investor data available to preview receipt");
+      return;
+    }
+    const primaryInv = investmentTarget || investments.find(i => i.investorId === inv.id || i.id === inv.id) || activeInvestment;
+    const invPayments = paymentsTarget || (primaryInv ? payments.filter(p => p.investmentId === primaryInv.id) : investmentPayments);
+
+    setPreviewReceiptData({
+      investor: inv,
+      investment: primaryInv,
+      payments: invPayments,
+    });
+  };
+
+  // ── Send Receipt via Email (Optional) ──
+  const handleSendReceiptEmail = async (
+    invTarget?: Investor | null,
+    investmentTarget?: Investment | null,
+    paymentsTarget?: InvestmentPayment[],
+    customEmail?: string
+  ) => {
+    const inv = invTarget || selectedInvestor;
+    if (!inv) {
+      toast.error("No investor data available.");
+      return;
+    }
+
+    const recipientEmail = (customEmail || inv.email || "").trim();
+    if (!recipientEmail) {
+      const primaryInv = investmentTarget || investments.find(i => i.investorId === inv.id || i.id === inv.id) || activeInvestment;
+      const invPayments = paymentsTarget || (primaryInv ? payments.filter(p => p.investmentId === primaryInv.id) : investmentPayments);
+      setEmailModalData({
+        investor: inv,
+        investment: primaryInv,
+        payments: invPayments,
+        email: "",
+      });
+      setShowEmailModal(true);
+      return;
+    }
+
+    const primaryInv = investmentTarget || investments.find(i => i.investorId === inv.id || i.id === inv.id) || activeInvestment;
+    const invPayments = paymentsTarget || (primaryInv ? payments.filter(p => p.investmentId === primaryInv.id) : investmentPayments);
+    const farmObj = farms.find(f => f.id === (primaryInv?.farmId || inv.farmId)) || farms[0];
+    const farmName = farmObj?.name || "Pondtora Farm";
+    const farmLocation = farmObj?.city ? `${farmObj.city}${farmObj.state ? `, ${farmObj.state}` : ""}` : (farmObj?.country || "Nigeria");
+
+    const receiptResult = generateInvestorReceiptHtml({
+      investor: inv,
+      investment: primaryInv,
+      payments: invPayments,
+      farmName,
+      farmLocation,
+      currency,
+    });
+
+    setSendingEmail(true);
+    toast.info(`Sending certificate to ${recipientEmail}…`);
+
+    try {
+      const res = await api.investors.sendReceiptEmail({
+        to: recipientEmail,
+        investorName: inv.fullName,
+        farmName,
+        receiptRef: receiptResult.receiptRef,
+        htmlContent: receiptResult.html,
+        amountInvested: Number(primaryInv?.amountInvested) || 0,
+        currency,
+      });
+
+      if (res.method === "server" || res.method === "resend_direct") {
+        toast.success(`Investment certificate successfully sent to ${recipientEmail}!`);
+      } else {
+        const subject = encodeURIComponent(`Investment Certificate - ${inv.fullName} [${receiptResult.receiptRef}]`);
+        const body = encodeURIComponent(
+          `Dear ${inv.fullName},\n\nPlease find your investment certificate and payment schedule details for ${farmName}.\n\nCertificate Ref: ${receiptResult.receiptRef}\nCapital Invested: ${currency}${Number(primaryInv?.amountInvested || 0).toLocaleString()}\nStart Date: ${primaryInv?.startDate || TODAY}\nMaturity Date: ${primaryInv?.dueDate || "—"}\n\nThank you for partnering with ${farmName}.`
+        );
+        window.open(`mailto:${recipientEmail}?subject=${subject}&body=${body}`, "_blank");
+        toast.success(`Email client opened for ${recipientEmail}.`);
+      }
+
+      if (customEmail && customEmail !== inv.email) {
+        onEditInvestor({ ...inv, email: customEmail }).catch(console.warn);
+      }
+      setShowEmailModal(false);
+      setEmailModalData(null);
+    } catch (err: any) {
+      toast.error(err?.message || "Could not send receipt email.");
+    } finally {
+      setSendingEmail(false);
     }
   };
 
@@ -1346,19 +1229,30 @@ export default function InvestorsPage({
                             <Bdg label={item.derivedStatus} color={statusColor as any} />
                           </td>
 
-                          {/* Action Buttons (Print Receipt + Delete) */}
+                          {/* Action Buttons (Preview Receipt + Email + Delete + View) */}
                           <td className="px-3 py-3 text-right whitespace-nowrap">
                             <div className="flex items-center justify-end gap-1">
                               <button
                                 type="button"
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  printInvestorReceipt(item);
+                                  openReceiptPreview(item);
+                                }}
+                                className="p-1.5 rounded-lg text-slate-400 hover:text-emerald-700 hover:bg-emerald-50 transition-colors"
+                                title="Preview / Print Investment Receipt"
+                              >
+                                <FileText size={14} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleSendReceiptEmail(item);
                                 }}
                                 className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
-                                title="Download / Print Investment Receipt"
+                                title="Send Receipt to Investor Email (Optional)"
                               >
-                                <Download size={14} />
+                                <Mail size={14} />
                               </button>
                               {canDelete && (
                                 <button
@@ -1438,20 +1332,32 @@ export default function InvestorsPage({
               </div>
             </div>
 
-            {/* Divider + Action Buttons Row (Download Receipt, Edit, Delete) */}
-            <div className="pt-3.5 border-t border-slate-100 mt-3.5 grid grid-cols-3 gap-2 w-full">
-              {/* Button 1: Download Receipt */}
+            {/* Divider + Action Buttons Row (Preview, Email, Edit, Delete) */}
+            <div className="pt-3.5 border-t border-slate-100 mt-3.5 grid grid-cols-2 sm:grid-cols-4 gap-2 w-full">
+              {/* Button 1: Preview Receipt */}
               <button
                 type="button"
-                onClick={() => printInvestorReceipt()}
-                className="h-9 px-2 sm:px-3 rounded-xl border border-blue-200 bg-blue-50/60 hover:bg-blue-100/70 text-blue-700 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors min-w-0 overflow-hidden"
-                title="Download / Print Investment Agreement Receipt"
+                onClick={() => openReceiptPreview()}
+                className="h-9 px-2 sm:px-3 rounded-xl border border-emerald-200 bg-emerald-50/60 hover:bg-emerald-100/70 text-emerald-800 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors min-w-0 overflow-hidden"
+                title="Preview / Print Investment Agreement Receipt"
               >
-                <Download size={14} className="shrink-0 text-blue-600" />
-                <span className="truncate">Download Receipt</span>
+                <FileText size={14} className="shrink-0 text-emerald-600" />
+                <span className="truncate">View Receipt</span>
               </button>
 
-              {/* Button 2: Edit Investor & Investment */}
+              {/* Button 2: Email Receipt (Optional) */}
+              <button
+                type="button"
+                onClick={() => handleSendReceiptEmail()}
+                disabled={sendingEmail}
+                className="h-9 px-2 sm:px-3 rounded-xl border border-blue-200 bg-blue-50/60 hover:bg-blue-100/70 text-blue-700 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors min-w-0 overflow-hidden disabled:opacity-50"
+                title="Send Receipt to Investor Email (Optional)"
+              >
+                <Mail size={14} className="shrink-0 text-blue-600" />
+                <span className="truncate">{sendingEmail ? "Sending…" : "Email Receipt"}</span>
+              </button>
+
+              {/* Button 3: Edit Investor & Investment */}
               {canEdit ? (
                 <button
                   type="button"
@@ -1464,7 +1370,7 @@ export default function InvestorsPage({
                 </button>
               ) : <div />}
 
-              {/* Button 3: Delete Investor */}
+              {/* Button 4: Delete Investor */}
               {canDelete && (
                 <button
                   type="button"
@@ -1551,7 +1457,7 @@ export default function InvestorsPage({
             </div>
           </Card>
 
-          {/* ── Payment Schedule Table with Edit Payment Functionality ── */}
+          {/* ── Payment Schedule Table with Sticky Due Date Column ── */}
           <Card className="overflow-hidden bg-white shadow-xs border border-slate-200/80 rounded-2xl">
             <div className="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between">
               <div>
@@ -1566,11 +1472,13 @@ export default function InvestorsPage({
               </div>
             </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs min-w-[700px]">
+            <div className="overflow-x-auto relative">
+              <table className="w-full text-xs min-w-[700px] border-collapse">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200/80 text-slate-500 uppercase tracking-wider font-semibold text-[11px]">
-                    <th className="text-left px-4 py-2.5">Due Date</th>
+                    <th className="text-left px-4 py-2.5 sticky left-0 z-20 bg-slate-50 border-r border-slate-200/80 shadow-[2px_0_6px_-2px_rgba(0,0,0,0.08)] min-w-[120px]">
+                      Due Date
+                    </th>
                     <th className="text-left px-4 py-2.5">Period / Description</th>
                     <th className="text-right px-4 py-2.5">Amount Due</th>
                     <th className="text-right px-4 py-2.5">Amount Paid</th>
@@ -1603,8 +1511,10 @@ export default function InvestorsPage({
                           : "gray";
 
                       return (
-                        <tr key={p.id} className="hover:bg-slate-50/70 transition-colors">
-                          <td className="px-4 py-3 font-mono text-slate-700 font-medium whitespace-nowrap">{p.dueDate}</td>
+                        <tr key={p.id} className="group hover:bg-slate-50/70 transition-colors">
+                          <td className="px-4 py-3 font-mono text-slate-800 font-bold whitespace-nowrap sticky left-0 z-10 bg-white group-hover:bg-slate-50 border-r border-slate-100 shadow-[2px_0_6px_-2px_rgba(0,0,0,0.08)] min-w-[120px]">
+                            {p.dueDate}
+                          </td>
                           <td className="px-4 py-3 font-semibold text-slate-900">{p.paymentPeriod}</td>
                           <td className="px-4 py-3 text-right font-bold text-slate-900">{currency}{(Number(p.amountDue) || 0).toLocaleString()}</td>
                           <td className="px-4 py-3 text-right font-bold text-purple-700">{currency}{(Number(p.amountPaid) || 0).toLocaleString()}</td>
@@ -1646,7 +1556,7 @@ export default function InvestorsPage({
       )}
 
       {/* ═══════════════════════════════════════════════════════════════════
-         POST-CREATION SUCCESS & RECEIPT DOWNLOAD MODAL
+         POST-CREATION SUCCESS MODAL WITH PREVIEW & OPTIONAL EMAIL
       ═══════════════════════════════════════════════════════════════════ */}
       {createdSuccessData && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
@@ -1660,7 +1570,7 @@ export default function InvestorsPage({
                 Investor & Investment Created!
               </h3>
               <p className="text-xs text-slate-500 mt-1">
-                Record saved automatically. You can now download the investment receipt to send to the investor.
+                Record registered successfully. You can preview the certificate, print/save PDF, or optionally email it.
               </p>
             </div>
 
@@ -1681,24 +1591,44 @@ export default function InvestorsPage({
                 <span className="text-slate-500">Payment Structure:</span>
                 <span className="font-semibold text-slate-800">{formatPaymentMethod(createdSuccessData.investment.paymentMethod)}</span>
               </div>
+              {createdSuccessData.investor.email && (
+                <div className="flex justify-between pt-1 border-t border-slate-200/60">
+                  <span className="text-slate-500">Investor Email:</span>
+                  <span className="font-mono font-semibold text-blue-600">{createdSuccessData.investor.email}</span>
+                </div>
+              )}
             </div>
 
             <div className="space-y-2 pt-2">
               <button
                 type="button"
                 onClick={() => {
-                  printInvestorReceipt(
+                  const data = createdSuccessData;
+                  setCreatedSuccessData(null);
+                  openReceiptPreview(data.investor, data.investment, data.payments);
+                }}
+                className="w-full h-10 bg-[#00BB58] hover:bg-[#009e4a] text-white font-bold text-xs rounded-xl shadow-xs flex items-center justify-center gap-2 transition-colors"
+              >
+                <FileText size={15} /> Preview & Print Certificate
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  handleSendReceiptEmail(
                     createdSuccessData.investor,
                     createdSuccessData.investment,
                     createdSuccessData.payments
                   );
                 }}
-                className="w-full h-10 bg-[#00BB58] hover:bg-[#009e4a] text-white font-bold text-xs rounded-xl shadow-xs flex items-center justify-center gap-2 transition-colors"
+                disabled={sendingEmail}
+                className="w-full h-9 border border-blue-200 bg-blue-50/70 hover:bg-blue-100 text-blue-700 font-semibold text-xs rounded-xl flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
               >
-                <Download size={15} /> Download / Print Investment Receipt
+                <Mail size={14} className="text-blue-600" />
+                {sendingEmail ? "Sending…" : "Send Receipt to Email (Optional)"}
               </button>
 
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-2 gap-2 pt-1">
                 <button
                   type="button"
                   onClick={() => {
@@ -1718,6 +1648,266 @@ export default function InvestorsPage({
                   Done
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════════════
+         FULL VISUAL CERTIFICATE PREVIEW MODAL
+      ═══════════════════════════════════════════════════════════════════ */}
+      {previewReceiptData && (() => {
+        const inv = previewReceiptData.investor;
+        const primaryInv = previewReceiptData.investment;
+        const invPayments = previewReceiptData.payments;
+        const farmObj = farms.find(f => f.id === (primaryInv?.farmId || inv.farmId)) || farms[0];
+        const farmName = farmObj?.name || "Pondtora Farm";
+        const farmLocation = farmObj?.city ? `${farmObj.city}${farmObj.state ? `, ${farmObj.state}` : ""}` : (farmObj?.country || "Nigeria");
+
+        const amountInvested = Number(primaryInv?.amountInvested) || 0;
+        const agreedPercentage = Number(primaryInv?.investorPercentage) || 0;
+        const expectedReturn = Number(primaryInv?.expectedReturn) || calculateReturnAmount(amountInvested, agreedPercentage);
+        const totalDue = Number(primaryInv?.totalAmountDue) || (
+          primaryInv?.paymentMethod === "principal_plus_return"
+            ? calculatePrincipalPlusReturn(amountInvested, expectedReturn)
+            : primaryInv?.paymentMethod === "return_upfront"
+            ? amountInvested
+            : expectedReturn
+        );
+        const totalPaid = invPayments.reduce((s, p) => s + (Number(p.amountPaid) || 0), 0);
+        const outstanding = Math.max(0, totalDue - totalPaid);
+        const receiptRef = `INV-${inv.fullName.replace(/[^A-Za-z0-9]/g, "").slice(0, 3).toUpperCase()}-${(primaryInv?.id || inv.id).slice(0, 8).toUpperCase()}`;
+
+        return (
+          <div className="fixed inset-0 bg-black/70 backdrop-blur-xs z-50 flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
+            <div className="bg-white rounded-3xl shadow-2xl max-w-3xl w-full max-h-[92vh] flex flex-col border border-slate-200 overflow-hidden my-auto animate-in fade-in zoom-in-95 duration-150">
+              {/* Modal Top Action Bar */}
+              <div className="px-5 py-3.5 bg-slate-900 text-white flex items-center justify-between gap-3 shrink-0">
+                <div className="flex items-center gap-2">
+                  <FileText size={18} className="text-emerald-400" />
+                  <div>
+                    <h3 className="text-sm font-bold tracking-wide font-['Barlow_Condensed',sans-serif]">
+                      Investment Certificate & Receipt Preview
+                    </h3>
+                    <p className="text-[10px] text-slate-400 font-mono">{receiptRef}</p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => printInvestorReceipt(inv, primaryInv, invPayments)}
+                    className="h-8 px-3 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs flex items-center gap-1.5 transition-colors shadow-xs"
+                    title="Print Certificate / Save as PDF"
+                  >
+                    <Printer size={13} /> Print / Save PDF
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleSendReceiptEmail(inv, primaryInv, invPayments)}
+                    disabled={sendingEmail}
+                    className="h-8 px-3 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs flex items-center gap-1.5 transition-colors shadow-xs disabled:opacity-50"
+                    title="Send to Investor's Email (Optional)"
+                  >
+                    <Mail size={13} /> {sendingEmail ? "Sending…" : "Email (Optional)"}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setPreviewReceiptData(null)}
+                    className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors ml-1"
+                    title="Close Preview"
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+              </div>
+
+              {/* Scrollable Document Container */}
+              <div className="p-4 sm:p-6 overflow-y-auto flex-1 bg-slate-100/70">
+                <div className="bg-white rounded-2xl p-6 sm:p-8 border border-slate-200/90 shadow-sm max-w-2xl mx-auto space-y-5 text-slate-800 font-['Barlow',sans-serif]">
+                  {/* Document Header */}
+                  <div className="flex items-start justify-between border-b border-slate-200 pb-4 gap-4">
+                    <div>
+                      <h2 className="text-2xl font-black text-emerald-700 uppercase tracking-tight font-['Barlow_Condensed',sans-serif]">
+                        {farmName}
+                      </h2>
+                      <p className="text-xs text-slate-500 mt-0.5">{farmLocation} · Farm Investor Management</p>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-xs font-bold text-slate-900 uppercase tracking-wider">Investment Certificate</div>
+                      <div className="font-mono text-xs font-bold text-emerald-700 mt-0.5">{receiptRef}</div>
+                      <div className="text-[11px] text-slate-400 mt-0.5">Issue Date: {TODAY}</div>
+                    </div>
+                  </div>
+
+                  {/* Investor Details & Terms Grid */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 text-xs">
+                    <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200/80 space-y-1.5">
+                      <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Investor Details</div>
+                      <div className="flex justify-between"><span className="text-slate-500">Full Name:</span><strong className="text-slate-900">{inv.fullName}</strong></div>
+                      <div className="flex justify-between"><span className="text-slate-500">Phone:</span><span className="font-mono text-slate-800 font-semibold">{inv.phone}</span></div>
+                      <div className="flex justify-between"><span className="text-slate-500">Email:</span><span className="text-slate-800 font-mono">{inv.email || "—"}</span></div>
+                      <div className="flex justify-between"><span className="text-slate-500">Status:</span><span className="text-emerald-700 font-bold">{inv.status || "Active"}</span></div>
+                    </div>
+
+                    <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200/80 space-y-1.5">
+                      <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Investment Terms</div>
+                      <div className="flex justify-between"><span className="text-slate-500">Structure:</span><strong className="text-slate-900">{formatPaymentMethod(primaryInv?.paymentMethod)}</strong></div>
+                      <div className="flex justify-between"><span className="text-slate-500">Start Date:</span><span className="font-mono text-slate-800 font-semibold">{primaryInv?.startDate || TODAY}</span></div>
+                      <div className="flex justify-between"><span className="text-slate-500">Maturity Date:</span><span className="font-mono text-slate-800 font-semibold">{primaryInv?.dueDate || "—"}</span></div>
+                      <div className="flex justify-between"><span className="text-slate-500">Duration:</span><span className="text-slate-800 font-semibold">{primaryInv?.duration || (primaryInv?.durationMonths ? `${primaryInv.durationMonths} months` : "12 months")}</span></div>
+                    </div>
+                  </div>
+
+                  {/* Financial Overview Box */}
+                  <div className="bg-emerald-50/70 border border-emerald-200/80 rounded-xl p-4">
+                    <div className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider mb-2">Financial Overview</div>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                      <div>
+                        <span className="text-slate-500 block text-[11px]">Capital Invested</span>
+                        <strong className="text-base text-slate-900 font-bold">{currency}{amountInvested.toLocaleString()}</strong>
+                      </div>
+                      <div>
+                        <span className="text-slate-500 block text-[11px]">Agreed Return</span>
+                        <strong className="text-base text-emerald-700 font-bold">{agreedPercentage}% ({currency}{expectedReturn.toLocaleString()})</strong>
+                      </div>
+                      <div>
+                        <span className="text-slate-500 block text-[11px]">Total Paid to Date</span>
+                        <strong className="text-base text-purple-700 font-bold">{currency}{totalPaid.toLocaleString()}</strong>
+                      </div>
+                      <div>
+                        <span className="text-slate-500 block text-[11px]">Outstanding Balance</span>
+                        <strong className="text-base text-amber-700 font-bold">{currency}{outstanding.toLocaleString()}</strong>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Payment Schedule Table */}
+                  <div className="space-y-2">
+                    <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Payment & Payout Schedule</div>
+                    <div className="border border-slate-200 rounded-xl overflow-hidden text-xs">
+                      <table className="w-full">
+                        <thead className="bg-slate-50 text-slate-500 font-semibold text-[10px] uppercase border-b border-slate-200">
+                          <tr>
+                            <th className="px-3 py-2 text-left">#</th>
+                            <th className="px-3 py-2 text-left">Period / Description</th>
+                            <th className="px-3 py-2 text-left">Due Date</th>
+                            <th className="px-3 py-2 text-right">Amount Due</th>
+                            <th className="px-3 py-2 text-right">Amount Paid</th>
+                            <th className="px-3 py-2 text-center">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {invPayments.length === 0 ? (
+                            <tr>
+                              <td colSpan={6} className="text-center py-4 text-slate-400 text-xs">Single lump-sum maturity payout obligation.</td>
+                            </tr>
+                          ) : (
+                            invPayments.map((p, idx) => {
+                              const isPaid = (Number(p.amountPaid) || 0) >= (Number(p.amountDue) || 0) && (Number(p.amountDue) || 0) > 0;
+                              return (
+                                <tr key={p.id} className="hover:bg-slate-50/60">
+                                  <td className="px-3 py-2 text-slate-400 font-mono">#{idx + 1}</td>
+                                  <td className="px-3 py-2 font-semibold text-slate-900">{p.paymentPeriod}</td>
+                                  <td className="px-3 py-2 font-mono text-slate-700">{p.dueDate}</td>
+                                  <td className="px-3 py-2 text-right font-bold text-slate-900">{currency}{Number(p.amountDue || 0).toLocaleString()}</td>
+                                  <td className="px-3 py-2 text-right font-bold text-purple-700">{currency}{Number(p.amountPaid || 0).toLocaleString()}</td>
+                                  <td className="px-3 py-2 text-center">
+                                    <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold ${isPaid ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>
+                                      {p.status || (isPaid ? "Paid" : "Due")}
+                                    </span>
+                                  </td>
+                                </tr>
+                              );
+                            })
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Signatures */}
+                  <div className="pt-6 border-t border-dashed border-slate-200 grid grid-cols-2 gap-8 text-center text-xs">
+                    <div>
+                      <div className="w-32 sm:w-40 border-t border-slate-400 mx-auto mt-6 mb-1"></div>
+                      <div className="font-bold text-slate-900">{inv.fullName}</div>
+                      <div className="text-[10px] text-slate-400">Investor Signature</div>
+                    </div>
+                    <div>
+                      <div className="w-32 sm:w-40 border-t border-slate-400 mx-auto mt-6 mb-1"></div>
+                      <div className="font-bold text-slate-900">{farmName}</div>
+                      <div className="text-[10px] text-slate-400">Authorized Representative & Stamp</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ═══════════════════════════════════════════════════════════════════
+         OPTIONAL EMAIL PROMPT MODAL
+      ═══════════════════════════════════════════════════════════════════ */}
+      {showEmailModal && emailModalData && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-sm w-full p-6 text-center space-y-4 border border-slate-100">
+            <div className="w-12 h-12 rounded-2xl bg-blue-100 text-blue-600 flex items-center justify-center mx-auto shadow-xs">
+              <Mail size={22} />
+            </div>
+
+            <div>
+              <h3 className="text-lg font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">
+                Send Receipt via Email
+              </h3>
+              <p className="text-xs text-slate-500 mt-1">
+                Enter or confirm the email address to receive the investment certificate.
+              </p>
+            </div>
+
+            <div className="text-left space-y-1">
+              <label className="text-xs font-semibold text-slate-700">Investor Email Address</label>
+              <input
+                type="email"
+                value={emailModalData.email}
+                onChange={e => setEmailModalData(p => p ? { ...p, email: e.target.value } : null)}
+                placeholder="investor@example.com"
+                className="w-full px-3 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowEmailModal(false);
+                  setEmailModalData(null);
+                }}
+                className="h-9 border border-slate-200 text-slate-700 font-semibold text-xs rounded-xl hover:bg-slate-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!emailModalData.email.trim() || !emailModalData.email.includes("@")) {
+                    toast.error("Please enter a valid email address");
+                    return;
+                  }
+                  handleSendReceiptEmail(
+                    emailModalData.investor,
+                    emailModalData.investment,
+                    emailModalData.payments,
+                    emailModalData.email.trim()
+                  );
+                }}
+                disabled={sendingEmail}
+                className="h-9 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-xs transition-colors disabled:opacity-50"
+              >
+                {sendingEmail ? "Sending…" : "Send Email"}
+              </button>
             </div>
           </div>
         </div>

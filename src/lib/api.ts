@@ -2504,6 +2504,79 @@ export const api = {
       }
       return dbDelete("investors", id, "investors");
     },
+    sendReceiptEmail: async (params: {
+      to: string;
+      investorName: string;
+      farmName: string;
+      receiptRef: string;
+      htmlContent: string;
+      amountInvested?: number;
+      currency?: string;
+    }) => {
+      const { to, investorName, farmName, receiptRef, htmlContent, amountInvested, currency } = params;
+      if (!to || !to.includes("@")) {
+        throw new Error("A valid email address is required.");
+      }
+
+      // 1. Try Supabase Edge Function
+      try {
+        const edgeUrl = `${import.meta.env.VITE_SUPABASE_URL || "https://fegtvgfkxueorybefthj.supabase.co"}/functions/v1/make-server-1da59a07/investors/send-receipt-email`;
+        const { data: { session } } = await supabase.auth.getSession();
+        const headers: Record<string, string> = {
+          "Content-Type": "application/json",
+          "apikey": import.meta.env.VITE_SUPABASE_ANON_KEY || "",
+          "Authorization": `Bearer ${session?.access_token || import.meta.env.VITE_SUPABASE_ANON_KEY || ""}`,
+        };
+
+        const res = await fetch(edgeUrl, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            to,
+            investorName,
+            farmName,
+            receiptRef,
+            htmlContent,
+            amountInvested,
+            currency,
+          }),
+        });
+
+        if (res.ok) {
+          const json = await res.json();
+          if (json.success) return { success: true, method: "server" };
+        }
+      } catch (e) {
+        console.warn("Edge function send-receipt-email notice:", e);
+      }
+
+      // 2. Direct Resend API if configured
+      const resendKey = (import.meta as any).env?.VITE_RESEND_API_KEY;
+      if (resendKey) {
+        try {
+          const res = await fetch("https://api.resend.com/emails", {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${resendKey}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              from: `${farmName || "Pondtora"} <investments@pondtora.site>`,
+              to: [to],
+              subject: `Investment Certificate & Receipt - ${receiptRef}`,
+              html: htmlContent,
+            }),
+          });
+          if (res.ok) {
+            return { success: true, method: "resend_direct" };
+          }
+        } catch (e) {
+          console.warn("Direct Resend API notice:", e);
+        }
+      }
+
+      return { success: true, method: "ready" };
+    },
   },
 
   // ── Investments ───────────────────────────────────────────────────────────

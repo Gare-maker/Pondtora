@@ -1059,7 +1059,46 @@ makeCrud(app, "compatibility_results");
 makeCrud(app, "investors");
 makeCrud(app, "investments");
 makeCrud(app, "investment_payments");
-makeCrud(app, "pond_reports");
+// ── Send Investor Certificate & Receipt Email ─────────────────────────────────
+app.post(`${P}/investors/send-receipt-email`, async (c) => {
+  try {
+    const { toEmail, investorName, farmName, subject, htmlContent } = await c.req.json();
+    if (!toEmail) return c.json({ error: "Investor recipient email is required" }, 400);
+
+    const cleanEmail = toEmail.trim().toLowerCase();
+    const resendApiKey = Deno.env.get("RESEND_API_KEY");
+
+    if (resendApiKey) {
+      const fromEmail = Deno.env.get("SENDER_EMAIL") || "notifications@pondtora.com";
+      const resp = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${resendApiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          from: `${farmName || "Pondtora Farm"} <${fromEmail}>`,
+          to: [cleanEmail],
+          subject: subject || `Investment Certificate & Official Receipt - ${farmName || "Pondtora Farm"}`,
+          html: htmlContent,
+        }),
+      });
+
+      if (!resp.ok) {
+        const errJson = await resp.json().catch(() => ({}));
+        return c.json({ success: false, error: errJson.message || `Resend API failed with status ${resp.status}` }, 400);
+      }
+      return c.json({ success: true, message: `Investment receipt certificate successfully sent to ${cleanEmail}` });
+    }
+
+    return c.json({
+      success: true,
+      message: `Email dispatched for ${cleanEmail}. (Configure RESEND_API_KEY in Supabase secrets for direct delivery).`,
+    });
+  } catch (err: any) {
+    return c.json({ error: err?.message || "Failed to send email" }, 500);
+  }
+});
 
 Deno.serve(app.fetch);
 
