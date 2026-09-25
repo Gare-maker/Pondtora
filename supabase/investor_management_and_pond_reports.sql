@@ -64,6 +64,7 @@ CREATE TABLE IF NOT EXISTS investors (
 );
 
 -- ── 2. Investments Table ───────────────────────────────────────────────────────
+-- ── 2. Investments Table ───────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS investments (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID REFERENCES user_profiles(id) ON DELETE CASCADE,
@@ -71,38 +72,72 @@ CREATE TABLE IF NOT EXISTS investments (
   farm_id UUID REFERENCES farms(id) ON DELETE CASCADE,
   pond_id UUID REFERENCES ponds(id) ON DELETE SET NULL,
   fish_stock_id TEXT,
+  investment_name TEXT,
   amount_invested NUMERIC NOT NULL DEFAULT 0,
   investor_percentage NUMERIC NOT NULL DEFAULT 0,
   expected_return NUMERIC NOT NULL DEFAULT 0,
   total_amount_due NUMERIC NOT NULL DEFAULT 0,
+  payment_method TEXT DEFAULT 'monthly_return',   -- 'monthly_return' | 'principal_plus_return' | 'return_upfront'
+  duration TEXT,
+  duration_months INT,
+  number_of_payments INT,
+  monthly_return NUMERIC,
+  amount_received_by_business NUMERIC,
+  total_investor_value NUMERIC,
+  principal_repayment TEXT,
   start_date DATE NOT NULL DEFAULT CURRENT_DATE,
   due_date DATE NOT NULL,
+  maturity_date DATE,
   payment_type TEXT NOT NULL DEFAULT 'one-time', -- 'one-time' | 'recurring'
   payment_frequency TEXT,                        -- 'Monthly' | 'Quarterly' | 'Annually' | 'Custom'
   custom_frequency_desc TEXT,
-  status TEXT NOT NULL DEFAULT 'Active',          -- 'Active' | 'Paid' | 'Overdue' | 'Completed'
+  status TEXT NOT NULL DEFAULT 'Active',          -- 'Active' | 'Payment Due' | 'Partially Paid' | 'Completed' | 'Overdue' | 'Cancelled'
   notes TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Safe Column Migrations for Investments
+ALTER TABLE investments ADD COLUMN IF NOT EXISTS investment_name TEXT;
+ALTER TABLE investments ADD COLUMN IF NOT EXISTS payment_method TEXT DEFAULT 'monthly_return';
+ALTER TABLE investments ADD COLUMN IF NOT EXISTS duration TEXT;
+ALTER TABLE investments ADD COLUMN IF NOT EXISTS duration_months INT;
+ALTER TABLE investments ADD COLUMN IF NOT EXISTS number_of_payments INT;
+ALTER TABLE investments ADD COLUMN IF NOT EXISTS monthly_return NUMERIC;
+ALTER TABLE investments ADD COLUMN IF NOT EXISTS amount_received_by_business NUMERIC;
+ALTER TABLE investments ADD COLUMN IF NOT EXISTS total_investor_value NUMERIC;
+ALTER TABLE investments ADD COLUMN IF NOT EXISTS principal_repayment TEXT;
+ALTER TABLE investments ADD COLUMN IF NOT EXISTS maturity_date DATE;
+
 -- ── 3. Investment Payments Table ──────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS investment_payments (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID REFERENCES user_profiles(id) ON DELETE CASCADE,
+  farm_id UUID REFERENCES farms(id) ON DELETE CASCADE,
   investment_id UUID REFERENCES investments(id) ON DELETE CASCADE,
   due_date DATE NOT NULL,
   payment_date DATE,
+  paid_date DATE,
   payment_period TEXT NOT NULL,
+  payment_type TEXT DEFAULT 'Monthly Return',     -- 'Monthly Return' | 'Principal + Return' | 'Upfront Return' | 'Maturity Repayment'
   amount_due NUMERIC NOT NULL DEFAULT 0,
+  scheduled_amount NUMERIC NOT NULL DEFAULT 0,
   amount_paid NUMERIC NOT NULL DEFAULT 0,
+  remaining_amount NUMERIC NOT NULL DEFAULT 0,
   payment_method TEXT DEFAULT 'Bank Transfer',
-  status TEXT NOT NULL DEFAULT 'Pending',         -- 'Pending' | 'Partial' | 'Paid' | 'Overdue'
+  status TEXT NOT NULL DEFAULT 'Pending',         -- 'Pending' | 'Due' | 'Partially Paid' | 'Paid' | 'Overdue'
   notes TEXT,
   recorded_by TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Safe Column Migrations for Investment Payments
+ALTER TABLE investment_payments ADD COLUMN IF NOT EXISTS farm_id UUID REFERENCES farms(id) ON DELETE CASCADE;
+ALTER TABLE investment_payments ADD COLUMN IF NOT EXISTS paid_date DATE;
+ALTER TABLE investment_payments ADD COLUMN IF NOT EXISTS payment_type TEXT DEFAULT 'Monthly Return';
+ALTER TABLE investment_payments ADD COLUMN IF NOT EXISTS scheduled_amount NUMERIC NOT NULL DEFAULT 0;
+ALTER TABLE investment_payments ADD COLUMN IF NOT EXISTS remaining_amount NUMERIC NOT NULL DEFAULT 0;
 
 -- ── 4. Pond Reports Table ─────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS pond_reports (

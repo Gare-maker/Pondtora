@@ -28,6 +28,11 @@ export interface TreatmentRecord { id:string; pondId:string; farmId:string; date
 export type WItem = {id:string;groupId:string;qty:string;discount:string;};
 
 /* ─── Investor Management Interfaces ───────────────────────────── */
+export type InvestmentPaymentMethod = "monthly_return" | "principal_plus_return" | "return_upfront";
+export type InvestmentStatus = "Active" | "Payment Due" | "Partially Paid" | "Completed" | "Overdue" | "Cancelled";
+export type InvestmentPaymentStatus = "Pending" | "Due" | "Partial" | "Partially Paid" | "Paid" | "Overdue";
+export type InvestmentPaymentType = "Monthly Return" | "Principal + Return" | "Upfront Return" | "Maturity Repayment" | "Principal Repayment" | "Other";
+
 export interface Investor {
   id: string;
   userId?: string;
@@ -48,16 +53,26 @@ export interface Investment {
   farmId: string;
   pondId?: string;
   fishStockId?: string;
-  amountInvested: number;
-  investorPercentage: number;
-  expectedReturn: number;
-  totalAmountDue: number;
+  investmentName?: string;
+  amountInvested: number; // Face value / capital
+  investorPercentage: number; // Return rate %
+  expectedReturn: number; // Total return amount
+  totalAmountDue: number; // Scheduled amount due
+  paymentMethod?: InvestmentPaymentMethod; // "monthly_return" | "principal_plus_return" | "return_upfront"
+  duration?: string; // e.g. "12 months"
+  durationMonths?: number;
+  numberOfPayments?: number;
+  monthlyReturn?: number;
+  amountReceivedByBusiness?: number; // For upfront return: amountInvested - expectedReturn
+  totalInvestorValue?: number; // Total value to investor (e.g. ₦1,150,000)
+  principalRepayment?: string; // Details of principal repayment
   startDate: string;
-  dueDate: string;
-  paymentType: "one-time" | "recurring";
+  dueDate: string; // End date / maturity date
+  maturityDate?: string;
+  paymentType?: "one-time" | "recurring";
   paymentFrequency?: "Monthly" | "Quarterly" | "Annually" | "Custom";
   customFrequencyDesc?: string;
-  status: "Active" | "Paid" | "Overdue" | "Completed";
+  status: InvestmentStatus;
   notes?: string;
   createdAt?: string;
   updatedAt?: string;
@@ -66,14 +81,19 @@ export interface Investment {
 export interface InvestmentPayment {
   id: string;
   userId?: string;
+  farmId?: string;
   investmentId: string;
   dueDate: string;
   paymentDate?: string;
+  paidDate?: string;
   paymentPeriod: string;
+  paymentType?: InvestmentPaymentType | string;
   amountDue: number;
+  scheduledAmount?: number;
   amountPaid: number;
+  remainingAmount?: number;
   paymentMethod?: string;
-  status: "Pending" | "Partial" | "Paid" | "Overdue";
+  status: InvestmentPaymentStatus;
   notes?: string;
   recordedBy?: string;
   createdAt?: string;

@@ -189,21 +189,24 @@ const CAMEL_MAP: Record<string, string> = {
   original_description: "originalDesc",
 };
 
-const DATE_FIELDS = new Set(["date", "purchase_date", "stocking_date", "cleared_date", "invoice_date", "due_date", "start_date", "payment_date", "report_date"]);
+const DATE_FIELDS = new Set(["date", "purchase_date", "stocking_date", "cleared_date", "invoice_date", "due_date", "start_date", "payment_date", "paid_date", "maturity_date", "report_date"]);
 
 const TABLE_ALLOWED_COLUMNS: Record<string, Set<string>> = {
   investors: new Set([
     "id", "user_id", "farm_id", "full_name", "phone", "email", "status", "notes", "created_at", "updated_at"
   ]),
   investments: new Set([
-    "id", "user_id", "investor_id", "farm_id", "pond_id", "fish_stock_id",
+    "id", "user_id", "investor_id", "farm_id", "pond_id", "fish_stock_id", "investment_name",
     "amount_invested", "investor_percentage", "expected_return", "total_amount_due",
-    "start_date", "due_date", "payment_type", "payment_frequency", "custom_frequency_desc",
+    "payment_method", "duration", "duration_months", "number_of_payments", "monthly_return",
+    "amount_received_by_business", "total_investor_value", "principal_repayment",
+    "start_date", "due_date", "maturity_date", "payment_type", "payment_frequency", "custom_frequency_desc",
     "status", "notes", "created_at", "updated_at"
   ]),
   investment_payments: new Set([
-    "id", "user_id", "farm_id", "investment_id", "due_date", "payment_date", "payment_period",
-    "amount_due", "amount_paid", "payment_method", "status", "notes", "recorded_by",
+    "id", "user_id", "farm_id", "investment_id", "due_date", "payment_date", "paid_date", "payment_period",
+    "payment_type", "amount_due", "scheduled_amount", "amount_paid", "remaining_amount",
+    "payment_method", "status", "notes", "recorded_by",
     "created_at", "updated_at"
   ]),
   pond_reports: new Set([

@@ -34,6 +34,7 @@ import { Toaster, toast } from "sonner";
 import { useDynamicPlans } from "../lib/plansStore";
 import { syncUserProfileToAdmin, getUserAdminOverride, logActivity, recordSuccessfulPayment, loadAllAdminUsers } from "../lib/userSync";
 import { initializePaystackCheckout, getActivePaystackPublicKey, loadPaystackConfig } from "../lib/paystack";
+import { derivePaymentStatus, deriveInvestmentStatus, generateInvestmentSchedule } from "../lib/investmentUtils";
 import confetti from "canvas-confetti";
 
 /* ─── Sidebar ───────────────────────────────────────────────── */
@@ -5799,69 +5800,133 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     }
   };
 
-  const handleRecordPayment=async(payment:InvestmentPayment)=>{
+  const handleRecordPayment = async (payment: InvestmentPayment) => {
     if (!canCreate("Investors") && !canEdit("Investors")) {
       toast.error("You do not have permission to record investor payments.");
       return;
     }
-    const fid=payment.farmId||activeFarmId||farms[0]?.id||"";
-    const cleanPay:InvestmentPayment={...payment,id:isUuid(payment.id)?payment.id:crypto.randomUUID(),farmId:fid};
-    setInvestmentPayments(prev=>[cleanPay,...prev]);
+    const fid = payment.farmId || activeFarmId || farms[0]?.id || "";
+    const due = Number(payment.amountDue) || 0;
+    const paid = Number(payment.amountPaid) || 0;
+    const remaining = Math.max(0, due - paid);
+    const derivedStatus = derivePaymentStatus({ ...payment, amountDue: due, amountPaid: paid });
+
+    const cleanPay: InvestmentPayment = {
+      ...payment,
+      id: isUuid(payment.id) ? payment.id : crypto.randomUUID(),
+      farmId: fid,
+      amountDue: due,
+      amountPaid: paid,
+      remainingAmount: remaining,
+      status: derivedStatus,
+      paymentDate: payment.paymentDate || TODAY,
+      paidDate: derivedStatus === "Paid" ? (payment.paymentDate || TODAY) : payment.paidDate,
+      updatedAt: new Date().toISOString(),
+    };
+
+    const nextPayments = investmentPayments.some(p => p.id === cleanPay.id)
+      ? investmentPayments.map(p => p.id === cleanPay.id ? cleanPay : p)
+      : [cleanPay, ...investmentPayments];
+
+    setInvestmentPayments(nextPayments);
+
+    // Sync parent investment status based on all payments
+    const parentInv = investments.find(i => i.id === cleanPay.investmentId);
+    if (parentInv) {
+      const invPayments = nextPayments.filter(p => p.investmentId === parentInv.id);
+      const newInvStatus = deriveInvestmentStatus(parentInv, invPayments);
+      if (newInvStatus !== parentInv.status) {
+        const updatedInv: Investment = { ...parentInv, status: newInvStatus, updatedAt: new Date().toISOString() };
+        setInvestments(prev => prev.map(i => i.id === parentInv.id ? updatedInv : i));
+        api.investments.update(updatedInv).catch(console.warn);
+      }
+    }
+
     try {
-      await api.investmentPayments.create(cleanPay);
+      if (investmentPayments.some(p => p.id === cleanPay.id)) {
+        await api.investmentPayments.update(cleanPay);
+      } else {
+        await api.investmentPayments.create(cleanPay);
+      }
       toast.success("Payment recorded successfully");
-    } catch(err:any) {
+    } catch (err: any) {
       console.error("Failed to persist payment:", err);
-      toast.error("Payment recorded locally — sync error");
+      toast.error("Payment saved locally — sync error");
     }
   };
 
-  const handleMarkPaymentPaid=async(paymentId:string)=>{
+  const handleMarkPaymentPaid = async (paymentId: string) => {
     if (!canEdit("Investors")) {
       toast.error("You do not have permission to update payments.");
       return;
     }
-    const p=investmentPayments.find(x=>x.id===paymentId);
-    if(!p)return;
-    const updated:InvestmentPayment={...p,status:"Paid",paymentDate:TODAY};
-    setInvestmentPayments(prev=>prev.map(x=>x.id===paymentId?updated:x));
+    const p = investmentPayments.find(x => x.id === paymentId);
+    if (!p) return;
+
+    const due = Number(p.amountDue) || 0;
+    const updated: InvestmentPayment = {
+      ...p,
+      amountPaid: due,
+      remainingAmount: 0,
+      status: "Paid",
+      paymentDate: TODAY,
+      paidDate: TODAY,
+      updatedAt: new Date().toISOString(),
+    };
+
+    const nextPayments = investmentPayments.map(x => x.id === paymentId ? updated : x);
+    setInvestmentPayments(nextPayments);
+
+    // Sync parent investment status
+    const parentInv = investments.find(i => i.id === p.investmentId);
+    if (parentInv) {
+      const invPayments = nextPayments.filter(item => item.investmentId === parentInv.id);
+      const newInvStatus = deriveInvestmentStatus(parentInv, invPayments);
+      if (newInvStatus !== parentInv.status) {
+        const updatedInv: Investment = { ...parentInv, status: newInvStatus, updatedAt: new Date().toISOString() };
+        setInvestments(prev => prev.map(i => i.id === parentInv.id ? updatedInv : i));
+        api.investments.update(updatedInv).catch(console.warn);
+      }
+    }
+
     try {
       await api.investmentPayments.update(updated);
       toast.success("Payment marked as Paid");
-    } catch(err:any) {
+    } catch (err: any) {
       console.error("Failed to update payment status:", err);
       toast.error("Updated locally — sync error");
     }
   };
 
-  const handleAddPondReport=async(r:PondReport)=>{
+  const handleAddPondReport = async (r: PondReport) => {
     if (!isOwner && !canCreate("Reports") && !canCreate("Pond Management") && !hasPerm("Reports") && !hasPerm("Pond Management")) {
       toast.error("You do not have permission to submit pond reports.");
       return;
     }
-    const fid=r.farmId||activeFarmId||farms[0]?.id||"";
-    const nr:PondReport={
+    const fid = r.farmId || activeFarmId || farms[0]?.id || "";
+    const nr: PondReport = {
       ...r,
-      id:isUuid(r.id)?r.id:crypto.randomUUID(),
-      farmId:fid,
+      id: isUuid(r.id) ? r.id : crypto.randomUUID(),
+      farmId: fid,
       authorRole: isStaff ? "staff" : "owner",
       createdByRole: isStaff ? "staff" : "owner",
       createdById: userProfile?.id || null,
       isStaffSubmission: isStaff,
     };
-    setPondReports(prev=>[nr,...prev]);
+    setPondReports(prev => [nr, ...prev]);
     try {
       await api.pondReports.create(nr);
       toast.success("Pond report submitted successfully");
-    } catch(err:any) {
+    } catch (err: any) {
       console.error("Failed to persist pond report:", err);
       toast.error("Pond report saved locally — sync error");
     }
   };
-  const notifications=useMemo(()=>{
+
+  const notifications = useMemo(() => {
     if (!canView("Notifications")) return [];
-    const notifs:AppNotification[]=[];
-    const farm=farms.find(f=>f.id===activeFarmId)||farms[0];
+    const notifs: AppNotification[] = [];
+    const farm = farms.find(f => f.id === activeFarmId) || farms[0];
 
     const canSeeFeeding = hasPerm("Feeding Records") || hasPerm("Pond Management");
     const canSeeInventory = hasPerm("Feed Stock");
@@ -5869,12 +5934,12 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     const canSeeInvoices = hasPerm("Invoices");
     const canSeeReports = hasPerm("Reports");
 
-    const fedToday=new Set(
+    const fedToday = new Set(
       farmFeeding
-        .filter(r=>r&&isSameDate(r.date,TODAY)&&((Number(r.total)||0)>0||(Number(r.morning)||0)>0||(Number(r.evening)||0)>0))
-        .map(r=>r.pond)
+        .filter(r => r && isSameDate(r.date, TODAY) && ((Number(r.total) || 0) > 0 || (Number(r.morning) || 0) > 0 || (Number(r.evening) || 0) > 0))
+        .map(r => r.pond)
     );
-    const bagsToday=farmBagLogs.some(b=>b&&isSameDate(b.date,TODAY)&&(Number(b.bagsOpened)||0)>0);
+    const bagsToday = farmBagLogs.some(b => b && isSameDate(b.date, TODAY) && (Number(b.bagsOpened) || 0) > 0);
 
     // Guards: only alert for feeding and opening bags if feed is added and active ponds exist
     const hasFeedCreated = farmInventory.length > 0 && farmInventory.some(i => (Number(i.bags) || 0) > 0);
@@ -5899,37 +5964,39 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
 
     // Feed inventory low-stock alerts (≤3 bags remaining) - only if feed inventory exists
     if (canSeeInventory && farmInventory.length > 0) {
-      const openedByKey=bagLogs.reduce<Record<string,number>>((acc,b)=>{const k=`${b.brand}|${b.size}`;acc[k]=(acc[k]||0)+b.bagsOpened;return acc;},{});
-      const invByKey=farmInventory.reduce<Record<string,number>>((acc,i)=>{const k=`${i.brand}|${i.size}`;acc[k]=(acc[k]||0)+i.bags;return acc;},{});
-      Object.entries(invByKey).forEach(([k,total])=>{
-        const inStock=Math.max(0,total-(openedByKey[k]||0));
-        if(inStock<=3&&inStock>=0){
-          const nid=`inv-low-${activeFarmId}-${k}`;
-          if(!dismissedNotifIds.has(nid)){
-            const[brand,size]=k.split("|");
-            notifs.push({id:nid,type:"bags" as any,farmId:activeFarmId,farmName:farm?.name||"",date:TODAY,read:readNotifIds.has(nid),message:`Low stock: ${brand} ${size} — only ${inStock} bag${inStock!==1?"s":""} remaining`});
+      const openedByKey = bagLogs.reduce<Record<string, number>>((acc, b) => { const k = `${b.brand}|${b.size}`; acc[k] = (acc[k] || 0) + b.bagsOpened; return acc; }, {});
+      const invByKey = farmInventory.reduce<Record<string, number>>((acc, i) => { const k = `${i.brand}|${i.size}`; acc[k] = (acc[k] || 0) + i.bags; return acc; }, {});
+      Object.entries(invByKey).forEach(([k, total]) => {
+        const inStock = Math.max(0, total - (openedByKey[k] || 0));
+        if (inStock <= 3 && inStock >= 0) {
+          const nid = `inv-low-${activeFarmId}-${k}`;
+          if (!dismissedNotifIds.has(nid)) {
+            const [brand, size] = k.split("|");
+            notifs.push({ id: nid, type: "bags" as any, farmId: activeFarmId, farmName: farm?.name || "", date: TODAY, read: readNotifIds.has(nid), message: `Low stock: ${brand} ${size} — only ${inStock} bag${inStock !== 1 ? "s" : ""} remaining` });
           }
         }
       });
     }
 
-    // Investor payment due reminders (7 days advance) & overdue alerts
+    // Investor payment due reminders, maturity reminders & overdue alerts
     if (canSeeInvestors) {
       farmInvestments.forEach(inv => {
         if (inv.status === "Completed") return;
         const investor = investors.find(i => i.id === inv.investorId);
         const investorName = investor?.fullName || "Investor";
         const invPayments = farmPayments.filter(p => p.investmentId === inv.id);
-        const totalPaid = invPayments.filter(p => p.status === "Paid").reduce((s, p) => s + (Number(p.amount) || 0), 0);
-        const totalExpected = Number(inv.expectedReturnAmount) || 0;
-        const remaining = Math.max(0, totalExpected - totalPaid);
-        if (remaining <= 0) return;
 
-        const pending = invPayments.filter(p => p.status === "Pending");
-        if (pending.length > 0) {
-          pending.forEach(p => {
-            if (!p.dueDate) return;
+        if (invPayments.length > 0) {
+          invPayments.forEach(p => {
+            const due = Number(p.amountDue) || 0;
+            const paid = Number(p.amountPaid) || 0;
+            const remaining = Math.max(0, due - paid);
+            if (remaining <= 0 || !p.dueDate) return;
+
+            const isDueToday = isSameDate(p.dueDate, TODAY);
             const diffDays = Math.ceil((new Date(p.dueDate).getTime() - new Date(TODAY).getTime()) / (1000 * 60 * 60 * 24));
+            const pType = p.paymentType || (p.paymentPeriod?.toLowerCase().includes("maturity") ? "Maturity Repayment" : "Monthly Return");
+
             if (diffDays < 0) {
               const nid = `inv-overdue-${p.id}`;
               if (!dismissedNotifIds.has(nid)) {
@@ -5940,11 +6007,28 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
                   farmName: farm?.name || "",
                   date: TODAY,
                   read: readNotifIds.has(nid),
-                  message: `Overdue Investor Payment: ${investorName} — ₦${p.amount.toLocaleString()} was due on ${p.dueDate}`,
+                  message: `Overdue Payment: ${investorName} — Your ${pType} payment of ₦${remaining.toLocaleString()} is overdue (Due: ${p.dueDate}).`,
                 });
               }
-            } else if (diffDays <= 7) {
-              const nid = `inv-due-${p.id}`;
+            } else if (isDueToday || diffDays === 0) {
+              const nid = `inv-due-today-${p.id}`;
+              if (!dismissedNotifIds.has(nid)) {
+                const isMaturity = pType === "Maturity Repayment" || p.paymentPeriod?.toLowerCase().includes("maturity");
+                const msg = isMaturity
+                  ? `Investment Maturity Payment Due: ${investorName} — Your investment of ₦${(Number(inv.amountInvested) || remaining).toLocaleString()} has reached its maturity date. ₦${remaining.toLocaleString()} is due today.`
+                  : `Payment Due: ${investorName} — Your ${pType} payment of ₦${remaining.toLocaleString()} is due today.`;
+                notifs.push({
+                  id: nid,
+                  type: "investor",
+                  farmId: activeFarmId,
+                  farmName: farm?.name || "",
+                  date: TODAY,
+                  read: readNotifIds.has(nid),
+                  message: msg,
+                });
+              }
+            } else if (diffDays <= 3) {
+              const nid = `inv-upcoming-${p.id}`;
               if (!dismissedNotifIds.has(nid)) {
                 notifs.push({
                   id: nid,
@@ -5953,40 +6037,11 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
                   farmName: farm?.name || "",
                   date: TODAY,
                   read: readNotifIds.has(nid),
-                  message: `Upcoming Investor Payment: ${investorName} — ₦${p.amount.toLocaleString()} due in ${diffDays} day${diffDays === 1 ? "" : "s"} (${p.dueDate})`,
+                  message: `Upcoming Payment: ${investorName} — Your ${pType} payment of ₦${remaining.toLocaleString()} is due in ${diffDays} day${diffDays === 1 ? "" : "s"} (${p.dueDate}).`,
                 });
               }
             }
           });
-        } else if (inv.payoutDueDate) {
-          const diffDays = Math.ceil((new Date(inv.payoutDueDate).getTime() - new Date(TODAY).getTime()) / (1000 * 60 * 60 * 24));
-          if (diffDays < 0) {
-            const nid = `inv-overdue-${inv.id}`;
-            if (!dismissedNotifIds.has(nid)) {
-              notifs.push({
-                id: nid,
-                type: "investor",
-                farmId: activeFarmId,
-                farmName: farm?.name || "",
-                date: TODAY,
-                read: readNotifIds.has(nid),
-                message: `Overdue Investor Payment: ${investorName} — ₦${remaining.toLocaleString()} was due on ${inv.payoutDueDate}`,
-              });
-            }
-          } else if (diffDays <= 7) {
-            const nid = `inv-due-${inv.id}`;
-            if (!dismissedNotifIds.has(nid)) {
-              notifs.push({
-                id: nid,
-                type: "investor",
-                farmId: activeFarmId,
-                farmName: farm?.name || "",
-                date: TODAY,
-                read: readNotifIds.has(nid),
-                message: `Upcoming Investor Payment: ${investorName} — ₦${remaining.toLocaleString()} due in ${diffDays} day${diffDays === 1 ? "" : "s"} (${inv.payoutDueDate})`,
-              });
-            }
-          }
         }
       });
     }
