@@ -187,7 +187,7 @@ export function derivePaymentStatus(payment: Partial<InvestmentPayment>, todaySt
   const due = Number(payment.amountDue) || 0;
   const paid = Number(payment.amountPaid) || 0;
 
-  if (due > 0 && paid >= due) {
+  if ((due > 0 && paid >= due) || (due === 0 && paid > 0)) {
     return "Paid";
   }
   if (paid > 0 && paid < due) {
@@ -220,13 +220,19 @@ export function deriveInvestmentStatus(
     return (investment.status as InvestmentStatus) || "Active";
   }
 
-  const allPaid = payments.every(p => (Number(p.amountPaid) || 0) >= (Number(p.amountDue) || 0));
+  const allPaid = payments.every(p => {
+    const due = Number(p.amountDue) || 0;
+    const paid = Number(p.amountPaid) || 0;
+    return (due > 0 && paid >= due) || (due === 0 && paid > 0);
+  });
   if (allPaid) {
     return "Completed";
   }
 
   const anyOverdue = payments.some(p => {
-    const isPaid = (Number(p.amountPaid) || 0) >= (Number(p.amountDue) || 0);
+    const due = Number(p.amountDue) || 0;
+    const paid = Number(p.amountPaid) || 0;
+    const isPaid = (due > 0 && paid >= due) || (due === 0 && paid > 0);
     if (isPaid) return false;
     return p.dueDate && new Date(p.dueDate) < new Date(todayStr);
   });
@@ -235,7 +241,9 @@ export function deriveInvestmentStatus(
   }
 
   const anyDueToday = payments.some(p => {
-    const isPaid = (Number(p.amountPaid) || 0) >= (Number(p.amountDue) || 0);
+    const due = Number(p.amountDue) || 0;
+    const paid = Number(p.amountPaid) || 0;
+    const isPaid = (due > 0 && paid >= due) || (due === 0 && paid > 0);
     if (isPaid) return false;
     return p.dueDate && isSameDate(p.dueDate, todayStr);
   });
@@ -282,7 +290,9 @@ export function calculateInvestmentDashboardStats(
   
   const totalPaid = payments.reduce((sum, p) => sum + (Number(p.amountPaid) || 0), 0);
   const totalScheduled = payments.reduce((sum, p) => sum + (Number(p.amountDue) || 0), 0);
-  const totalRemaining = Math.max(0, totalScheduled - totalPaid);
+  const totalInvestmentDue = investments.reduce((sum, inv) => sum + (Number(inv.totalAmountDue) || (Number(inv.amountInvested) || 0) + (Number(inv.expectedReturn) || 0)), 0);
+  const totalObligations = totalScheduled > 0 ? totalScheduled : totalInvestmentDue;
+  const totalRemaining = Math.max(0, totalObligations - totalPaid);
 
   let upcomingCount = 0;
   let upcomingAmount = 0;
