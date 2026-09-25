@@ -5680,9 +5680,11 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
 
     let nextInvestments = investments;
     let nextPayments = investmentPayments;
+    let cleanInvestment: Investment | null = null;
+    let cleanPayments: InvestmentPayment[] = [];
 
     if (investment && (investment.amountInvested > 0 || investment.investmentName)) {
-      const cleanInvestment: Investment = {
+      cleanInvestment = {
         ...investment,
         id: isUuid(investment.id) ? investment.id : crypto.randomUUID(),
         investorId: cleanInvestor.id,
@@ -5692,10 +5694,10 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       setInvestments(nextInvestments);
 
       if (payments && payments.length > 0) {
-        const cleanPayments = payments.map(p => ({
+        cleanPayments = payments.map(p => ({
           ...p,
           id: isUuid(p.id) ? p.id : crypto.randomUUID(),
-          investmentId: cleanInvestment.id,
+          investmentId: cleanInvestment!.id,
           farmId: fid,
         }));
         nextPayments = [...cleanPayments, ...investmentPayments];
@@ -5703,7 +5705,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       }
     }
 
-    // Synchronize to localStorage immediately
+    // Synchronize to localStorage immediately (instant 0ms)
     if (userProfile?.id) {
       const uids = [userProfile.id];
       if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) uids.push(userProfile.ownerId);
@@ -5714,24 +5716,20 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       });
     }
 
-    // Persist to Supabase
-    try {
-      await api.investors.create(cleanInvestor);
-      if (investment && (investment.amountInvested > 0 || investment.investmentName)) {
-        const cleanInvestment = nextInvestments.find(i => i.investorId === cleanInvestor.id);
+    // Persist to Supabase asynchronously in background without blocking UI
+    (async () => {
+      try {
+        await api.investors.create(cleanInvestor);
         if (cleanInvestment) {
           await api.investments.create(cleanInvestment);
-          const invPayments = nextPayments.filter(p => p.investmentId === cleanInvestment.id);
-          for (const p of invPayments) {
-            await api.investmentPayments.create(p).catch(err => {
-              console.warn("Investment payment create sync notice:", err);
-            });
+          if (cleanPayments.length > 0) {
+            await Promise.all(cleanPayments.map(p => api.investmentPayments.create(p).catch(console.warn)));
           }
         }
+      } catch (err: any) {
+        console.warn("Investor backend sync notice:", err);
       }
-    } catch (err: any) {
-      console.warn("Investor backend sync notice:", err);
-    }
+    })();
   };
 
   const handleEditInvestor = async (inv: Investor) => {
@@ -5800,9 +5798,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
           await api.investmentPayments.remove(op.id).catch(() => {});
         }
         const updatedInvPayments = nextPayments.filter(p => p.investmentId === inv.id);
-        for (const np of updatedInvPayments) {
-          await api.investmentPayments.create(np).catch(() => {});
-        }
+        await Promise.all(updatedInvPayments.map(np => api.investmentPayments.create(np).catch(console.warn)));
       }
       toast.success("Investment updated");
     } catch (err: any) {
@@ -5841,27 +5837,13 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       });
     }
 
-    try {
-      await api.investors.remove(id);
-      toast.success("Investor deleted");
-    } catch (err: any) {
-      console.error("Failed to delete investor:", err);
-      unmarkDeletedId(id);
-      toDelInvIds.forEach(invId => unmarkDeletedId(invId));
-      setInvestors(prevInvestors);
-      setInvestments(prevInvestments);
-      setInvestmentPayments(prevPayments);
-      if (userProfile?.id) {
-        const uids = [userProfile.id];
-        if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) uids.push(userProfile.ownerId);
-        uids.forEach(u => {
-          saveLocal(`pondtora_${u}_investors`, prevInvestors);
-          saveLocal(`pondtora_${u}_investments`, prevInvestments);
-          saveLocal(`pondtora_${u}_investment_payments`, prevPayments);
-        });
+    (async () => {
+      try {
+        await api.investors.remove(id);
+      } catch (err: any) {
+        console.warn("Failed to delete investor backend sync notice:", err);
       }
-      toast.error(err?.message || "Failed to delete investor. Kept visible.");
-    }
+    })();
   };
 
   const deletePondReport = async (id: string) => {

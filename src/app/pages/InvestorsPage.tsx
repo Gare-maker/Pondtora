@@ -224,7 +224,7 @@ export default function InvestorsPage({
 
   const investorInvestments = useMemo(() => {
     if (!selectedInvestorId) return [];
-    return investments.filter(inv => inv.investorId === selectedInvestorId);
+    return investments.filter(inv => inv.investorId === selectedInvestorId || inv.id === selectedInvestorId);
   }, [selectedInvestorId, investments]);
 
   const activeInvestment = useMemo(() => {
@@ -252,7 +252,7 @@ export default function InvestorsPage({
   // Enriched investor list for table/cards
   const enrichedInvestors = useMemo(() => {
     return investors.map(inv => {
-      const invList = investments.filter(item => item.investorId === inv.id);
+      const invList = investments.filter(item => item.investorId === inv.id || item.id === inv.id);
       const primaryInv = invList[0];
       const invPayments = primaryInv ? payments.filter(p => p.investmentId === primaryInv.id) : [];
 
@@ -291,7 +291,7 @@ export default function InvestorsPage({
     });
   }, [investors, investments, payments, farms, ponds]);
 
-  // Filtered Investors (Only Search + Active / Completed tabs)
+  // Filtered Investors (Search + Active / Completed tabs)
   const filteredInvestors = useMemo(() => {
     return enrichedInvestors.filter(item => {
       const q = searchQuery.toLowerCase().trim();
@@ -316,7 +316,7 @@ export default function InvestorsPage({
   }, [enrichedInvestors, searchQuery, statusFilter]);
 
   // ── Live Calculations for Add Form ──
-  const addAmt = Number(addForm.amountInvested) || 0;
+  const addAmt = Number(String(addForm.amountInvested).replace(/,/g, "")) || 0;
   const addPct = Number(addForm.investorPercentage) || 0;
   const addNumPayments = Math.max(1, parseInt(addForm.numberOfPayments, 10) || 12);
   const addReturnAmt = calculateReturnAmount(addAmt, addPct);
@@ -326,7 +326,7 @@ export default function InvestorsPage({
   const addTotalInvestorValue = calculateTotalInvestorValue(addAmt, addReturnAmt);
 
   // ── Live Calculations for Edit Form ──
-  const editAmt = Number(editForm.amountInvested) || 0;
+  const editAmt = Number(String(editForm.amountInvested).replace(/,/g, "")) || 0;
   const editPct = Number(editForm.investorPercentage) || 0;
   const editNumPayments = Math.max(1, parseInt(editForm.numberOfPayments, 10) || 12);
   const editReturnAmt = calculateReturnAmount(editAmt, editPct);
@@ -356,7 +356,7 @@ export default function InvestorsPage({
       return;
     }
 
-    const primaryInv = investmentTarget || investments.find(i => i.investorId === inv.id) || activeInvestment;
+    const primaryInv = investmentTarget || investments.find(i => i.investorId === inv.id || i.id === inv.id) || activeInvestment;
     const invPayments = paymentsTarget || (primaryInv ? payments.filter(p => p.investmentId === primaryInv.id) : investmentPayments);
     const farmObj = farms.find(f => f.id === (primaryInv?.farmId || inv.farmId)) || farms[0];
     const farmName = farmObj?.name || "Pondtora Farm";
@@ -369,6 +369,55 @@ export default function InvestorsPage({
     const totalPaid = invPayments.reduce((s, p) => s + (Number(p.amountPaid) || 0), 0);
     const outstanding = Math.max(0, totalDue - totalPaid);
     const receiptRef = `INV-${inv.fullName.replace(/[^A-Za-z0-9]/g, "").slice(0, 3).toUpperCase()}-${(primaryInv?.id || inv.id).slice(0, 8).toUpperCase()}`;
+
+    // Structure specific metrics
+    const paymentMethod = primaryInv?.paymentMethod || "monthly_return";
+    let structureMetricsHtml = "";
+    if (paymentMethod === "monthly_return") {
+      const mReturn = Number(primaryInv?.monthlyReturn) || calculateMonthlyReturn(expectedReturn, primaryInv?.numberOfPayments || 12);
+      structureMetricsHtml = `
+        <div style="display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed #e2e8f0; font-size: 12px;">
+          <span style="color: #64748b;">Monthly Return Installment:</span>
+          <strong style="color: #047857;">${currency}${mReturn.toLocaleString()} / month</strong>
+        </div>
+        <div style="display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed #e2e8f0; font-size: 12px;">
+          <span style="color: #64748b;">Total Expected Return:</span>
+          <strong style="color: #047857;">${currency}${expectedReturn.toLocaleString()}</strong>
+        </div>
+        <div style="display: flex; justify-content: space-between; padding: 4px 0; font-size: 12px;">
+          <span style="color: #64748b;">Total Investor Value at Maturity:</span>
+          <strong style="color: #0f172a;">${currency}${(Number(primaryInv?.totalInvestorValue) || (amountInvested + expectedReturn)).toLocaleString()}</strong>
+        </div>
+      `;
+    } else if (paymentMethod === "principal_plus_return") {
+      const pPlusR = Number(primaryInv?.totalAmountDue) || calculatePrincipalPlusReturn(amountInvested, expectedReturn);
+      structureMetricsHtml = `
+        <div style="display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed #e2e8f0; font-size: 12px;">
+          <span style="color: #64748b;">Agreed Return Amount:</span>
+          <strong style="color: #047857;">${currency}${expectedReturn.toLocaleString()} (${agreedPercentage}%)</strong>
+        </div>
+        <div style="display: flex; justify-content: space-between; padding: 4px 0; font-size: 12px;">
+          <span style="color: #64748b;">Full Payout on Maturity (Principal + Return):</span>
+          <strong style="color: #0f172a; font-size: 14px;">${currency}${pPlusR.toLocaleString()}</strong>
+        </div>
+      `;
+    } else {
+      const netReceived = Number(primaryInv?.amountReceivedByBusiness) || calculateAmountReceivedByBusiness(amountInvested, expectedReturn);
+      structureMetricsHtml = `
+        <div style="display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed #e2e8f0; font-size: 12px;">
+          <span style="color: #64748b;">Upfront Return Deducted:</span>
+          <strong style="color: #047857;">${currency}${expectedReturn.toLocaleString()} (${agreedPercentage}%)</strong>
+        </div>
+        <div style="display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px dashed #e2e8f0; font-size: 12px;">
+          <span style="color: #64748b;">Net Amount Received by Farm:</span>
+          <strong style="color: #1d4ed8;">${currency}${netReceived.toLocaleString()}</strong>
+        </div>
+        <div style="display: flex; justify-content: space-between; padding: 4px 0; font-size: 12px;">
+          <span style="color: #64748b;">Maturity Capital Return:</span>
+          <strong style="color: #0f172a;">${currency}${amountInvested.toLocaleString()}</strong>
+        </div>
+      `;
+    }
 
     const paymentRowsHtml = (invPayments && invPayments.length > 0)
       ? invPayments.map((p, idx) => {
@@ -406,7 +455,7 @@ export default function InvestorsPage({
         <style>
           * { box-sizing: border-box; margin: 0; padding: 0; }
           body { font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, Helvetica, Arial, sans-serif; background: #fff; color: #0f172a; padding: 28px; line-height: 1.4; }
-          .receipt-box { max-width: 800px; margin: 0 auto; border: 1px solid #cbd5e1; border-radius: 12px; padding: 28px; background: #fff; }
+          .receipt-box { max-width: 820px; margin: 0 auto; border: 1px solid #cbd5e1; border-radius: 12px; padding: 28px; background: #fff; }
           .header-table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
           .brand-title { font-size: 22px; font-weight: 800; color: #00BB58; letter-spacing: -0.5px; }
           .receipt-title { font-size: 14px; font-weight: 800; color: #0f172a; text-transform: uppercase; letter-spacing: 1px; text-align: right; }
@@ -420,6 +469,7 @@ export default function InvestorsPage({
           .info-label { color: #64748b; font-size: 11px; }
           .info-value { font-weight: 600; color: #0f172a; }
           .summary-card { background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 14px; margin: 16px 0; }
+          .structure-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; margin: 14px 0; }
           .schedule-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
           .schedule-table th { background: #f1f5f9; padding: 8px 10px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: #475569; border-bottom: 1px solid #cbd5e1; }
           .footer-section { margin-top: 28px; padding-top: 16px; border-top: 1px dashed #cbd5e1; }
@@ -450,7 +500,7 @@ export default function InvestorsPage({
 
           <hr class="divider" />
 
-          <!-- Investor & Farm Info -->
+          <!-- Investor & Structure Info -->
           <table class="grid-2">
             <tr>
               <td>
@@ -463,7 +513,7 @@ export default function InvestorsPage({
                 </div>
               </td>
               <td>
-                <div class="section-title">Investment Structure</div>
+                <div class="section-title">Investment Terms & Dates</div>
                 <div class="info-card">
                   <div class="info-row"><span class="info-label">Payment Method:</span><span class="info-value">${formatPaymentMethod(primaryInv?.paymentMethod)}</span></div>
                   <div class="info-row"><span class="info-label">Start Date:</span><span class="info-value" style="font-family: monospace;">${primaryInv?.startDate || TODAY}</span></div>
@@ -497,6 +547,12 @@ export default function InvestorsPage({
                 </td>
               </tr>
             </table>
+          </div>
+
+          <!-- Structure Specific Breakdown -->
+          <div class="structure-box">
+            <div class="section-title">Structure Breakdown: ${formatPaymentMethod(primaryInv?.paymentMethod)}</div>
+            ${structureMetricsHtml}
           </div>
 
           <!-- Schedule & Payout History Table -->
@@ -641,7 +697,7 @@ export default function InvestorsPage({
       updatedAt: new Date().toISOString(),
     };
 
-    const targetInvId = activeInvestment?.id || uid();
+    const targetInvId = activeInvestment?.id || crypto.randomUUID();
     const updatedInvestment: Investment = {
       id: targetInvId,
       investorId: selectedInvestor.id,
@@ -681,16 +737,16 @@ export default function InvestorsPage({
     });
 
     try {
-      await onEditInvestor(updatedInvestor);
-      await onEditInvestment(updatedInvestment, regeneratedPayments);
       setShowEditInvestmentModal(false);
+      onEditInvestor(updatedInvestor);
+      onEditInvestment(updatedInvestment, regeneratedPayments);
       toast.success("Investment updated successfully. You can download the updated receipt.");
     } catch (err: any) {
       toast.error(err?.message || "Failed to update investment");
     }
   };
 
-  // Handle Add Investor
+  // Handle Add Investor (Instant Save & Show Receipt Modal)
   const handleCreateInvestor = async (e: React.FormEvent) => {
     e.preventDefault();
     const nameTrimmed = addForm.fullName.trim();
@@ -719,8 +775,8 @@ export default function InvestorsPage({
       return;
     }
 
-    const investorId = uid();
-    const investmentId = uid();
+    const investorId = crypto.randomUUID();
+    const investmentId = crypto.randomUUID();
 
     let totalAmountDue = addReturnAmt;
     if (addForm.paymentMethod === "principal_plus_return") {
@@ -779,46 +835,46 @@ export default function InvestorsPage({
       numberOfPayments: addNumPayments,
     });
 
-    try {
-      await onAddInvestor(newInvestor, newInvestment, generatedPayments);
-      setShowAddModal(false);
-      toast.success("Investor record and investment schedule created successfully!");
+    // Close creation modal immediately (0ms instant response)
+    setShowAddModal(false);
+    toast.success("Investor record and investment schedule created successfully!");
 
-      // Open Post-Creation Success & Receipt Modal
-      setCreatedSuccessData({
-        investor: newInvestor,
-        investment: newInvestment,
-        payments: generatedPayments,
-      });
+    // Open Post-Creation Success & Receipt Modal
+    setCreatedSuccessData({
+      investor: newInvestor,
+      investment: newInvestment,
+      payments: generatedPayments,
+    });
 
-      // Reset form
-      setAddForm({
-        fullName: "",
-        phone: "",
-        email: "",
-        notes: "",
-        paymentMethod: "monthly_return",
-        amountInvested: "",
-        investorPercentage: "",
-        durationMonths: "12",
-        numberOfPayments: "12",
-        startDate: TODAY,
-        dueDate: "",
-        principalRepayment: "Principal capital returned at maturity",
-        farmId: activeFarmId || farms[0]?.id || "",
-        pondId: "",
-        fishStockId: "",
-      });
-    } catch (err: any) {
-      console.error(err);
-      toast.error(err?.message || "Failed to save investor");
-    }
+    // Execute save in state & storage
+    onAddInvestor(newInvestor, newInvestment, generatedPayments).catch(err => {
+      console.warn("Save investor warning:", err);
+    });
+
+    // Reset form
+    setAddForm({
+      fullName: "",
+      phone: "",
+      email: "",
+      notes: "",
+      paymentMethod: "monthly_return",
+      amountInvested: "",
+      investorPercentage: "",
+      durationMonths: "12",
+      numberOfPayments: "12",
+      startDate: TODAY,
+      dueDate: "",
+      principalRepayment: "Principal capital returned at maturity",
+      farmId: activeFarmId || farms[0]?.id || "",
+      pondId: "",
+      fishStockId: "",
+    });
   };
 
   // Open Record Payment Modal
   const openRecordPayment = (targetPayment?: InvestmentPayment, targetInvestorId?: string) => {
     const invId = targetInvestorId || selectedInvestorId || (targetPayment ? investments.find(i => i.id === targetPayment.investmentId)?.investorId : "") || investors[0]?.id || "";
-    const invInvestments = investments.filter(i => i.investorId === invId);
+    const invInvestments = investments.filter(i => i.investorId === invId || i.id === invId);
     const primaryInv = invInvestments[0];
     const invPayments = primaryInv ? payments.filter(p => p.investmentId === primaryInv.id) : [];
 
@@ -876,8 +932,8 @@ export default function InvestorsPage({
   const handleSaveEditPayment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingPayment) return;
-    const dueAmt = Number(payForm.amountDue);
-    const paidAmt = Number(payForm.amountPaid);
+    const dueAmt = Number(String(payForm.amountDue).replace(/,/g, ""));
+    const paidAmt = Number(String(payForm.amountPaid).replace(/,/g, ""));
 
     if (isNaN(dueAmt) || dueAmt < 0) {
       toast.error("Please enter a valid amount due");
@@ -912,10 +968,10 @@ export default function InvestorsPage({
       updatedAt: new Date().toISOString(),
     };
 
+    setShowEditPaymentModal(false);
+    setEditingPayment(null);
     try {
       await onRecordPayment(updatedPayment);
-      setShowEditPaymentModal(false);
-      setEditingPayment(null);
       toast.success("Payment record updated successfully");
     } catch (err: any) {
       console.error(err);
@@ -926,16 +982,18 @@ export default function InvestorsPage({
   // Submit Record Payment
   const handleSavePayment = async (e: React.FormEvent) => {
     e.preventDefault();
-    const payAmt = Number(payForm.amountPaid);
+    const payAmt = Number(String(payForm.amountPaid).replace(/,/g, ""));
     if (isNaN(payAmt) || payAmt <= 0) {
       toast.error("Please enter a valid amount paid");
       return;
     }
 
     const invId = payForm.investorId || selectedInvestorId || investors[0]?.id;
-    const invInvestments = investments.filter(i => i.investorId === invId);
+    const invInvestments = investments.filter(i => i.investorId === invId || i.id === invId);
     const primaryInv = invInvestments[0];
     const fid = primaryInv?.farmId || activeFarmId || farms[0]?.id || "";
+
+    setShowRecordPaymentModal(false);
 
     if (paymentTargetPeriod) {
       const currentPaid = Number(paymentTargetPeriod.amountPaid) || 0;
@@ -964,14 +1022,13 @@ export default function InvestorsPage({
 
       try {
         await onRecordPayment(updatedPayment);
-        setShowRecordPaymentModal(false);
       } catch (err: any) {
         console.error(err);
         toast.error(err?.message || "Failed to record payment");
       }
     } else if (primaryInv) {
       const newPayment: InvestmentPayment = {
-        id: uid(),
+        id: crypto.randomUUID(),
         farmId: fid,
         investmentId: primaryInv.id,
         dueDate: payForm.paymentDate || TODAY,
@@ -993,7 +1050,6 @@ export default function InvestorsPage({
 
       try {
         await onRecordPayment(newPayment);
-        setShowRecordPaymentModal(false);
       } catch (err: any) {
         console.error(err);
         toast.error(err?.message || "Failed to record payment");
@@ -1024,20 +1080,20 @@ export default function InvestorsPage({
     }
   };
 
-  // Execute Delete Investor
-  const executeDeleteInvestor = async (inv: Investor) => {
-    try {
-      await onDeleteInvestor(inv.id);
-      if (selectedInvestorId === inv.id) {
-        setSelectedInvestorId(null);
-        scrollToTop();
-      }
-      setInvestorToDelete(null);
-      toast.success(`Investor "${inv.fullName}" deleted successfully`);
-    } catch (err: any) {
-      console.error(err);
-      toast.error(err?.message || "Failed to delete investor");
+  // Execute Delete Investor (Closes popup instantly and updates state)
+  const executeDeleteInvestor = (inv: Investor) => {
+    const targetId = inv.id;
+    // Close modal instantly
+    setInvestorToDelete(null);
+    if (selectedInvestorId === targetId) {
+      setSelectedInvestorId(null);
+      scrollToTop();
     }
+    toast.success(`Investor "${inv.fullName}" deleted`);
+
+    onDeleteInvestor(targetId).catch(err => {
+      console.error(err);
+    });
   };
 
   return (
@@ -1077,10 +1133,10 @@ export default function InvestorsPage({
               <button
                 type="button"
                 onClick={() => openRecordPayment()}
-                className="h-9 px-3 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors shrink-0 shadow-xs max-w-[140px] sm:max-w-none"
+                className="h-9 px-3 rounded-xl border-2 border-[#00BB58] bg-emerald-50/60 hover:bg-emerald-100/70 text-emerald-800 text-xs font-bold flex items-center justify-center gap-1.5 transition-colors shrink-0 shadow-xs max-w-[140px] sm:max-w-none"
                 title="Record Investor Payment"
               >
-                <Receipt size={14} className="shrink-0 text-slate-600" />
+                <Receipt size={14} className="shrink-0 text-emerald-600" />
                 <span className="truncate">Record Payment</span>
               </button>
               {!selectedInvestorId && (
@@ -1189,20 +1245,20 @@ export default function InvestorsPage({
             </div>
           </div>
 
-          {/* ── Main Investors Table (Names Sticky to Left) ── */}
+          {/* ── Main Investors Table (Optimized column widths so content breathes) ── */}
           <Card className="overflow-hidden bg-white shadow-xs border border-slate-200/80 rounded-2xl">
             <div className="overflow-x-auto">
-              <table className="w-full text-xs min-w-[720px]">
+              <table className="w-full text-xs min-w-[650px]">
                 <thead>
                   <tr className="bg-slate-50/90 border-b border-slate-200/80 text-slate-500 uppercase tracking-wider font-semibold text-[11px]">
-                    <th className="text-left px-4 py-3 sticky left-0 bg-slate-50 z-20 shadow-[2px_0_6px_-2px_rgba(0,0,0,0.06)] border-r border-slate-200/70 min-w-[180px] sm:min-w-[220px]">
+                    <th className="text-left px-3.5 py-3 sticky left-0 bg-slate-50 z-20 shadow-[2px_0_6px_-2px_rgba(0,0,0,0.06)] border-r border-slate-200/70 min-w-[140px] sm:min-w-[170px] max-w-[200px]">
                       Investor Name
                     </th>
-                    <th className="text-left px-4 py-3">Payment Structure</th>
-                    <th className="text-right px-4 py-3">Amount Invested</th>
-                    <th className="text-left px-4 py-3">Due Date</th>
-                    <th className="text-center px-4 py-3">Status</th>
-                    <th className="px-3 py-3 w-24 text-right">Actions</th>
+                    <th className="text-left px-3 py-3">Payment Structure</th>
+                    <th className="text-right px-3 py-3 whitespace-nowrap">Amount Invested</th>
+                    <th className="text-left px-3 py-3 whitespace-nowrap">Due Date</th>
+                    <th className="text-center px-3 py-3">Status</th>
+                    <th className="px-3 py-3 w-20 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-slate-700">
@@ -1236,34 +1292,34 @@ export default function InvestorsPage({
                           key={item.id}
                           className="hover:bg-slate-50/80 cursor-pointer transition-colors group"
                         >
-                          {/* Sticky Name Column */}
+                          {/* Sticky Name Column with Proper Width Constraints */}
                           <td
                             onClick={() => handleSelectInvestor(item.id)}
-                            className="px-4 py-3 font-semibold text-slate-900 sticky left-0 bg-white group-hover:bg-slate-50 z-10 shadow-[2px_0_6px_-2px_rgba(0,0,0,0.06)] border-r border-slate-100 min-w-[180px] sm:min-w-[220px] transition-colors"
+                            className="px-3.5 py-3 font-semibold text-slate-900 sticky left-0 bg-white group-hover:bg-slate-50 z-10 shadow-[2px_0_6px_-2px_rgba(0,0,0,0.06)] border-r border-slate-100 min-w-[140px] sm:min-w-[170px] max-w-[200px] transition-colors"
                           >
-                            <div className="font-bold text-sm text-slate-900 group-hover:text-green-700 transition-colors">
+                            <div className="font-bold text-xs sm:text-sm text-slate-900 group-hover:text-green-700 transition-colors truncate" title={item.fullName}>
                               {item.fullName}
                             </div>
-                            <div className="flex items-center gap-1.5 text-[11px] text-slate-500 font-normal mt-0.5 font-mono">
-                              <Phone size={10} className="text-slate-400" />
-                              <span>{item.phone}</span>
+                            <div className="flex items-center gap-1.5 text-[11px] text-slate-500 font-normal mt-0.5 font-mono truncate">
+                              <Phone size={10} className="text-slate-400 shrink-0" />
+                              <span className="truncate">{item.phone}</span>
                             </div>
                           </td>
 
                           {/* Payment Structure */}
-                          <td onClick={() => handleSelectInvestor(item.id)} className="px-4 py-3">
-                            <span className="inline-block px-2 py-0.5 rounded text-[11px] font-semibold bg-slate-100 text-slate-800 border border-slate-200">
+                          <td onClick={() => handleSelectInvestor(item.id)} className="px-3 py-3">
+                            <span className="inline-block px-2 py-0.5 rounded text-[11px] font-semibold bg-slate-100 text-slate-800 border border-slate-200 whitespace-nowrap">
                               {item.paymentMethodLabel}
                             </span>
                           </td>
 
                           {/* Amount Invested */}
-                          <td onClick={() => handleSelectInvestor(item.id)} className="px-4 py-3 text-right font-bold text-slate-900 text-sm">
+                          <td onClick={() => handleSelectInvestor(item.id)} className="px-3 py-3 text-right font-bold text-slate-900 text-xs sm:text-sm whitespace-nowrap">
                             {currency}{item.totalInvested.toLocaleString()}
                           </td>
 
                           {/* Due Date */}
-                          <td onClick={() => handleSelectInvestor(item.id)} className="px-4 py-3 whitespace-nowrap font-mono text-[11px]">
+                          <td onClick={() => handleSelectInvestor(item.id)} className="px-3 py-3 whitespace-nowrap font-mono text-[11px]">
                             <span
                               className={
                                 item.derivedStatus === "Overdue"
@@ -1278,7 +1334,7 @@ export default function InvestorsPage({
                           </td>
 
                           {/* Status */}
-                          <td onClick={() => handleSelectInvestor(item.id)} className="px-4 py-3 text-center">
+                          <td onClick={() => handleSelectInvestor(item.id)} className="px-3 py-3 text-center whitespace-nowrap">
                             <Bdg label={item.derivedStatus} color={statusColor as any} />
                           </td>
 
@@ -1374,9 +1430,20 @@ export default function InvestorsPage({
               </div>
             </div>
 
-            {/* Divider + Mobile-Equal-Height Action Buttons Row with Truncation */}
-            <div className="pt-3.5 border-t border-slate-100 mt-3.5 grid grid-cols-3 gap-2 w-full">
-              {/* Button 1: Download Receipt */}
+            {/* Divider + Action Buttons Row (Green Stroke Record Payment, Download Receipt, Edit, Delete) */}
+            <div className="pt-3.5 border-t border-slate-100 mt-3.5 grid grid-cols-2 sm:grid-cols-4 gap-2 w-full">
+              {/* Button 1: Record Payment with Green Stroke */}
+              <button
+                type="button"
+                onClick={() => openRecordPayment(undefined, selectedInvestor?.id)}
+                className="h-9 px-2 sm:px-3 rounded-xl border-2 border-[#00BB58] bg-emerald-50/70 hover:bg-emerald-100 text-emerald-800 text-xs font-bold flex items-center justify-center gap-1.5 transition-colors min-w-0 overflow-hidden shadow-xs"
+                title="Record payment for this investor"
+              >
+                <Receipt size={14} className="shrink-0 text-emerald-600" />
+                <span className="truncate">Record Payment</span>
+              </button>
+
+              {/* Button 2: Download Receipt */}
               <button
                 type="button"
                 onClick={() => printInvestorReceipt()}
@@ -1387,7 +1454,7 @@ export default function InvestorsPage({
                 <span className="truncate">Download Receipt</span>
               </button>
 
-              {/* Button 2: Edit Investor & Investment */}
+              {/* Button 3: Edit Investor & Investment */}
               {canEdit ? (
                 <button
                   type="button"
@@ -1400,7 +1467,7 @@ export default function InvestorsPage({
                 </button>
               ) : <div />}
 
-              {/* Button 3: Delete Investor */}
+              {/* Button 4: Delete Investor */}
               {canDelete && (
                 <button
                   type="button"
@@ -1803,7 +1870,7 @@ export default function InvestorsPage({
                           value={addForm.amountInvested}
                           onChange={v => setAddForm(p => ({ ...p, amountInvested: v }))}
                           className={IC}
-                          placeholder="e.g. 1000000"
+                          placeholder="e.g. 1,000,000"
                         />
                       </F>
                       <F label="Return (%)" required>
@@ -1906,7 +1973,7 @@ export default function InvestorsPage({
                           value={addForm.amountInvested}
                           onChange={v => setAddForm(p => ({ ...p, amountInvested: v }))}
                           className={IC}
-                          placeholder="e.g. 1000000"
+                          placeholder="e.g. 1,000,000"
                         />
                       </F>
                       <F label="Return (%)" required>
@@ -1974,7 +2041,7 @@ export default function InvestorsPage({
                           value={addForm.amountInvested}
                           onChange={v => setAddForm(p => ({ ...p, amountInvested: v }))}
                           className={IC}
-                          placeholder="e.g. 1000000"
+                          placeholder="e.g. 1,000,000"
                         />
                       </F>
                       <F label="Return (%)" required>
@@ -2122,7 +2189,7 @@ export default function InvestorsPage({
                   value={payForm.investorId}
                   onChange={e => {
                     const newId = e.target.value;
-                    const invInvs = investments.filter(i => i.investorId === newId);
+                    const invInvs = investments.filter(i => i.investorId === newId || i.id === newId);
                     const pInv = invInvs[0];
                     const pPays = pInv ? payments.filter(p => p.investmentId === pInv.id) : [];
                     const firstUnpaid = pPays.find(p => (Number(p.amountPaid) || 0) < (Number(p.amountDue) || 0));
@@ -2197,7 +2264,7 @@ export default function InvestorsPage({
                   value={payForm.amountPaid}
                   onChange={v => setPayForm(p => ({ ...p, amountPaid: v }))}
                   className={IC}
-                  placeholder="e.g. 12500"
+                  placeholder="e.g. 12,500"
                 />
               </F>
             </div>
