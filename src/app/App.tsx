@@ -3563,17 +3563,92 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   
   const [isDataLoading, setIsDataLoading] = useState(false);
 
+  // Set of recently and permanently deleted record IDs (persisted to localStorage to survive page reloads and prevent resurrection)
+  const getStoredDeletedIds = (): Set<string> => {
+    try {
+      const cUid = typeof window !== "undefined" ? getStoredAuthUser() : null;
+      const raw = localStorage.getItem(`pondtora_${cUid || "global"}_deleted_ids`);
+      if (raw) {
+        const arr = JSON.parse(raw);
+        if (Array.isArray(arr)) return new Set(arr);
+      }
+    } catch {}
+    return new Set();
+  };
+
+  const deletedRecordIdsRef = useRef<Set<string>>(getStoredDeletedIds());
+  const isDeletingRef = useRef(false);
+
+  const persistDeletedIds = useCallback(() => {
+    try {
+      const cUid = typeof window !== "undefined" ? getStoredAuthUser() : null;
+      localStorage.setItem(`pondtora_${cUid || "global"}_deleted_ids`, JSON.stringify(Array.from(deletedRecordIdsRef.current)));
+    } catch {}
+  }, []);
+
+  const markDeletedId = useCallback((id: string) => {
+    if (!id) return;
+    isDeletingRef.current = true;
+    deletedRecordIdsRef.current.add(id);
+    if (isUuid(id)) {
+      const short = fromUuid(id);
+      if (short) deletedRecordIdsRef.current.add(short);
+    } else {
+      const mappedUuid = toUuid(id);
+      if (mappedUuid) deletedRecordIdsRef.current.add(mappedUuid);
+    }
+    persistDeletedIds();
+    setTimeout(() => {
+      isDeletingRef.current = false;
+    }, 4000);
+  }, [persistDeletedIds]);
+
+  const unmarkDeletedId = useCallback((id: string) => {
+    if (!id) return;
+    deletedRecordIdsRef.current.delete(id);
+    if (isUuid(id)) {
+      const short = fromUuid(id);
+      if (short) deletedRecordIdsRef.current.delete(short);
+    } else {
+      const mappedUuid = toUuid(id);
+      if (mappedUuid) deletedRecordIdsRef.current.delete(mappedUuid);
+    }
+    persistDeletedIds();
+  }, [persistDeletedIds]);
+
+  const isDeletedId = useCallback((id: string) => {
+    if (!id) return false;
+    if (deletedRecordIdsRef.current.has(id)) return true;
+    if (isUuid(id)) {
+      const short = fromUuid(id);
+      if (short && deletedRecordIdsRef.current.has(short)) return true;
+    } else {
+      const mappedUuid = toUuid(id);
+      if (mappedUuid && deletedRecordIdsRef.current.has(mappedUuid)) return true;
+    }
+    return false;
+  }, []);
+
   const readInit = <T,>(key: string, cacheProp: string, fallback: T): T => {
     const currentUid = typeof window !== "undefined" ? getStoredAuthUser() : null;
     if (!currentUid) return fallback;
     const direct = loadLocal(`pondtora_${currentUid}_${key}`, null);
-    if (direct !== null && (Array.isArray(direct) ? direct.length > 0 : true)) return direct;
+    if (direct !== null) {
+      if (Array.isArray(direct)) {
+        return direct.filter((item: any) => !isDeletedId(item?.id)) as unknown as T;
+      }
+      return direct;
+    }
     try {
       const rawCache = localStorage.getItem(`pondtora_${currentUid}_cache`);
       if (rawCache) {
         const parsed = JSON.parse(rawCache);
-        if (parsed && parsed[cacheProp] !== undefined && (Array.isArray(parsed[cacheProp]) ? parsed[cacheProp].length > 0 : true)) {
-          return parsed[cacheProp];
+        if (parsed && parsed[cacheProp] !== undefined) {
+          const val = parsed[cacheProp];
+          if (Array.isArray(val)) {
+            return val.filter((item: any) => !isDeletedId(item?.id)) as unknown as T;
+          }
+          return val;
         }
       }
     } catch {}
@@ -3586,18 +3661,27 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     const targetUid = uid || userProfile?.id || (typeof window !== "undefined" ? getStoredAuthUser() : null);
     if (!targetUid) return fallback;
     const direct = loadLocal(`pondtora_${targetUid}_${key}`, null);
-    if (direct !== null && (Array.isArray(direct) ? direct.length > 0 : true)) return direct;
+    if (direct !== null) {
+      if (Array.isArray(direct)) {
+        return direct.filter((item: any) => !isDeletedId(item?.id)) as unknown as T;
+      }
+      return direct;
+    }
     try {
       const rawCache = localStorage.getItem(`pondtora_${targetUid}_cache`);
       if (rawCache) {
         const parsed = JSON.parse(rawCache);
-        if (parsed && parsed[cacheProp] !== undefined && (Array.isArray(parsed[cacheProp]) ? parsed[cacheProp].length > 0 : true)) {
-          return parsed[cacheProp];
+        if (parsed && parsed[cacheProp] !== undefined) {
+          const val = parsed[cacheProp];
+          if (Array.isArray(val)) {
+            return val.filter((item: any) => !isDeletedId(item?.id)) as unknown as T;
+          }
+          return val;
         }
       }
     } catch {}
     return direct ?? fallback;
-  }, [userProfile?.id]);
+  }, [userProfile?.id, isDeletedId]);
 
   const saveUserLocal = useCallback(<T,>(uid: string | undefined | null, key: string, cacheProp: string, data: T): void => {
     const targetUid = uid || userProfile?.id || (typeof window !== "undefined" ? getStoredAuthUser() : null);
@@ -3638,51 +3722,6 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   const [investments,setInvestments]=useState<Investment[]>(()=>readInit("investments","investments",[]));
   const [investmentPayments,setInvestmentPayments]=useState<InvestmentPayment[]>(()=>readInit("investment_payments","investmentPayments",[]));
   const [pondReports,setPondReports]=useState<PondReport[]>(()=>readInit("pond_reports","pondReports",[]));
-
-  // Set of recently deleted record IDs to prevent race conditions or focus re-fetch from resurrecting deleted records
-  const deletedRecordIdsRef = useRef<Set<string>>(new Set());
-  const isDeletingRef = useRef(false);
-
-  const markDeletedId = useCallback((id: string) => {
-    if (!id) return;
-    isDeletingRef.current = true;
-    deletedRecordIdsRef.current.add(id);
-    if (isUuid(id)) {
-      const short = fromUuid(id);
-      if (short) deletedRecordIdsRef.current.add(short);
-    } else {
-      const mappedUuid = toUuid(id);
-      if (mappedUuid) deletedRecordIdsRef.current.add(mappedUuid);
-    }
-    setTimeout(() => {
-      isDeletingRef.current = false;
-    }, 4000);
-  }, []);
-
-  const unmarkDeletedId = useCallback((id: string) => {
-    if (!id) return;
-    deletedRecordIdsRef.current.delete(id);
-    if (isUuid(id)) {
-      const short = fromUuid(id);
-      if (short) deletedRecordIdsRef.current.delete(short);
-    } else {
-      const mappedUuid = toUuid(id);
-      if (mappedUuid) deletedRecordIdsRef.current.delete(mappedUuid);
-    }
-  }, []);
-
-  const isDeletedId = useCallback((id: string) => {
-    if (!id) return false;
-    if (deletedRecordIdsRef.current.has(id)) return true;
-    if (isUuid(id)) {
-      const short = fromUuid(id);
-      if (short && deletedRecordIdsRef.current.has(short)) return true;
-    } else {
-      const mappedUuid = toUuid(id);
-      if (mappedUuid && deletedRecordIdsRef.current.has(mappedUuid)) return true;
-    }
-    return false;
-  }, []);
 
   // Action-level permissions for the current staff user (populated from backend staffInfo)
   const [staffOwnPermissions,setStaffOwnPermissions]=useState<Record<string,{canView:boolean;canCreate:boolean;canEdit:boolean;canDelete:boolean}>>({});
@@ -5721,9 +5760,9 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       const uids = [userProfile.id];
       if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) uids.push(userProfile.ownerId);
       uids.forEach(u => {
-        saveLocal(`pondtora_${u}_investors`, nextInvestors);
-        saveLocal(`pondtora_${u}_investments`, nextInvestments);
-        saveLocal(`pondtora_${u}_investment_payments`, nextPayments);
+        saveUserLocal(u, "investors", "investors", nextInvestors);
+        saveUserLocal(u, "investments", "investments", nextInvestments);
+        saveUserLocal(u, "investment_payments", "investmentPayments", nextPayments);
       });
     }
 
@@ -5754,7 +5793,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     if (userProfile?.id) {
       const uids = [userProfile.id];
       if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) uids.push(userProfile.ownerId);
-      uids.forEach(u => saveLocal(`pondtora_${u}_investors`, nextInvestors));
+      uids.forEach(u => saveUserLocal(u, "investors", "investors", nextInvestors));
     }
 
     try {
@@ -5794,9 +5833,9 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       const uids = [userProfile.id];
       if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) uids.push(userProfile.ownerId);
       uids.forEach(u => {
-        saveLocal(`pondtora_${u}_investments`, nextInvestments);
+        saveUserLocal(u, "investments", "investments", nextInvestments);
         if (newPayments && newPayments.length > 0) {
-          saveLocal(`pondtora_${u}_investment_payments`, nextPayments);
+          saveUserLocal(u, "investment_payments", "investmentPayments", nextPayments);
         }
       });
     }
@@ -5827,30 +5866,38 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     const prevInvestments = investments;
     const prevPayments = investmentPayments;
 
+    const toDelInvIds = investments.filter(i => i.investorId === id || i.id === id).map(i => i.id);
+    const toDelPaymentIds = prevPayments.filter(p => toDelInvIds.includes(p.investmentId) || p.investmentId === id).map(p => p.id);
+
     const nextInvestors = prevInvestors.filter(i => i.id !== id);
+    const nextInvestments = prevInvestments.filter(i => i.investorId !== id && i.id !== id);
+    const nextPayments = prevPayments.filter(p => !toDelInvIds.includes(p.investmentId) && p.investmentId !== id);
+
     setInvestors(nextInvestors);
-    const toDelInvIds = investments.filter(i => i.investorId === id).map(i => i.id);
-    const nextInvestments = prevInvestments.filter(i => i.investorId !== id);
     setInvestments(nextInvestments);
-    const nextPayments = prevPayments.filter(p => !toDelInvIds.includes(p.investmentId));
     setInvestmentPayments(nextPayments);
 
     markDeletedId(id);
     toDelInvIds.forEach(invId => markDeletedId(invId));
+    toDelPaymentIds.forEach(pid => markDeletedId(pid));
 
     if (userProfile?.id) {
       const uids = [userProfile.id];
       if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) uids.push(userProfile.ownerId);
       uids.forEach(u => {
-        saveLocal(`pondtora_${u}_investors`, nextInvestors);
-        saveLocal(`pondtora_${u}_investments`, nextInvestments);
-        saveLocal(`pondtora_${u}_investment_payments`, nextPayments);
+        saveUserLocal(u, "investors", "investors", nextInvestors);
+        saveUserLocal(u, "investments", "investments", nextInvestments);
+        saveUserLocal(u, "investment_payments", "investmentPayments", nextPayments);
       });
     }
 
     (async () => {
       try {
-        await api.investors.remove(id);
+        await Promise.all([
+          api.investors.remove(id).catch(console.warn),
+          ...toDelInvIds.map(invId => api.investments.remove(invId).catch(console.warn)),
+          ...toDelPaymentIds.map(pid => api.investmentPayments.remove(pid).catch(console.warn)),
+        ]);
       } catch (err: any) {
         console.warn("Failed to delete investor backend sync notice:", err);
       }
@@ -5866,7 +5913,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     setPondReports(prev => prev.filter(pr => pr.id !== id));
     markDeletedId(id);
     if (userProfile?.id) {
-      try { saveLocal(`pondtora_${userProfile.id}_pond_reports`, previous.filter(pr => pr.id !== id)); } catch {}
+      try { saveUserLocal(userProfile.id, "pond_reports", "pondReports", previous.filter(pr => pr.id !== id)); } catch {}
     }
     try {
       await api.pondReports.remove(id);
@@ -5876,7 +5923,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       unmarkDeletedId(id);
       setPondReports(previous);
       if (userProfile?.id) {
-        try { saveLocal(`pondtora_${userProfile.id}_pond_reports`, previous); } catch {}
+        try { saveUserLocal(userProfile.id, "pond_reports", "pondReports", previous); } catch {}
       }
       toast.error(err?.message || "Failed to delete pond report. Kept visible.");
     }
@@ -5892,7 +5939,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     setReports(prev => prev.filter(r => r.id !== id));
     markDeletedId(id);
     if (userProfile?.id) {
-      try { saveLocal(`pondtora_${userProfile.id}_reports`, previous.filter(r => r.id !== id)); } catch {}
+      try { saveUserLocal(userProfile.id, "reports", "reports", previous.filter(r => r.id !== id)); } catch {}
     }
     try {
       await api.reports.remove(id);
@@ -5902,7 +5949,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       unmarkDeletedId(id);
       setReports(previous);
       if (userProfile?.id) {
-        try { saveLocal(`pondtora_${userProfile.id}_reports`, previous); } catch {}
+        try { saveUserLocal(userProfile.id, "reports", "reports", previous); } catch {}
       }
       toast.error(err?.message || "Failed to delete report. Kept visible.");
     }
@@ -5956,8 +6003,8 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       const uids = [userProfile.id];
       if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) uids.push(userProfile.ownerId);
       uids.forEach(u => {
-        saveLocal(`pondtora_${u}_investment_payments`, nextPayments);
-        saveLocal(`pondtora_${u}_investments`, nextInvestments);
+        saveUserLocal(u, "investment_payments", "investmentPayments", nextPayments);
+        saveUserLocal(u, "investments", "investments", nextInvestments);
       });
     }
 
