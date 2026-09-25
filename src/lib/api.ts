@@ -2491,7 +2491,19 @@ export const api = {
       return dbInsert<Investor>("investors", dbInv as Investor, "investors");
     },
     update: (item: Investor) => dbUpdate<Investor>("investors", item, "investors"),
-    remove: (id: string) => dbDelete("investors", id, "investors"),
+    remove: async (id: string) => {
+      try {
+        const { data: invs } = await supabase.from("investments").select("id").eq("investor_id", id);
+        if (invs && invs.length > 0) {
+          const invIds = invs.map((i: any) => i.id);
+          await supabase.from("investment_payments").delete().in("investment_id", invIds);
+        }
+        await supabase.from("investments").delete().eq("investor_id", id);
+      } catch (err) {
+        console.warn("Cascade pre-delete error on investor remove:", err);
+      }
+      return dbDelete("investors", id, "investors");
+    },
   },
 
   // ── Investments ───────────────────────────────────────────────────────────
@@ -2529,7 +2541,14 @@ export const api = {
       if (item.maturityDate) dbInv.maturityDate = toValidDbDate(item.maturityDate) || null;
       return dbUpdate<Investment>("investments", dbInv as Investment, "investments");
     },
-    remove: (id: string) => dbDelete("investments", id, "investments"),
+    remove: async (id: string) => {
+      try {
+        await supabase.from("investment_payments").delete().eq("investment_id", id);
+      } catch (err) {
+        console.warn("Cascade pre-delete error on investment remove:", err);
+      }
+      return dbDelete("investments", id, "investments");
+    },
   },
 
   // ── Investment Payments ───────────────────────────────────────────────────

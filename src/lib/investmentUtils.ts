@@ -284,15 +284,39 @@ export function calculateInvestmentDashboardStats(
   investors: Investor[],
   todayStr: string = TODAY
 ) {
+  // If there are no investors, everything should strictly be 0
+  if (!investors || investors.length === 0) {
+    return {
+      totalInvestors: 0,
+      totalInvestment: 0,
+      totalReturn: 0,
+      totalPaid: 0,
+      totalRemaining: 0,
+      upcomingCount: 0,
+      upcomingAmount: 0,
+      dueTodayCount: 0,
+      dueTodayAmount: 0,
+      overdueCount: 0,
+      overdueAmount: 0,
+      activeInvestmentsCount: 0,
+      completedInvestmentsCount: 0,
+    };
+  }
+
+  const validInvestorIds = new Set(investors.map(inv => inv.id));
+  const validInvestments = (investments || []).filter(inv => validInvestorIds.has(inv.investorId) || validInvestorIds.has(inv.id));
+  const validInvestmentIds = new Set(validInvestments.map(inv => inv.id));
+  const validPayments = (payments || []).filter(p => validInvestmentIds.has(p.investmentId));
+
   const totalInvestors = investors.length;
-  const totalInvestment = investments.reduce((sum, inv) => sum + (Number(inv.amountInvested) || 0), 0);
-  const totalReturn = investments.reduce((sum, inv) => sum + (Number(inv.expectedReturn) || 0), 0);
+  const totalInvestment = validInvestments.reduce((sum, inv) => sum + (Number(inv.amountInvested) || 0), 0);
+  const totalReturn = validInvestments.reduce((sum, inv) => sum + (Number(inv.expectedReturn) || 0), 0);
   
-  const totalPaid = payments.reduce((sum, p) => sum + (Number(p.amountPaid) || 0), 0);
+  const totalPaid = validPayments.reduce((sum, p) => sum + (Number(p.amountPaid) || 0), 0);
   
   let totalObligations = 0;
-  investments.forEach(inv => {
-    const invPayments = payments.filter(p => p.investmentId === inv.id);
+  validInvestments.forEach(inv => {
+    const invPayments = validPayments.filter(p => p.investmentId === inv.id);
     if (invPayments.length > 0) {
       const scheduledForInv = invPayments.reduce((s, p) => s + (Number(p.amountDue) || 0), 0);
       totalObligations += scheduledForInv;
@@ -306,8 +330,8 @@ export function calculateInvestmentDashboardStats(
     }
   });
 
-  const matchedPaymentIds = new Set(investments.flatMap(inv => payments.filter(p => p.investmentId === inv.id).map(p => p.id)));
-  payments.forEach(p => {
+  const matchedPaymentIds = new Set(validInvestments.flatMap(inv => validPayments.filter(p => p.investmentId === inv.id).map(p => p.id)));
+  validPayments.forEach(p => {
     if (!matchedPaymentIds.has(p.id)) {
       totalObligations += Number(p.amountDue) || 0;
     }
@@ -322,7 +346,7 @@ export function calculateInvestmentDashboardStats(
   let overdueCount = 0;
   let overdueAmount = 0;
 
-  payments.forEach(p => {
+  validPayments.forEach(p => {
     const remaining = Math.max(0, (Number(p.amountDue) || 0) - (Number(p.amountPaid) || 0));
     if (remaining <= 0 || !p.dueDate) return;
 
@@ -340,14 +364,14 @@ export function calculateInvestmentDashboardStats(
     }
   });
 
-  const activeInvestmentsCount = investments.filter(inv => {
-    const invPayments = payments.filter(p => p.investmentId === inv.id);
+  const activeInvestmentsCount = validInvestments.filter(inv => {
+    const invPayments = validPayments.filter(p => p.investmentId === inv.id);
     const st = deriveInvestmentStatus(inv, invPayments, todayStr);
     return st === "Active" || st === "Payment Due" || st === "Partially Paid" || st === "Overdue";
   }).length;
 
-  const completedInvestmentsCount = investments.filter(inv => {
-    const invPayments = payments.filter(p => p.investmentId === inv.id);
+  const completedInvestmentsCount = validInvestments.filter(inv => {
+    const invPayments = validPayments.filter(p => p.investmentId === inv.id);
     const st = deriveInvestmentStatus(inv, invPayments, todayStr);
     return st === "Completed";
   }).length;

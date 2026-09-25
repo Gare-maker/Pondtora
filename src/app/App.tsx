@@ -4829,22 +4829,40 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       setInvestors(finalInvestors);
     }
 
+    const validInvestorIdSet = new Set(finalInvestors.map(i => i.id));
+
     const serverInvestments: Investment[] = Array.isArray(d.investments) ? d.investments : [];
     const localInvestments: Investment[] = userProfile?.id ? loadUserLocal(userProfile.id, "investments", "investments", []) : [];
     const serverInvestmentIds = new Set(serverInvestments.map(i => i.id));
     const pendingLocalInvestments = localInvestments.filter(li => li?.id && !serverInvestmentIds.has(li.id) && !isDeletedId(li.id));
-    const finalInvestments = [...serverInvestments.filter((inv: any) => !isDeletedId(inv.id)), ...pendingLocalInvestments].map((inv: any) => ({ ...inv, farmId: normFid(inv.farmId) }));
+    const finalInvestments = [...serverInvestments.filter((inv: any) => !isDeletedId(inv.id)), ...pendingLocalInvestments]
+      .filter((inv: any) => validInvestorIdSet.has(inv.investorId) || validInvestorIdSet.has(inv.id))
+      .map((inv: any) => ({ ...inv, farmId: normFid(inv.farmId) }));
     if (finalInvestments.length > 0 || Array.isArray(d.investments)) {
       setInvestments(finalInvestments);
     }
+
+    const validInvestmentIdSet = new Set(finalInvestments.map(i => i.id));
 
     const serverPayments: InvestmentPayment[] = Array.isArray(d.investmentPayments) ? d.investmentPayments : [];
     const localPayments: InvestmentPayment[] = userProfile?.id ? loadUserLocal(userProfile.id, "investment_payments", "investmentPayments", []) : [];
     const serverPaymentIds = new Set(serverPayments.map(p => p.id));
     const pendingLocalPayments = localPayments.filter(lp => lp?.id && !serverPaymentIds.has(lp.id) && !isDeletedId(lp.id));
-    const finalPayments = [...serverPayments.filter((p: any) => !isDeletedId(p.id)), ...pendingLocalPayments].map((p: any) => ({ ...p, farmId: normFid(p.farmId) }));
+    const finalPayments = [...serverPayments.filter((p: any) => !isDeletedId(p.id)), ...pendingLocalPayments]
+      .filter((p: any) => validInvestmentIdSet.has(p.investmentId))
+      .map((p: any) => ({ ...p, farmId: normFid(p.farmId) }));
     if (finalPayments.length > 0 || Array.isArray(d.investmentPayments)) {
       setInvestmentPayments(finalPayments);
+    }
+
+    // Clean up local storage if orphaned items were removed
+    if (userProfile?.id) {
+      if (localInvestments.length !== finalInvestments.length) {
+        saveUserLocal(userProfile.id, "investments", "investments", finalInvestments);
+      }
+      if (localPayments.length !== finalPayments.length) {
+        saveUserLocal(userProfile.id, "investment_payments", "investmentPayments", finalPayments);
+      }
     }
 
     const serverPr: PondReport[] = Array.isArray(d.pondReports) ? d.pondReports : [];
@@ -5698,8 +5716,12 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   const farmPriceGroups=priceGroups.filter(g=>matchesFarm(g.farmId));
   const farmInvoices=invoices.filter(i=>matchesFarm(i.farmId,i.pond));
   const farmInvestors=investors.filter(inv=>!inv.farmId||matchesFarm(inv.farmId));
-  const farmInvestments=investments.filter(i=>matchesFarm(i.farmId) || (!i.farmId && farmInvestors.some(inv => inv.id === i.investorId)));
-  const farmPayments=investmentPayments.filter(p=>matchesFarm(p.farmId) || (!p.farmId && farmInvestments.some(inv => inv.id === p.investmentId)));
+  const farmInvestments=investments.filter(i=>
+    farmInvestors.some(inv => inv.id === i.investorId || inv.id === i.id) && (!i.farmId || matchesFarm(i.farmId))
+  );
+  const farmPayments=investmentPayments.filter(p=>
+    farmInvestments.some(inv => inv.id === p.investmentId) && (!p.farmId || matchesFarm(p.farmId))
+  );
   const farmPondReports=pondReports.filter(r=>matchesFarm(r.farmId));
 
   const handleAddInvestor = async (inv: Investor, investment: Investment, payments: InvestmentPayment[]) => {
@@ -5866,12 +5888,12 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     const prevInvestments = investments;
     const prevPayments = investmentPayments;
 
-    const toDelInvIds = investments.filter(i => i.investorId === id || i.id === id).map(i => i.id);
+    const toDelInvIds = prevInvestments.filter(i => i.investorId === id || i.id === id).map(i => i.id);
     const toDelPaymentIds = prevPayments.filter(p => toDelInvIds.includes(p.investmentId) || p.investmentId === id).map(p => p.id);
 
     const nextInvestors = prevInvestors.filter(i => i.id !== id);
-    const nextInvestments = prevInvestments.filter(i => i.investorId !== id && i.id !== id);
-    const nextPayments = prevPayments.filter(p => !toDelInvIds.includes(p.investmentId) && p.investmentId !== id);
+    const nextInvestments = prevInvestments.filter(i => i.investorId !== id && i.id !== id && !toDelInvIds.includes(i.id));
+    const nextPayments = prevPayments.filter(p => !toDelInvIds.includes(p.investmentId) && p.investmentId !== id && !toDelPaymentIds.includes(p.id));
 
     setInvestors(nextInvestors);
     setInvestments(nextInvestments);
@@ -5898,6 +5920,19 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
           ...toDelInvIds.map(invId => api.investments.remove(invId).catch(console.warn)),
           ...toDelPaymentIds.map(pid => api.investmentPayments.remove(pid).catch(console.warn)),
         ]);
+        try {
+          if (toDelPaymentIds.length > 0) {
+            await supabase.from("investment_payments").delete().in("id", toDelPaymentIds);
+          }
+          if (toDelInvIds.length > 0) {
+            await supabase.from("investment_payments").delete().in("investment_id", toDelInvIds);
+            await supabase.from("investments").delete().in("id", toDelInvIds);
+          }
+          await supabase.from("investments").delete().eq("investor_id", id);
+          await supabase.from("investors").delete().eq("id", id);
+        } catch (dbErr) {
+          console.warn("Direct DB cascade cleanup notice:", dbErr);
+        }
       } catch (err: any) {
         console.warn("Failed to delete investor backend sync notice:", err);
       }
