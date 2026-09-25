@@ -78,11 +78,7 @@ export default function InvestorsPage({
 
   // Filters & Search
   const [searchQuery, setSearchQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<string>("All");
-  const [paymentMethodFilter, setPaymentMethodFilter] = useState<string>("All");
-  const [farmFilter, setFarmFilter] = useState<string>("All");
-  const [pondFilter, setPondFilter] = useState<string>("All");
-  const [dueDateFilter, setDueDateFilter] = useState<string>("");
+  const [statusFilter, setStatusFilter] = useState<"All" | "Active" | "Completed">("All");
 
   // Modals
   const [showAddModal, setShowAddModal] = useState(false);
@@ -259,10 +255,10 @@ export default function InvestorsPage({
     });
   }, [investors, investments, payments, farms, ponds]);
 
-  // Filtered Investors
+  // Filtered Investors (Only Search + Active / Completed tabs)
   const filteredInvestors = useMemo(() => {
     return enrichedInvestors.filter(item => {
-      // Search
+      // Search query
       const q = searchQuery.toLowerCase().trim();
       const matchesSearch =
         !q ||
@@ -270,40 +266,20 @@ export default function InvestorsPage({
         item.phone.toLowerCase().includes(q) ||
         (item.email && item.email.toLowerCase().includes(q)) ||
         item.farmName.toLowerCase().includes(q) ||
-        item.pondName.toLowerCase().includes(q) ||
         item.paymentMethodLabel.toLowerCase().includes(q);
 
       if (!matchesSearch) return false;
 
-      // Status Filter
-      if (statusFilter !== "All" && item.derivedStatus !== statusFilter) {
-        return false;
-      }
-
-      // Payment Method Filter
-      if (paymentMethodFilter !== "All") {
-        const method = item.investment?.paymentMethod || "monthly_return";
-        if (paymentMethodFilter !== method) return false;
-      }
-
-      // Farm Filter
-      if (farmFilter !== "All" && item.farmId !== farmFilter && item.investment?.farmId !== farmFilter) {
-        return false;
-      }
-
-      // Pond Filter
-      if (pondFilter !== "All" && item.investment?.pondId !== pondFilter) {
-        return false;
-      }
-
-      // Due Date Filter
-      if (dueDateFilter && item.investment?.dueDate) {
-        if (!item.investment.dueDate.startsWith(dueDateFilter)) return false;
+      // Status Filter: Active vs Completed
+      if (statusFilter === "Active") {
+        if (item.derivedStatus === "Completed") return false;
+      } else if (statusFilter === "Completed") {
+        if (item.derivedStatus !== "Completed") return false;
       }
 
       return true;
     });
-  }, [enrichedInvestors, searchQuery, statusFilter, paymentMethodFilter, farmFilter, pondFilter, dueDateFilter]);
+  }, [enrichedInvestors, searchQuery, statusFilter]);
 
   // ── Live Calculations for Add Form ──
   const addAmt = Number(addForm.amountInvested) || 0;
@@ -754,224 +730,85 @@ export default function InvestorsPage({
         /* ═══════════════════════════════════════════════════════════════════
            MAIN INVESTOR TABLE VIEW
         ═══════════════════════════════════════════════════════════════════ */
-        <div className="space-y-4">
-          {/* ── Search and Filters ── */}
-          <Card className="p-3.5 bg-white shadow-xs">
-            <div className="flex flex-wrap items-center gap-3 justify-between">
-              {/* Search Bar */}
-              <div className="relative flex-1 min-w-[220px]">
-                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                <input
-                  type="text"
-                  placeholder="Search investors, phone, structure, farm, pond..."
-                  value={searchQuery}
-                  onChange={e => setSearchQuery(e.target.value)}
-                  className="w-full pl-9 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-green-400"
-                />
-              </div>
-
-              {/* Status Filter Tabs */}
-              <div className="flex gap-1 bg-slate-200/90 border border-slate-300/70 p-1 rounded-xl shadow-2xs overflow-x-auto">
-                {["All", "Active", "Payment Due", "Partially Paid", "Overdue", "Completed"].map(st => (
-                  <button
-                    key={st}
-                    onClick={() => setStatusFilter(st)}
-                    className={`px-3 py-1 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
-                      statusFilter === st
-                        ? "bg-white text-slate-900 shadow-sm border border-slate-200/80 font-bold"
-                        : "text-slate-600 hover:text-slate-900"
-                    }`}
-                  >
-                    {st}
-                  </button>
-                ))}
-              </div>
+        <div className="space-y-3.5">
+          {/* ── Search and Active/Completed Filters Only ── */}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-white p-3 rounded-2xl border border-slate-200/80 shadow-xs">
+            {/* Search Bar */}
+            <div className="relative flex-1">
+              <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Search by investor name, phone, structure..."
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                className="w-full pl-9 pr-3 py-2 text-xs bg-slate-50 hover:bg-slate-100/60 focus:bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500/30 focus:border-green-500 transition-colors"
+              />
             </div>
 
-            {/* Dropdown Filters Row */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-3 mt-3 border-t border-slate-100 text-xs">
-              <div>
-                <label className="text-[11px] font-semibold text-slate-500 mb-1 block">Payment Structure</label>
-                <select
-                  value={paymentMethodFilter}
-                  onChange={e => setPaymentMethodFilter(e.target.value)}
-                  className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-slate-700 text-xs"
-                >
-                  <option value="All">All Structures</option>
-                  <option value="monthly_return">Monthly Return</option>
-                  <option value="principal_plus_return">Principal + Return on Date</option>
-                  <option value="return_upfront">Return Paid Upfront</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="text-[11px] font-semibold text-slate-500 mb-1 block">Farm</label>
-                <select
-                  value={farmFilter}
-                  onChange={e => setFarmFilter(e.target.value)}
-                  className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-slate-700 text-xs"
-                >
-                  <option value="All">All Farms</option>
-                  {farms.map(f => (
-                    <option key={f.id} value={f.id}>{f.name}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="text-[11px] font-semibold text-slate-500 mb-1 block">Pond</label>
-                <select
-                  value={pondFilter}
-                  onChange={e => setPondFilter(e.target.value)}
-                  className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-slate-700 text-xs"
-                >
-                  <option value="All">All Ponds</option>
-                  {ponds.map(p => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="text-[11px] font-semibold text-slate-500 mb-1 block">Due Date / Maturity</label>
-                <div className="flex items-center gap-1">
-                  <input
-                    type="date"
-                    value={dueDateFilter}
-                    onChange={e => setDueDateFilter(e.target.value)}
-                    className="w-full px-2 py-1 bg-white border border-slate-200 rounded-lg text-slate-700 text-xs"
-                    style={{ colorScheme: "light" }}
-                  />
-                  {dueDateFilter && (
-                    <button
-                      onClick={() => setDueDateFilter("")}
-                      className="text-[10px] text-red-500 hover:underline shrink-0"
-                    >
-                      Clear
-                    </button>
-                  )}
-                </div>
-              </div>
+            {/* Filter Tabs: All / Active / Completed */}
+            <div className="flex items-center gap-1 bg-slate-100/90 border border-slate-200/90 p-1 rounded-xl shrink-0">
+              <button
+                type="button"
+                onClick={() => setStatusFilter("All")}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
+                  statusFilter === "All"
+                    ? "bg-white text-slate-900 shadow-xs font-bold"
+                    : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                All ({enrichedInvestors.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setStatusFilter("Active")}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
+                  statusFilter === "Active"
+                    ? "bg-white text-slate-900 shadow-xs font-bold"
+                    : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                Active ({stats.activeInvestmentsCount})
+              </button>
+              <button
+                type="button"
+                onClick={() => setStatusFilter("Completed")}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
+                  statusFilter === "Completed"
+                    ? "bg-white text-slate-900 shadow-xs font-bold"
+                    : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                Completed ({stats.completedInvestmentsCount})
+              </button>
             </div>
-          </Card>
-
-          {/* ── Mobile Card List ── */}
-          <div className="sm:hidden space-y-3">
-            {filteredInvestors.length === 0 ? (
-              <Card className="p-8 text-center bg-white shadow-xs">
-                <Landmark size={36} className="mx-auto text-slate-300 mb-2" />
-                <p className="font-semibold text-sm text-slate-700">No investors found</p>
-                <p className="text-xs text-slate-400 mt-1">
-                  {searchQuery || statusFilter !== "All"
-                    ? "Try adjusting your filters or search terms."
-                    : "Click '+ Add Investor' above to record your first farm investor."}
-                </p>
-              </Card>
-            ) : (
-              filteredInvestors.map(item => {
-                const statusColor =
-                  item.derivedStatus === "Completed"
-                    ? "blue"
-                    : item.derivedStatus === "Overdue"
-                    ? "red"
-                    : item.derivedStatus === "Payment Due"
-                    ? "amber"
-                    : item.derivedStatus === "Partially Paid"
-                    ? "purple"
-                    : "green";
-
-                return (
-                  <Card
-                    key={item.id}
-                    onClick={() => setSelectedInvestorId(item.id)}
-                    className="p-4 bg-white shadow-xs border border-slate-200/80 cursor-pointer hover:border-green-300 transition-all"
-                  >
-                    <div className="flex items-start justify-between gap-2 mb-2">
-                      <div>
-                        <h4 className="font-bold text-slate-900 text-sm font-['Barlow_Condensed',sans-serif] tracking-wide">
-                          {item.fullName}
-                        </h4>
-                        <div className="flex items-center gap-1.5 text-xs text-slate-600 mt-0.5 font-mono">
-                          <Phone size={11} className="text-slate-400 shrink-0" />
-                          <span className="whitespace-nowrap font-medium">{item.phone}</span>
-                        </div>
-                      </div>
-                      <Bdg label={item.derivedStatus} color={statusColor as any} />
-                    </div>
-
-                    <div className="mb-2">
-                      <span className="inline-block px-2 py-0.5 text-[10px] font-semibold rounded bg-slate-100 text-slate-700 border border-slate-200">
-                        {item.paymentMethodLabel}
-                      </span>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100 text-xs">
-                      <div>
-                        <span className="text-slate-400 text-[10px] block">Invested Capital</span>
-                        <span className="font-bold text-slate-900">{currency}{item.totalInvested.toLocaleString()}</span>
-                      </div>
-                      <div>
-                        <span className="text-slate-400 text-[10px] block">Return %</span>
-                        <span className="font-bold text-emerald-700">{item.investment?.investorPercentage || 0}%</span>
-                      </div>
-                      <div>
-                        <span className="text-slate-400 text-[10px] block">Paid Out</span>
-                        <span className="font-bold text-purple-700">{currency}{item.totalPaid.toLocaleString()}</span>
-                      </div>
-                      <div>
-                        <span className="text-slate-400 text-[10px] block">Outstanding</span>
-                        <span className="font-bold text-amber-700">{currency}{item.outstanding.toLocaleString()}</span>
-                      </div>
-                    </div>
-
-                    {item.nextPayment && (
-                      <div className="mt-2 p-2 bg-slate-50 rounded-lg text-[11px] flex justify-between items-center">
-                        <span className="text-slate-500">Next Due: {item.nextPayment.dueDate}</span>
-                        <span className="font-bold text-slate-800">{currency}{(item.nextPayment.amountDue - item.nextPayment.amountPaid).toLocaleString()}</span>
-                      </div>
-                    )}
-
-                    <div className="flex items-center justify-between pt-2.5 mt-2.5 border-t border-slate-50 text-[11px] text-slate-500">
-                      <span className="truncate max-w-[200px]">{item.farmName} {item.pondName !== "—" ? `· ${item.pondName}` : ""}</span>
-                      <span className="text-green-600 font-semibold flex items-center gap-0.5 shrink-0">
-                        Details <ChevronRight size={13} />
-                      </span>
-                    </div>
-                  </Card>
-                );
-              })
-            )}
           </div>
 
-          {/* ── Desktop Investor Table ── */}
-          <Card className="hidden sm:block overflow-hidden bg-white shadow-xs">
+          {/* ── Main Investors Table (Names Sticky to Left) ── */}
+          <Card className="overflow-hidden bg-white shadow-xs border border-slate-200/80 rounded-2xl">
             <div className="overflow-x-auto">
-              <table className="w-full text-xs min-w-[950px]">
+              <table className="w-full text-xs min-w-[680px]">
                 <thead>
-                  <tr className="bg-slate-50 border-b border-slate-200/80 text-slate-500 uppercase tracking-wider font-semibold text-[11px]">
-                    <th className="text-left px-4 py-3">Investor</th>
-                    <th className="text-left px-4 py-3 whitespace-nowrap min-w-[130px]">Phone Number</th>
+                  <tr className="bg-slate-50/90 border-b border-slate-200/80 text-slate-500 uppercase tracking-wider font-semibold text-[11px]">
+                    {/* Sticky Investor Name Column */}
+                    <th className="text-left px-4 py-3 sticky left-0 bg-slate-50 z-20 shadow-[2px_0_6px_-2px_rgba(0,0,0,0.06)] border-r border-slate-200/70 min-w-[180px] sm:min-w-[220px]">
+                      Investor Name
+                    </th>
                     <th className="text-left px-4 py-3">Payment Structure</th>
-                    <th className="text-right px-4 py-3">Investment</th>
-                    <th className="text-center px-4 py-3">%</th>
-                    <th className="text-right px-4 py-3">Total Return</th>
-                    <th className="text-left px-4 py-3">Start Date</th>
-                    <th className="text-left px-4 py-3">Due / Maturity</th>
-                    <th className="text-right px-4 py-3">Paid</th>
-                    <th className="text-right px-4 py-3">Outstanding</th>
+                    <th className="text-right px-4 py-3">Amount Invested</th>
+                    <th className="text-left px-4 py-3">Due Date</th>
                     <th className="text-center px-4 py-3">Status</th>
-                    <th className="px-3 py-3 w-8"></th>
+                    <th className="px-3 py-3 w-10 text-right"></th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-slate-700">
                   {filteredInvestors.length === 0 ? (
                     <tr>
-                      <td colSpan={12} className="text-center py-12 text-slate-400">
+                      <td colSpan={6} className="text-center py-12 text-slate-400">
                         <Landmark size={36} className="mx-auto text-slate-200 mb-2" />
-                        <p className="font-semibold text-sm">No investors found</p>
+                        <p className="font-semibold text-sm text-slate-700">No investors found</p>
                         <p className="text-xs text-slate-400 mt-0.5">
                           {searchQuery || statusFilter !== "All"
-                            ? "Try adjusting your filters or search terms."
+                            ? "Try adjusting your search query or filter tab."
                             : "Click '+ Add Investor' above to record your first farm investor."}
                         </p>
                       </td>
@@ -995,78 +832,42 @@ export default function InvestorsPage({
                           onClick={() => setSelectedInvestorId(item.id)}
                           className="hover:bg-slate-50/80 cursor-pointer transition-colors group"
                         >
-                          {/* Investor Name & Location */}
-                          <td className="px-4 py-3 font-semibold text-slate-900 group-hover:text-green-700 transition-colors">
-                            <div className="font-bold text-sm text-slate-900">{item.fullName}</div>
-                            <div className="flex items-center gap-1.5 text-[11px] text-slate-500 font-normal mt-0.5">
-                              <span>{item.farmName}</span>
-                              {item.pondName !== "—" && <span>· {item.pondName}</span>}
-                              {item.email && <span className="text-slate-400">· {item.email}</span>}
+                          {/* Sticky Name Column */}
+                          <td className="px-4 py-3 font-semibold text-slate-900 sticky left-0 bg-white group-hover:bg-slate-50 z-10 shadow-[2px_0_6px_-2px_rgba(0,0,0,0.06)] border-r border-slate-100 min-w-[180px] sm:min-w-[220px] transition-colors">
+                            <div className="font-bold text-sm text-slate-900 group-hover:text-green-700 transition-colors">
+                              {item.fullName}
+                            </div>
+                            <div className="flex items-center gap-1.5 text-[11px] text-slate-500 font-normal mt-0.5 font-mono">
+                              <Phone size={10} className="text-slate-400" />
+                              <span>{item.phone}</span>
                             </div>
                           </td>
 
-                          {/* Phone */}
-                          <td className="px-4 py-3 font-mono text-slate-700 whitespace-nowrap min-w-[130px] font-medium">
-                            {item.phone}
-                          </td>
-
-                          {/* Structure */}
+                          {/* Payment Structure */}
                           <td className="px-4 py-3">
-                            <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-800 border border-slate-200">
+                            <span className="inline-block px-2 py-0.5 rounded text-[11px] font-semibold bg-slate-100 text-slate-800 border border-slate-200">
                               {item.paymentMethodLabel}
                             </span>
-                            {item.investment?.paymentMethod === "monthly_return" && item.investment.monthlyReturn ? (
-                              <div className="text-[10px] text-slate-500 mt-0.5 font-medium">
-                                {currency}{item.investment.monthlyReturn.toLocaleString()}/mo ({item.investment.numberOfPayments || item.investment.durationMonths || 12} payments)
-                              </div>
-                            ) : item.investment?.paymentMethod === "principal_plus_return" ? (
-                              <div className="text-[10px] text-slate-500 mt-0.5 font-medium">
-                                Lump sum on maturity
-                              </div>
-                            ) : item.investment?.paymentMethod === "return_upfront" ? (
-                              <div className="text-[10px] text-slate-500 mt-0.5 font-medium">
-                                Return upfront · Capital at maturity
-                              </div>
-                            ) : null}
                           </td>
 
-                          {/* Investment */}
-                          <td className="px-4 py-3 text-right font-bold text-slate-900">
+                          {/* Amount Invested */}
+                          <td className="px-4 py-3 text-right font-bold text-slate-900 text-sm">
                             {currency}{item.totalInvested.toLocaleString()}
-                          </td>
-
-                          {/* Return % */}
-                          <td className="px-4 py-3 text-center">
-                            <span className="px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 font-bold border border-emerald-100 text-[11px]">
-                              {item.investment?.investorPercentage || 0}%
-                            </span>
-                          </td>
-
-                          {/* Total Return */}
-                          <td className="px-4 py-3 text-right font-semibold text-emerald-700">
-                            {currency}{item.totalReturn.toLocaleString()}
-                          </td>
-
-                          {/* Start Date */}
-                          <td className="px-4 py-3 text-slate-600 whitespace-nowrap font-mono text-[11px]">
-                            {item.investment?.startDate || "—"}
                           </td>
 
                           {/* Due Date */}
                           <td className="px-4 py-3 whitespace-nowrap font-mono text-[11px]">
-                            <span className={item.derivedStatus === "Overdue" ? "text-red-600 font-bold" : item.derivedStatus === "Payment Due" ? "text-amber-600 font-bold" : "text-slate-600"}>
+                            <span
+                              className={
+                                item.derivedStatus === "Overdue"
+                                  ? "text-red-600 font-bold"
+                                  : item.derivedStatus === "Payment Due"
+                                  ? "text-amber-600 font-bold"
+                                  : "text-slate-700 font-medium"
+                              }
+                            >
                               {item.investment?.dueDate || "—"}
                             </span>
-                          </td>
-
-                          {/* Paid */}
-                          <td className="px-4 py-3 text-right font-bold text-purple-700">
-                            {currency}{item.totalPaid.toLocaleString()}
-                          </td>
-
-                          {/* Outstanding */}
-                          <td className="px-4 py-3 text-right font-bold text-amber-700">
-                            {currency}{item.outstanding.toLocaleString()}
                           </td>
 
                           {/* Status */}
@@ -1089,15 +890,20 @@ export default function InvestorsPage({
         </div>
       ) : (
         /* ═══════════════════════════════════════════════════════════════════
-           INVESTOR DETAILS & PAYMENT SCHEDULE VIEW
+           INVESTOR DETAILS & PAYMENT SCHEDULE VIEW (CLEAN & UNCLUTTERED)
         ═══════════════════════════════════════════════════════════════════ */
-        <div className="space-y-5">
-          {/* Action Header for Details */}
-          <div className="flex flex-wrap items-center justify-between gap-3 bg-white border border-slate-200 rounded-2xl p-4 shadow-xs">
+        <div className="space-y-4">
+          {/* Header Bar */}
+          <div className="flex flex-wrap items-center justify-between gap-3 bg-white border border-slate-200/80 rounded-2xl p-4 shadow-xs">
             <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-[#00BB58] font-bold text-lg">
-                {selectedInvestor?.fullName?.slice(0, 2).toUpperCase()}
-              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedInvestorId(null)}
+                className="p-2 rounded-xl bg-slate-100 hover:bg-slate-200/80 text-slate-700 transition-colors"
+                title="Back to Investors List"
+              >
+                <ChevronLeft size={18} />
+              </button>
               <div>
                 <div className="flex items-center gap-2">
                   <h2 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">
@@ -1117,7 +923,7 @@ export default function InvestorsPage({
                   />
                 </div>
                 <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500 mt-0.5">
-                  <span className="flex items-center gap-1">
+                  <span className="flex items-center gap-1 font-mono">
                     <Phone size={12} className="text-slate-400" /> {selectedInvestor?.phone}
                   </span>
                   {selectedInvestor?.email && (
@@ -1125,7 +931,7 @@ export default function InvestorsPage({
                       <Mail size={12} className="text-slate-400" /> {selectedInvestor.email}
                     </span>
                   )}
-                  <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200 font-semibold">
+                  <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-200 font-semibold text-[11px]">
                     {formatPaymentMethod(activeInvestment?.paymentMethod)}
                   </span>
                 </div>
@@ -1140,7 +946,7 @@ export default function InvestorsPage({
               )}
               {canEdit && (
                 <PBtn sm outline onClick={openEditInvestmentModal}>
-                  <Edit3 size={14} /> Edit Investment
+                  <Edit3 size={14} /> Edit
                 </PBtn>
               )}
               {canDelete && onDeleteInvestor && (
@@ -1157,175 +963,77 @@ export default function InvestorsPage({
             </div>
           </div>
 
-          {/* Cards: Investor Profile, Structure Details & Financial Summary */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {/* Investor Profile */}
-            <Card className="p-4 bg-white shadow-xs">
-              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
-                <User size={14} className="text-slate-500" /> Investor Profile
-              </h3>
-              <div className="space-y-2 text-xs">
-                <div className="flex justify-between py-1 border-b border-slate-50">
-                  <span className="text-slate-400">Full Name</span>
-                  <span className="font-semibold text-slate-900">{selectedInvestor?.fullName}</span>
-                </div>
-                <div className="flex justify-between py-1 border-b border-slate-50">
-                  <span className="text-slate-400">Phone Number</span>
-                  <span className="font-semibold text-slate-900">{selectedInvestor?.phone}</span>
-                </div>
-                <div className="flex justify-between py-1 border-b border-slate-50">
-                  <span className="text-slate-400">Email Address</span>
-                  <span className="font-semibold text-slate-900">{selectedInvestor?.email || "—"}</span>
-                </div>
-                <div className="flex justify-between py-1 border-b border-slate-50">
-                  <span className="text-slate-400">Farm / Location</span>
-                  <span className="font-semibold text-slate-800">
-                    {farms.find(f => f.id === activeInvestment?.farmId)?.name || "Main Farm"}
-                  </span>
-                </div>
-                <div className="flex justify-between py-1">
-                  <span className="text-slate-400">Pond Assigned</span>
-                  <span className="font-semibold text-slate-800">
-                    {ponds.find(p => p.id === activeInvestment?.pondId)?.name || "General Farm"}
-                  </span>
-                </div>
+          {/* ── Clean Investment Overview Presentation ── */}
+          <Card className="p-4 sm:p-5 bg-white shadow-xs border border-slate-200/80 rounded-2xl">
+            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">
+              Investment Overview
+            </h3>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              <div>
+                <span className="text-slate-400 text-[11px] block">Amount Invested</span>
+                <span className="font-bold text-slate-900 text-base">
+                  {currency}{(Number(activeInvestment?.amountInvested) || 0).toLocaleString()}
+                </span>
               </div>
-            </Card>
-
-            {/* Structure-Specific Terms */}
-            <Card className="p-4 bg-white shadow-xs">
-              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
-                <Landmark size={14} className="text-slate-500" /> Structure Terms
-              </h3>
-              <div className="space-y-2 text-xs">
-                <div className="flex justify-between py-1 border-b border-slate-50">
-                  <span className="text-slate-400">Payment Structure</span>
-                  <span className="font-bold text-emerald-700">
-                    {formatPaymentMethod(activeInvestment?.paymentMethod)}
-                  </span>
-                </div>
-
-                {activeInvestment?.paymentMethod === "monthly_return" && (
-                  <>
-                    <div className="flex justify-between py-1 border-b border-slate-50">
-                      <span className="text-slate-400">Monthly Return Payout</span>
-                      <span className="font-bold text-emerald-700">
-                        {currency}{(activeInvestment?.monthlyReturn || 0).toLocaleString()}
-                      </span>
-                    </div>
-                    <div className="flex justify-between py-1 border-b border-slate-50">
-                      <span className="text-slate-400">Installments</span>
-                      <span className="font-semibold text-slate-900">
-                        {activeInvestment?.numberOfPayments || activeInvestment?.durationMonths || 12} payments
-                      </span>
-                    </div>
-                    <div className="flex justify-between py-1 border-b border-slate-50">
-                      <span className="text-slate-400">Principal Tracking</span>
-                      <span className="font-semibold text-slate-900">
-                        {currency}{(activeInvestment?.amountInvested || 0).toLocaleString()} (Separate)
-                      </span>
-                    </div>
-                  </>
-                )}
-
-                {activeInvestment?.paymentMethod === "principal_plus_return" && (
-                  <>
-                    <div className="flex justify-between py-1 border-b border-slate-50">
-                      <span className="text-slate-400">Payment Date</span>
-                      <span className="font-bold text-slate-900">{activeInvestment?.dueDate}</span>
-                    </div>
-                    <div className="flex justify-between py-1 border-b border-slate-50">
-                      <span className="text-slate-400">Lump Sum Due</span>
-                      <span className="font-bold text-emerald-700">
-                        {currency}{(activeInvestment?.totalAmountDue || 0).toLocaleString()}
-                      </span>
-                    </div>
-                  </>
-                )}
-
-                {activeInvestment?.paymentMethod === "return_upfront" && (
-                  <>
-                    <div className="flex justify-between py-1 border-b border-slate-50">
-                      <span className="text-slate-400">Return Paid Upfront</span>
-                      <span className="font-bold text-emerald-700">
-                        {currency}{(activeInvestment?.expectedReturn || 0).toLocaleString()}
-                      </span>
-                    </div>
-                    <div className="flex justify-between py-1 border-b border-slate-50">
-                      <span className="text-slate-400">Received by Business</span>
-                      <span className="font-bold text-slate-900">
-                        {currency}{(activeInvestment?.amountReceivedByBusiness || 0).toLocaleString()}
-                      </span>
-                    </div>
-                    <div className="flex justify-between py-1 border-b border-slate-50">
-                      <span className="text-slate-400">Maturity Repayment</span>
-                      <span className="font-bold text-slate-900">
-                        {currency}{(activeInvestment?.amountInvested || 0).toLocaleString()}
-                      </span>
-                    </div>
-                  </>
-                )}
-
-                <div className="flex justify-between py-1 border-b border-slate-50">
-                  <span className="text-slate-400">Start Date</span>
-                  <span className="font-semibold text-slate-900">{activeInvestment?.startDate || "—"}</span>
-                </div>
-                <div className="flex justify-between py-1">
-                  <span className="text-slate-400">Maturity Date</span>
-                  <span className="font-semibold text-slate-900">{activeInvestment?.dueDate || "—"}</span>
-                </div>
+              <div>
+                <span className="text-slate-400 text-[11px] block">Return / Profit</span>
+                <span className="font-bold text-emerald-700 text-base">
+                  {activeInvestment?.investorPercentage || 0}% ({currency}{(Number(activeInvestment?.expectedReturn) || 0).toLocaleString()})
+                </span>
               </div>
-            </Card>
-
-            {/* Financial Summary */}
-            <Card className="p-4 bg-white shadow-xs">
-              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
-                <DollarSign size={14} className="text-slate-500" /> Financial Balances
-              </h3>
-              <div className="space-y-2 text-xs">
-                <div className="flex justify-between py-1 border-b border-slate-50">
-                  <span className="text-slate-400">Capital / Face Value</span>
-                  <span className="font-bold text-slate-900">
-                    {currency}{(Number(activeInvestment?.amountInvested) || 0).toLocaleString()}
-                  </span>
-                </div>
-                <div className="flex justify-between py-1 border-b border-slate-50">
-                  <span className="text-slate-400">Agreed Return</span>
-                  <span className="font-semibold text-emerald-700">
-                    {activeInvestment?.investorPercentage || 0}% ({currency}{(Number(activeInvestment?.expectedReturn) || 0).toLocaleString()})
-                  </span>
-                </div>
-                <div className="flex justify-between py-1 border-b border-slate-50">
-                  <span className="text-slate-400">Total Investor Value</span>
-                  <span className="font-bold text-slate-900">
-                    {currency}{(Number(activeInvestment?.totalInvestorValue) || (Number(activeInvestment?.amountInvested || 0) + Number(activeInvestment?.expectedReturn || 0))).toLocaleString()}
-                  </span>
-                </div>
-                <div className="flex justify-between py-1 border-b border-slate-50">
-                  <span className="text-slate-400">Total Paid Out</span>
-                  <span className="font-bold text-purple-700">
-                    {currency}{investmentPayments.reduce((s, p) => s + (p.amountPaid || 0), 0).toLocaleString()}
-                  </span>
-                </div>
-                <div className="flex justify-between py-1">
-                  <span className="text-slate-400 font-bold">Remaining Balance</span>
-                  <span className="font-bold text-amber-700 text-sm">
-                    {currency}{Math.max(0, investmentPayments.reduce((s, p) => s + (p.amountDue || 0), 0) - investmentPayments.reduce((s, p) => s + (p.amountPaid || 0), 0)).toLocaleString()}
-                  </span>
-                </div>
+              <div>
+                <span className="text-slate-400 text-[11px] block">Total Paid Out</span>
+                <span className="font-bold text-purple-700 text-base">
+                  {currency}{investmentPayments.reduce((s, p) => s + (p.amountPaid || 0), 0).toLocaleString()}
+                </span>
               </div>
-            </Card>
-          </div>
+              <div>
+                <span className="text-slate-400 text-[11px] block">Outstanding Balance</span>
+                <span className="font-bold text-amber-700 text-base">
+                  {currency}{Math.max(0, investmentPayments.reduce((s, p) => s + (p.amountDue || 0), 0) - investmentPayments.reduce((s, p) => s + (p.amountPaid || 0), 0)).toLocaleString()}
+                </span>
+              </div>
+            </div>
 
-          {/* ── PAYMENT SCHEDULE & HISTORY TABLE ── */}
-          <Card className="overflow-hidden bg-white shadow-xs">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-3.5 mt-3.5 border-t border-slate-100 text-xs">
+              <div>
+                <span className="text-slate-400 text-[11px] block">Payment Structure</span>
+                <span className="font-semibold text-slate-800">
+                  {formatPaymentMethod(activeInvestment?.paymentMethod)}
+                </span>
+              </div>
+              <div>
+                <span className="text-slate-400 text-[11px] block">Start Date</span>
+                <span className="font-medium text-slate-700 font-mono">
+                  {activeInvestment?.startDate || "—"}
+                </span>
+              </div>
+              <div>
+                <span className="text-slate-400 text-[11px] block">Due / Maturity Date</span>
+                <span className="font-medium text-slate-700 font-mono">
+                  {activeInvestment?.dueDate || "—"}
+                </span>
+              </div>
+              <div>
+                <span className="text-slate-400 text-[11px] block">Farm / Location</span>
+                <span className="font-medium text-slate-700">
+                  {farms.find(f => f.id === activeInvestment?.farmId)?.name || "Main Farm"}
+                </span>
+              </div>
+            </div>
+          </Card>
+
+          {/* ── Basic & Clean Payment Schedule Table ── */}
+          <Card className="overflow-hidden bg-white shadow-xs border border-slate-200/80 rounded-2xl">
             <div className="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between">
               <div>
                 <h3 className="text-sm font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">
-                  Payment Schedule & History
+                  {activeInvestment?.paymentMethod === "monthly_return" ? "Monthly Payment Schedule" : "Payment Obligation"}
                 </h3>
                 <p className="text-[11px] text-slate-400">
-                  Scheduled payment dates, installment obligations, amounts paid, and permanent payout records
+                  {activeInvestment?.paymentMethod === "monthly_return"
+                    ? "Monthly returns paid to the investor and remaining installments"
+                    : "Scheduled payout date and payment records"}
                 </p>
               </div>
               {canCreate && (
@@ -1336,32 +1044,29 @@ export default function InvestorsPage({
             </div>
 
             <div className="overflow-x-auto">
-              <table className="w-full text-xs min-w-[780px]">
+              <table className="w-full text-xs min-w-[650px]">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200/80 text-slate-500 uppercase tracking-wider font-semibold text-[11px]">
                     <th className="text-left px-4 py-2.5">Due Date</th>
-                    <th className="text-left px-4 py-2.5">Schedule Period</th>
-                    <th className="text-left px-4 py-2.5">Payment Type</th>
-                    <th className="text-right px-4 py-2.5">Scheduled Amount</th>
+                    <th className="text-left px-4 py-2.5">Period / Description</th>
+                    <th className="text-right px-4 py-2.5">Amount Due</th>
                     <th className="text-right px-4 py-2.5">Amount Paid</th>
-                    <th className="text-right px-4 py-2.5">Remaining</th>
-                    <th className="text-left px-4 py-2.5">Payment Date</th>
-                    <th className="text-center px-4 py-2.5">Method</th>
+                    <th className="text-left px-4 py-2.5">Paid Date</th>
                     <th className="text-center px-4 py-2.5">Status</th>
-                    <th className="text-right px-4 py-2.5">Actions</th>
+                    <th className="text-right px-4 py-2.5">Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-slate-700">
                   {investmentPayments.length === 0 ? (
                     <tr>
-                      <td colSpan={10} className="text-center py-8 text-slate-400">
+                      <td colSpan={7} className="text-center py-8 text-slate-400">
                         No payments scheduled for this investment.
                       </td>
                     </tr>
                   ) : (
                     investmentPayments.map(p => {
-                      const outstandingPeriod = Math.max(0, p.amountDue - p.amountPaid);
                       const derivedStatus = derivePaymentStatus(p);
+                      const isPaid = derivedStatus === "Paid";
 
                       const statusColor =
                         derivedStatus === "Paid"
@@ -1374,22 +1079,13 @@ export default function InvestorsPage({
                           ? "red"
                           : "gray";
 
-                      const isPaid = derivedStatus === "Paid";
-
                       return (
                         <tr key={p.id} className="hover:bg-slate-50/70 transition-colors">
-                          <td className="px-4 py-3 font-mono text-slate-600 whitespace-nowrap">{p.dueDate}</td>
-                          <td className="px-4 py-3 font-semibold text-slate-800">{p.paymentPeriod}</td>
-                          <td className="px-4 py-3">
-                            <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-700 border border-slate-200">
-                              {p.paymentType || "Scheduled Payment"}
-                            </span>
-                          </td>
+                          <td className="px-4 py-3 font-mono text-slate-700 font-medium whitespace-nowrap">{p.dueDate}</td>
+                          <td className="px-4 py-3 font-semibold text-slate-900">{p.paymentPeriod}</td>
                           <td className="px-4 py-3 text-right font-bold text-slate-900">{currency}{p.amountDue.toLocaleString()}</td>
                           <td className="px-4 py-3 text-right font-bold text-purple-700">{currency}{p.amountPaid.toLocaleString()}</td>
-                          <td className="px-4 py-3 text-right font-bold text-amber-700">{currency}{outstandingPeriod.toLocaleString()}</td>
-                          <td className="px-4 py-3 text-slate-500 whitespace-nowrap">{p.paymentDate || "—"}</td>
-                          <td className="px-4 py-3 text-center text-slate-500">{p.paymentMethod || "—"}</td>
+                          <td className="px-4 py-3 text-slate-500 whitespace-nowrap font-mono">{p.paymentDate || p.paidDate || "—"}</td>
                           <td className="px-4 py-3 text-center">
                             <Bdg label={derivedStatus} color={statusColor as any} />
                           </td>
@@ -1402,7 +1098,7 @@ export default function InvestorsPage({
                                     className="px-2.5 py-1 text-[11px] bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-semibold rounded-lg border border-emerald-200 transition-colors"
                                     title="Mark period as fully paid"
                                   >
-                                    Mark as Paid
+                                    Mark Paid
                                   </button>
                                 )}
                                 {canCreate && (
@@ -1415,8 +1111,8 @@ export default function InvestorsPage({
                                 )}
                               </>
                             ) : (
-                              <span className="text-emerald-600 text-[11px] font-semibold flex items-center justify-end gap-1">
-                                <CheckCircle2 size={13} /> Completed
+                              <span className="text-emerald-600 text-[11px] font-semibold inline-flex items-center gap-1">
+                                <CheckCircle2 size={13} /> Paid
                               </span>
                             )}
                           </td>
