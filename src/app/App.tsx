@@ -4780,30 +4780,41 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     }
 
     if (d.invoiceSettings) setInvSettings(d.invoiceSettings);
-    if (Array.isArray(d.investors)) setInvestors(d.investors.filter((inv: any) => !isDeletedId(inv.id)));
 
-    const investData: Investment[] = Array.isArray(d.investments)
-      ? d.investments
-      : (userProfile?.id ? loadUserLocal(userProfile.id, "investments", "investments", []) : []);
-    if (investData) {
-      const normInv = investData.filter((inv: Investment) => !isDeletedId(inv.id)).map((inv: Investment) => ({ ...inv, farmId: normFid(inv.farmId) }));
-      setInvestments(normInv);
+    const serverInvestors: Investor[] = Array.isArray(d.investors) ? d.investors : [];
+    const localInvestors: Investor[] = userProfile?.id ? loadUserLocal(userProfile.id, "investors", "investors", []) : [];
+    const serverInvIds = new Set(serverInvestors.map(i => i.id));
+    const pendingLocalInvestors = localInvestors.filter(li => li?.id && !serverInvIds.has(li.id) && !isDeletedId(li.id));
+    const finalInvestors = [...serverInvestors.filter((inv: any) => !isDeletedId(inv.id)), ...pendingLocalInvestors].map((inv: any) => ({ ...inv, farmId: normFid(inv.farmId) }));
+    if (finalInvestors.length > 0 || Array.isArray(d.investors)) {
+      setInvestors(finalInvestors);
     }
 
-    const payData: InvestmentPayment[] = Array.isArray(d.investmentPayments)
-      ? d.investmentPayments
-      : (userProfile?.id ? loadUserLocal(userProfile.id, "investment_payments", "investmentPayments", []) : []);
-    if (payData) {
-      const normPay = payData.filter((p: InvestmentPayment) => !isDeletedId(p.id)).map((p: InvestmentPayment) => ({ ...p, farmId: normFid(p.farmId) }));
-      setInvestmentPayments(normPay);
+    const serverInvestments: Investment[] = Array.isArray(d.investments) ? d.investments : [];
+    const localInvestments: Investment[] = userProfile?.id ? loadUserLocal(userProfile.id, "investments", "investments", []) : [];
+    const serverInvestmentIds = new Set(serverInvestments.map(i => i.id));
+    const pendingLocalInvestments = localInvestments.filter(li => li?.id && !serverInvestmentIds.has(li.id) && !isDeletedId(li.id));
+    const finalInvestments = [...serverInvestments.filter((inv: any) => !isDeletedId(inv.id)), ...pendingLocalInvestments].map((inv: any) => ({ ...inv, farmId: normFid(inv.farmId) }));
+    if (finalInvestments.length > 0 || Array.isArray(d.investments)) {
+      setInvestments(finalInvestments);
     }
 
-    const prData: PondReport[] = Array.isArray(d.pondReports)
-      ? d.pondReports
-      : (userProfile?.id ? loadUserLocal(userProfile.id, "pond_reports", "pondReports", []) : []);
-    if (prData) {
-      const normPr = prData.filter((pr: PondReport) => !isDeletedId(pr.id)).map((pr: PondReport) => ({ ...pr, farmId: normFid(pr.farmId) }));
-      setPondReports(normPr);
+    const serverPayments: InvestmentPayment[] = Array.isArray(d.investmentPayments) ? d.investmentPayments : [];
+    const localPayments: InvestmentPayment[] = userProfile?.id ? loadUserLocal(userProfile.id, "investment_payments", "investmentPayments", []) : [];
+    const serverPaymentIds = new Set(serverPayments.map(p => p.id));
+    const pendingLocalPayments = localPayments.filter(lp => lp?.id && !serverPaymentIds.has(lp.id) && !isDeletedId(lp.id));
+    const finalPayments = [...serverPayments.filter((p: any) => !isDeletedId(p.id)), ...pendingLocalPayments].map((p: any) => ({ ...p, farmId: normFid(p.farmId) }));
+    if (finalPayments.length > 0 || Array.isArray(d.investmentPayments)) {
+      setInvestmentPayments(finalPayments);
+    }
+
+    const serverPr: PondReport[] = Array.isArray(d.pondReports) ? d.pondReports : [];
+    const localPr: PondReport[] = userProfile?.id ? loadUserLocal(userProfile.id, "pond_reports", "pondReports", []) : [];
+    const serverPrIds = new Set(serverPr.map(pr => pr.id));
+    const pendingLocalPr = localPr.filter(lpr => lpr?.id && !serverPrIds.has(lpr.id) && !isDeletedId(lpr.id));
+    const finalPr = [...serverPr.filter((pr: any) => !isDeletedId(pr.id)), ...pendingLocalPr].map((pr: any) => ({ ...pr, farmId: normFid(pr.farmId) }));
+    if (finalPr.length > 0 || Array.isArray(d.pondReports)) {
+      setPondReports(finalPr);
     }
 
     if (d.knowledgeQuestions?.length > 0) setKQuestions_(d.knowledgeQuestions);

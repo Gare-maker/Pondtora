@@ -1133,10 +1133,10 @@ export default function InvestorsPage({
               <button
                 type="button"
                 onClick={() => openRecordPayment()}
-                className="h-9 px-3 rounded-xl border-2 border-[#00BB58] bg-emerald-50/60 hover:bg-emerald-100/70 text-emerald-800 text-xs font-bold flex items-center justify-center gap-1.5 transition-colors shrink-0 shadow-xs max-w-[140px] sm:max-w-none"
+                className="h-9 px-3 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors shrink-0 shadow-xs max-w-[140px] sm:max-w-none"
                 title="Record Investor Payment"
               >
-                <Receipt size={14} className="shrink-0 text-emerald-600" />
+                <Receipt size={14} className="shrink-0 text-slate-500" />
                 <span className="truncate">Record Payment</span>
               </button>
               {!selectedInvestorId && (
@@ -1430,20 +1430,9 @@ export default function InvestorsPage({
               </div>
             </div>
 
-            {/* Divider + Action Buttons Row (Green Stroke Record Payment, Download Receipt, Edit, Delete) */}
-            <div className="pt-3.5 border-t border-slate-100 mt-3.5 grid grid-cols-2 sm:grid-cols-4 gap-2 w-full">
-              {/* Button 1: Record Payment with Green Stroke */}
-              <button
-                type="button"
-                onClick={() => openRecordPayment(undefined, selectedInvestor?.id)}
-                className="h-9 px-2 sm:px-3 rounded-xl border-2 border-[#00BB58] bg-emerald-50/70 hover:bg-emerald-100 text-emerald-800 text-xs font-bold flex items-center justify-center gap-1.5 transition-colors min-w-0 overflow-hidden shadow-xs"
-                title="Record payment for this investor"
-              >
-                <Receipt size={14} className="shrink-0 text-emerald-600" />
-                <span className="truncate">Record Payment</span>
-              </button>
-
-              {/* Button 2: Download Receipt */}
+            {/* Divider + Action Buttons Row (Download Receipt, Edit, Delete) */}
+            <div className="pt-3.5 border-t border-slate-100 mt-3.5 grid grid-cols-3 gap-2 w-full">
+              {/* Button 1: Download Receipt */}
               <button
                 type="button"
                 onClick={() => printInvestorReceipt()}
@@ -1454,7 +1443,7 @@ export default function InvestorsPage({
                 <span className="truncate">Download Receipt</span>
               </button>
 
-              {/* Button 3: Edit Investor & Investment */}
+              {/* Button 2: Edit Investor & Investment */}
               {canEdit ? (
                 <button
                   type="button"
@@ -1467,7 +1456,7 @@ export default function InvestorsPage({
                 </button>
               ) : <div />}
 
-              {/* Button 4: Delete Investor */}
+              {/* Button 3: Delete Investor */}
               {canDelete && (
                 <button
                   type="button"
