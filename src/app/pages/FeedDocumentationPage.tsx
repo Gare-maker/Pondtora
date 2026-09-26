@@ -1544,8 +1544,8 @@ function FeedDocumentation({
                     <td className="px-4 py-3 text-teal-700 text-xs font-medium">{row.stockDate !== "—" ? <span className="bg-teal-50 px-2 py-0.5 rounded border border-teal-200">{row.stockDate}</span> : "—"}</td>
                     <td className="px-4 py-3 font-semibold text-slate-700">{row.brand}</td>
                     <td className="px-4 py-3"><Bdg label={row.size} color="blue" /></td>
-                    <td className="px-4 py-3 font-bold text-slate-900">{row.bagsOpened !== undefined && row.bagsOpened !== null ? `${row.bagsOpened} bag${row.bagsOpened !== 1 ? "s" : ""}` : <span className="text-slate-300">—</span>}</td>
-                    <td className="px-4 py-3 font-bold text-green-700 font-['Barlow_Condensed',sans-serif] text-base">{row.totalKgOpened !== undefined && row.totalKgOpened !== null ? `${row.totalKgOpened} kg` : <span className="text-slate-300">—</span>}</td>
+                    <td className="px-4 py-3 font-bold text-slate-900">{row.bagsOpened > 0 ? `${row.bagsOpened} bag${row.bagsOpened !== 1 ? "s" : ""}` : <span className="text-slate-300">—</span>}</td>
+                    <td className="px-4 py-3 font-bold text-green-700 font-['Barlow_Condensed',sans-serif] text-base">{row.totalKgOpened > 0 ? `${row.totalKgOpened} kg` : <span className="text-slate-300">—</span>}</td>
                     <td className="px-4 py-3">{row.remainingKg > 0 ? <span className="font-semibold text-amber-600">{row.remainingKg} kg</span> : <span className="text-slate-300 text-xs">—</span>}</td>
                     <td className="px-4 py-3">{canEdit && row.lastBagLog && (isRecordEditable(row.lastBagLog.date) ? <button onClick={() => openEditDocBag(row.lastBagLog!)} className="p-1 rounded text-slate-300 hover:text-green-600 hover:bg-green-50 transition-colors" title="Edit"><Pencil size={13} /></button> : <button onClick={() => alert("This record can only be edited by an Administrator or Manager after 24 hours.")} className="p-1 rounded text-slate-200 cursor-not-allowed" title="Locked"><Lock size={13} /></button>)}</td>
                   </tr>
