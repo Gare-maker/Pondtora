@@ -3779,7 +3779,9 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   const canEdit   = (feature: string): boolean => isOwner || (hasPerm(feature) && (staffPermsMap[feature]?.canEdit   ?? false));
   const canDelete = (feature: string): boolean => isOwner || (hasPerm(feature) && (staffPermsMap[feature]?.canDelete ?? false));
 
-  const assignedStaffFarms = farms.filter(f => currentStaff?.farms?.includes(f.id) || (userProfile as any)?.farms?.includes(f.id));
+  const assignedStaffFarms = useMemo(() => {
+    return farms.filter(f => currentStaff?.farms?.includes(f.id) || (userProfile as any)?.farms?.includes(f.id));
+  }, [farms, currentStaff?.farms, (userProfile as any)?.farms]);
   const accessibleFarms = isOwner ? farms : assignedStaffFarms;
   const hasOneFarmOrNone = accessibleFarms.length <= 1;
 
@@ -5074,129 +5076,131 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     }
 
     supabase.auth.getSession().then(async ({data:{session}})=>{
-      if(session?.user){
-        // Verify user profile exists in database (guards against ghost accounts if deleted by admin)
-        const { data: prof, error: profErr } = await supabase
-          .from("user_profiles")
-          .select("id, status, role")
-          .eq("id", session.user.id)
-          .maybeSingle();
+      try {
+        if(session?.user){
+          const meta=session.user.user_metadata??{};
 
-        // Check if current user is an invited/assigned staff member
-        let isStaffUser = false;
-        let staffMemberRecord: any = null;
-        try {
-          const { data: staffRow } = await supabase
-            .from("staff_members")
-            .select("id, name, role, permissions, farms, user_id, staff_auth_id")
-            .or(`staff_auth_id.eq.${session.user.id},email.ilike.${session.user.email || ""}`)
+          // Verify user profile exists in database (guards against ghost accounts if deleted by admin)
+          const { data: prof, error: profErr } = await supabase
+            .from("user_profiles")
+            .select("id, status, role")
+            .eq("id", session.user.id)
             .maybeSingle();
-          if (staffRow) {
-            isStaffUser = true;
-            staffMemberRecord = staffRow;
-          }
-        } catch {}
 
-        const isStaffAccount = prof?.role === "staff" || meta.role === "staff" || Boolean(meta.owner_id);
-        if (isStaffAccount && (!isStaffUser || !staffMemberRecord || !Array.isArray(staffMemberRecord.farms) || staffMemberRecord.farms.length === 0)) {
-          await supabase.auth.signOut();
-          resetAllStateAndStorage();
-          toast.error("Your farm access has been revoked by the administrator.");
-          setAuthLoading(false);
-          return;
-        }
-
-        if (!prof && !profErr && !isStaffUser) {
-          // User was deleted by admin! Sign out immediately and clear state
-          await supabase.auth.signOut();
-          resetAllStateAndStorage();
-          setAuthLoading(false);
-          return;
-        }
-
-        const meta=session.user.user_metadata??{};
-
-        // Self-heal profile for staff member if not present in user_profiles
-        if (!prof && isStaffUser) {
+          // Check if current user is an invited/assigned staff member
+          let isStaffUser = false;
+          let staffMemberRecord: any = null;
           try {
-            await supabase.from("user_profiles").upsert({
-              id: session.user.id,
-              name: meta.name || session.user.email?.split("@")[0] || "Staff",
-              email: session.user.email || "",
-              role: "staff",
-              status: "Active",
-            });
-          } catch {}
-        }
-
-        if (prof?.status === "Suspended") {
-          await supabase.auth.signOut();
-          resetAllStateAndStorage();
-          toast.error("Your account has been suspended by an administrator.");
-          setAuthLoading(false);
-          return;
-        }
-
-        const country=meta.country||"Nigeria";
-        const cc=COUNTRY_CURRENCIES[country]??COUNTRY_CURRENCIES["Nigeria"];
-
-        let staffPerms: string[] = meta.permissions || [];
-        let staffOwnerId: string = meta.owner_id || "";
-        let staffRole: string = meta.role || (prof?.role || "owner");
-        let staffFarms: string[] = meta.farms || [];
-
-        if (staffMemberRecord) {
-          if (staffMemberRecord.permissions && staffMemberRecord.permissions.length > 0) staffPerms = staffMemberRecord.permissions;
-          if (staffMemberRecord.user_id) staffOwnerId = staffMemberRecord.user_id;
-          if (staffMemberRecord.farms && staffMemberRecord.farms.length > 0) staffFarms = staffMemberRecord.farms;
-          staffRole = "staff";
-
-          try {
-            await supabase.from("staff_members").update({ staff_auth_id: session.user.id, status: "Active" }).eq("id", staffMemberRecord.id);
-          } catch {}
-          try {
-            const { data: spRows } = await supabase
-              .from("staff_permissions")
-              .select("feature, can_view, can_create, can_edit, can_delete")
-              .eq("staff_id", staffMemberRecord.id);
-            if (spRows && spRows.length > 0) {
-              const spMap: Record<string, { canView: boolean; canCreate: boolean; canEdit: boolean; canDelete: boolean }> = {};
-              spRows.forEach((r: any) => {
-                spMap[r.feature] = {
-                  canView: r.can_view ?? true,
-                  canCreate: Boolean(r.can_create),
-                  canEdit: Boolean(r.can_edit),
-                  canDelete: Boolean(r.can_delete),
-                };
-              });
-              setStaffOwnPermissions(spMap);
-            } else if (meta.staff_permissions) {
-              setStaffOwnPermissions(meta.staff_permissions);
+            const { data: staffRow } = await supabase
+              .from("staff_members")
+              .select("id, name, role, permissions, farms, user_id, staff_auth_id")
+              .or(`staff_auth_id.eq.${session.user.id},email.ilike.${session.user.email || ""}`)
+              .maybeSingle();
+            if (staffRow) {
+              isStaffUser = true;
+              staffMemberRecord = staffRow;
             }
           } catch {}
-        }
 
-        setUserProfile({
-          id:session.user.id,
-          name:staffMemberRecord?.name||meta.name||session.user.email?.split("@")[0]||"User",
-          farmName:meta.farm_name||"My Fish Farm",
-          city:meta.city||"",state:meta.state||"",country,
-          email:session.user.email||"",phone:meta.phone||"",
-          currencySymbol:meta.currency_symbol||cc.symbol,
-          currencyCode:meta.currency_code||cc.code,
-          role:staffRole,
-          permissions:staffPerms,
-          ownerId:staffOwnerId,
-          farms:staffFarms,
-        });
-        if(meta.active_farm_id){
-          setActiveFarmId(meta.active_farm_id);
+          const isStaffAccount = prof?.role === "staff" || meta.role === "staff" || Boolean(meta.owner_id);
+          if (isStaffAccount && (!isStaffUser || !staffMemberRecord || !Array.isArray(staffMemberRecord.farms) || staffMemberRecord.farms.length === 0)) {
+            await supabase.auth.signOut();
+            resetAllStateAndStorage();
+            toast.error("Your farm access has been revoked by the administrator.");
+            return;
+          }
+
+          if (!prof && !profErr && !isStaffUser) {
+            // User was deleted by admin! Sign out immediately and clear state
+            await supabase.auth.signOut();
+            resetAllStateAndStorage();
+            return;
+          }
+
+          // Self-heal profile for staff member if not present in user_profiles
+          if (!prof && isStaffUser) {
+            try {
+              await supabase.from("user_profiles").upsert({
+                id: session.user.id,
+                name: meta.name || session.user.email?.split("@")[0] || "Staff",
+                email: session.user.email || "",
+                role: "staff",
+                status: "Active",
+              });
+            } catch {}
+          }
+
+          if (prof?.status === "Suspended") {
+            await supabase.auth.signOut();
+            resetAllStateAndStorage();
+            toast.error("Your account has been suspended by an administrator.");
+            return;
+          }
+
+          const country=meta.country||"Nigeria";
+          const cc=COUNTRY_CURRENCIES[country]??COUNTRY_CURRENCIES["Nigeria"];
+
+          let staffPerms: string[] = meta.permissions || [];
+          let staffOwnerId: string = meta.owner_id || "";
+          let staffRole: string = meta.role || (prof?.role || "owner");
+          let staffFarms: string[] = meta.farms || [];
+
+          if (staffMemberRecord) {
+            if (staffMemberRecord.permissions && staffMemberRecord.permissions.length > 0) staffPerms = staffMemberRecord.permissions;
+            if (staffMemberRecord.user_id) staffOwnerId = staffMemberRecord.user_id;
+            if (staffMemberRecord.farms && staffMemberRecord.farms.length > 0) staffFarms = staffMemberRecord.farms;
+            staffRole = "staff";
+
+            try {
+              await supabase.from("staff_members").update({ staff_auth_id: session.user.id, status: "Active" }).eq("id", staffMemberRecord.id);
+            } catch {}
+            try {
+              const { data: spRows } = await supabase
+                .from("staff_permissions")
+                .select("feature, can_view, can_create, can_edit, can_delete")
+                .eq("staff_id", staffMemberRecord.id);
+              if (spRows && spRows.length > 0) {
+                const spMap: Record<string, { canView: boolean; canCreate: boolean; canEdit: boolean; canDelete: boolean }> = {};
+                spRows.forEach((r: any) => {
+                  spMap[r.feature] = {
+                    canView: r.can_view ?? true,
+                    canCreate: Boolean(r.can_create),
+                    canEdit: Boolean(r.can_edit),
+                    canDelete: Boolean(r.can_delete),
+                  };
+                });
+                setStaffOwnPermissions(spMap);
+              } else if (meta.staff_permissions) {
+                setStaffOwnPermissions(meta.staff_permissions);
+              }
+            } catch {}
+          }
+
+          setUserProfile({
+            id:session.user.id,
+            name:staffMemberRecord?.name||meta.name||session.user.email?.split("@")[0]||"User",
+            farmName:meta.farm_name||"My Fish Farm",
+            city:meta.city||"",state:meta.state||"",country,
+            email:session.user.email||"",phone:meta.phone||"",
+            currencySymbol:meta.currency_symbol||cc.symbol,
+            currencyCode:meta.currency_code||cc.code,
+            role:staffRole,
+            permissions:staffPerms,
+            ownerId:staffOwnerId,
+            farms:staffFarms,
+          });
+          if(meta.active_farm_id){
+            setActiveFarmId(meta.active_farm_id);
+          }
+          setIsAuth(true);
+          setShowLanding(false);
+          loadFromBackend();
         }
-        setIsAuth(true);
-        setShowLanding(false);
-        loadFromBackend();
+      } catch (err) {
+        console.error("Auth init error:", err);
+      } finally {
+        setAuthLoading(false);
       }
-      setAuthLoading(false);
     });
     const {data:{subscription}}=supabase.auth.onAuthStateChange(async (event,session)=>{
       if(event==="SIGNED_OUT"){
@@ -5426,7 +5430,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     setShowLanding(false);
     loadFromBackend();
   };
-  const handleLogout=async()=>{
+  const handleLogout = useCallback(async () => {
     const uid = userProfile?.id || (typeof window !== "undefined" ? getStoredAuthUser() : null);
     if (uid) {
       api.clearUserCache(uid);
@@ -5434,7 +5438,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     resetAllStateAndStorage();
     setIsDataLoading(false);
     await auth.signOut().catch(console.warn);
-  };
+  }, [userProfile?.id]);
   const handleSignup=(profile:UserProfile)=>{
     // With Supabase, if we get here a session exists (signUp returned session immediately)
     // Show plan selector before entering the app
