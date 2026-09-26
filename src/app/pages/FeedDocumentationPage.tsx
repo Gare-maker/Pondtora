@@ -664,7 +664,7 @@ function FeedDocumentation({
           brand: brand,
           size: size,
           kgPerBag: kgPb,
-          qty: b.bagsOpened != null && b.bagsOpened > 0 ? String(b.bagsOpened) : (b.bagsOpened === 0 ? "0" : "")
+          qty: b.bagsOpened !== undefined && b.bagsOpened !== null ? String(b.bagsOpened) : ""
         };
       });
     }
@@ -698,7 +698,7 @@ function FeedDocumentation({
             brand: brand,
             size: size,
             kgPerBag: kgPb,
-            qty: b.bagsOpened != null && b.bagsOpened > 0 ? String(b.bagsOpened) : (b.bagsOpened === 0 ? "0" : "")
+            qty: b.bagsOpened !== undefined && b.bagsOpened !== null ? String(b.bagsOpened) : ""
           };
         }));
       } else {
@@ -727,7 +727,7 @@ function FeedDocumentation({
     }
     return u;
   }));
-  const filledBagRows = bagRows.filter(r => Number(r.qty) > 0);
+  const filledBagRows = bagRows.filter(r => r.qty !== "" && !isNaN(Number(r.qty)) && Number(r.qty) >= 0);
 
   const handleSaveBags = async () => {
     const errs: Record<string, string> = {};
@@ -777,9 +777,9 @@ function FeedDocumentation({
         errs.entries = "This has already been logged for this brand, fish stock, and pallet size.";
       }
 
-      const requestedBags = Number(r.qty) || 0;
-      if (requestedBags <= 0 || r.qty.trim() === "") {
-        errs[`qty_${idx}`] = "Enter valid bags quantity (at least 1)";
+      const requestedBags = Number(r.qty);
+      if (r.qty === "" || r.qty.trim() === "" || isNaN(requestedBags) || requestedBags < 0) {
+        errs[`qty_${idx}`] = "Enter a valid bags quantity (0 or greater)";
         return;
       }
       const avail = getStockAvailable(r.brand, r.size, r.id);
@@ -1544,8 +1544,8 @@ function FeedDocumentation({
                     <td className="px-4 py-3 text-teal-700 text-xs font-medium">{row.stockDate !== "—" ? <span className="bg-teal-50 px-2 py-0.5 rounded border border-teal-200">{row.stockDate}</span> : "—"}</td>
                     <td className="px-4 py-3 font-semibold text-slate-700">{row.brand}</td>
                     <td className="px-4 py-3"><Bdg label={row.size} color="blue" /></td>
-                    <td className="px-4 py-3 font-bold text-slate-900">{row.bagsOpened > 0 ? `${row.bagsOpened} bag${row.bagsOpened !== 1 ? "s" : ""}` : <span className="text-slate-300">—</span>}</td>
-                    <td className="px-4 py-3 font-bold text-green-700 font-['Barlow_Condensed',sans-serif] text-base">{row.totalKgOpened > 0 ? `${row.totalKgOpened} kg` : <span className="text-slate-300">—</span>}</td>
+                    <td className="px-4 py-3 font-bold text-slate-900">{row.bagsOpened !== undefined && row.bagsOpened !== null ? `${row.bagsOpened} bag${row.bagsOpened !== 1 ? "s" : ""}` : <span className="text-slate-300">—</span>}</td>
+                    <td className="px-4 py-3 font-bold text-green-700 font-['Barlow_Condensed',sans-serif] text-base">{row.totalKgOpened !== undefined && row.totalKgOpened !== null ? `${row.totalKgOpened} kg` : <span className="text-slate-300">—</span>}</td>
                     <td className="px-4 py-3">{row.remainingKg > 0 ? <span className="font-semibold text-amber-600">{row.remainingKg} kg</span> : <span className="text-slate-300 text-xs">—</span>}</td>
                     <td className="px-4 py-3">{canEdit && row.lastBagLog && (isRecordEditable(row.lastBagLog.date) ? <button onClick={() => openEditDocBag(row.lastBagLog!)} className="p-1 rounded text-slate-300 hover:text-green-600 hover:bg-green-50 transition-colors" title="Edit"><Pencil size={13} /></button> : <button onClick={() => alert("This record can only be edited by an Administrator or Manager after 24 hours.")} className="p-1 rounded text-slate-200 cursor-not-allowed" title="Locked"><Lock size={13} /></button>)}</td>
                   </tr>
@@ -2064,7 +2064,7 @@ function FeedDocumentation({
                     <F label="4. Bags Opened">
                       <input
                         type="number"
-                        min="1"
+                        min="0"
                         value={row.qty}
                         onChange={e => updateBagRow(i, "qty", e.target.value)}
                         className={`${IC} ${isOverStock ? "border-red-400 focus:ring-red-200" : ""}`}
@@ -2073,7 +2073,7 @@ function FeedDocumentation({
                     </F>
 
                     {/* 5. Live Calculated KG & Validation Warning */}
-                    {requestedBags > 0 && (
+                    {row.qty !== "" && !isNaN(requestedBags) && requestedBags >= 0 && (
                       <div className="space-y-1">
                         <p className="text-xs text-green-700 font-bold">
                           Total: {requestedKg} kg ({requestedBags} bag{requestedBags !== 1 ? "s" : ""} × {row.kgPerBag} kg/bag)

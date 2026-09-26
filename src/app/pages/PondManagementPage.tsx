@@ -86,7 +86,15 @@ function PondDetail({
     if(onEditFish)onEditFish(pond.id,{species:s||pond.species,currentCount:Number(editFishF.count)||pond.currentCount,stockingDate:editFishF.stockingDate||pond.stockingDate,fishStock:s||pond.fishStock||pond.species});
     setShowEditFish(false);
   };
-  const handleUpdateQty=()=>{const n=Number(qtyAmt)||0;if(n<=0)return;const newCount=qtyMode==="increase"?pond.currentCount+n:Math.max(0,pond.currentCount-n);if(onEditFish)onEditFish(pond.id,{species:pond.species,currentCount:newCount,stockingDate:pond.stockingDate});setShowUpdateQty(false);setQtyAmt("");};
+  const handleUpdateQty=(mode?: "increase" | "reduce", directAmt?: number)=>{
+    const chosenMode = mode || qtyMode;
+    const n = directAmt !== undefined ? directAmt : (Number(qtyAmt) || 0);
+    if(n <= 0) return;
+    const newCount = chosenMode === "increase" ? pond.currentCount + n : Math.max(0, pond.currentCount - n);
+    if(onEditFish) onEditFish(pond.id, { species: pond.species, currentCount: newCount, stockingDate: pond.stockingDate, fishStock: pond.fishStock });
+    setShowUpdateQty(false);
+    setQtyAmt("");
+  };
   const [showMaxKg,setShowMaxKg]=useState(false);
   const [maxKgSize,setMaxKgSize]=useState(allInvSizes[0]||"");
   const [maxKgValue,setMaxKgValue]=useState("");
@@ -949,14 +957,38 @@ function PondDetail({
         <F label="Stocking Date"><input type="date" value={editFishF.stockingDate} onChange={e=>setEditFishF(p=>({...p,stockingDate:e.target.value}))} className={IC}/></F>
         <div className="flex gap-2 pt-1"><PBtn onClick={handleSaveEditFish}><CheckCircle size={14}/> Save Changes</PBtn><button onClick={()=>setShowEditFish(false)} className="px-4 py-2 text-sm text-slate-400">Cancel</button></div>
       </Modal>}
-      {showUpdateQty&&<Modal title="Update Fish Quantity" onClose={()=>setShowUpdateQty(false)}>
-        <div className="flex gap-2 mb-1">
-          <button onClick={()=>setQtyMode("increase")} className={`flex-1 py-2 rounded-lg text-sm font-semibold border transition-all ${qtyMode==="increase"?"border-green-400 bg-green-50 text-green-700":"border-slate-200 text-slate-500"}`}>Increase</button>
-          <button onClick={()=>setQtyMode("reduce")} className={`flex-1 py-2 rounded-lg text-sm font-semibold border transition-all ${qtyMode==="reduce"?"border-red-400 bg-red-50 text-red-700":"border-slate-200 text-slate-500"}`}>Reduce</button>
+      {showUpdateQty&&<Modal title="Increase / Decrease Fish Quantity" onClose={()=>setShowUpdateQty(false)}>
+        <div className="flex gap-2 mb-2">
+          <button onClick={()=>setQtyMode("increase")} className={`flex-1 py-2.5 rounded-xl text-sm font-bold border transition-all ${qtyMode==="increase"?"border-green-500 bg-green-50 text-green-700 shadow-xs":"border-slate-200 text-slate-500 hover:bg-slate-50"}`}>+ Increase Quantity</button>
+          <button onClick={()=>setQtyMode("reduce")} className={`flex-1 py-2.5 rounded-xl text-sm font-bold border transition-all ${qtyMode==="reduce"?"border-red-500 bg-red-50 text-red-700 shadow-xs":"border-slate-200 text-slate-500 hover:bg-slate-50"}`}>- Decrease Quantity</button>
         </div>
-        <F label="Amount"><NumInput allowDecimal={false} value={qtyAmt} onChange={setQtyAmt} className={IC} placeholder="Enter amount"/></F>
-        <div className="text-xs text-slate-400">Current count: <strong className="text-slate-700">{pond.currentCount.toLocaleString()}</strong>{qtyAmt&&Number(qtyAmt)>0&&<> → <strong className={qtyMode==="increase"?"text-green-700":"text-red-600"}>{(qtyMode==="increase"?pond.currentCount+Number(qtyAmt):Math.max(0,pond.currentCount-Number(qtyAmt))).toLocaleString()}</strong></>}</div>
-        <div className="flex gap-2 pt-1"><PBtn onClick={handleUpdateQty}><CheckCircle size={14}/> Update</PBtn><button onClick={()=>setShowUpdateQty(false)} className="px-4 py-2 text-sm text-slate-400">Cancel</button></div>
+        <F label="Quantity Amount">
+          <NumInput allowDecimal={false} value={qtyAmt} onChange={setQtyAmt} className={IC} placeholder="Enter quantity number"/>
+        </F>
+        <div className="flex flex-wrap gap-1.5 mb-3">
+          <span className="text-[11px] text-slate-400 self-center mr-1">Quick presets:</span>
+          {[10, 50, 100, 500, 1000].map(val => (
+            <button
+              key={val}
+              type="button"
+              onClick={() => setQtyAmt(String(val))}
+              className="text-xs px-2.5 py-1 rounded-lg border border-slate-200 bg-white text-slate-600 hover:border-green-400 hover:text-green-700 transition-colors font-medium"
+            >
+              +{val}
+            </button>
+          ))}
+        </div>
+        <div className="text-xs bg-slate-50 border border-slate-200 rounded-xl p-3 mb-2">
+          <span className="text-slate-400">Current count: </span>
+          <strong className="text-slate-800">{pond.currentCount.toLocaleString()} fish</strong>
+          {qtyAmt&&Number(qtyAmt)>0&&<>
+            <span className="text-slate-400"> → New count: </span>
+            <strong className={qtyMode==="increase"?"text-green-700 font-bold":"text-red-600 font-bold"}>
+              {(qtyMode==="increase"?pond.currentCount+Number(qtyAmt):Math.max(0,pond.currentCount-Number(qtyAmt))).toLocaleString()} fish
+            </strong>
+          </>}
+        </div>
+        <div className="flex gap-2 pt-1"><PBtn onClick={()=>handleUpdateQty()}><CheckCircle size={14}/> Save Quantity</PBtn><button onClick={()=>setShowUpdateQty(false)} className="px-4 py-2 text-sm text-slate-400 hover:text-slate-600">Cancel</button></div>
       </Modal>}
       {showRestock&&<Modal title={`Add Fish Stock — ${pond.name}`} onClose={()=>{setShowRestock(false);setRestockErr({});}} wide>
         <div className="bg-green-50 border border-green-200 rounded-xl px-4 py-3 text-xs text-green-700">
@@ -1062,20 +1094,38 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
     type SG={key:string;stockName:string;stockingDate:string;speciesList:string[];supplierList:string[];pondNames:string[];pondIds:string[];totalStartCount:number;isActive:boolean};
     const groups:Record<string,SG>={};
 
-    (stockEvents||[]).filter(e=>e.type==="Initial"||e.type==="Restock").forEach(ev=>{
-      const stockName = ev.species && ev.species !== "—" && !POND_SPECIES.includes(ev.species)
+    // 1. Process all stock events (Initial, Restock, Closed, Transfer)
+    (stockEvents||[]).forEach(ev=>{
+      const stockName = ev.batch || (ev.species && ev.species !== "—" && !POND_SPECIES.includes(ev.species)
         ? ev.species
-        : (ev.date ? fmtStockingDate(ev.date) : "Fish Stock");
+        : (ev.date ? fmtStockingDate(ev.date) : "Fish Stock"));
       const gk = stockName;
-      if(!gk||gk==="—")return;
-      if(!groups[gk])groups[gk]={key:gk,stockName,stockingDate:ev.date,speciesList:[],supplierList:[],pondNames:[],pondIds:[],totalStartCount:0,isActive:false};
-      if(ev.species&&!groups[gk].speciesList.includes(ev.species))groups[gk].speciesList.push(ev.species);
+      if(!gk||gk==="—"||gk==="General Stock")return;
+      if(!groups[gk]){
+        groups[gk]={
+          key:gk,
+          stockName,
+          stockingDate:ev.date || ev.clearedDate || "—",
+          speciesList:[],
+          supplierList:[],
+          pondNames:[],
+          pondIds:[],
+          totalStartCount:0,
+          isActive:false
+        };
+      }
+      if(ev.species&&ev.species!=="—"&&!groups[gk].speciesList.includes(ev.species))groups[gk].speciesList.push(ev.species);
       if(ev.supplier&&!groups[gk].supplierList.includes(ev.supplier))groups[gk].supplierList.push(ev.supplier);
-      if(ev.pondName&&!groups[gk].pondNames.includes(ev.pondName)){groups[gk].pondNames.push(ev.pondName);groups[gk].pondIds.push(ev.pondId);}
-      groups[gk].totalStartCount+=(ev.count||0);
+      if(ev.pondName&&!groups[gk].pondNames.includes(ev.pondName)){
+        groups[gk].pondNames.push(ev.pondName);
+        if(ev.pondId) groups[gk].pondIds.push(ev.pondId);
+      }
+      if(ev.type==="Initial"||ev.type==="Restock"){
+        groups[gk].totalStartCount+=(ev.count||0);
+      }
     });
 
-    // Also ensure all current active ponds with fish stocks are represented and unified in history!
+    // 2. Also ensure all active ponds with fish stocks are represented and unified
     (ponds||[]).filter(p=>p.status==="Active").forEach(p=>{
       const gk = getPondFishStock(p);
       if(!gk || gk === "—" || gk === "General Stock") return;
@@ -1103,6 +1153,49 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
         if(!wasInEvents){
           groups[gk].totalStartCount+=(p.initialStock||p.currentCount||0);
         }
+      }
+    });
+
+    // 3. Scan feeding records and treatments with explicit fishStock labels
+    (feedingRecords||[]).forEach(r=>{
+      if(r.fishStock && r.fishStock !== "—" && r.fishStock !== "General Stock"){
+        const gk = r.fishStock;
+        if(!groups[gk]){
+          groups[gk]={
+            key:gk,
+            stockName:gk,
+            stockingDate:r.date || "—",
+            speciesList:[],
+            supplierList:[],
+            pondNames:[],
+            pondIds:[],
+            totalStartCount:0,
+            isActive:false
+          };
+        }
+        if(r.pond && !groups[gk].pondNames.includes(r.pond)){
+          groups[gk].pondNames.push(r.pond);
+          const matchedPond = ponds.find(p=>p.name===r.pond);
+          if(matchedPond && !groups[gk].pondIds.includes(matchedPond.id)){
+            groups[gk].pondIds.push(matchedPond.id);
+          }
+        }
+      }
+    });
+
+    // 4. Update isActive state: active if any current pond with status "Active" belongs to this stock
+    Object.values(groups).forEach(g=>{
+      const hasActivePond = ponds.some(p => p.status === "Active" && (
+        getPondFishStock(p) === g.key ||
+        g.pondIds.includes(p.id) ||
+        (p.fishStock && p.fishStock === g.stockName) ||
+        (g.pondNames.includes(p.name) && p.species && g.speciesList.includes(p.species))
+      ));
+      g.isActive = hasActivePond;
+      // Self-heal totalStartCount if 0
+      if(g.totalStartCount === 0){
+        const matchedActivePonds = ponds.filter(p => g.pondIds.includes(p.id) || g.pondNames.includes(p.name));
+        g.totalStartCount = matchedActivePonds.reduce((s, p) => s + (p.initialStock || p.currentCount || 0), 0);
       }
     });
 
@@ -1389,17 +1482,18 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
                 <span className="text-[11px] text-slate-400 ml-auto">{filtStockGroups.length} lifecycle{filtStockGroups.length!==1?"s":""}</span>
               </div>
               <div className="flex-1 overflow-y-auto overflow-x-auto">
-                <table className="w-full text-sm min-w-[480px]">
+                <table className="w-full text-sm min-w-[520px]">
                   <thead className="sticky top-0 z-10"><tr className="bg-slate-50 border-b border-slate-200">
                     <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left w-10">#</th>
                     <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left whitespace-nowrap sticky left-0 bg-slate-50 z-20 border-r border-slate-200">Stocking Date</th>
                     <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left">Fish Stock(s)</th>
+                    <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left">Status</th>
                     <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left">Supplier</th>
                     <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left whitespace-nowrap">Current Fish</th>
                     <th className="px-4 py-3 w-16"/>
                   </tr></thead>
                   <tbody className="divide-y divide-slate-50">
-                    {filtStockGroups.length===0&&<tr><td colSpan={6} className="text-center text-xs text-slate-400 py-10">No fish stock records found.</td></tr>}
+                    {filtStockGroups.length===0&&<tr><td colSpan={7} className="text-center text-xs text-slate-400 py-10">No fish stock records found.</td></tr>}
                     {filtStockGroups.map((g,i)=>{
                       const totalCurrent=ponds.filter(p=>(p.stockingDate===g.stockingDate||g.pondIds.includes(p.id))&&p.status==="Active").reduce((s,p)=>s+p.currentCount,0);
                       return(
@@ -1409,8 +1503,11 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
                             <p className="font-bold text-slate-800 text-xs">{fmtStockingDate(g.stockingDate)}</p>
                           </td>
                           <td className="px-4 py-3 text-slate-700 text-xs font-semibold">{g.speciesList.join(", ")||"—"}</td>
+                          <td className="px-4 py-3">
+                            <Bdg label={g.isActive ? "Active" : "Archived"} color={g.isActive ? "green" : "gray"} />
+                          </td>
                           <td className="px-4 py-3 text-slate-500 text-xs">{g.supplierList.length>0?g.supplierList.join(", "):<span className="text-slate-300">—</span>}</td>
-                          <td className="px-4 py-3 font-bold text-green-700 text-xs font-['Barlow_Condensed',sans-serif]">{totalCurrent.toLocaleString()}</td>
+                          <td className="px-4 py-3 font-bold text-green-700 text-xs font-['Barlow_Condensed',sans-serif]">{g.isActive ? totalCurrent.toLocaleString() : "0 (Cleared)"}</td>
                           <td className="px-4 py-3"><button onClick={e=>{e.stopPropagation();setStockDetailId(g.key);}} className="flex items-center gap-1 text-xs font-semibold text-green-600 hover:text-green-800 transition-colors"><Eye size={12}/> View</button></td>
                         </tr>
                       );
@@ -1442,14 +1539,15 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
                   <div>
                     <p className="text-[10px] font-bold uppercase tracking-widest text-green-600 mb-0.5">Section 1</p>
                     <p className="text-base font-bold text-slate-800 mb-3">Stock Aggregate Details</p>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-3">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
                       <div className={IC2}><p className="text-[10px] text-slate-400 uppercase tracking-wider mb-0.5">Fish Stock Identity</p><p className="text-sm font-bold text-slate-900">{grp.stockName || grp.speciesList.join(", ")||"—"}</p></div>
                       <div className={IC2}><p className="text-[10px] text-slate-400 uppercase tracking-wider mb-0.5">Stocking Date</p><p className="text-sm font-bold text-slate-900">{fmtStockingDate(grp.stockingDate)}</p></div>
+                      <div className={IC2}><p className="text-[10px] text-slate-400 uppercase tracking-wider mb-0.5">Status</p><div className="mt-0.5"><Bdg label={grp.isActive ? "Active Stock" : "Archived / Cleared"} color={grp.isActive ? "green" : "gray"} /></div></div>
                       <div className={IC2}><p className="text-[10px] text-slate-400 uppercase tracking-wider mb-0.5">Ponds Associated</p><p className="text-sm font-bold text-blue-700">{grp.pondNames.join(", ")||"—"}</p></div>
                       <div className={IC2}><p className="text-[10px] text-slate-400 uppercase tracking-wider mb-0.5">Supplier(s)</p><p className="text-sm font-bold text-slate-900">{grp.supplierList.join(", ")||"—"}</p></div>
                       <div className={IC2}><p className="text-[10px] text-slate-400 uppercase tracking-wider mb-0.5">Initial Total Fish</p><p className="text-sm font-bold text-slate-900">{grp.totalStartCount.toLocaleString()}</p></div>
-                      <div className={IC2}><p className="text-[10px] text-slate-400 uppercase tracking-wider mb-0.5">Current Total Fish</p><p className="text-sm font-bold text-green-700">{totalCurrentFish.toLocaleString()}</p></div>
-                      <div className="bg-red-50 border border-red-100 rounded-xl px-3 py-2.5 col-span-2 sm:col-span-3"><p className="text-[10px] text-red-400 uppercase tracking-wider mb-0.5">Total Mortality</p><p className="text-sm font-bold text-red-700">{totalDead.toLocaleString()} fish ({mortRate}%)</p></div>
+                      <div className={IC2}><p className="text-[10px] text-slate-400 uppercase tracking-wider mb-0.5">Current Total Fish</p><p className="text-sm font-bold text-green-700">{grp.isActive ? totalCurrentFish.toLocaleString() : "0 (Cleared)"}</p></div>
+                      <div className="bg-red-50 border border-red-100 rounded-xl px-3 py-2.5"><p className="text-[10px] text-red-400 uppercase tracking-wider mb-0.5">Total Mortality</p><p className="text-sm font-bold text-red-700">{totalDead.toLocaleString()} fish ({mortRate}%)</p></div>
                     </div>
                     <div>
                       <div className="flex items-center justify-between mb-3">
@@ -1513,7 +1611,7 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
                           const pondBySz=pondFeed.reduce<Record<string,number>>((acc,r)=>{acc[r.size]=(acc[r.size]||0)+r.total;return acc;},{});
                           const pondMort=allMort.filter(m=>m.pondId===pondId);
                           const pondDead=pondMort.reduce((s,m)=>s+m.count,0);
-                          const initCnt=stockEvents.filter(e=>e.pondId===pondId&&(e.type==="Initial"||e.type==="Restock")).reduce((s,e)=>s+e.count,0)||1;
+                          const initCnt=stockEvents.filter(e=>e.pondId===pondId&&(e.type==="Initial"||e.type==="Restock")).reduce((s,e)=>s+e.count,0)||(thisPond?.initialStock)||1;
                           const pondMortRate=((pondDead/initCnt)*100).toFixed(1);
                           const pondTreat=treatments.filter(t=>t.pondId===pondId);
                           const clearedEv=stockEvents.find(e=>e.pondId===pondId&&e.type==="Closed");
@@ -1533,7 +1631,7 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
                               </div>
                               <div className="p-4 space-y-3">
                                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                                  <div className={IC2}><p className="text-[10px] text-slate-400 uppercase tracking-wider mb-0.5">Fish Count</p><p className="text-sm font-bold text-slate-900">{thisPond?thisPond.currentCount.toLocaleString():"—"}</p></div>
+                                  <div className={IC2}><p className="text-[10px] text-slate-400 uppercase tracking-wider mb-0.5">Fish Count</p><p className="text-sm font-bold text-slate-900">{thisPond?(thisPond.status==="Active"?thisPond.currentCount.toLocaleString():"0 (Cleared)"):"—"}</p></div>
                                   <div className={IC2}><p className="text-[10px] text-slate-400 uppercase tracking-wider mb-0.5">Total Feed</p><p className="text-sm font-bold text-slate-900">{pondFeedKg} kg</p></div>
                                   <div className={IC2}><p className="text-[10px] text-slate-400 uppercase tracking-wider mb-0.5">Mortality</p><p className="text-sm font-bold text-slate-900">{pondDead} fish</p></div>
                                   <div className={IC2}><p className="text-[10px] text-slate-400 uppercase tracking-wider mb-0.5">Mort. Rate</p><p className="text-sm font-bold text-slate-900">{pondMortRate}%</p></div>

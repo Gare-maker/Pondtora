@@ -1995,9 +1995,46 @@ export const api = {
 
       return { ...res, staffPermissions: s.staffPermissions };
     },
-    remove: async (id: string) => {
+    remove: async (id: string, farmId?: string) => {
       const userId = await getUserId();
       const targetId = isUuid(id) ? id : (idMap.get(id) || toUuid(id));
+
+      // 1. Fetch existing staff record to check auth_id, email, and farm assignments
+      let existingStaff: any = null;
+      try {
+        const { data } = await supabase.from("staff_members").select("*").eq("id", targetId).maybeSingle();
+        existingStaff = data;
+      } catch {}
+
+      // 2. If farmId is specified and staff has multiple farms, revoke only this farm
+      if (farmId && existingStaff && Array.isArray(existingStaff.farms) && existingStaff.farms.length > 1) {
+        const remainingFarms = existingStaff.farms.filter((f: string) => f !== farmId);
+        try {
+          await supabase.from("staff_farm_assignments").delete().eq("staff_id", targetId).eq("farm_id", farmId);
+          await supabase.from("staff_members").update({ farms: remainingFarms, updated_at: new Date().toISOString() }).eq("id", targetId);
+        } catch (e) {
+          console.warn("Failed to revoke specific farm assignment:", e);
+        }
+
+        // Update local cache
+        if (userId) {
+          const cached = getLocalCache(userId) || {};
+          const list = cached.staffMembers || [];
+          saveLocalCache({ staffMembers: list.map((x: any) => x.id === id || x.id === targetId ? { ...x, farms: remainingFarms } : x) }, userId);
+          try {
+            const direct = localStorage.getItem(`pondtora_${userId}_staff`);
+            if (direct) {
+              const parsed = JSON.parse(direct);
+              if (Array.isArray(parsed)) {
+                localStorage.setItem(`pondtora_${userId}_staff`, JSON.stringify(parsed.map((x: any) => x.id === id || x.id === targetId ? { ...x, farms: remainingFarms } : x)));
+              }
+            }
+          } catch {}
+        }
+        return { success: true };
+      }
+
+      // 3. Full deletion of staff member and complete revocation of farm access
       if (userId) {
         const cached = getLocalCache(userId) || {};
         const list = cached.staffMembers || [];
@@ -2012,9 +2049,31 @@ export const api = {
           }
         } catch {}
       }
+
+      // Delete all farm assignments, permissions, invitations
       try { await supabase.from("staff_farm_assignments").delete().eq("staff_id", targetId); } catch {}
       try { await supabase.from("staff_permissions").delete().eq("staff_id", targetId); } catch {}
       try { await supabase.from("staff_invitations").delete().eq("staff_id", targetId); } catch {}
+
+      // Invalidate and delete staff user profile / authentication account
+      const staffAuthId = existingStaff?.staff_auth_id;
+      const staffEmail = existingStaff?.email;
+
+      if (staffAuthId && isUuid(staffAuthId)) {
+        try {
+          await supabase.from("user_profiles").delete().eq("id", staffAuthId);
+          await supabase.rpc("delete_user_completely", { target_user_id: staffAuthId });
+        } catch (e) {
+          console.warn("Failed to delete staff auth profile completely:", e);
+        }
+      }
+
+      if (staffEmail) {
+        try {
+          await supabase.from("user_profiles").delete().eq("role", "staff").ilike("email", staffEmail.trim().toLowerCase());
+        } catch {}
+      }
+
       return dbDelete("staff_members", id, "staffMembers");
     },
   },

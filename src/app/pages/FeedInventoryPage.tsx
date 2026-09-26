@@ -480,8 +480,8 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
                       </td>
                       <td className="px-4 py-3.5 font-semibold text-slate-700">{r.brand}</td>
                       <td className="px-4 py-3.5"><Bdg label={r.size} color="blue"/></td>
-                      <td className="px-4 py-3.5 text-right font-bold text-slate-900">{r.bagsOpened > 0 ? `${r.bagsOpened} bag${r.bagsOpened!==1?"s":""}` : "—"}</td>
-                      <td className="px-4 py-3.5 text-right font-bold text-green-700 font-['Barlow_Condensed',sans-serif] text-base">{r.totalKgOpened > 0 ? `${r.totalKgOpened}kg` : "—"}</td>
+                      <td className="px-4 py-3.5 text-right font-bold text-slate-900">{r.bagsOpened !== undefined && r.bagsOpened !== null ? `${r.bagsOpened} bag${r.bagsOpened!==1?"s":""}` : "—"}</td>
+                      <td className="px-4 py-3.5 text-right font-bold text-green-700 font-['Barlow_Condensed',sans-serif] text-base">{r.totalKgOpened !== undefined && r.totalKgOpened !== null ? `${r.totalKgOpened}kg` : "—"}</td>
                       <td className="px-4 py-3.5 text-right">
                         <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold font-['Barlow_Condensed',sans-serif] ${r.remainingKg>0?"bg-amber-100 text-amber-900 border border-amber-200":"bg-slate-100 text-slate-500"}`}>
                           {r.remainingKg}kg

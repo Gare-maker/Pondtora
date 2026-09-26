@@ -4088,12 +4088,17 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     if(!p)return;
     const fid=p.farmId||activeFarmId||farms[0]?.id||"";
     const stockLabel = p.fishStock || (p.stockingDate && p.stockingDate !== "—" ? fmtStockingDate(p.stockingDate) : (p.species !== "—" ? p.species : "Previous Stock"));
+    const stockingDateVal = p.stockingDate && p.stockingDate !== "—" ? p.stockingDate : TODAY;
     const closed={...p,status:"Empty" as const,currentCount:0,initialStock:0,avgWeight:undefined,stockingDate:"—",stockMonth:"",totalCost:0,species:"—",fishStock:undefined,transferNote:undefined,maxKgByPallet:{},farmId:fid};
     setPonds(prev=>prev.map(x=>x.id===id?closed:x));
-    const se:StockEvent={id:crypto.randomUUID(),pondId:id,pondName:p.name,date:TODAY,species:p.species,count:p.currentCount,cost:p.totalCost,type:"Closed" as const,clearedDate:TODAY,farmId:fid,batch:stockLabel};
+    const se:StockEvent={id:crypto.randomUUID(),pondId:id,pondName:p.name,date:stockingDateVal,species:p.species!=="—"?p.species:stockLabel,count:p.initialStock||p.currentCount,cost:p.totalCost,type:"Closed" as const,clearedDate:TODAY,farmId:fid,batch:stockLabel,supplier:p.supplier};
     setStockEvents(prev=>[...prev,se]);
-    // Historical feeding, treatments, and mortality records are preserved for reporting
-    toast.success("Pond cleared");
+
+    // Ensure all existing feeding records for this pond retain the fishStock batch identifier
+    setFeeding(prev=>prev.map(r=>r.pond===p.name?{...r,fishStock:r.fishStock||stockLabel}:r));
+
+    // Historical feeding, treatments, and mortality records are preserved for reporting and stock history
+    toast.success("Pond cleared — stock history preserved in Fish Stock History");
     try {
       await Promise.all([
         api.ponds.update(closed),
@@ -4433,12 +4438,43 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     setInventory(prev=>prev.map(x=>x.id===f.id?fWithFarm:x));
     api.inventory.update(fWithFarm).catch(console.warn);
   };
-  const editFish=(id:string,u:{species:string;currentCount:number;stockingDate:string;fishStock?:string})=>{
+  const pendingFishUpdatesRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const editFish = (id: string, u: { species: string; currentCount: number; stockingDate: string; fishStock?: string }) => {
     if (!canEdit("Pond Management")) {
       toast.error("You do not have permission to edit pond fish.");
       return;
     }
-    setPonds(prev=>prev.map(p=>{if(p.id!==id)return p;const np={...p,...u};api.ponds.update(np).catch(console.warn);return np;}));
+    const targetPond = ponds.find(p => p.id === id);
+    if (!targetPond) return;
+
+    const np: Pond = { ...targetPond, ...u };
+
+    // 1. Immediate optimistic UI update
+    setPonds(prev => prev.map(p => p.id === id ? np : p));
+
+    // 2. Immediate local storage persistence
+    if (userProfile?.id) {
+      try {
+        const nextList = ponds.map(p => p.id === id ? np : p);
+        saveUserLocal(userProfile.id, "ponds", "ponds", nextList);
+      } catch {}
+    }
+
+    // 3. Debounce database call per pond to eliminate race conditions and delayed lags
+    if (pendingFishUpdatesRef.current.has(id)) {
+      clearTimeout(pendingFishUpdatesRef.current.get(id));
+    }
+    const timer = setTimeout(async () => {
+      try {
+        await api.ponds.update(np);
+      } catch (err: any) {
+        console.error("Failed to persist updated fish quantity:", err);
+        toast.error("Quantity saved locally — sync error");
+      } finally {
+        pendingFishUpdatesRef.current.delete(id);
+      }
+    }, 250);
+    pendingFishUpdatesRef.current.set(id, timer);
   };
   const deletePond=async(id:string)=>{
     if (!canDelete("Pond Management")) {
@@ -5061,6 +5097,15 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
           }
         } catch {}
 
+        const isStaffAccount = prof?.role === "staff" || meta.role === "staff" || Boolean(meta.owner_id);
+        if (isStaffAccount && (!isStaffUser || !staffMemberRecord || !Array.isArray(staffMemberRecord.farms) || staffMemberRecord.farms.length === 0)) {
+          await supabase.auth.signOut();
+          resetAllStateAndStorage();
+          toast.error("Your farm access has been revoked by the administrator.");
+          setAuthLoading(false);
+          return;
+        }
+
         if (!prof && !profErr && !isStaffUser) {
           // User was deleted by admin! Sign out immediately and clear state
           await supabase.auth.signOut();
@@ -5199,14 +5244,21 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
           }
         } catch {}
 
+        const meta=session.user.user_metadata??{};
+        const isStaffAccount = prof?.role === "staff" || meta.role === "staff" || Boolean(meta.owner_id);
+        if (isStaffAccount && (!isStaffUser || !staffMemberRecord || !Array.isArray(staffMemberRecord.farms) || staffMemberRecord.farms.length === 0)) {
+          await supabase.auth.signOut();
+          resetAllStateAndStorage();
+          toast.error("Your farm access has been revoked by the administrator.");
+          return;
+        }
+
         if (!prof && !profErr && !isStaffUser) {
           // Account was deleted by admin
           await supabase.auth.signOut();
           resetAllStateAndStorage();
           return;
         }
-
-        const meta=session.user.user_metadata??{};
 
         // Self-heal profile for user if not present in user_profiles
         if (!prof) {
@@ -5512,23 +5564,35 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     });
     toast.success("Staff member updated");
   };
-  const delStaff=async(id:string)=>{
-    const previous=staff;
-    const next=previous.filter(s=>s.id!==id);
+  const delStaff = async (id: string) => {
+    const targetMember = staff.find(s => s.id === id);
+    if (!targetMember) return;
+
+    const previous = staff;
+    const isMultiFarm = Array.isArray(targetMember.farms) && targetMember.farms.length > 1;
+    let next: StaffMember[];
+    if (isMultiFarm && activeFarmId && targetMember.farms.includes(activeFarmId)) {
+      const remainingFarms = targetMember.farms.filter(f => f !== activeFarmId);
+      next = previous.map(s => s.id === id ? { ...s, farms: remainingFarms } : s);
+    } else {
+      next = previous.filter(s => s.id !== id);
+      markDeletedId(id);
+    }
+
     setStaff(next);
-    markDeletedId(id);
-    if(userProfile?.id){
-      try{saveUserLocal(userProfile.id,"staff","staffMembers",next);}catch{}
+    if (userProfile?.id) {
+      try { saveUserLocal(userProfile.id, "staff", "staffMembers", next); } catch {}
     }
     try {
-      await api.staff.remove(id);
-      toast.success("Staff member removed");
-    } catch(err:any) {
+      await api.staff.remove(id, isMultiFarm && activeFarmId ? activeFarmId : undefined);
+      const farmName = farms.find(f => f.id === activeFarmId)?.name || "this farm";
+      toast.success(isMultiFarm ? `Access to ${farmName} revoked for ${targetMember.name}` : "Staff member removed and farm access revoked");
+    } catch (err: any) {
       console.error("Failed to remove staff member:", err);
-      unmarkDeletedId(id);
+      if (!isMultiFarm) unmarkDeletedId(id);
       setStaff(previous);
-      if(userProfile?.id){
-        try{saveUserLocal(userProfile.id,"staff","staffMembers",previous);}catch{}
+      if (userProfile?.id) {
+        try { saveUserLocal(userProfile.id, "staff", "staffMembers", previous); } catch {}
       }
       toast.error(err?.message || "Failed to remove staff member. Kept visible.");
     }
@@ -5709,12 +5773,19 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     }
   }, [isStaff, active, currentStaff?.permissions, userProfile?.permissions, hasPerm, canView]);
 
-  // Ensure staff's activeFarmId is an accessible farm
+  // Ensure staff's activeFarmId is an accessible farm, and sign out if all farm access has been revoked
   useEffect(() => {
-    if (isStaff && accessibleFarms.length > 0 && !accessibleFarms.some(f => f.id === activeFarmId)) {
-      setActiveFarmId(accessibleFarms[0].id);
+    if (isStaff && isAuth) {
+      if (accessibleFarms.length === 0 && isDataLoadedRef.current) {
+        toast.error("Your farm access has been revoked by the administrator.");
+        handleLogout();
+        return;
+      }
+      if (accessibleFarms.length > 0 && !accessibleFarms.some(f => f.id === activeFarmId)) {
+        setActiveFarmId(accessibleFarms[0].id);
+      }
     }
-  }, [isStaff, accessibleFarms, activeFarmId]);
+  }, [isStaff, isAuth, accessibleFarms, activeFarmId, handleLogout]);
 
   /* Derived data — computed unconditionally before any early return (Rules of Hooks) */
   const matchesFarm = (fid?: string, pondName?: string) => {
