@@ -27,6 +27,7 @@ import {
   formatPaymentMethod,
   calculateInvestmentDashboardStats,
   generateInvestorReceiptHtml,
+  generateInvestorReceiptText,
   roundCurrency,
 } from "../../lib/investmentUtils";
 import { api } from "../../lib/api";
@@ -486,10 +487,11 @@ export default function InvestorsPage({
       farmName,
       farmLocation,
       currency,
+      includeSignature: false,
     });
 
     setSendingEmail(true);
-    toast.info(`Sending certificate to ${recipientEmail}…`);
+    toast.info(`Sending receipt to ${recipientEmail}…`);
 
     try {
       const res = await api.investors.sendReceiptEmail({
@@ -503,14 +505,19 @@ export default function InvestorsPage({
       });
 
       if (res.method === "server" || res.method === "resend_direct") {
-        toast.success(`Investment certificate successfully sent to ${recipientEmail}!`);
+        toast.success(`Investment receipt successfully sent to ${recipientEmail}!`);
       } else {
-        const subject = encodeURIComponent(`Investment Certificate - ${inv.fullName} [${receiptResult.receiptRef}]`);
-        const body = encodeURIComponent(
-          `Dear ${inv.fullName},\n\nPlease find your investment certificate and payment schedule details for ${farmName}.\n\nCertificate Ref: ${receiptResult.receiptRef}\nCapital Invested: ${currency}${Number(primaryInv?.amountInvested || 0).toLocaleString()}\nStart Date: ${primaryInv?.startDate || TODAY}\nMaturity Date: ${primaryInv?.dueDate || "—"}\n\nThank you for partnering with ${farmName}.`
-        );
+        const receiptText = generateInvestorReceiptText({
+          investor: inv,
+          investment: primaryInv,
+          payments: invPayments,
+          farmName,
+          currency,
+        });
+        const subject = encodeURIComponent(`Investment Receipt [${receiptResult.receiptRef}] - ${farmName}`);
+        const body = encodeURIComponent(receiptText);
         window.open(`mailto:${recipientEmail}?subject=${subject}&body=${body}`, "_blank");
-        toast.success(`Email client opened for ${recipientEmail}.`);
+        toast.success(`Email client opened with receipt for ${recipientEmail}.`);
       }
 
       if (customEmail && customEmail !== inv.email) {
@@ -1250,7 +1257,7 @@ export default function InvestorsPage({
                                   handleSendReceiptEmail(item);
                                 }}
                                 className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
-                                title="Send Receipt to Investor Email (Optional)"
+                                title="Send Receipt to Investor Email"
                               >
                                 <Mail size={14} />
                               </button>
@@ -1345,13 +1352,13 @@ export default function InvestorsPage({
                 <span className="truncate">View Receipt</span>
               </button>
 
-              {/* Button 2: Email Receipt (Optional) */}
+              {/* Button 2: Email Receipt */}
               <button
                 type="button"
                 onClick={() => handleSendReceiptEmail()}
                 disabled={sendingEmail}
                 className="h-9 px-2 sm:px-3 rounded-xl border border-blue-200 bg-blue-50/60 hover:bg-blue-100/70 text-blue-700 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors min-w-0 overflow-hidden disabled:opacity-50"
-                title="Send Receipt to Investor Email (Optional)"
+                title="Send Receipt to Investor Email"
               >
                 <Mail size={14} className="shrink-0 text-blue-600" />
                 <span className="truncate">{sendingEmail ? "Sending…" : "Email Receipt"}</span>
@@ -1457,9 +1464,9 @@ export default function InvestorsPage({
             </div>
           </Card>
 
-          {/* ── Payment Schedule Table with Sticky Due Date Column ── */}
-          <Card className="overflow-hidden bg-white shadow-xs border border-slate-200/80 rounded-2xl">
-            <div className="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between">
+          {/* ── Payment Schedule Table with Smooth Horizontal Scroll ── */}
+          <Card className="overflow-hidden bg-white shadow-xs border border-slate-200/80 rounded-2xl w-full max-w-full">
+            <div className="px-4 sm:px-5 py-3.5 border-b border-slate-100 flex items-center justify-between gap-2">
               <div>
                 <h3 className="text-sm font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">
                   {activeInvestment?.paymentMethod === "monthly_return" ? "Monthly Payment Schedule" : "Payment Obligation"}
@@ -1470,9 +1477,12 @@ export default function InvestorsPage({
                     : "Scheduled payout date and payment records"}
                 </p>
               </div>
+              <span className="sm:hidden text-[10px] font-medium text-slate-400 bg-slate-100 px-2 py-0.5 rounded-md shrink-0">
+                Scroll table →
+              </span>
             </div>
 
-            <div className="overflow-x-auto relative">
+            <div className="overflow-x-auto w-full max-w-full touch-pan-x" style={{ WebkitOverflowScrolling: "touch" }}>
               <table className="w-full text-xs min-w-[700px] border-collapse">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200/80 text-slate-500 uppercase tracking-wider font-semibold text-[11px]">
@@ -1556,7 +1566,7 @@ export default function InvestorsPage({
       )}
 
       {/* ═══════════════════════════════════════════════════════════════════
-         POST-CREATION SUCCESS MODAL WITH PREVIEW & OPTIONAL EMAIL
+         POST-CREATION SUCCESS MODAL WITH PREVIEW & EMAIL
       ═══════════════════════════════════════════════════════════════════ */}
       {createdSuccessData && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
@@ -1570,7 +1580,7 @@ export default function InvestorsPage({
                 Investor & Investment Created!
               </h3>
               <p className="text-xs text-slate-500 mt-1">
-                Record registered successfully. You can preview the certificate, print/save PDF, or optionally email it.
+                Record registered successfully. You can preview the certificate, print/save PDF, or email the receipt.
               </p>
             </div>
 
@@ -1625,7 +1635,7 @@ export default function InvestorsPage({
                 className="w-full h-9 border border-blue-200 bg-blue-50/70 hover:bg-blue-100 text-blue-700 font-semibold text-xs rounded-xl flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
               >
                 <Mail size={14} className="text-blue-600" />
-                {sendingEmail ? "Sending…" : "Send Receipt to Email (Optional)"}
+                {sendingEmail ? "Sending…" : "Send Receipt via Email"}
               </button>
 
               <div className="grid grid-cols-2 gap-2 pt-1">
@@ -1682,41 +1692,56 @@ export default function InvestorsPage({
           <div className="fixed inset-0 bg-black/70 backdrop-blur-xs z-50 flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
             <div className="bg-white rounded-3xl shadow-2xl max-w-3xl w-full max-h-[92vh] flex flex-col border border-slate-200 overflow-hidden my-auto animate-in fade-in zoom-in-95 duration-150">
               {/* Modal Top Action Bar */}
-              <div className="px-5 py-3.5 bg-slate-900 text-white flex items-center justify-between gap-3 shrink-0">
-                <div className="flex items-center gap-2">
-                  <FileText size={18} className="text-emerald-400" />
-                  <div>
-                    <h3 className="text-sm font-bold tracking-wide font-['Barlow_Condensed',sans-serif]">
-                      Investment Certificate & Receipt Preview
-                    </h3>
-                    <p className="text-[10px] text-slate-400 font-mono">{receiptRef}</p>
+              <div className="p-3.5 sm:px-5 sm:py-3.5 bg-slate-900 text-white flex flex-col sm:flex-row sm:items-center justify-between gap-3 shrink-0">
+                {/* Header Title + ID & Mobile Close */}
+                <div className="flex items-center justify-between sm:justify-start gap-2 w-full sm:w-auto">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <FileText size={18} className="text-emerald-400 shrink-0" />
+                    <div className="min-w-0">
+                      <h3 className="text-sm font-bold tracking-wide font-['Barlow_Condensed',sans-serif] truncate">
+                        Investment Certificate & Receipt Preview
+                      </h3>
+                      <p className="text-[10px] text-slate-400 font-mono truncate">{receiptRef}</p>
+                    </div>
                   </div>
+
+                  {/* Mobile Close Button */}
+                  <button
+                    type="button"
+                    onClick={() => setPreviewReceiptData(null)}
+                    className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors sm:hidden shrink-0"
+                    title="Close Preview"
+                  >
+                    <X size={18} />
+                  </button>
                 </div>
 
-                <div className="flex items-center gap-2">
+                {/* Two Action Buttons: Under Header on Mobile, Inline on Desktop */}
+                <div className="grid grid-cols-2 sm:flex items-center gap-2 w-full sm:w-auto">
                   <button
                     type="button"
                     onClick={() => printInvestorReceipt(inv, primaryInv, invPayments)}
-                    className="h-8 px-3 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs flex items-center gap-1.5 transition-colors shadow-xs"
+                    className="h-9 sm:h-8 px-3 rounded-xl sm:rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-colors shadow-xs"
                     title="Print Certificate / Save as PDF"
                   >
-                    <Printer size={13} /> Print / Save PDF
+                    <Printer size={13} /> <span>Print / Save PDF</span>
                   </button>
 
                   <button
                     type="button"
                     onClick={() => handleSendReceiptEmail(inv, primaryInv, invPayments)}
                     disabled={sendingEmail}
-                    className="h-8 px-3 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs flex items-center gap-1.5 transition-colors shadow-xs disabled:opacity-50"
-                    title="Send to Investor's Email (Optional)"
+                    className="h-9 sm:h-8 px-3 rounded-xl sm:rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition-colors shadow-xs disabled:opacity-50"
+                    title="Send Receipt to Investor's Email"
                   >
-                    <Mail size={13} /> {sendingEmail ? "Sending…" : "Email (Optional)"}
+                    <Mail size={13} /> <span>{sendingEmail ? "Sending…" : "Email Receipt"}</span>
                   </button>
 
+                  {/* Desktop Close Button */}
                   <button
                     type="button"
                     onClick={() => setPreviewReceiptData(null)}
-                    className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors ml-1"
+                    className="hidden sm:flex p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors ml-1 shrink-0"
                     title="Close Preview"
                   >
                     <X size={18} />
@@ -1725,12 +1750,12 @@ export default function InvestorsPage({
               </div>
 
               {/* Scrollable Document Container */}
-              <div className="p-4 sm:p-6 overflow-y-auto flex-1 bg-slate-100/70">
-                <div className="bg-white rounded-2xl p-6 sm:p-8 border border-slate-200/90 shadow-sm max-w-2xl mx-auto space-y-5 text-slate-800 font-['Barlow',sans-serif]">
+              <div className="p-3 sm:p-6 overflow-y-auto flex-1 bg-slate-100/70">
+                <div className="bg-white rounded-2xl p-4 sm:p-8 border border-slate-200/90 shadow-sm max-w-2xl mx-auto space-y-5 text-slate-800 font-['Barlow',sans-serif]">
                   {/* Document Header */}
                   <div className="flex items-start justify-between border-b border-slate-200 pb-4 gap-4">
                     <div>
-                      <h2 className="text-2xl font-black text-emerald-700 uppercase tracking-tight font-['Barlow_Condensed',sans-serif]">
+                      <h2 className="text-xl sm:text-2xl font-black text-emerald-700 uppercase tracking-tight font-['Barlow_Condensed',sans-serif]">
                         {farmName}
                       </h2>
                       <p className="text-xs text-slate-500 mt-0.5">{farmLocation} · Farm Investor Management</p>
@@ -1767,19 +1792,19 @@ export default function InvestorsPage({
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
                       <div>
                         <span className="text-slate-500 block text-[11px]">Capital Invested</span>
-                        <strong className="text-base text-slate-900 font-bold">{currency}{amountInvested.toLocaleString()}</strong>
+                        <strong className="text-sm sm:text-base text-slate-900 font-bold">{currency}{amountInvested.toLocaleString()}</strong>
                       </div>
                       <div>
                         <span className="text-slate-500 block text-[11px]">Agreed Return</span>
-                        <strong className="text-base text-emerald-700 font-bold">{agreedPercentage}% ({currency}{expectedReturn.toLocaleString()})</strong>
+                        <strong className="text-sm sm:text-base text-emerald-700 font-bold">{agreedPercentage}% ({currency}{expectedReturn.toLocaleString()})</strong>
                       </div>
                       <div>
                         <span className="text-slate-500 block text-[11px]">Total Paid to Date</span>
-                        <strong className="text-base text-purple-700 font-bold">{currency}{totalPaid.toLocaleString()}</strong>
+                        <strong className="text-sm sm:text-base text-purple-700 font-bold">{currency}{totalPaid.toLocaleString()}</strong>
                       </div>
                       <div>
                         <span className="text-slate-500 block text-[11px]">Outstanding Balance</span>
-                        <strong className="text-base text-amber-700 font-bold">{currency}{outstanding.toLocaleString()}</strong>
+                        <strong className="text-sm sm:text-base text-amber-700 font-bold">{currency}{outstanding.toLocaleString()}</strong>
                       </div>
                     </div>
                   </div>
@@ -1787,8 +1812,8 @@ export default function InvestorsPage({
                   {/* Payment Schedule Table */}
                   <div className="space-y-2">
                     <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Payment & Payout Schedule</div>
-                    <div className="border border-slate-200 rounded-xl overflow-hidden text-xs">
-                      <table className="w-full">
+                    <div className="border border-slate-200 rounded-xl overflow-x-auto text-xs">
+                      <table className="w-full min-w-[500px]">
                         <thead className="bg-slate-50 text-slate-500 font-semibold text-[10px] uppercase border-b border-slate-200">
                           <tr>
                             <th className="px-3 py-2 text-left">#</th>
@@ -1831,12 +1856,12 @@ export default function InvestorsPage({
                   {/* Signatures */}
                   <div className="pt-6 border-t border-dashed border-slate-200 grid grid-cols-2 gap-8 text-center text-xs">
                     <div>
-                      <div className="w-32 sm:w-40 border-t border-slate-400 mx-auto mt-6 mb-1"></div>
+                      <div className="w-28 sm:w-40 border-t border-slate-400 mx-auto mt-6 mb-1"></div>
                       <div className="font-bold text-slate-900">{inv.fullName}</div>
                       <div className="text-[10px] text-slate-400">Investor Signature</div>
                     </div>
                     <div>
-                      <div className="w-32 sm:w-40 border-t border-slate-400 mx-auto mt-6 mb-1"></div>
+                      <div className="w-28 sm:w-40 border-t border-slate-400 mx-auto mt-6 mb-1"></div>
                       <div className="font-bold text-slate-900">{farmName}</div>
                       <div className="text-[10px] text-slate-400">Authorized Representative & Stamp</div>
                     </div>

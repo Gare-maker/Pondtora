@@ -404,6 +404,7 @@ export function generateInvestorReceiptHtml(params: {
   farmName?: string;
   farmLocation?: string;
   currency?: string;
+  includeSignature?: boolean;
 }): { html: string; receiptRef: string; subject: string } {
   const {
     investor,
@@ -412,6 +413,7 @@ export function generateInvestorReceiptHtml(params: {
     farmName = "Pondtora Farm",
     farmLocation = "Nigeria",
     currency = "₦",
+    includeSignature = true,
   } = params;
 
   const invName = investor?.fullName || "Investor";
@@ -530,7 +532,7 @@ export function generateInvestorReceiptHtml(params: {
         .structure-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; margin: 14px 0; }
         .schedule-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
         .schedule-table th { background: #f1f5f9; padding: 8px 10px; font-size: 10px; font-weight: 700; text-transform: uppercase; color: #475569; border-bottom: 1px solid #cbd5e1; }
-        .footer-section { margin-top: 28px; padding-top: 16px; border-top: 1px dashed #cbd5e1; }
+        .footer-section { margin-top: 24px; padding-top: 16px; border-top: 1px dashed #cbd5e1; }
         .signature-table { width: 100%; border-collapse: collapse; margin-top: 32px; }
         .signature-line { border-top: 1px solid #94a3b8; width: 80%; margin-top: 40px; }
         @media print {
@@ -642,8 +644,9 @@ export function generateInvestorReceiptHtml(params: {
         <!-- Footer -->
         <div class="footer-section">
           <p style="font-size: 10px; color: #64748b; text-align: center;">
-            This certificate confirms the official investment registration in the ${farmName} System. All disbursements are tracked securely.
+            This ${includeSignature ? "certificate" : "receipt"} confirms the official investment registration in the ${farmName} System. All disbursements are tracked securely.
           </p>
+          ${includeSignature ? `
           <table class="signature-table">
             <tr>
               <td style="width: 50%; text-align: center;">
@@ -658,6 +661,7 @@ export function generateInvestorReceiptHtml(params: {
               </td>
             </tr>
           </table>
+          ` : ""}
         </div>
       </div>
     </body>
@@ -665,5 +669,87 @@ export function generateInvestorReceiptHtml(params: {
   `;
 
   return { html, receiptRef, subject };
+}
+
+/**
+ * Builds a clean, comprehensive text receipt for email / mailto clients without signatures
+ */
+export function generateInvestorReceiptText(params: {
+  investor: Partial<Investor>;
+  investment?: Partial<Investment> | null;
+  payments?: InvestmentPayment[];
+  farmName?: string;
+  currency?: string;
+}): string {
+  const {
+    investor,
+    investment,
+    payments = [],
+    farmName = "Pondtora Farm",
+    currency = "₦",
+  } = params;
+
+  const invName = investor?.fullName || "Investor";
+  const amountInvested = Number(investment?.amountInvested) || 0;
+  const agreedPercentage = Number(investment?.investorPercentage) || 0;
+  const expectedReturn = Number(investment?.expectedReturn) || calculateReturnAmount(amountInvested, agreedPercentage);
+  const paymentMethod = investment?.paymentMethod || "monthly_return";
+  const totalPaid = payments.reduce((s, p) => s + (Number(p.amountPaid) || 0), 0);
+  const totalDue = Number(investment?.totalAmountDue) || (
+    paymentMethod === "principal_plus_return"
+      ? calculatePrincipalPlusReturn(amountInvested, expectedReturn)
+      : paymentMethod === "return_upfront"
+      ? amountInvested
+      : expectedReturn
+  );
+  const outstanding = Math.max(0, totalDue - totalPaid);
+  const receiptRef = `INV-${invName.replace(/[^A-Za-z0-9]/g, "").slice(0, 3).toUpperCase()}-${(investment?.id || investor?.id || "REC").slice(0, 8).toUpperCase()}`;
+
+  const lines: string[] = [];
+  lines.push(`=========================================`);
+  lines.push(`${farmName.toUpperCase()}`);
+  lines.push(`OFFICIAL INVESTMENT RECEIPT`);
+  lines.push(`Ref: ${receiptRef}`);
+  lines.push(`Issue Date: ${TODAY}`);
+  lines.push(`=========================================\n`);
+
+  lines.push(`INVESTOR DETAILS:`);
+  lines.push(`• Name: ${invName}`);
+  lines.push(`• Phone: ${investor?.phone || "—"}`);
+  lines.push(`• Email: ${investor?.email || "—"}`);
+  lines.push(`• Status: ${investor?.status || "Active"}\n`);
+
+  lines.push(`INVESTMENT TERMS:`);
+  lines.push(`• Structure: ${formatPaymentMethod(paymentMethod)}`);
+  lines.push(`• Start Date: ${investment?.startDate || TODAY}`);
+  lines.push(`• Maturity Date: ${investment?.dueDate || "—"}`);
+  lines.push(`• Duration: ${investment?.duration || (investment?.durationMonths ? `${investment.durationMonths} months` : "12 months")}\n`);
+
+  lines.push(`FINANCIAL OVERVIEW:`);
+  lines.push(`• Capital Invested: ${currency}${amountInvested.toLocaleString()}`);
+  lines.push(`• Agreed Return: ${agreedPercentage}% (${currency}${expectedReturn.toLocaleString()})`);
+  lines.push(`• Total Paid to Date: ${currency}${totalPaid.toLocaleString()}`);
+  lines.push(`• Outstanding Balance: ${currency}${outstanding.toLocaleString()}\n`);
+
+  if (payments && payments.length > 0) {
+    lines.push(`SCHEDULE OF PAYMENTS & INSTALLMENTS:`);
+    payments.forEach((p, idx) => {
+      const isPaid = (Number(p.amountPaid) || 0) >= (Number(p.amountDue) || 0) && (Number(p.amountDue) || 0) > 0;
+      const statusLabel = p.status || (isPaid ? "Paid" : "Due");
+      lines.push(`#${idx + 1} | ${p.paymentPeriod || "Period"} | Due: ${p.dueDate || "—"} | Amount Due: ${currency}${Number(p.amountDue || 0).toLocaleString()} | Paid: ${currency}${Number(p.amountPaid || 0).toLocaleString()} [${statusLabel}]`);
+    });
+    lines.push(``);
+  }
+
+  if (investment?.principalRepayment || investment?.notes || investor?.notes) {
+    lines.push(`AGREEMENT NOTES:`);
+    lines.push(`${investment?.principalRepayment || investment?.notes || investor?.notes}\n`);
+  }
+
+  lines.push(`-----------------------------------------`);
+  lines.push(`This receipt confirms official investment registration in the ${farmName} System.`);
+  lines.push(`All payouts and disbursements are tracked securely.`);
+
+  return lines.join("\n");
 }
 

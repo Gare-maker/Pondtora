@@ -1062,10 +1062,9 @@ makeCrud(app, "investment_payments");
 // ── Send Investor Certificate & Receipt Email ─────────────────────────────────
 app.post(`${P}/investors/send-receipt-email`, async (c) => {
   try {
-    const { toEmail, investorName, farmName, subject, htmlContent } = await c.req.json();
-    if (!toEmail) return c.json({ error: "Investor recipient email is required" }, 400);
-
-    const cleanEmail = toEmail.trim().toLowerCase();
+    const { toEmail, to, investorName, farmName, subject, htmlContent } = await c.req.json();
+    const cleanEmail = (toEmail || to || "").trim().toLowerCase();
+    if (!cleanEmail) return c.json({ error: "Investor recipient email is required" }, 400);
     const resendApiKey = Deno.env.get("RESEND_API_KEY");
 
     if (resendApiKey) {
