@@ -4,13 +4,14 @@ import {
   ChevronUp, ChevronDown, Download, Clock, Shield, Sparkles, Filter,
   RotateCw, Phone, Mail, MapPin, Copy, ExternalLink, MessageCircle,
   Building, Droplets, Users as UsersIcon, X, Check, ArrowRight, UserCheck, AlertCircle,
-  CreditCard
+  CreditCard, Gift, Tag
 } from "lucide-react";
 import { Card, Bdg, PBtn, Pagination, PER_PAGE, Modal, F, IC, SC } from "../../app/shared";
 import type { AdminUser, AdminPlan, AccountStatus } from "../types";
 import { fmtDate, trialDaysLeft, fmtMoney, computeSubscriptionStatus } from "../types";
 import { supabase } from "../../lib/supabase";
 import { isStaffUser } from "../../lib/userSync";
+import { getUserReferralStats, markReferralRewardsPaid } from "../../lib/referralStore";
 import { toast } from "sonner";
 
 function getWhatsAppUrl(phone?: string, name?: string): string | null {
@@ -64,6 +65,19 @@ function copyUserDossier(u: AdminUser, extra?: { farms: any[]; ponds: any[]; sta
     `Total Ponds: ${extra?.ponds?.length ?? u.pondCount ?? 0}`,
     `Staff Members Added: ${extra?.staff?.length ?? u.staffCount ?? 0}`,
   ];
+
+  try {
+    const rStats = getUserReferralStats(u);
+    lines.push(
+      ``,
+      `*Referral Program*`,
+      `Referral Code: ${rStats.referralCode}`,
+      `Total Registered Referrals: ${rStats.totalReferralsCount}`,
+      `Subscribed / Paid Referrals: ${rStats.paidReferralsCount}`,
+      `Total Referral Earnings: ₦${rStats.totalEarnings.toLocaleString()}`,
+      `Available to Redeem: ₦${rStats.availableEarnings.toLocaleString()}`,
+    );
+  } catch {}
 
   if (extra?.staff && extra.staff.length > 0) {
     lines.push(``, `*Staff Members Added:*`);
@@ -1314,6 +1328,112 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                   )}
                 </div>
               </div>
+
+              {/* 4. Referral Program & Commissions */}
+              {(() => {
+                const userRefStats = getUserReferralStats(viewUser);
+                return (
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                        <Gift size={13} className="text-emerald-600" /> Referral Program & Commissions
+                      </h3>
+                      {userRefStats.availableEarnings > 0 && (
+                        <span className="text-[10px] font-extrabold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full">
+                          ₦{userRefStats.availableEarnings.toLocaleString()} Available for Payout
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mb-3">
+                      <div className="bg-slate-50 border border-slate-200 p-2.5 rounded-xl">
+                        <p className="text-[10px] uppercase font-bold text-slate-400">Referral Code</p>
+                        <div className="flex items-center justify-between mt-0.5">
+                          <p className="font-mono font-bold text-slate-800 text-xs truncate">{userRefStats.referralCode}</p>
+                          <button onClick={() => copyToClipboard(userRefStats.referralCode, "Referral Code")} className="text-slate-400 hover:text-slate-600 p-0.5">
+                            <Copy size={11} />
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="bg-slate-50 border border-slate-200 p-2.5 rounded-xl">
+                        <p className="text-[10px] uppercase font-bold text-slate-400">Registered Referrals</p>
+                        <p className="font-extrabold text-slate-800 text-base mt-0.5">{userRefStats.totalReferralsCount}</p>
+                      </div>
+
+                      <div className="bg-slate-50 border border-slate-200 p-2.5 rounded-xl">
+                        <p className="text-[10px] uppercase font-bold text-slate-400">Paid Referrals</p>
+                        <p className="font-extrabold text-emerald-600 text-base mt-0.5">{userRefStats.paidReferralsCount}</p>
+                      </div>
+
+                      <div className="bg-emerald-50/70 border border-emerald-200 p-2.5 rounded-xl">
+                        <p className="text-[10px] uppercase font-bold text-emerald-700">Total Earned</p>
+                        <p className="font-extrabold text-emerald-700 text-base mt-0.5">₦{userRefStats.totalEarnings.toLocaleString()}</p>
+                      </div>
+                    </div>
+
+                    {/* Action button if user calls to redeem */}
+                    {userRefStats.availableEarnings > 0 && (
+                      <div className="bg-emerald-50/50 border border-emerald-200 rounded-xl p-3 mb-3 flex items-center justify-between gap-3">
+                        <div>
+                          <p className="font-bold text-emerald-900 text-xs">Payout Requested / Redeem Balance</p>
+                          <p className="text-[11px] text-emerald-700">
+                            Available: <strong>₦{userRefStats.availableEarnings.toLocaleString()}</strong>. When this farmer calls and you complete bank transfer, click here to record payout.
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const count = markReferralRewardsPaid(viewUser.email || userRefStats.referralCode);
+                            toast.success(`Marked ${count} referral rewards as paid for ${viewUser.name || viewUser.email}!`);
+                            // Force update modal
+                            setViewUser({ ...viewUser });
+                          }}
+                          className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg shadow-xs transition-colors shrink-0"
+                        >
+                          Mark Payout as Paid
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Table of Referred Users */}
+                    <div className="border border-slate-200 rounded-xl overflow-hidden">
+                      <div className="bg-slate-100/70 px-3 py-2 border-b border-slate-200 flex items-center justify-between">
+                        <span className="font-bold text-slate-700 text-xs flex items-center gap-1.5">
+                          <UsersIcon size={12} className="text-slate-500" />
+                          Referred Farmers List ({userRefStats.referredUsers.length})
+                        </span>
+                        <span className="text-[10px] text-slate-400">30% 1st payment • 10% recurring</span>
+                      </div>
+
+                      {userRefStats.referredUsers.length === 0 ? (
+                        <div className="p-3.5 text-center text-slate-400">
+                          <p className="text-xs">No referrals registered by this user yet.</p>
+                        </div>
+                      ) : (
+                        <div className="divide-y divide-slate-100 max-h-40 overflow-y-auto">
+                          {userRefStats.referredUsers.map((r) => (
+                            <div key={r.id} className="p-2.5 flex items-center justify-between gap-2 hover:bg-slate-50 transition-colors">
+                              <div className="min-w-0">
+                                <p className="font-bold text-slate-800 text-xs truncate">{r.name}</p>
+                                <p className="text-[11px] text-slate-500 truncate">{r.email}</p>
+                              </div>
+                              <div className="flex items-center gap-3 shrink-0">
+                                <span className={`text-[10px] px-2 py-0.5 rounded font-bold ${r.hasPaid ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>
+                                  {r.hasPaid ? "Subscribed" : "Trial"}
+                                </span>
+                                <span className="font-bold text-emerald-700 font-mono text-xs">
+                                  ₦{r.totalCommission.toLocaleString()}
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
 
             {/* Modal Footer / Direct Admin Controls */}

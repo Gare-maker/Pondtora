@@ -23,6 +23,7 @@ import {
   useDynamicPlans,
   yearlyPrice,
 } from "../pricingData";
+import { captureReferralParam } from "../../lib/referralStore";
 
 interface Props {
   onLogin: () => void;
@@ -1730,6 +1731,7 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
   const currentPlans = (planType === "single" ? singleFarmPlans : multiFarmPlans) || [];
 
   useEffect(() => {
+    captureReferralParam();
     const handleScroll = () => {
       setScrolled(window.scrollY > 20);
     };

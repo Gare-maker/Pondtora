@@ -428,7 +428,7 @@ export default function AdminApp({ onExit }: { onExit?: () => void } = {}) {
 
   return (
     <div className="h-screen overflow-hidden bg-slate-50 flex font-['Barlow',sans-serif]">
-      <Toaster position="top-right" richColors duration={2500} />
+      <Toaster position="top-right" richColors duration={2500} visibleToasts={1} closeButton />
       {/* Mobile Backdrop */}
       {sideOpen && (
         <div className="fixed inset-0 bg-black/50 z-40 lg:hidden" onClick={() => setSideOpen(false)} />

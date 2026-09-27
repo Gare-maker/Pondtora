@@ -10,7 +10,7 @@ import {
   Layers, Droplets, Trash2, Menu, ChevronDown,
   ChevronUp, ChevronsLeft, ChevronsRight, ChevronLeft, ChevronRight, ChevronRight as ChevronRightIcon, Eye, Search,
   Download, FileText, BadgeCheck, Pencil, Users, Mail, Phone, ArrowRightLeft, History, Filter, Crown, Receipt, MoreVertical, AlertCircle, Bell, LogOut, ClipboardList, Lock, Loader2, Copy, Link, Database, ExternalLink, Settings, EyeOff,
-  Sparkles, CreditCard, Landmark
+  Sparkles, CreditCard, Landmark, Gift, Share2, PhoneCall, MessageCircle, Check
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -35,6 +35,7 @@ import { useDynamicPlans } from "../lib/plansStore";
 import { syncUserProfileToAdmin, getUserAdminOverride, logActivity, recordSuccessfulPayment, loadAllAdminUsers } from "../lib/userSync";
 import { initializePaystackCheckout, getActivePaystackPublicKey, loadPaystackConfig } from "../lib/paystack";
 import { derivePaymentStatus, deriveInvestmentStatus, generateInvestmentSchedule } from "../lib/investmentUtils";
+import { getUserReferralStats, captureReferralParam, getReferralLink, getUserReferralCode } from "../lib/referralStore";
 import confetti from "canvas-confetti";
 
 /* ─── Sidebar ───────────────────────────────────────────────── */
@@ -2909,7 +2910,51 @@ function SettingsPage({farms,onAddFarm,onEditFarm,onDeleteFarm,userProfile,onUpd
   farms:Farm[];onAddFarm:(d:{name:string;city:string;state:string;country:string})=>void;onEditFarm:(f:Farm)=>void;onDeleteFarm:(id:string)=>void;
   userProfile:UserProfile|null;onUpdateProfile:(u:{name:string;phone:string})=>Promise<void>;isOwner:boolean;ponds:Pond[];activePlan:string|null;
 }){
-  const [tab,setTab]=useState<"profile"|"farms">("profile");
+  const [tab,setTab]=useState<"profile"|"farms"|"referrals">("profile");
+  /* ── Referral State ── */
+  const [refStats, setRefStats] = useState(() => getUserReferralStats(userProfile));
+  const [copiedLink, setCopiedLink] = useState(false);
+  const [copiedCode, setCopiedCode] = useState(false);
+  const [showRedeemModal, setShowRedeemModal] = useState(false);
+
+  useEffect(() => {
+    setRefStats(getUserReferralStats(userProfile));
+    const handleUpdate = () => {
+      setRefStats(getUserReferralStats(userProfile));
+    };
+    window.addEventListener("pondtora:referrals_updated", handleUpdate);
+    window.addEventListener("pondtora:users_updated", handleUpdate);
+    return () => {
+      window.removeEventListener("pondtora:referrals_updated", handleUpdate);
+      window.removeEventListener("pondtora:users_updated", handleUpdate);
+    };
+  }, [userProfile]);
+
+  const handleCopyLink = () => {
+    try {
+      navigator.clipboard.writeText(refStats.referralLink);
+      setCopiedLink(true);
+      toast.success("Referral link copied to clipboard!");
+      setTimeout(() => setCopiedLink(false), 2000);
+    } catch {
+      toast.error("Could not copy referral link");
+    }
+  };
+
+  const handleCopyCode = () => {
+    try {
+      navigator.clipboard.writeText(refStats.referralCode);
+      setCopiedCode(true);
+      toast.success("Referral code copied to clipboard!");
+      setTimeout(() => setCopiedCode(false), 2000);
+    } catch {
+      toast.error("Could not copy referral code");
+    }
+  };
+
+  const whatsappShareMsg = `Hello! I recommend Pondtora for complete fish farm and pond management. Sign up using my referral link to get started: ${refStats.referralLink}`;
+  const whatsappShareUrl = `https://wa.me/?text=${encodeURIComponent(whatsappShareMsg)}`;
+
   /* ── Profile ── */
   const [profF,setProfF]=useState({name:userProfile?.name||"",phone:userProfile?.phone||""});
   useEffect(()=>{setProfF({name:userProfile?.name||"",phone:userProfile?.phone||""});},[userProfile]);
@@ -2971,12 +3016,21 @@ function SettingsPage({farms,onAddFarm,onEditFarm,onDeleteFarm,userProfile,onUpd
       <div className="sticky top-0 z-10 bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 flex flex-col gap-2">
         <div>
           <h1 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Settings</h1>
-          <p className="text-xs text-slate-400 mt-0.5">Manage your profile and farm details.</p>
+          <p className="text-xs text-slate-400 mt-0.5">Manage your profile, farm details, and referral rewards.</p>
         </div>
         {/* Tab switcher */}
-        <div className="flex gap-1 bg-slate-100 p-1 rounded-xl w-fit">
-          <button onClick={()=>setTab("profile")} className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all ${tab==="profile"?"bg-white text-slate-900 shadow-sm":"text-slate-500 hover:text-slate-800"}`}>Profile Settings</button>
-          <button onClick={()=>setTab("farms")} className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all ${tab==="farms"?"bg-white text-slate-900 shadow-sm":"text-slate-500 hover:text-slate-800"}`}>Farm Settings</button>
+        <div className="flex gap-1 bg-slate-100 p-1 rounded-xl w-fit flex-wrap">
+          <button onClick={()=>setTab("profile")} className={`px-4 sm:px-5 py-2 rounded-lg text-sm font-semibold transition-all ${tab==="profile"?"bg-white text-slate-900 shadow-sm":"text-slate-500 hover:text-slate-800"}`}>Profile Settings</button>
+          <button onClick={()=>setTab("farms")} className={`px-4 sm:px-5 py-2 rounded-lg text-sm font-semibold transition-all ${tab==="farms"?"bg-white text-slate-900 shadow-sm":"text-slate-500 hover:text-slate-800"}`}>Farm Settings</button>
+          <button onClick={()=>setTab("referrals")} className={`px-4 sm:px-5 py-2 rounded-lg text-sm font-semibold transition-all flex items-center gap-1.5 ${tab==="referrals"?"bg-white text-emerald-800 shadow-sm font-bold":"text-slate-500 hover:text-slate-800"}`}>
+            <Gift size={15} className={tab==="referrals" ? "text-emerald-600" : "text-slate-400"} />
+            <span>Referral Program</span>
+            {refStats.availableEarnings > 0 && (
+              <span className="bg-emerald-100 text-emerald-800 text-[10px] font-extrabold px-1.5 py-0.5 rounded-full">
+                ₦{refStats.availableEarnings.toLocaleString()}
+              </span>
+            )}
+          </button>
         </div>
       </div>
 
@@ -3124,6 +3178,222 @@ function SettingsPage({farms,onAddFarm,onEditFarm,onDeleteFarm,userProfile,onUpd
         </div>
       )}
 
+      {/* ── Referral Program Settings ── */}
+      {tab==="referrals"&&(
+        <div className="space-y-5">
+          {/* Header Banner */}
+          <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-emerald-950 text-white rounded-3xl p-6 sm:p-8 shadow-xl relative overflow-hidden border border-emerald-500/20">
+            <div className="absolute right-0 top-0 w-80 h-80 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none -translate-y-20 translate-x-20" />
+            <div className="relative z-10 max-w-3xl">
+              <div className="inline-flex items-center gap-2 px-3 py-1 bg-emerald-500/20 border border-emerald-400/30 rounded-full text-emerald-300 text-xs font-bold mb-3">
+                <Gift size={14} className="text-emerald-400" /> Pondtora Referral & Partner Program
+              </div>
+              <h2 className="text-2xl sm:text-3xl font-extrabold font-['Barlow_Condensed',sans-serif] tracking-wide leading-tight text-white">
+                Share Pondtora & Earn Continuous Cash Commissions
+              </h2>
+              <p className="text-sm text-slate-300 mt-2 leading-relaxed">
+                Invite fellow fish farmers with your custom referral link. You earn a <strong>30% cash commission</strong> on their first subscription payment, plus a continuous <strong>10% cash commission</strong> on all their recurring renewals!
+              </p>
+
+              {/* Commission Rates Highlight */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-5">
+                <div className="bg-slate-800/80 border border-emerald-500/30 rounded-2xl p-4 flex items-center gap-3.5 backdrop-blur-sm">
+                  <div className="w-12 h-12 rounded-xl bg-emerald-500/20 border border-emerald-400/30 flex items-center justify-center text-emerald-400 font-extrabold text-lg shrink-0 font-['Barlow_Condensed',sans-serif]">
+                    30%
+                  </div>
+                  <div>
+                    <p className="text-xs font-bold text-emerald-300 uppercase tracking-wider">First Payment Reward</p>
+                    <p className="text-xs text-slate-300 mt-0.5">Earn 30% of their very first subscription purchase amount</p>
+                  </div>
+                </div>
+
+                <div className="bg-slate-800/80 border border-blue-500/30 rounded-2xl p-4 flex items-center gap-3.5 backdrop-blur-sm">
+                  <div className="w-12 h-12 rounded-xl bg-blue-500/20 border border-blue-400/30 flex items-center justify-center text-blue-400 font-extrabold text-lg shrink-0 font-['Barlow_Condensed',sans-serif]">
+                    10%
+                  </div>
+                  <div>
+                    <p className="text-xs font-bold text-blue-300 uppercase tracking-wider">Recurring Commission</p>
+                    <p className="text-xs text-slate-300 mt-0.5">Earn 10% on every renewal & recurring subscription payment</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Share Referral Link Box */}
+          <div className="bg-white border border-slate-200 rounded-2xl p-5 sm:p-6 shadow-xs">
+            <h3 className="text-sm font-bold text-slate-800 mb-2 flex items-center gap-2">
+              <Share2 size={16} className="text-emerald-600" /> Your Custom Referral Link & Code
+            </h3>
+            <p className="text-xs text-slate-500 mb-4">
+              Share this link directly with farm owners. When they register using your link, their account is permanently linked to your profile for commission payouts.
+            </p>
+
+            <div className="flex flex-col sm:flex-row gap-2.5">
+              <div className="relative flex-1">
+                <input
+                  type="text"
+                  readOnly
+                  value={refStats.referralLink}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-xs text-slate-800 font-mono focus:outline-none select-all"
+                />
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={handleCopyLink}
+                  className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl transition-colors shadow-xs"
+                >
+                  {copiedLink ? <Check size={14} /> : <Copy size={14} />}
+                  <span>{copiedLink ? "Copied Link!" : "Copy Link"}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleCopyCode}
+                  className="inline-flex items-center justify-center gap-1.5 px-3 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition-colors"
+                  title={`Referral Code: ${refStats.referralCode}`}
+                >
+                  {copiedCode ? <Check size={13} /> : <Tag size={13} />}
+                  <span>Code: <strong>{refStats.referralCode}</strong></span>
+                </button>
+
+                <a
+                  href={whatsappShareUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2.5 bg-[#25D366] hover:bg-[#20bd5a] text-white text-xs font-bold rounded-xl transition-colors shadow-xs"
+                  title="Share on WhatsApp"
+                >
+                  <MessageCircle size={14} />
+                  <span className="hidden sm:inline">WhatsApp</span>
+                </a>
+              </div>
+            </div>
+          </div>
+
+          {/* Referral Statistics Summary */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="bg-white border border-slate-200 rounded-2xl p-4">
+              <p className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Registered Farmers</p>
+              <p className="text-2xl font-extrabold text-slate-900 font-['Barlow_Condensed',sans-serif] mt-0.5">
+                {refStats.totalReferralsCount}
+              </p>
+              <p className="text-[11px] text-slate-500 mt-1">Signed up with link</p>
+            </div>
+
+            <div className="bg-white border border-slate-200 rounded-2xl p-4">
+              <p className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Subscribed Referrals</p>
+              <p className="text-2xl font-extrabold text-emerald-600 font-['Barlow_Condensed',sans-serif] mt-0.5">
+                {refStats.paidReferralsCount}
+              </p>
+              <p className="text-[11px] text-slate-500 mt-1">Active paying farms</p>
+            </div>
+
+            <div className="bg-white border border-slate-200 rounded-2xl p-4">
+              <p className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Total Commission</p>
+              <p className="text-2xl font-extrabold text-slate-900 font-['Barlow_Condensed',sans-serif] mt-0.5">
+                ₦{refStats.totalEarnings.toLocaleString()}
+              </p>
+              <p className="text-[11px] text-slate-500 mt-1">Total lifetime earned</p>
+            </div>
+
+            <div className="bg-emerald-50/70 border border-emerald-200 rounded-2xl p-4">
+              <p className="text-[10px] uppercase font-bold text-emerald-700 tracking-wider">Available to Redeem</p>
+              <p className="text-2xl font-extrabold text-emerald-700 font-['Barlow_Condensed',sans-serif] mt-0.5">
+                ₦{refStats.availableEarnings.toLocaleString()}
+              </p>
+              <p className="text-[11px] text-emerald-600 mt-1 font-medium">Ready for payout</p>
+            </div>
+          </div>
+
+          {/* Call to Redeem Payout Card */}
+          <div className="bg-white border border-slate-200 rounded-2xl p-5 sm:p-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-xs">
+            <div>
+              <h4 className="text-sm font-bold text-slate-900">Ready to cash out your referral commission?</h4>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Available balance: <strong className="text-emerald-700 font-mono">₦{refStats.availableEarnings.toLocaleString()}</strong>. Click the button to call our payout support desk or message us directly to receive payment into your bank account.
+              </p>
+            </div>
+            <button
+              onClick={() => setShowRedeemModal(true)}
+              className="inline-flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs transition-colors shrink-0"
+            >
+              <PhoneCall size={14} />
+              <span>Call / Request Payout</span>
+            </button>
+          </div>
+
+          {/* Referred Farmers List */}
+          <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-xs">
+            <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-bold text-slate-800">Your Registered Referrals</h3>
+                <p className="text-xs text-slate-400 mt-0.5">List of farmers who created accounts using your referral link</p>
+              </div>
+              <span className="text-xs font-bold text-slate-500 bg-slate-100 px-2.5 py-1 rounded-lg">
+                {refStats.referredUsers.length} Farmer{refStats.referredUsers.length !== 1 ? "s" : ""}
+              </span>
+            </div>
+
+            {refStats.referredUsers.length === 0 ? (
+              <div className="px-6 py-12 text-center">
+                <div className="w-12 h-12 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto mb-3">
+                  <Gift size={22} />
+                </div>
+                <p className="text-sm font-bold text-slate-700 mb-1">No referrals yet</p>
+                <p className="text-xs text-slate-400 max-w-sm mx-auto mb-4">
+                  Copy your referral link above and share it with fish farm owners or colleagues to start earning 30% first-payment and 10% recurring commissions!
+                </p>
+                <button
+                  type="button"
+                  onClick={handleCopyLink}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl transition-colors shadow-xs"
+                >
+                  <Copy size={13} /> Copy Your Link Now
+                </button>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b border-slate-100 bg-slate-50/80">
+                      <th className="px-4 py-3 text-left text-[10px] font-bold text-slate-400 uppercase tracking-wider">Farmer</th>
+                      <th className="px-4 py-3 text-left text-[10px] font-bold text-slate-400 uppercase tracking-wider">Farm Name</th>
+                      <th className="px-4 py-3 text-left text-[10px] font-bold text-slate-400 uppercase tracking-wider">Registered</th>
+                      <th className="px-4 py-3 text-left text-[10px] font-bold text-slate-400 uppercase tracking-wider">Subscription</th>
+                      <th className="px-4 py-3 text-right text-[10px] font-bold text-slate-400 uppercase tracking-wider">Commission Earned</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {refStats.referredUsers.map((u) => (
+                      <tr key={u.id} className="hover:bg-slate-50/80 transition-colors">
+                        <td className="px-4 py-3">
+                          <p className="font-bold text-slate-800">{u.name}</p>
+                          <p className="text-[11px] text-slate-400">{u.email}</p>
+                        </td>
+                        <td className="px-4 py-3 text-slate-600">{u.farmName || "Primary Farm"}</td>
+                        <td className="px-4 py-3 text-slate-500 whitespace-nowrap">{u.createdAt}</td>
+                        <td className="px-4 py-3">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                            u.hasPaid ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"
+                          }`}>
+                            {u.hasPaid ? "Subscribed / Active" : "Trial"}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-right font-bold text-emerald-700 font-mono text-sm">
+                          ₦{u.totalCommission.toLocaleString()}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* View Farm Modal */}
       {viewFarm&&(
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={e=>e.target===e.currentTarget&&setViewFarm(null)}>
@@ -3225,6 +3495,69 @@ function SettingsPage({farms,onAddFarm,onEditFarm,onDeleteFarm,userProfile,onUpd
             <div className="px-6 pb-5 flex gap-2">
               <button onClick={()=>{onDeleteFarm(deleteId!);setDeleteId(null);}} className="flex-1 py-2.5 bg-red-600 hover:bg-red-700 text-white text-sm font-bold rounded-xl transition-colors">Delete Farm</button>
               <button onClick={()=>setDeleteId(null)} className="flex-1 py-2.5 border border-slate-200 rounded-xl text-sm font-semibold text-slate-600 hover:bg-slate-50">Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Redeem Commission Payout Modal */}
+      {showRedeemModal&&(
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-4" onClick={e=>e.target===e.currentTarget&&setShowRedeemModal(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-gradient-to-r from-emerald-50 to-white">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold">
+                  <PhoneCall size={18} />
+                </div>
+                <div>
+                  <h2 className="text-base font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Redeem Referral Earnings</h2>
+                  <p className="text-xs text-slate-500">Call our payout desk to receive payment</p>
+                </div>
+              </div>
+              <button onClick={()=>setShowRedeemModal(false)} className="text-slate-400 hover:text-slate-700 p-1"><X size={18}/></button>
+            </div>
+
+            <div className="px-6 py-5 space-y-4">
+              <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 text-center">
+                <p className="text-xs font-semibold text-emerald-800 uppercase tracking-wider">Available Commission</p>
+                <p className="text-3xl font-extrabold text-emerald-700 font-['Barlow_Condensed',sans-serif] mt-0.5">
+                  ₦{refStats.availableEarnings.toLocaleString()}
+                </p>
+                <p className="text-[11px] text-emerald-600 mt-1">
+                  Referral Code: <strong className="font-mono">{refStats.referralCode}</strong> • {refStats.totalReferralsCount} Referrals
+                </p>
+              </div>
+
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 space-y-2 text-xs text-slate-600">
+                <p className="font-semibold text-slate-800 flex items-center gap-1.5">
+                  <CheckCircle size={14} className="text-emerald-600" /> Instant Bank Payout Verification
+                </p>
+                <p className="leading-relaxed">
+                  To redeem your commission, call our finance desk or send a WhatsApp message. We verify your registered referrals and transfer your funds directly to your Nigerian bank account within minutes.
+                </p>
+              </div>
+
+              <div className="space-y-2.5 pt-1">
+                <a
+                  href="tel:+2348000000000"
+                  className="w-full flex items-center justify-center gap-2 py-3 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl shadow-xs transition-colors"
+                >
+                  <Phone size={15} /> Call Support Desk (+234 800 000 0000)
+                </a>
+
+                <a
+                  href={`https://wa.me/2348000000000?text=${encodeURIComponent(`Hello Pondtora Admin, I would like to redeem my referral commission balance of ₦${refStats.availableEarnings.toLocaleString()} for Referral Code: ${refStats.referralCode} (${userProfile?.email || userProfile?.name}).`)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full flex items-center justify-center gap-2 py-3 bg-[#25D366] hover:bg-[#20bd5a] text-white text-xs font-bold rounded-xl shadow-xs transition-colors"
+                >
+                  <MessageCircle size={15} /> Chat on WhatsApp to Redeem
+                </a>
+              </div>
+            </div>
+
+            <div className="px-6 pb-4 pt-1 text-center border-t border-slate-100">
+              <button onClick={()=>setShowRedeemModal(false)} className="text-xs text-slate-400 hover:text-slate-600 font-medium">Close</button>
             </div>
           </div>
         </div>
@@ -6459,7 +6792,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   const cvt=(n:number)=>convertNGN(n,userCountry);
   return(
     <div className="flex h-screen bg-white text-slate-900 overflow-hidden" style={{fontFamily:"'Barlow',sans-serif"}}>
-      <Toaster position="top-right" richColors duration={2500}/>
+      <Toaster position="top-right" richColors duration={2500} visibleToasts={1} closeButton/>
       {/* ── Database Setup Wizard ── */}
       {showSetup&&(setupSql||setupRunning)&&(
         <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4">

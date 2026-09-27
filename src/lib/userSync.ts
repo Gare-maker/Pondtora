@@ -928,6 +928,10 @@ export function recordSuccessfulPayment(params: {
 
   saveAllAdminUsers(users);
 
+  try {
+    window.dispatchEvent(new CustomEvent("pondtora:payment_successful", { detail: { ...params, name: userObj.name } }));
+  } catch {}
+
   logActivity(
     "Subscription Paid (Paystack)",
     "subscription",

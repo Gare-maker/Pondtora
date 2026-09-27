@@ -9,6 +9,7 @@ import { supabase, getAppUrl } from "../../lib/supabase";
 import { auth, api } from "../../lib/api";
 import { useDynamicPlans, yearlyPrice, EVERY_PLAN_INCLUDES } from "../pricingData";
 import { syncUserProfileToAdmin } from "../../lib/userSync";
+import { captureReferralParam, attachReferralToNewUser, getPendingReferrerCode } from "../../lib/referralStore";
 
 const AIC = "w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg bg-white text-slate-900 placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-green-300 transition";
 const LBL = "block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1";
@@ -78,6 +79,7 @@ function AuthScreen({
 
   // Detect URL search/hash for email verification / invite / recovery flows on mount + listen for PASSWORD_RECOVERY
   useEffect(() => {
+    captureReferralParam();
     if (typeof window !== "undefined") {
       const pathname = window.location.pathname.toLowerCase();
       const searchParams = new URLSearchParams(window.location.search);
@@ -595,6 +597,7 @@ function AuthScreen({
 
       // Sync into admin local state / logs immediately
       syncUserProfileToAdmin(profile, planName, 1);
+      attachReferralToNewUser({ id: createdUserId, email: cleanEmail, name: cName }, getPendingReferrerCode());
 
       // Strict enforcement: only auto-login if email is confirmed
       if (data.session && data.user?.email_confirmed_at) {
