@@ -370,7 +370,7 @@ function FeedDocumentation({
     reason: string;
   };
 
-  /* ── reconRows (selDate only, grouped strictly by Fish Stock + Pellet Size across all ponds in that stock) ── */
+  /* ── reconRows (selDate only, grouped strictly by Fish Stock + Pellet Size + Brand across all ponds in that stock) ── */
   const reconRows = useMemo((): ReconRow[] => {
     const mIdx = MIDX_GLOBAL[selMonLabel] ?? viewMonth;
     const prevDt = new Date(selYear || viewYear, mIdx, (selDay || 1) - 1);
@@ -379,15 +379,21 @@ function FeedDocumentation({
 
     (feedingRecords || []).filter(r => r && isSameDate(r.date, selDate)).forEach(r => {
       const fs = pondToStock(r.pond);
-      keySet.add(`${fs}||${r.size || "—"}`);
+      const brand = r.brand || "—";
+      const size = r.size || "—";
+      keySet.add(`${fs}||${size}||${brand}`);
     });
     (bagLogs || []).filter(b => b && isSameDate(b.date, selDate)).forEach(b => {
       const fs = normalizeFishStock(b.fishStock);
-      if (fs && fs !== "—") keySet.add(`${fs}||${b.size || "—"}`);
+      const brand = b.brand || "—";
+      const size = b.size || "—";
+      if (fs && fs !== "—") keySet.add(`${fs}||${size}||${brand}`);
     });
     (remainLogs || []).filter(r => r && isSameDate(r.date, selDate)).forEach(r => {
       const fs = normalizeFishStock(r.fishStock);
-      if (fs && fs !== "—") keySet.add(`${fs}||${r.size || "—"}`);
+      const brand = r.brand || "—";
+      const size = r.size || "—";
+      if (fs && fs !== "—") keySet.add(`${fs}||${size}||${brand}`);
     });
 
     const rows: ReconRow[] = [];
@@ -395,18 +401,23 @@ function FeedDocumentation({
       const parts = compositeKey.split("||");
       const fishStock = parts[0];
       const size = parts[1];
-      const pondsForStock = (ponds || []).filter(p => p && pondToStock(p.name) === fishStock).map(p => p.name);
+      let brand = parts[2] || "—";
 
-      // Resolve brand for this fishStock + size:
-      const brandFromBag = (bagLogs || []).find(b => isSameDate(b.date, selDate) && b.size === size && normalizeFishStock(b.fishStock) === fishStock && b.brand)?.brand;
-      const brandFromRemain = (remainLogs || []).find(r => isSameDate(r.date, selDate) && r.size === size && normalizeFishStock(r.fishStock) === fishStock && r.brand)?.brand;
-      const brandFromFeed = (feedingRecords || []).find(r => isSameDate(r.date, selDate) && r.size === size && pondToStock(r.pond) === fishStock && r.brand)?.brand;
-      const brandFromInv = (inventory || []).find(f => f && f.size === size && f.brand)?.brand;
-      const brand = brandFromBag || brandFromRemain || brandFromFeed || brandFromInv || "—";
+      // If brand is "—" or empty, try to resolve from bagLogs or remainLogs or inventory
+      if (!brand || brand === "—") {
+        const brandFromBag = (bagLogs || []).find(b => isSameDate(b.date, selDate) && b.size === size && normalizeFishStock(b.fishStock) === fishStock && b.brand)?.brand;
+        const brandFromRemain = (remainLogs || []).find(r => isSameDate(r.date, selDate) && r.size === size && normalizeFishStock(r.fishStock) === fishStock && r.brand)?.brand;
+        const brandFromFeed = (feedingRecords || []).find(r => isSameDate(r.date, selDate) && r.size === size && pondToStock(r.pond) === fishStock && r.brand)?.brand;
+        const brandFromInv = (inventory || []).find(f => f && f.size === size && f.brand)?.brand;
+        brand = brandFromBag || brandFromRemain || brandFromFeed || brandFromInv || "—";
+      }
+
+      const pondsForStock = (ponds || []).filter(p => p && pondToStock(p.name) === fishStock).map(p => p.name);
 
       const fedRecords = (feedingRecords || []).filter(r =>
         r && isSameDate(r.date, selDate) &&
         r.size === size &&
+        (brand === "—" || !r.brand || r.brand.toLowerCase().trim() === brand.toLowerCase().trim()) &&
         (pondsForStock.length === 0 || pondsForStock.includes(r.pond) || pondToStock(r.pond) === fishStock) &&
         (Number(r.total) > 0 || Number(r.morning) > 0 || Number(r.evening) > 0)
       );
@@ -415,39 +426,45 @@ function FeedDocumentation({
       const totalFed = (feedingRecords || []).filter(r =>
         r && isSameDate(r.date, selDate) &&
         r.size === size &&
+        (brand === "—" || !r.brand || r.brand.toLowerCase().trim() === brand.toLowerCase().trim()) &&
         (pondsForStock.length === 0 || pondsForStock.includes(r.pond) || pondToStock(r.pond) === fishStock)
       ).reduce((s, r) => s + (Number(r.total) || 0), 0);
 
       const matchingBagLogs = (bagLogs || []).filter(b =>
         b && isSameDate(b.date, selDate) &&
         b.size === size &&
+        (brand === "—" || !b.brand || b.brand.toLowerCase().trim() === brand.toLowerCase().trim()) &&
         (!b.fishStock || normalizeFishStock(b.fishStock) === fishStock)
       );
-      // If multiple duplicate bag logs exist for the same stock and pallet on this day, use the single session amount
+      // If multiple duplicate bag logs exist for the same stock, brand, and pallet on this day, use the single session amount
       const recordedBags = matchingBagLogs.length > 0 ? (Number(matchingBagLogs[matchingBagLogs.length - 1].bagsOpened) || 0) : 0;
 
       const carryover = (remainLogs || []).filter(r =>
         r && isSameDate(r.date, prevDate) &&
         r.size === size &&
+        (brand === "—" || !r.brand || r.brand.toLowerCase().trim() === brand.toLowerCase().trim()) &&
         normalizeFishStock(r.fishStock) === fishStock
       ).reduce((s, r) => s + (Number(r.remainingKg) || 0), 0);
 
       const recordedRemaining = (remainLogs || []).filter(r =>
         r && isSameDate(r.date, selDate) &&
         r.size === size &&
+        (brand === "—" || !r.brand || r.brand.toLowerCase().trim() === brand.toLowerCase().trim()) &&
         normalizeFishStock(r.fishStock) === fishStock
       ).reduce((s, r) => s + (Number(r.remainingKg) || 0), 0);
 
       // If neither feed nor bags nor remaining was logged, skip
       if (totalFed === 0 && recordedBags === 0 && recordedRemaining === 0) continue;
 
-      const invItem = (inventory || []).find(f => f && (brand !== "—" ? f.brand === brand : true) && f.size === size) || (inventory || []).find(f => f && f.size === size);
+      const invItem = (inventory || []).find(f => f && (brand !== "—" ? f.brand.toLowerCase().trim() === brand.toLowerCase().trim() : true) && f.size === size) || (inventory || []).find(f => f && f.size === size);
       const bagWeight = invItem?.weightPerBag || 15;
       const kgOpened = recordedBags * bagWeight;
       const kgConsumed = totalFed;
       const netNeeded = Math.max(0, kgConsumed - carryover);
       const expectedBags = netNeeded === 0 ? 0 : Math.ceil(netNeeded / bagWeight);
-      const expectedRemaining = Math.max(0, carryover + kgOpened - kgConsumed);
+      const expectedRemaining = (carryover === 0 && kgOpened === 0 && kgConsumed === 0 && recordedRemaining > 0)
+        ? recordedRemaining
+        : Math.max(0, carryover + kgOpened - kgConsumed);
       const remainingKg = Math.max(0, (carryover + kgOpened) - kgConsumed);
       const bagsDiff = Math.abs(expectedBags - recordedBags);
       const remainDiff = Math.abs(expectedRemaining - recordedRemaining);
@@ -600,10 +617,11 @@ function FeedDocumentation({
     setEditDocBag(null);
   };
 
-  /* ── helper: count bags opened for a given fish stock + pellet size on a date ── */
-  const getBagsLoggedTodayForStockAndSize = (stockName: string, palletSize: string, checkDate: string): number => {
+  /* ── helper: count bags opened for a given fish stock + brand + pellet size on a date ── */
+  const getBagsLoggedTodayForStockAndSize = (stockName: string, brandName: string, palletSize: string, checkDate: string): number => {
     if (!stockName || !palletSize || !checkDate || stockName === "—") return 0;
     const normalizedStock = normalizeFishStock(stockName).toLowerCase().trim();
+    const normalizedBrand = (brandName || "").toLowerCase().trim();
     const normalizedSize = palletSize.toLowerCase().trim();
     const dateLabel = toDateLabel(checkDate);
     const matching = (bagLogs || []).filter(b =>
@@ -613,12 +631,13 @@ function FeedDocumentation({
       b.fishStock !== "—" &&
       (isSameDate(b.date, checkDate) || isSameDate(b.date, dateLabel)) &&
       normalizeFishStock(b.fishStock).toLowerCase().trim() === normalizedStock &&
+      (normalizedBrand === "" || (b.brand || "").toLowerCase().trim() === normalizedBrand) &&
       (b.size || "").toLowerCase().trim() === normalizedSize
     );
     return matching.reduce((s, b) => s + (Number(b.bagsOpened) || 0), 0);
   };
-  const isStockAndSizeAlreadyLogged = (stockName: string, palletSize: string, checkDate: string): boolean => {
-    return getBagsLoggedTodayForStockAndSize(stockName, palletSize, checkDate) > 0;
+  const isStockAndSizeAlreadyLogged = (stockName: string, brandName: string, palletSize: string, checkDate: string): boolean => {
+    return getBagsLoggedTodayForStockAndSize(stockName, brandName, palletSize, checkDate) > 0;
   };
 
   const getIsoDateForSelDate = (targetDate: string): string => {
@@ -2087,7 +2106,7 @@ function FeedDocumentation({
                       </div>
                     )}
                     {(() => {
-                      const previouslyOpened = getBagsLoggedTodayForStockAndSize(row.fishStock, row.size, bagsDate);
+                      const previouslyOpened = getBagsLoggedTodayForStockAndSize(row.fishStock, row.brand, row.size, bagsDate);
                       const isDupInForm = bagRows.findIndex((other, idx) =>
                         idx < i &&
                         normalizeFishStock(other.fishStock).toLowerCase().trim() === normalizeFishStock(row.fishStock).toLowerCase().trim() &&
