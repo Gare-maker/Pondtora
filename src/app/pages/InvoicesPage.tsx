@@ -278,7 +278,7 @@ export default function InvoicesPage({ponds,invoices,customers,priceGroups,setti
       <Card className="hidden md:block p-3">
         <div className="flex flex-wrap gap-2 items-center">
           <div className="relative flex-1 min-w-[180px]"><Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300"/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search invoice # or customer…" className={`${IC} pl-8`}/></div>
-          <div className="flex items-center gap-1.5"><span className="text-xs text-slate-400">Pond:</span><select value={fPond} onChange={e=>setFPond(e.target.value)} className={`${SC} py-1.5 text-xs w-auto`}><option>All</option>{ponds.map(p=><option key={p.id}>{p.name}</option>)}</select></div>
+          <div className="flex items-center gap-1.5"><span className="text-xs text-slate-400">Pond:</span><select value={fPond} onChange={e=>setFPond(e.target.value)} className={`${SC} py-1.5 text-xs w-auto`}><option>All</option><option value="Non-Pond">Non-Pond</option>{ponds.map(p=><option key={p.id}>{p.name}</option>)}</select></div>
           <div className="flex items-center gap-1.5"><span className="text-xs text-slate-400">Status:</span><select value={fStatus} onChange={e=>setFStatus(e.target.value)} className={`${SC} py-1.5 text-xs w-auto`}><option>All</option>{INV_STATUSES.map(s=><option key={s}>{s}</option>)}</select></div>
           <div className="flex items-center gap-1.5"><span className="text-xs text-slate-400">Method:</span><select value={fMethod} onChange={e=>setFMethod(e.target.value)} className={`${SC} py-1.5 text-xs w-auto`}><option>All</option>{PAYMENT_METHODS.map(m=><option key={m}>{m}</option>)}</select></div>
           <div className="flex items-center gap-1.5"><span className="text-xs text-slate-400">Sort:</span><select value={sortDir} onChange={e=>setSortDir(e.target.value as SortDir)} className={`${SC} py-1.5 text-xs w-auto`}><option value="desc">Newest</option><option value="asc">Oldest</option></select></div>
@@ -348,8 +348,9 @@ export default function InvoicesPage({ponds,invoices,customers,priceGroups,setti
             <div className="px-4 sm:px-6 pt-3 sm:pt-4 shrink-0"><div className="flex gap-2">{[1,2,3].map(s=><div key={s} className={`flex-1 h-1.5 rounded-full transition-all ${s<=step?"bg-green-500":"bg-slate-200"}`}/>)}</div></div>
             <div className="px-4 sm:px-6 py-4 space-y-3 overflow-y-auto flex-1 min-h-0">
               {step===1&&(<>
-                <F label="Select Pond"><SelDrop value={wPond} onChange={v=>setWPond(v)} options={[{value:"",label:"Choose a pond…"},...ponds.map(p=>({value:p.name,label:`${p.name} — ${p.species} (${p.status})`}))]} placeholder="Choose a pond…"/></F>
+                <F label="Select Pond"><SelDrop value={wPond} onChange={v=>setWPond(v)} options={[{value:"",label:"Choose a pond…"},{value:"Non-Pond",label:"Non-Pond"},...ponds.map(p=>({value:p.name,label:`${p.name} — ${p.species} (${p.status})`}))]} placeholder="Choose a pond…"/></F>
                 {wPond&&pondObj&&<div className="bg-green-50 border border-green-200 rounded-xl px-4 py-3 text-xs text-green-700"><strong>{wPond}</strong> · {pondObj.species} · {pondObj.currentCount.toLocaleString()} fish</div>}
+                {wPond==="Non-Pond"&&<div className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-xs text-slate-700"><strong>Non-Pond</strong> · General / Unassigned fish sales</div>}
               </>)}
               {step===2&&(<>
                 <div className="flex gap-2 mb-1">

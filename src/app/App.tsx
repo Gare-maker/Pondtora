@@ -6912,18 +6912,18 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
           </div>
         </div>
       )}
-      {sideOpen&&<div className="fixed inset-0 bg-black/30 z-30 lg:hidden" onClick={()=>setSideOpen(false)}/>}
+      {sideOpen&&<div className="fixed inset-0 bg-black/40 z-40 lg:hidden" onClick={()=>setSideOpen(false)}/>}
       {/* Desktop sidebar — always in flow, collapsible */}
       <div className={`hidden lg:flex flex-col shrink-0 h-screen overflow-hidden transition-[width] duration-200 ${collapsed?"w-16":"w-64"}`}>
         <Sidebar active={active} onNav={nav} collapsed={collapsed} onToggle={()=>setCollapsed(p=>!p)} farms={accessibleFarms} activeFarmId={activeFarmId} onSwitchFarm={handleSwitchFarm} onAddFarm={()=>setShowAddFarm(true)} sideOpen={true} staff={staff} unreadCount={unreadCount} onNotifications={()=>nav("notifications")} onLogout={handleLogout} hasPerm={hasPerm} canView={canView} isOwner={isOwner} userProfile={userProfile} currentStaff={currentStaff}/>
       </div>
       {/* Mobile sidebar — fixed drawer */}
-      <div className={`fixed lg:hidden inset-y-0 left-0 z-40 w-64 transition-transform duration-200 ${sideOpen?"translate-x-0":"-translate-x-full"}`}>
+      <div className={`fixed lg:hidden inset-y-0 left-0 z-50 w-64 transition-transform duration-200 ${sideOpen?"translate-x-0":"-translate-x-full"}`}>
         <Sidebar active={active} onNav={nav} collapsed={false} onToggle={()=>setSideOpen(false)} farms={accessibleFarms} activeFarmId={activeFarmId} onSwitchFarm={id=>{handleSwitchFarm(id);setSideOpen(false);}} onAddFarm={()=>{setSideOpen(false);setShowAddFarm(true);}} sideOpen={sideOpen} staff={staff} unreadCount={unreadCount} onNotifications={()=>{nav("notifications");setSideOpen(false);}} onLogout={handleLogout} hasPerm={hasPerm} canView={canView} isOwner={isOwner} userProfile={userProfile} currentStaff={currentStaff}/>
       </div>
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Mobile top bar */}
-        <div className="lg:hidden flex items-center justify-between px-4 py-2.5 bg-slate-900 border-b border-slate-800 shrink-0 z-40">
+        <div className="lg:hidden flex items-center justify-between px-4 py-2.5 bg-slate-900 border-b border-slate-800 shrink-0 z-20">
           <div className="flex items-center gap-2.5">
             <button onClick={()=>setSideOpen(true)} className="p-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 transition-colors">
               <Menu size={20}/>

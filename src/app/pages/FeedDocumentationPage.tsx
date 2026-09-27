@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useMemo } from "react";
 import {
   Plus, CheckCircle, X, Layers, Droplets,
   ChevronDown, ChevronLeft, ChevronRight,
-  Package, BookOpen, Download, FileText, Pencil, Trash2, MoreVertical, Lock, History, Fish, Search, AlertTriangle, AlertCircle
+  Package, BookOpen, Download, FileText, Pencil, Trash2, MoreVertical, Lock, History, Fish, Search, AlertTriangle, AlertCircle, Eye
 } from "lucide-react";
 import { toast } from "sonner";
 import type { FeedingRecord, FeedEditEntry, Pond, FeedItem, BagOpenLog, FeedRemainingLog } from "../types";
@@ -171,6 +171,10 @@ function FeedDocumentation({
   const [reconExpanded, setReconExpanded] = useState<string | null>(null);
   const [feedMobileMenuOpen, setFeedMobileMenuOpen] = useState(false);
   const feedMobileMenuRef = useRef<HTMLDivElement>(null);
+  const [viewBagDetail, setViewBagDetail] = useState<MergedBagRow | null>(null);
+  const [activeDailyMenuId, setActiveDailyMenuId] = useState<string | null>(null);
+  const [activeBagMenuId, setActiveBagMenuId] = useState<string | null>(null);
+  const [activeReconMenuId, setActiveReconMenuId] = useState<string | null>(null);
 
   /* ── helper to navigate from recon to bags tab with column highlight ── */
   const goToOpenedBags = (fishStock: string, size: string, brand?: string, col: "bags" | "remaining" | "all" = "all") => {
@@ -185,10 +189,15 @@ function FeedDocumentation({
   const [reconSearch, setReconSearch] = useState("");
 
   useEffect(() => {
-    const h = (e: MouseEvent) => { if (feedMobileMenuRef.current && !feedMobileMenuRef.current.contains(e.target as Node)) setFeedMobileMenuOpen(false); };
-    if (feedMobileMenuOpen) document.addEventListener("mousedown", h);
-    return () => document.removeEventListener("mousedown", h);
-  }, [feedMobileMenuOpen]);
+    const h = (e: MouseEvent) => {
+      if (feedMobileMenuRef.current && !feedMobileMenuRef.current.contains(e.target as Node)) setFeedMobileMenuOpen(false);
+      setActiveDailyMenuId(null);
+      setActiveBagMenuId(null);
+      setActiveReconMenuId(null);
+    };
+    document.addEventListener("click", h);
+    return () => document.removeEventListener("click", h);
+  }, []);
 
   /* ── derived ── */
   const activePonds = (ponds || []).filter(p => p && p.status === "Active");
@@ -768,11 +777,10 @@ function FeedDocumentation({
     const bagWeight = invItem?.weightPerBag || 15;
 
     const netNeeded = Math.max(0, totalFed - carryover);
-    const expectedBags = totalFed > 0 ? (netNeeded === 0 ? 0 : Math.ceil(netNeeded / bagWeight)) : 0;
-
-    const effectiveBags = bagsOpenedOverride !== undefined ? bagsOpenedOverride : expectedBags;
+    const loggedBags = getBagsLoggedTodayForStockAndSize(normStock, brand, size, targetDate);
+    const effectiveBags = bagsOpenedOverride !== undefined ? bagsOpenedOverride : (totalFed > 0 ? expectedBags : loggedBags);
     const totalAvailable = carryover + (effectiveBags * bagWeight);
-    const expectedRemaining = (carryover === 0 && effectiveBags === 0) ? 0 : Math.max(0, totalAvailable - totalFed);
+    const expectedRemaining = Math.max(0, totalAvailable - totalFed);
 
     return {
       hasFed: totalFed > 0,
@@ -1655,7 +1663,8 @@ function FeedDocumentation({
             </div>
           </div>
 
-          <div className="overflow-x-auto">
+          {/* Desktop Table View */}
+          <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-sm min-w-[700px] md:min-w-[950px]">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-100">
@@ -1722,7 +1731,6 @@ function FeedDocumentation({
                 <tfoot>
                   <tr className="bg-slate-50 border-t-2 border-slate-200">
                     <td colSpan={11} className="hidden md:table-cell px-4 py-3 text-right text-xs font-bold text-slate-500 uppercase tracking-wider">Grand Total</td>
-                    <td colSpan={8} className="md:hidden px-4 py-3 text-right text-xs font-bold text-slate-500 uppercase tracking-wider">Grand Total</td>
                     <td className="px-4 py-3"><span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-green-600 text-white font-bold text-sm font-['Barlow_Condensed',sans-serif]">{dayGrand}kg</span></td>
                     <td colSpan={2} />
                   </tr>
@@ -1730,6 +1738,131 @@ function FeedDocumentation({
               )}
             </table>
           </div>
+
+          {/* Mobile Card View */}
+          <div className="md:hidden divide-y divide-slate-100">
+            {filteredDayRows.map(({ pond, rec }, i) => {
+              const hasFeed = !!rec;
+              const pondMaxKgMap = pond.maxKgByPallet;
+              const atMax = hasFeed && pondMaxKgMap && rec!.size in pondMaxKgMap && (feedingRecords || []).filter(r => r && r.pond === pond.name && r.size === rec!.size).reduce((s, r) => s + (Number(r.total) || 0), 0) >= (pondMaxKgMap[rec!.size] || Infinity);
+              const isEdited = (rec?.editHistory?.length || 0) > 0;
+              const stockDateFormatted = pond.stockingDate && pond.stockingDate !== "—" ? formatFishStockDate(pond.stockingDate) : "—";
+              const isMenuOpen = activeDailyMenuId === pond.id;
+
+              return (
+                <div
+                  key={pond.id}
+                  onClick={() => rec && setViewFeedRec(rec)}
+                  className={`p-4 transition-colors relative ${hasFeed ? "hover:bg-green-50/30 cursor-pointer" : "opacity-60"}`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h3 className="font-bold text-slate-900 text-sm">{pond.name}</h3>
+                        {stockDateFormatted !== "—" && (
+                          <span className="text-[10px] text-teal-700 bg-teal-50 px-2 py-0.5 rounded border border-teal-200 font-medium">
+                            {stockDateFormatted}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-slate-500 mt-0.5">
+                        Stock: <strong className="text-slate-700">{pond.currentCount.toLocaleString()}</strong> fish
+                        {pond.initialStock > 0 && <span className="text-slate-400"> (Initial: {pond.initialStock.toLocaleString()})</span>}
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 shrink-0" onClick={e => e.stopPropagation()}>
+                      {hasFeed && (
+                        <span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-green-100 text-green-800 font-bold text-sm font-['Barlow_Condensed',sans-serif]">
+                          {rec.total} kg
+                        </span>
+                      )}
+                      {hasFeed && (
+                        <div className="relative">
+                          <button
+                            type="button"
+                            onClick={() => setActiveDailyMenuId(isMenuOpen ? null : pond.id)}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+                            title="Actions"
+                          >
+                            <MoreVertical size={16} />
+                          </button>
+                          {isMenuOpen && (
+                            <div className="absolute right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl z-30 py-1 min-w-[130px] animate-in fade-in zoom-in-95 duration-100">
+                              <button
+                                type="button"
+                                onClick={() => { setActiveDailyMenuId(null); setViewFeedRec(rec); }}
+                                className="w-full px-3 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                              >
+                                <Eye size={13} className="text-slate-400" /> View Details
+                              </button>
+                              {isRecordEditable(rec.date) ? (
+                                <>
+                                  {canEdit && (
+                                    <button
+                                      type="button"
+                                      onClick={() => { setActiveDailyMenuId(null); openEditRec(rec); }}
+                                      className="w-full px-3 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                                    >
+                                      <Pencil size={13} className="text-green-600" /> Edit Record
+                                    </button>
+                                  )}
+                                  {canDelete && onDeleteRecord && (
+                                    <button
+                                      type="button"
+                                      onClick={() => { setActiveDailyMenuId(null); setDeleteRecId(rec.id); }}
+                                      className="w-full px-3 py-2 text-left text-xs font-medium text-red-600 hover:bg-red-50 flex items-center gap-2"
+                                    >
+                                      <Trash2 size={13} className="text-red-500" /> Delete Record
+                                    </button>
+                                  )}
+                                </>
+                              ) : (
+                                <div className="px-3 py-1.5 text-[11px] text-slate-400 flex items-center gap-1.5">
+                                  <Lock size={12} /> Locked
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {hasFeed ? (
+                    <div className="mt-3 pt-2.5 border-t border-slate-100 grid grid-cols-3 gap-2 text-xs">
+                      <div className="bg-slate-50 rounded-lg p-2">
+                        <span className="text-[10px] text-slate-400 block mb-0.5">Pellet Size</span>
+                        <div className="flex items-center gap-1">
+                          <Bdg label={rec.size} color={atMax ? "red" : "blue"} />
+                          {atMax && <span className="text-[10px] font-bold text-red-500">⚠ Limit</span>}
+                        </div>
+                      </div>
+                      <div className="bg-slate-50 rounded-lg p-2">
+                        <span className="text-[10px] text-slate-400 block mb-0.5">Morning</span>
+                        <span className="font-semibold text-slate-800">{rec.morning} kg</span>
+                      </div>
+                      <div className="bg-slate-50 rounded-lg p-2">
+                        <span className="text-[10px] text-slate-400 block mb-0.5">Evening</span>
+                        <span className="font-semibold text-slate-800">{rec.evening} kg</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-slate-400 mt-2 italic">Not fed on {selDate}</p>
+                  )}
+                </div>
+              );
+            })}
+            {dayGrand > 0 && (
+              <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-600 uppercase tracking-wide">Total Feed Fed</span>
+                <span className="inline-flex items-center px-3 py-1 rounded-xl bg-green-600 text-white font-bold text-base font-['Barlow_Condensed',sans-serif]">
+                  {dayGrand} kg
+                </span>
+              </div>
+            )}
+          </div>
+
           {filteredDayRows.length === 0 && (
             <div className="py-12 text-center">
               <Droplets size={32} className="text-slate-200 mx-auto mb-3" />
@@ -1773,7 +1906,8 @@ function FeedDocumentation({
             </div>
           )}
 
-          <div className="overflow-x-auto">
+          {/* Desktop Table View */}
+          <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-sm min-w-[640px]">
               <thead>
                 <tr className="border-b border-slate-100 bg-slate-50">
@@ -1882,6 +2016,134 @@ function FeedDocumentation({
               </tbody>
             </table>
           </div>
+
+          {/* Mobile Card View */}
+          <div className="md:hidden divide-y divide-slate-100">
+            {filteredMergedBagRows.length === 0 && (
+              <div className="py-8 text-center text-xs text-slate-400">
+                No bags logged for {selDate}
+              </div>
+            )}
+            {filteredMergedBagRows.map((row, i) => {
+              const isHighlightedRow = Boolean(
+                bagsHighlight &&
+                bagsHighlight.stock &&
+                row.fishStock &&
+                normalizeFishStock(bagsHighlight.stock) === normalizeFishStock(row.fishStock) &&
+                bagsHighlight.size === row.size
+              );
+
+              const reconItem = reconRows.find(r =>
+                normalizeFishStock(r.fishStock) === normalizeFishStock(row.fishStock) &&
+                r.size === row.size &&
+                (!row.brand || row.brand === "—" || !r.brand || r.brand === "—" || (typeof r.brand === "string" && typeof row.brand === "string" && r.brand.toLowerCase().trim() === row.brand.toLowerCase().trim()))
+              ) || reconRows.find(r =>
+                normalizeFishStock(r.fishStock) === normalizeFishStock(row.fishStock) &&
+                r.size === row.size
+              );
+
+              const hasBagMismatch = Boolean(reconItem && reconItem.expectedBags !== row.bagsOpened);
+              const hasRemainMismatch = Boolean(reconItem && Math.abs(reconItem.expectedRemaining - row.remainingKg) >= 0.1);
+              const isMenuOpen = activeBagMenuId === `${row.fishStock}__${row.brand}__${row.size}`;
+
+              return (
+                <div
+                  key={i}
+                  onClick={() => setViewBagDetail(row)}
+                  className={`p-4 transition-colors cursor-pointer relative hover:bg-slate-50/80 ${isHighlightedRow ? "bg-orange-50/40" : ""}`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <h3 className="font-bold text-slate-900 text-sm truncate">
+                        {getStockDisplayName(row.fishStock, row.stockDate)}
+                      </h3>
+                      <div className="flex items-center gap-2 mt-1">
+                        <span className="text-xs font-semibold text-slate-600">{row.brand}</span>
+                        <Bdg label={row.size} color="blue" />
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 shrink-0" onClick={e => e.stopPropagation()}>
+                      {/* 3-dots Menu Button */}
+                      <div className="relative">
+                        <button
+                          type="button"
+                          onClick={() => setActiveBagMenuId(isMenuOpen ? null : `${row.fishStock}__${row.brand}__${row.size}`)}
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+                          title="Actions"
+                        >
+                          <MoreVertical size={16} />
+                        </button>
+                        {isMenuOpen && (
+                          <div className="absolute right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl z-30 py-1 min-w-[130px] animate-in fade-in zoom-in-95 duration-100">
+                            <button
+                              type="button"
+                              onClick={() => { setActiveBagMenuId(null); setViewBagDetail(row); }}
+                              className="w-full px-3 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                            >
+                              <Eye size={13} className="text-slate-400" /> View Details
+                            </button>
+                            {canEdit && (
+                              isRecordEditable(row.lastBagLog?.date || selDate) ? (
+                                <button
+                                  type="button"
+                                  onClick={() => { setActiveBagMenuId(null); openEditMergedRow(row); }}
+                                  className="w-full px-3 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                                >
+                                  <Pencil size={13} className="text-green-600" /> Edit Entry
+                                </button>
+                              ) : (
+                                <div className="px-3 py-1.5 text-[11px] text-slate-400 flex items-center gap-1.5">
+                                  <Lock size={12} /> Locked
+                                </div>
+                              )
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Card Metrics Grid */}
+                  <div className="mt-3 pt-2.5 border-t border-slate-100 grid grid-cols-3 gap-2 text-xs">
+                    {/* Bags Opened */}
+                    <div className="bg-slate-50 rounded-lg p-2">
+                      <span className="text-[10px] text-slate-400 block mb-0.5">Bags Opened</span>
+                      <span className="font-bold text-slate-900 text-xs">
+                        {row.bagsOpened > 0 ? `${row.bagsOpened} bag${row.bagsOpened !== 1 ? "s" : ""}` : "—"}
+                      </span>
+                      {reconItem ? (
+                        <p className={`text-[10px] font-medium mt-0.5 ${hasBagMismatch ? "text-amber-600 font-semibold" : "text-slate-400"}`}>
+                          Exp: {reconItem.expectedBags}
+                        </p>
+                      ) : null}
+                    </div>
+
+                    {/* Feed Deducted */}
+                    <div className="bg-slate-50 rounded-lg p-2">
+                      <span className="text-[10px] text-slate-400 block mb-0.5">Feed Deducted</span>
+                      <span className="font-bold text-green-700 font-['Barlow_Condensed',sans-serif] text-sm">
+                        {row.totalKgOpened > 0 ? `${row.totalKgOpened} kg` : "—"}
+                      </span>
+                    </div>
+
+                    {/* Leftover Feed */}
+                    <div className="bg-slate-50 rounded-lg p-2">
+                      <span className="text-[10px] text-slate-400 block mb-0.5">Leftover Feed</span>
+                      <span className="font-semibold text-slate-800 text-xs">
+                        {row.remainingKg > 0 ? `${row.remainingKg} kg` : "—"}
+                      </span>
+                      {reconItem ? (
+                        <p className={`text-[10px] font-medium mt-0.5 ${hasRemainMismatch ? "text-amber-600 font-semibold" : "text-slate-400"}`}>
+                          Exp: {reconItem.expectedRemaining} kg
+                        </p>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </Card>
       )}
 
@@ -1913,101 +2175,207 @@ function FeedDocumentation({
                 <p className="text-xs text-slate-300 mt-1">Log feeding sessions and opened bags to see reconciliation.</p>
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm min-w-[720px]">
-                  <thead>
-                    <tr className="bg-slate-50/80 border-b border-slate-100">
-                      <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left sticky left-0 z-30 bg-slate-50 border-r border-slate-200 min-w-[140px] shadow-[2px_0_5px_-2px_rgba(0,0,0,0.08)]">
-                        Fish Stock &amp; Brand
-                      </th>
-                      <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left">Feed Given</th>
-                      <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left">Bags Opened</th>
-                      <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left">Leftover Feed</th>
-                      <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left">Status</th>
-                      <th className="px-4 py-3 w-8" />
+          {/* Desktop Table View */}
+          <div className="hidden md:block overflow-x-auto">
+            <table className="w-full text-sm min-w-[720px]">
+              <thead>
+                <tr className="bg-slate-50/80 border-b border-slate-100">
+                  <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left sticky left-0 z-30 bg-slate-50 border-r border-slate-200 min-w-[140px] shadow-[2px_0_5px_-2px_rgba(0,0,0,0.08)]">
+                    Fish Stock &amp; Brand
+                  </th>
+                  <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left">Feed Given</th>
+                  <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left">Bags Opened</th>
+                  <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left">Leftover Feed</th>
+                  <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left">Status</th>
+                  <th className="px-4 py-3 w-8" />
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 bg-white">
+                {filteredReconRows.map(r => {
+                  const rowKey = `${r.fishStock}||${r.size}||${r.brand}`;
+                  const highlighted = !!(reconFocus && (reconFocus.key === `${r.fishStock}__${r.size}` || reconFocus.key === `${r.fishStock}__${r.brand}__${r.size}`));
+                  const sc = STATUS_CFG[r.status] || STATUS_CFG.matched;
+                  const hasBagMismatch = r.status === "bag_mismatch" || r.status === "multiple_mismatches";
+                  const hasRemainMismatch = r.status === "remaining_mismatch" || r.status === "multiple_mismatches";
+
+                  return (
+                    <tr
+                      key={rowKey}
+                      onClick={() => setPopupRecon(r)}
+                      className={`group cursor-pointer transition-colors hover:bg-slate-50/80 ${highlighted ? "outline outline-2 outline-green-400" : ""}`}
+                      title="Click to view full reconciliation breakdown"
+                    >
+                      {/* Fish Stock & Brand / Pellet Size */}
+                      <td className="px-4 py-3.5 sticky left-0 z-20 bg-white group-hover:bg-slate-50/80 border-r border-slate-100 min-w-[140px] shadow-[2px_0_5px_-2px_rgba(0,0,0,0.08)]">
+                        <p className="text-xs font-bold text-slate-800 leading-tight truncate">{getStockDisplayName(r.fishStock, r.stockDate)}</p>
+                        <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                          <Bdg label={r.size} color="blue" />
+                          <span className="text-[11px] text-slate-500 font-medium">{r.brand}</span>
+                        </div>
+                      </td>
+
+                      {/* Feed Given */}
+                      <td className="px-4 py-3.5 whitespace-nowrap">
+                        <span className="font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] text-base">{r.totalFed} kg</span>
+                        <p className="text-[11px] text-slate-400 mt-0.5 truncate max-w-[160px]">
+                          {r.ponds.length === 0 ? "No ponds" : r.ponds.length === 1 ? r.ponds[0] : `${r.ponds.length} ponds: ${r.ponds.join(", ")}`}
+                        </p>
+                      </td>
+
+                      {/* Bags Opened */}
+                      <td className="px-4 py-3.5 whitespace-nowrap">
+                        {hasBagMismatch ? (
+                          <div>
+                            <span className="text-xs font-bold text-orange-700">{r.recordedBags} bag{r.recordedBags !== 1 ? "s" : ""}</span>
+                            <span className="text-[11px] text-slate-400 font-medium block mt-0.5">Exp: {r.expectedBags} bag{r.expectedBags !== 1 ? "s" : ""}</span>
+                          </div>
+                        ) : (
+                          <div>
+                            <span className="text-xs font-semibold text-slate-800">{r.recordedBags} bag{r.recordedBags !== 1 ? "s" : ""}</span>
+                            <span className="text-[11px] text-slate-400 font-medium block mt-0.5">Exp: {r.expectedBags}</span>
+                          </div>
+                        )}
+                      </td>
+
+                      {/* Leftover Feed */}
+                      <td className="px-4 py-3.5 whitespace-nowrap">
+                        {hasRemainMismatch ? (
+                          <div>
+                            <span className="text-xs font-bold text-amber-700">{r.recordedRemaining} kg</span>
+                            <span className="text-[11px] text-slate-400 font-medium block mt-0.5">Exp: {r.expectedRemaining} kg</span>
+                          </div>
+                        ) : (
+                          <div>
+                            <span className="text-xs font-semibold text-slate-700">{r.recordedRemaining} kg</span>
+                            <span className="text-[11px] text-slate-400 font-medium block mt-0.5">Exp: {r.expectedRemaining} kg</span>
+                          </div>
+                        )}
+                      </td>
+
+                      {/* Status */}
+                      <td className="px-4 py-3.5 whitespace-nowrap">
+                        <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold ${sc.cls}`}>
+                          {sc.label}
+                        </span>
+                      </td>
+
+                      {/* Action Arrow */}
+                      <td className="px-4 py-3.5 text-right">
+                        <span className="text-slate-300 group-hover:text-green-600 transition-colors inline-block text-xs font-bold">
+                          <ChevronRight size={15} />
+                        </span>
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 bg-white">
-                    {filteredReconRows.map(r => {
-                      const rowKey = `${r.fishStock}||${r.size}||${r.brand}`;
-                      const highlighted = !!(reconFocus && (reconFocus.key === `${r.fishStock}__${r.size}` || reconFocus.key === `${r.fishStock}__${r.brand}__${r.size}`));
-                      const sc = STATUS_CFG[r.status] || STATUS_CFG.matched;
-                      const hasBagMismatch = r.status === "bag_mismatch" || r.status === "multiple_mismatches";
-                      const hasRemainMismatch = r.status === "remaining_mismatch" || r.status === "multiple_mismatches";
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
 
-                      return (
-                        <tr
-                          key={rowKey}
-                          onClick={() => setPopupRecon(r)}
-                          className={`group cursor-pointer transition-colors hover:bg-slate-50/80 ${highlighted ? "outline outline-2 outline-green-400" : ""}`}
-                          title="Click to view full reconciliation breakdown"
+          {/* Mobile Card View */}
+          <div className="md:hidden divide-y divide-slate-100">
+            {filteredReconRows.map(r => {
+              const rowKey = `${r.fishStock}||${r.size}||${r.brand}`;
+              const highlighted = !!(reconFocus && (reconFocus.key === `${r.fishStock}__${r.size}` || reconFocus.key === `${r.fishStock}__${r.brand}__${r.size}`));
+              const sc = STATUS_CFG[r.status] || STATUS_CFG.matched;
+              const hasBagMismatch = r.status === "bag_mismatch" || r.status === "multiple_mismatches";
+              const hasRemainMismatch = r.status === "remaining_mismatch" || r.status === "multiple_mismatches";
+              const isMenuOpen = activeReconMenuId === rowKey;
+
+              return (
+                <div
+                  key={rowKey}
+                  onClick={() => setPopupRecon(r)}
+                  className={`p-4 transition-colors cursor-pointer relative hover:bg-slate-50/80 ${highlighted ? "outline outline-2 outline-green-400" : ""}`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <h3 className="font-bold text-slate-900 text-sm truncate">
+                        {getStockDisplayName(r.fishStock, r.stockDate)}
+                      </h3>
+                      <div className="flex items-center gap-2 mt-1">
+                        <span className="text-xs font-semibold text-slate-600">{r.brand}</span>
+                        <Bdg label={r.size} color="blue" />
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 shrink-0" onClick={e => e.stopPropagation()}>
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold ${sc.cls}`}>
+                        {sc.label}
+                      </span>
+                      {/* 3-dots Menu Button */}
+                      <div className="relative">
+                        <button
+                          type="button"
+                          onClick={() => setActiveReconMenuId(isMenuOpen ? null : rowKey)}
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+                          title="Actions"
                         >
-                          {/* Fish Stock & Brand / Pellet Size */}
-                          <td className="px-4 py-3.5 sticky left-0 z-20 bg-white group-hover:bg-slate-50/80 border-r border-slate-100 min-w-[140px] shadow-[2px_0_5px_-2px_rgba(0,0,0,0.08)]">
-                            <p className="text-xs font-bold text-slate-800 leading-tight truncate">{getStockDisplayName(r.fishStock, r.stockDate)}</p>
-                            <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                              <Bdg label={r.size} color="blue" />
-                              <span className="text-[11px] text-slate-500 font-medium">{r.brand}</span>
-                            </div>
-                          </td>
-
-                          {/* Feed Given */}
-                          <td className="px-4 py-3.5 whitespace-nowrap">
-                            <span className="font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] text-base">{r.totalFed} kg</span>
-                            <p className="text-[11px] text-slate-400 mt-0.5 truncate max-w-[160px]">
-                              {r.ponds.length === 0 ? "No ponds" : r.ponds.length === 1 ? r.ponds[0] : `${r.ponds.length} ponds: ${r.ponds.join(", ")}`}
-                            </p>
-                          </td>
-
-                          {/* Bags Opened */}
-                          <td className="px-4 py-3.5 whitespace-nowrap">
-                            {hasBagMismatch ? (
-                              <div>
-                                <span className="text-xs font-bold text-orange-700">{r.recordedBags} bag{r.recordedBags !== 1 ? "s" : ""}</span>
-                                <span className="text-[11px] text-slate-400 font-medium block mt-0.5">Exp: {r.expectedBags} bag{r.expectedBags !== 1 ? "s" : ""}</span>
-                              </div>
-                            ) : (
-                              <div>
-                                <span className="text-xs font-semibold text-slate-800">{r.recordedBags} bag{r.recordedBags !== 1 ? "s" : ""}</span>
-                                <span className="text-[11px] text-slate-400 font-medium block mt-0.5">Exp: {r.expectedBags}</span>
-                              </div>
+                          <MoreVertical size={16} />
+                        </button>
+                        {isMenuOpen && (
+                          <div className="absolute right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl z-30 py-1 min-w-[140px] animate-in fade-in zoom-in-95 duration-100">
+                            <button
+                              type="button"
+                              onClick={() => { setActiveReconMenuId(null); setPopupRecon(r); }}
+                              className="w-full px-3 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                            >
+                              <Eye size={13} className="text-slate-400" /> View Breakdown
+                            </button>
+                            {r.status !== "matched" && (
+                              <button
+                                type="button"
+                                onClick={() => { setActiveReconMenuId(null); goToOpenedBags(r.fishStock, r.size, r.brand); }}
+                                className="w-full px-3 py-2 text-left text-xs font-medium text-blue-600 hover:bg-blue-50 flex items-center gap-2"
+                              >
+                                <Layers size={13} className="text-blue-500" /> Go to Opened Bags
+                              </button>
                             )}
-                          </td>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
 
-                          {/* Leftover Feed */}
-                          <td className="px-4 py-3.5 whitespace-nowrap">
-                            {hasRemainMismatch ? (
-                              <div>
-                                <span className="text-xs font-bold text-amber-700">{r.recordedRemaining} kg</span>
-                                <span className="text-[11px] text-slate-400 font-medium block mt-0.5">Exp: {r.expectedRemaining} kg</span>
-                              </div>
-                            ) : (
-                              <div>
-                                <span className="text-xs font-semibold text-slate-700">{r.recordedRemaining} kg</span>
-                                <span className="text-[11px] text-slate-400 font-medium block mt-0.5">Exp: {r.expectedRemaining} kg</span>
-                              </div>
-                            )}
-                          </td>
+                  {/* Metrics Grid */}
+                  <div className="mt-3 pt-2.5 border-t border-slate-100 grid grid-cols-3 gap-2 text-xs">
+                    {/* Feed Given */}
+                    <div className="bg-slate-50 rounded-lg p-2">
+                      <span className="text-[10px] text-slate-400 block mb-0.5">Feed Given</span>
+                      <span className="font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] text-sm">
+                        {r.totalFed} kg
+                      </span>
+                      <p className="text-[10px] text-slate-400 mt-0.5 truncate">
+                        {r.ponds.length} pond{r.ponds.length !== 1 ? "s" : ""}
+                      </p>
+                    </div>
 
-                          {/* Status */}
-                          <td className="px-4 py-3.5 whitespace-nowrap">
-                            <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold ${sc.cls}`}>
-                              {sc.label}
-                            </span>
-                          </td>
+                    {/* Bags Opened */}
+                    <div className="bg-slate-50 rounded-lg p-2">
+                      <span className="text-[10px] text-slate-400 block mb-0.5">Bags Opened</span>
+                      <span className={`text-xs font-bold ${hasBagMismatch ? "text-orange-700" : "text-slate-800"}`}>
+                        {r.recordedBags} bag{r.recordedBags !== 1 ? "s" : ""}
+                      </span>
+                      <p className="text-[10px] text-slate-400 mt-0.5">
+                        Exp: {r.expectedBags}
+                      </p>
+                    </div>
 
-                          {/* Action Arrow */}
-                          <td className="px-4 py-3.5 text-right">
-                            <span className="text-slate-300 group-hover:text-green-600 transition-colors inline-block text-xs font-bold">
-                              <ChevronRight size={15} />
-                            </span>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+                    {/* Leftover Feed */}
+                    <div className="bg-slate-50 rounded-lg p-2">
+                      <span className="text-[10px] text-slate-400 block mb-0.5">Leftover Feed</span>
+                      <span className={`text-xs font-semibold ${hasRemainMismatch ? "text-amber-700 font-bold" : "text-slate-700"}`}>
+                        {r.recordedRemaining} kg
+                      </span>
+                      <p className="text-[10px] text-slate-400 mt-0.5">
+                        Exp: {r.expectedRemaining} kg
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
             )}
           </Card>
         );
@@ -2085,8 +2453,8 @@ function FeedDocumentation({
         const diagnostic = getDiagnosticNote();
 
         return (
-          <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs z-50 flex items-center justify-center p-3 sm:p-6" onClick={e => e.target === e.currentTarget && setPopupRecon(null)}>
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150" style={{ maxHeight: "92vh" }}>
+          <div className="fixed inset-0 bg-slate-950/60 z-50 flex items-center justify-center p-3 sm:p-6" onClick={e => e.target === e.currentTarget && setPopupRecon(null)}>
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl flex flex-col overflow-hidden" style={{ maxHeight: "92vh" }}>
               {/* Header */}
               <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-100 sticky top-0 bg-white z-10 shrink-0">
                 <div>
@@ -2114,7 +2482,7 @@ function FeedDocumentation({
                   </div>
 
                   {/* Stock Context Line */}
-                  <div className="text-[11px] text-slate-600 mb-2.5 flex flex-wrap items-center gap-1.5">
+                  <div className="text-[11px] text-slate-600 flex flex-wrap items-center gap-1.5">
                     <span className="font-medium text-slate-500">Fish Stock:</span>
                     <span className="font-bold text-slate-800">{formatFishStock(pr.fishStock)}</span>
                     {pr.stockDate !== "—" && (
@@ -2127,9 +2495,6 @@ function FeedDocumentation({
                     <span className="text-slate-300">•</span>
                     <span className="font-mono font-bold text-blue-700 bg-blue-50 px-1.5 py-0.2 rounded border border-blue-200">{pr.size}</span>
                   </div>
-
-                  {/* Diagnostic Body / Subtext */}
-                  <p className="text-xs leading-relaxed text-slate-600 font-normal">{diagnostic.body}</p>
 
                   {/* Action Section */}
                   {diagnostic.action && (
@@ -2733,17 +3098,11 @@ function FeedDocumentation({
                   </F>
                   {(() => {
                     const exp = getExpectedFeedData(editDocBag.date, editDocBag.fishStock || "", editDocBag.brand, editDocBag.size, editDocBag.bagsOpened);
-                    if (exp.hasFed) {
-                      return (
-                        <p className="text-[11px] text-slate-500 font-medium mt-1">
-                          <span className="text-amber-700 font-semibold">Expected leftover: {exp.expectedRemaining} kg</span>
-                          <span className="text-slate-400"> ({exp.totalFed}kg fed today)</span>
-                        </p>
-                      );
-                    }
                     return (
-                      <p className="text-[11px] text-slate-400 mt-1">
-                        No feeding logged yet for this stock on {toDateLabel(editDocBag.date)}
+                      <p className="text-[11px] text-slate-500 font-medium mt-1 flex items-center gap-1.5 flex-wrap">
+                        <span className="text-amber-700 font-semibold">Expected leftover: {exp.expectedRemaining} kg</span>
+                        {exp.hasFed && <span className="text-slate-400">({exp.totalFed}kg fed today)</span>}
+                        {!exp.hasFed && exp.carryover > 0 && <span className="text-slate-400">({exp.carryover}kg carryover)</span>}
                       </p>
                     );
                   })()}
@@ -2814,17 +3173,11 @@ function FeedDocumentation({
                       </F>
                       {(() => {
                         const exp = getExpectedFeedData(selDate, row.fishStock, row.brand, row.size);
-                        if (exp.hasFed) {
-                          return (
-                            <p className="text-[11px] text-slate-500 font-medium mt-1 flex items-center gap-1.5">
-                              <span className="text-amber-700 font-semibold">Expected remaining: {exp.expectedRemaining} kg</span>
-                              <span className="text-slate-400">({exp.totalFed}kg fed today)</span>
-                            </p>
-                          );
-                        }
                         return (
-                          <p className="text-[11px] text-slate-400 mt-1">
-                            No feeding logged yet for this stock on {selDate}
+                          <p className="text-[11px] text-slate-500 font-medium mt-1 flex items-center gap-1.5 flex-wrap">
+                            <span className="text-amber-700 font-semibold">Expected remaining: {exp.expectedRemaining} kg</span>
+                            {exp.hasFed && <span className="text-slate-400">({exp.totalFed}kg fed today)</span>}
+                            {!exp.hasFed && exp.carryover > 0 && <span className="text-slate-400">({exp.carryover}kg carryover)</span>}
                           </p>
                         );
                       })()}
@@ -2857,6 +3210,74 @@ function FeedDocumentation({
             <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 shrink-0 flex items-center justify-end gap-3 rounded-b-2xl">
               <button onClick={() => { setShowRemainModal(false); setRemainValidErr(""); }} className="px-4 py-2 text-sm text-slate-500 hover:text-slate-800 font-semibold transition-colors">Cancel</button>
               <PBtn onClick={handleSaveRemain} sm><CheckCircle size={14} /> Save Log</PBtn>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── View Opened Bag Full Details Modal ── */}
+      {viewBagDetail && (
+        <div className="fixed inset-0 bg-slate-950/60 z-50 flex items-center justify-center p-3 sm:p-6" onClick={e => e.target === e.currentTarget && setViewBagDetail(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md flex flex-col overflow-hidden" style={{ maxHeight: "90vh" }}>
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 shrink-0">
+              <div>
+                <h2 className="text-base sm:text-lg font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Opened Bag Record</h2>
+                <p className="text-xs text-slate-500 mt-0.5">{selDate} · {getStockDisplayName(viewBagDetail.fishStock, viewBagDetail.stockDate)}</p>
+              </div>
+              <button onClick={() => setViewBagDetail(null)} className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"><X size={18} /></button>
+            </div>
+            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3 text-xs">
+              <div className="grid grid-cols-2 gap-2">
+                <div className="bg-slate-50 rounded-xl p-3">
+                  <p className="text-[10px] uppercase tracking-wider text-slate-400 mb-0.5">Fish Stock</p>
+                  <p className="text-sm font-semibold text-slate-800">{getStockDisplayName(viewBagDetail.fishStock, viewBagDetail.stockDate)}</p>
+                </div>
+                <div className="bg-slate-50 rounded-xl p-3">
+                  <p className="text-[10px] uppercase tracking-wider text-slate-400 mb-0.5">Feed Brand</p>
+                  <p className="text-sm font-semibold text-slate-800">{viewBagDetail.brand}</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div className="bg-slate-50 rounded-xl p-3">
+                  <p className="text-[10px] uppercase tracking-wider text-slate-400 mb-0.5">Pellet Size</p>
+                  <Bdg label={viewBagDetail.size} color="blue" />
+                </div>
+                <div className="bg-slate-50 rounded-xl p-3">
+                  <p className="text-[10px] uppercase tracking-wider text-slate-400 mb-0.5">Recorded By</p>
+                  <p className="text-sm text-slate-700">{viewBagDetail.lastBagLog?.recordedBy || "—"}</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2">
+                <div className="bg-slate-50 rounded-xl p-3">
+                  <p className="text-[10px] uppercase tracking-wider text-slate-400 mb-0.5">Bags Opened</p>
+                  <p className="text-sm font-bold text-slate-800">{viewBagDetail.bagsOpened} bag{viewBagDetail.bagsOpened !== 1 ? "s" : ""}</p>
+                </div>
+                <div className="bg-green-50 rounded-xl p-3 border border-green-200">
+                  <p className="text-[10px] uppercase tracking-wider text-green-600 mb-0.5">Total Deducted</p>
+                  <p className="text-sm font-black text-green-700">{viewBagDetail.totalKgOpened} kg</p>
+                </div>
+                <div className="bg-amber-50 rounded-xl p-3 border border-amber-200">
+                  <p className="text-[10px] uppercase tracking-wider text-amber-600 mb-0.5">Leftover Feed</p>
+                  <p className="text-sm font-bold text-amber-800">{viewBagDetail.remainingKg} kg</p>
+                </div>
+              </div>
+            </div>
+            <div className="px-5 py-3.5 border-t border-slate-100 bg-slate-50 shrink-0 flex items-center justify-between gap-2">
+              <button onClick={() => setViewBagDetail(null)} className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-900 transition-colors">Close</button>
+              {canEdit && isRecordEditable(viewBagDetail.lastBagLog?.date || selDate) && (
+                <button
+                  onClick={() => {
+                    const rowToEdit = viewBagDetail;
+                    setViewBagDetail(null);
+                    openEditMergedRow(rowToEdit);
+                  }}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 bg-green-600 hover:bg-green-700 text-white font-bold text-xs rounded-xl shadow-xs transition-colors"
+                >
+                  <Pencil size={13} /> Edit Entry
+                </button>
+              )}
             </div>
           </div>
         </div>
