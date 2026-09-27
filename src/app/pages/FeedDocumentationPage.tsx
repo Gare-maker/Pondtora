@@ -2876,16 +2876,16 @@ function FeedDocumentation({
                 <h2 className="text-base font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Log Opened Bags &amp; Leftover Feed</h2>
                 <p className="text-[11px] text-slate-400 mt-0.5">Record bags opened and leftover feed per Fish Stock.</p>
               </div>
-              <button onClick={() => setShowBagsModal(false)} className="text-slate-400 hover:text-slate-700 p-1 ml-4 shrink-0"><X size={18} /></button>
+              <button onClick={() => setShowBagsModal(false)} className="text-slate-400 hover:text-slate-700 p-1 ml-4 shrink-0 rounded-lg hover:bg-slate-100 transition-colors"><X size={18} /></button>
             </div>
-            <div className="px-4 sm:px-5 py-2 border-b border-slate-100 bg-slate-50 shrink-0 flex items-center justify-between gap-3">
+            <div className="px-4 sm:px-5 py-2 border-b border-slate-100 bg-slate-50/70 shrink-0 flex items-center justify-between gap-3">
               <div className="flex items-center gap-2">
-                <span className="text-[10px] font-bold text-slate-600 uppercase tracking-wide">Date:</span>
+                <span className="text-[10px] font-medium text-slate-500 uppercase tracking-wider">Date:</span>
                 <div className="w-36">
                   <DateInput value={bagsDate} onChange={handleBagsDateChange} />
                 </div>
               </div>
-              <p className="text-[11px] text-slate-500 font-semibold">{filledBagRows.length} entr{filledBagRows.length !== 1 ? "ies" : "y"} filled</p>
+              <p className="text-[11px] text-slate-500 font-medium">{filledBagRows.length} entr{filledBagRows.length !== 1 ? "ies" : "y"} filled</p>
             </div>
             <div className="flex-1 overflow-y-auto px-4 sm:px-5 py-3 space-y-2.5">
               {bagRows.map((row, i) => {
@@ -2895,7 +2895,7 @@ function FeedDocumentation({
                 const isOverStock = requestedBags > avail.remainingBags;
 
                 return (
-                  <div key={i} className={`p-3 border rounded-xl relative space-y-2 text-xs ${isOverStock ? "border-red-300 bg-red-50/40" : "border-slate-200 bg-slate-50/80"}`}>
+                  <div key={i} className={`p-3 border rounded-xl relative space-y-2.5 bg-white text-xs ${isOverStock ? "border-red-300 ring-1 ring-red-200" : "border-slate-200/90 shadow-2xs"}`}>
                     {bagRows.length > 1 && (
                       <button type="button" onClick={() => removeBagRow(i)} className="absolute top-2.5 right-2.5 p-1 rounded text-slate-300 hover:text-red-500 transition-colors">
                         <X size={13} />
@@ -2904,11 +2904,11 @@ function FeedDocumentation({
 
                     {/* Fish Stock */}
                     <div>
-                      <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1">Fish Stock</label>
+                      <label className="block text-[10px] font-medium text-slate-500 uppercase tracking-wider mb-1">Fish Stock</label>
                       <select
                         value={row.fishStock}
                         onChange={e => updateBagRow(i, "fishStock", e.target.value)}
-                        className="w-full text-xs px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-slate-800 font-medium focus:outline-none focus:ring-1 focus:ring-green-400"
+                        className="w-full text-xs px-2.5 py-1.5 bg-slate-50/60 border border-slate-200 rounded-lg text-slate-700 font-normal focus:bg-white focus:outline-none focus:ring-1 focus:ring-green-400"
                       >
                         <option value="">Select fish stock…</option>
                         {activeFishStockOptions.map(opt => (
@@ -2920,7 +2920,7 @@ function FeedDocumentation({
                     {/* Brand & Pellet Size (Compact 2 columns) */}
                     <div className="grid grid-cols-2 gap-2">
                       <div>
-                        <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1">Feed Brand</label>
+                        <label className="block text-[10px] font-medium text-slate-500 uppercase tracking-wider mb-1">Feed Brand</label>
                         <SearchableSelect
                           value={row.brand}
                           onChange={v => {
@@ -2933,7 +2933,7 @@ function FeedDocumentation({
                         />
                       </div>
                       <div>
-                        <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1">Pellet Size</label>
+                        <label className="block text-[10px] font-medium text-slate-500 uppercase tracking-wider mb-1">Pellet Size</label>
                         <select
                           value={row.size}
                           onChange={e => {
@@ -2945,7 +2945,7 @@ function FeedDocumentation({
                               return next;
                             });
                           }}
-                          className="w-full text-xs px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-slate-800 font-medium focus:outline-none focus:ring-1 focus:ring-green-400 h-[34px]"
+                          className="w-full text-xs px-2.5 py-1.5 bg-slate-50/60 border border-slate-200 rounded-lg text-slate-700 font-normal focus:bg-white focus:outline-none focus:ring-1 focus:ring-green-400 h-[34px]"
                         >
                           {invSizesForBrand(row.brand).map(s => (
                             <option key={s} value={s}>{s}</option>
@@ -2955,9 +2955,9 @@ function FeedDocumentation({
                     </div>
 
                     {/* Stock available badge */}
-                    <div className="flex items-center justify-between px-2.5 py-1 rounded-md bg-white border border-slate-200/80 text-[11px]">
-                      <span className="text-slate-500 text-[10px] uppercase font-semibold">Store Stock:</span>
-                      <span className={`font-bold ${avail.remainingBags <= 2 ? "text-amber-700" : "text-slate-800"}`}>
+                    <div className="flex items-center justify-between px-2.5 py-1 rounded-md bg-slate-50/80 border border-slate-100 text-[11px] text-slate-500">
+                      <span className="text-[10px] uppercase font-medium text-slate-400">Store Stock:</span>
+                      <span className={`font-medium ${avail.remainingBags <= 2 ? "text-amber-600" : "text-slate-600"}`}>
                         {avail.remainingBags} bag{avail.remainingBags !== 1 ? "s" : ""} ({avail.remainingKg} kg)
                       </span>
                     </div>
@@ -2965,69 +2965,63 @@ function FeedDocumentation({
                     {/* Bags Opened & Leftover Feed (2 columns side by side) */}
                     <div className="grid grid-cols-2 gap-2 pt-0.5">
                       {/* Left: Bags Opened */}
-                      <div className="bg-white p-2.5 rounded-lg border border-slate-200 space-y-1">
-                        <label className="block text-[10px] font-bold text-slate-600 uppercase tracking-wide">Bags Opened</label>
+                      <div className="bg-slate-50/50 p-2.5 rounded-lg border border-slate-150 space-y-1">
+                        <label className="block text-[10px] font-medium text-slate-500 uppercase tracking-wider">Bags Opened</label>
                         <input
                           type="number"
                           min="0"
                           value={row.qty}
                           onChange={e => updateBagRow(i, "qty", e.target.value)}
-                          className={`w-full text-xs px-2 py-1 bg-slate-50/50 border ${isOverStock ? "border-red-400 focus:ring-red-200" : "border-slate-200 focus:ring-green-400"} rounded-md font-bold text-slate-900 focus:outline-none focus:ring-1`}
+                          className={`w-full text-xs px-2 py-1 bg-white border ${isOverStock ? "border-red-300 focus:ring-red-100" : "border-slate-200 focus:ring-green-400"} rounded-md font-normal text-slate-800 placeholder:text-slate-300 focus:outline-none focus:ring-1`}
                           placeholder="0"
                         />
                         {(() => {
                           const exp = getExpectedFeedData(bagsDate, row.fishStock, row.brand, row.size, requestedBags);
                           if (exp.hasFed) {
                             return (
-                              <p className="text-[10px] text-green-700 font-medium leading-tight mt-0.5">
-                                Exp: <strong className="font-bold">{exp.expectedBags} bag{exp.expectedBags !== 1 ? "s" : ""}</strong> ({exp.totalFed}kg fed)
+                              <p className="text-[10px] text-slate-400 font-normal leading-tight mt-0.5">
+                                Exp: <span className="text-slate-600 font-medium">{exp.expectedBags} bag{exp.expectedBags !== 1 ? "s" : ""}</span>
+                                <span className="text-slate-400"> ({exp.totalFed}kg fed)</span>
+                                {row.qty !== "" && !isNaN(requestedBags) && requestedBags > 0 && (
+                                  <span className="text-slate-500"> · {requestedKg} kg</span>
+                                )}
                               </p>
                             );
                           }
                           return (
-                            <p className="text-[10px] text-slate-400 leading-tight mt-0.5">
-                              No feed logged on {toDateLabel(bagsDate)}
+                            <p className="text-[10px] text-slate-400 font-normal leading-tight mt-0.5">
+                              No feed logged {row.qty !== "" && !isNaN(requestedBags) && requestedBags > 0 && <span className="text-slate-500"> · {requestedKg} kg</span>}
                             </p>
                           );
                         })()}
-                        {row.qty !== "" && !isNaN(requestedBags) && requestedBags > 0 && (
-                          <p className="text-[10px] text-green-700 font-bold">
-                            Total: {requestedKg} kg
-                          </p>
-                        )}
                         {isOverStock && (
-                          <p className="text-[10px] font-semibold text-red-600">
+                          <p className="text-[10px] font-normal text-red-500">
                             ⚠ Exceeds store ({avail.remainingBags} bags)
                           </p>
                         )}
                       </div>
 
                       {/* Right: Leftover Feed */}
-                      <div className="bg-white p-2.5 rounded-lg border border-slate-200 space-y-1">
-                        <label className="block text-[10px] font-bold text-slate-600 uppercase tracking-wide">Leftover (kg)</label>
+                      <div className="bg-slate-50/50 p-2.5 rounded-lg border border-slate-150 space-y-1">
+                        <label className="block text-[10px] font-medium text-slate-500 uppercase tracking-wider">Leftover (kg)</label>
                         <input
                           type="number"
                           min="0"
                           step="0.1"
                           value={row.remainingKg}
                           onChange={e => updateBagRow(i, "remainingKg", e.target.value)}
-                          className="w-full text-xs px-2 py-1 bg-slate-50/50 border border-slate-200 rounded-md font-bold text-slate-900 focus:outline-none focus:ring-1 focus:ring-green-400"
+                          className="w-full text-xs px-2 py-1 bg-white border border-slate-200 rounded-md font-normal text-slate-800 placeholder:text-slate-300 focus:outline-none focus:ring-1 focus:ring-green-400"
                           placeholder="0.0"
                         />
                         {(() => {
                           const exp = getExpectedFeedData(bagsDate, row.fishStock, row.brand, row.size, requestedBags);
                           return (
-                            <p className="text-[10px] text-amber-700 font-medium leading-tight mt-0.5">
-                              Exp: <strong className="font-bold">{exp.expectedRemaining} kg</strong>
+                            <p className="text-[10px] text-slate-400 font-normal leading-tight mt-0.5">
+                              Exp: <span className="text-slate-600 font-medium">{exp.expectedRemaining} kg</span>
                               {exp.carryover > 0 && <span className="text-slate-400"> ({exp.carryover}kg c/o)</span>}
                             </p>
                           );
                         })()}
-                        {row.remainingKg !== "" && !isNaN(Number(row.remainingKg)) && (
-                          <p className="text-[10px] text-amber-700 font-bold">
-                            Leftover: {row.remainingKg} kg
-                          </p>
-                        )}
                       </div>
                     </div>
 
@@ -3041,8 +3035,8 @@ function FeedDocumentation({
 
                       if (isDupInForm) {
                         return (
-                          <div className="flex items-start gap-1.5 text-[11px] font-semibold text-amber-800 bg-amber-100/90 px-2.5 py-1.5 rounded-lg border border-amber-300">
-                            <AlertTriangle size={13} className="text-amber-600 shrink-0 mt-0.5" />
+                          <div className="flex items-start gap-1.5 text-[11px] font-medium text-amber-700 bg-amber-50 px-2.5 py-1.5 rounded-lg border border-amber-200">
+                            <AlertTriangle size={13} className="text-amber-500 shrink-0 mt-0.5" />
                             <span>This stock &amp; size is already entered above.</span>
                           </div>
                         );
@@ -3052,12 +3046,12 @@ function FeedDocumentation({
                   </div>
                 );
               })}
-              <button type="button" onClick={addBagRow} className="flex items-center gap-1.5 text-xs text-green-600 font-semibold hover:text-green-700 transition-colors py-1">
+              <button type="button" onClick={addBagRow} className="flex items-center gap-1.5 text-xs text-green-600 font-medium hover:text-green-700 transition-colors py-1">
                 <Plus size={13} /> Add another entry
               </button>
             </div>
             <div className="px-4 sm:px-5 py-3 border-t border-slate-100 bg-slate-50 shrink-0 rounded-b-2xl flex items-center justify-between">
-              <button onClick={() => { setShowBagsModal(false); setBagsErr({}); }} className="px-3.5 py-1.5 text-xs text-slate-500 hover:text-slate-800 font-semibold transition-colors">
+              <button onClick={() => { setShowBagsModal(false); setBagsErr({}); }} className="px-3.5 py-1.5 text-xs text-slate-500 hover:text-slate-800 font-medium transition-colors">
                 Cancel
               </button>
               <PBtn onClick={handleSaveBags} sm>
