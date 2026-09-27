@@ -11,6 +11,8 @@ ALTER TABLE IF EXISTS public.user_profiles ADD COLUMN IF NOT EXISTS status TEXT 
 ALTER TABLE IF EXISTS public.user_profiles ADD COLUMN IF NOT EXISTS paystack_reference TEXT;
 ALTER TABLE IF EXISTS public.user_profiles ADD COLUMN IF NOT EXISTS last_payment_date TEXT;
 ALTER TABLE IF EXISTS public.user_profiles ADD COLUMN IF NOT EXISTS subscription_status TEXT;
+ALTER TABLE IF EXISTS public.user_profiles ADD COLUMN IF NOT EXISTS referral_code TEXT;
+ALTER TABLE IF EXISTS public.user_profiles ADD COLUMN IF NOT EXISTS referred_by TEXT;
 ALTER TABLE IF EXISTS public.user_profiles ADD COLUMN IF NOT EXISTS raw_data JSONB DEFAULT '{}'::jsonb;
 
 -- Ensure platform_settings table exists before setting policies
@@ -50,6 +52,8 @@ GRANT EXECUTE ON FUNCTION public.is_admin() TO authenticated, anon;
 -- from the customer user list and only tracked as operational staff under their farm.
 -- Auto-repairs user_profiles and farms for any registered farm owners in auth.users.
 -- ------------------------------------------------------------------------------
+DROP FUNCTION IF EXISTS public.get_all_users_for_admin();
+
 CREATE OR REPLACE FUNCTION public.get_all_users_for_admin()
 RETURNS TABLE (
   id UUID,
@@ -73,6 +77,8 @@ RETURNS TABLE (
   farm_count BIGINT,
   pond_count BIGINT,
   staff_count BIGINT,
+  referral_code TEXT,
+  referred_by TEXT,
   last_sign_in_at TIMESTAMPTZ
 ) LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, auth AS $$
 #variable_conflict use_column
@@ -92,7 +98,7 @@ BEGIN
   -- STRICTLY EXCLUDES staff accounts (role = 'staff', owner_id IS NOT NULL, or in staff_members)
   INSERT INTO public.user_profiles (
     id, name, farm_name, city, state, country, email, phone,
-    currency_symbol, currency_code, active_plan, trial_start_date, role, status
+    currency_symbol, currency_code, active_plan, trial_start_date, role, status, referral_code, referred_by
   )
   SELECT
     au.id,
@@ -111,7 +117,9 @@ BEGIN
       WHEN LOWER(TRIM(COALESCE(au.email, ''))) = 'edafejesugarec@gmail.com' THEN 'admin'
       ELSE 'owner'
     END,
-    'Active'
+    'Active',
+    COALESCE(au.raw_user_meta_data->>'referral_code', au.raw_user_meta_data->>'referralCode', NULL),
+    COALESCE(au.raw_user_meta_data->>'referred_by', au.raw_user_meta_data->>'referredBy', NULL)
   FROM auth.users au
   WHERE NOT EXISTS (
     SELECT 1 FROM public.user_profiles up WHERE up.id = au.id
@@ -167,6 +175,8 @@ BEGIN
     (SELECT COUNT(*) FROM farms f WHERE f.user_id = au.id)::BIGINT AS farm_count,
     (SELECT COUNT(*) FROM ponds pd WHERE pd.user_id = au.id)::BIGINT AS pond_count,
     (SELECT COUNT(*) FROM staff_members sm WHERE sm.user_id = au.id)::BIGINT AS staff_count,
+    COALESCE(p.referral_code, au.raw_user_meta_data->>'referral_code', au.raw_user_meta_data->>'referralCode', NULL) AS referral_code,
+    COALESCE(p.referred_by, au.raw_user_meta_data->>'referred_by', au.raw_user_meta_data->>'referredBy', NULL) AS referred_by,
     au.last_sign_in_at
   FROM auth.users au
   LEFT JOIN public.user_profiles p ON p.id = au.id

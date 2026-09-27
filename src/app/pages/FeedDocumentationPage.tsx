@@ -111,9 +111,22 @@ function FeedDocumentation({
   const [showRemainModal, setShowRemainModal] = useState(false);
   const [deleteRecId, setDeleteRecId] = useState<string | null>(null);
   const [docTab, setDocTab] = useState<"daily" | "bags" | "reconciliation">("daily");
+  const [bagsHighlight, setBagsHighlight] = useState<{
+    stock: string;
+    size: string;
+    brand?: string;
+    col?: "bags" | "remaining" | "all";
+  } | null>(null);
   const [reconExpanded, setReconExpanded] = useState<string | null>(null);
   const [feedMobileMenuOpen, setFeedMobileMenuOpen] = useState(false);
   const feedMobileMenuRef = useRef<HTMLDivElement>(null);
+
+  /* ── helper to navigate from recon to bags tab with column highlight ── */
+  const goToOpenedBags = (fishStock: string, size: string, brand?: string, col: "bags" | "remaining" | "all" = "all") => {
+    setPopupRecon(null);
+    setDocTab("bags");
+    setBagsHighlight({ stock: fishStock, size, brand, col });
+  };
 
   /* ── search state for tabs ── */
   const [dailySearch, setDailySearch] = useState("");
@@ -918,8 +931,34 @@ function FeedDocumentation({
         });
       }
     });
+
+    // Also include active feeding records for selDate so missing bag logs appear for reconciliation
+    const dayFeedRecords = (feedingRecords || []).filter(r => r && isSameDate(r.date, selDate) && (Number(r.total) > 0 || Number(r.morning) > 0 || Number(r.evening) > 0));
+    dayFeedRecords.forEach(f => {
+      const fs = pondToStock(f.pond) || "—";
+      const brand = f.brand || invBrands[0] || "—";
+      const size = f.size || "";
+      if (!size) return;
+      const k = `${brand}||${size}||${fs}`;
+      if (!map.has(k)) {
+        const anyBrandExisting = Array.from(map.values()).find(m => m.size === size && normalizeFishStock(m.fishStock) === normalizeFishStock(fs));
+        if (!anyBrandExisting) {
+          map.set(k, {
+            brand: brand,
+            size: size,
+            fishStock: fs,
+            stockDate: formatFishStockDate(fs),
+            bagsOpened: 0,
+            totalKgOpened: 0,
+            remainingKg: 0,
+            lastBagLog: null
+          });
+        }
+      }
+    });
+
     return Array.from(map.values());
-  }, [bagLogs, remainLogs, selDate, ponds]);
+  }, [bagLogs, remainLogs, feedingRecords, selDate, ponds, invBrands]);
 
   const filteredMergedBagRows = useMemo(() => {
     if (!bagsSearch.trim()) return mergedBagRows;
@@ -1545,34 +1584,141 @@ function FeedDocumentation({
               <input value={bagsSearch} onChange={e => setBagsSearch(e.target.value)} placeholder="Search stock, brand, or size…" className={`${IC} pl-8 w-52 text-xs py-1.5`} />
             </div>
           </div>
+
+          {/* Dismissible Highlighting Banner if navigated from reconciliation */}
+          {bagsHighlight && (
+            <div className="mx-4 sm:mx-5 my-2.5 px-3.5 py-2.5 bg-orange-50/90 border border-orange-200 rounded-xl flex items-center justify-between text-xs text-orange-950 animate-in fade-in duration-200 shadow-2xs">
+              <div className="flex items-center gap-2">
+                <AlertCircle size={15} className="text-orange-600 shrink-0" />
+                <span>
+                  Showing discrepancy for <strong className="font-bold text-orange-950">{formatFishStock(bagsHighlight.stock)}</strong> ({bagsHighlight.size}). Update the highlighted cell below to reconcile.
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setBagsHighlight(null)}
+                className="text-orange-700 hover:text-orange-950 font-bold text-xs px-2 py-0.5 hover:bg-orange-100 rounded-lg transition-colors ml-2 shrink-0"
+              >
+                Clear
+              </button>
+            </div>
+          )}
+
           <div className="overflow-x-auto">
-            <table className="w-full text-sm min-w-[700px]">
+            <table className="w-full text-sm min-w-[640px]">
               <thead>
                 <tr className="border-b border-slate-100 bg-slate-50">
-                  <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider">Fish Stock</th>
-                  <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider">Stock Date</th>
-                  <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider">Feed Brand</th>
-                  <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider">Pellet Size</th>
-                  <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider">Bags Opened</th>
-                  <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider">Feed Deducted (kg)</th>
-                  <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider">Leftover Feed (kg)</th>
-                  <th className="px-4 py-3" />
+                  <th className="text-left px-3.5 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider sticky left-0 z-20 bg-slate-50 border-r border-slate-200 min-w-[130px] max-w-[155px] shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
+                    Fish Stock
+                  </th>
+                  <th className="text-left px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Feed Brand</th>
+                  <th className="text-left px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Pellet Size</th>
+                  <th className="text-left px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Bags Opened</th>
+                  <th className="text-left px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Feed Deducted</th>
+                  <th className="text-left px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Leftover Feed</th>
+                  <th className="px-3 py-3 w-10" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                {filteredMergedBagRows.length === 0 && <tr><td colSpan={8} className="text-center text-xs text-slate-400 py-8">No bags logged for {selDate}</td></tr>}
-                {filteredMergedBagRows.map((row, i) => (
-                  <tr key={i} className="hover:bg-slate-50">
-                    <td className="px-4 py-3 font-semibold text-slate-800">{formatFishStock(row.fishStock)}</td>
-                    <td className="px-4 py-3 text-teal-700 text-xs font-medium">{row.stockDate !== "—" ? <span className="bg-teal-50 px-2 py-0.5 rounded border border-teal-200">{row.stockDate}</span> : "—"}</td>
-                    <td className="px-4 py-3 font-semibold text-slate-700">{row.brand}</td>
-                    <td className="px-4 py-3"><Bdg label={row.size} color="blue" /></td>
-                    <td className="px-4 py-3 font-bold text-slate-900">{row.bagsOpened > 0 ? `${row.bagsOpened} bag${row.bagsOpened !== 1 ? "s" : ""}` : <span className="text-slate-300">—</span>}</td>
-                    <td className="px-4 py-3 font-bold text-green-700 font-['Barlow_Condensed',sans-serif] text-base">{row.totalKgOpened > 0 ? `${row.totalKgOpened} kg` : <span className="text-slate-300">—</span>}</td>
-                    <td className="px-4 py-3">{row.remainingKg > 0 ? <span className="font-semibold text-amber-600">{row.remainingKg} kg</span> : <span className="text-slate-300 text-xs">—</span>}</td>
-                    <td className="px-4 py-3">{canEdit && row.lastBagLog && (isRecordEditable(row.lastBagLog.date) ? <button onClick={() => openEditDocBag(row.lastBagLog!)} className="p-1 rounded text-slate-300 hover:text-green-600 hover:bg-green-50 transition-colors" title="Edit"><Pencil size={13} /></button> : <button onClick={() => alert("This record can only be edited by an Administrator or Manager after 24 hours.")} className="p-1 rounded text-slate-200 cursor-not-allowed" title="Locked"><Lock size={13} /></button>)}</td>
-                  </tr>
-                ))}
+                {filteredMergedBagRows.length === 0 && <tr><td colSpan={7} className="text-center text-xs text-slate-400 py-8">No bags logged for {selDate}</td></tr>}
+                {filteredMergedBagRows.map((row, i) => {
+                  const isHighlightedRow = Boolean(
+                    bagsHighlight &&
+                    normalizeFishStock(bagsHighlight.stock) === normalizeFishStock(row.fishStock) &&
+                    bagsHighlight.size === row.size
+                  );
+
+                  const isBagsColHighlighted = isHighlightedRow && (bagsHighlight?.col === "bags" || bagsHighlight?.col === "all");
+                  const isRemainColHighlighted = isHighlightedRow && (bagsHighlight?.col === "remaining" || bagsHighlight?.col === "all");
+
+                  // Find reconciliation discrepancy for this stock & size
+                  const reconItem = reconRows.find(r =>
+                    normalizeFishStock(r.fishStock) === normalizeFishStock(row.fishStock) &&
+                    r.size === row.size &&
+                    (!row.brand || row.brand === "—" || !r.brand || r.brand === "—" || r.brand.toLowerCase().trim() === row.brand.toLowerCase().trim())
+                  ) || reconRows.find(r =>
+                    normalizeFishStock(r.fishStock) === normalizeFishStock(row.fishStock) &&
+                    r.size === row.size
+                  );
+
+                  const hasBagMismatch = reconItem && reconItem.expectedBags !== row.bagsOpened;
+                  const hasRemainMismatch = reconItem && Math.abs(reconItem.expectedRemaining - row.remainingKg) >= 0.1;
+
+                  return (
+                    <tr
+                      key={i}
+                      className={`hover:bg-slate-50/80 transition-colors ${isHighlightedRow ? "bg-orange-50/30" : ""}`}
+                    >
+                      {/* Sticky Fish Stock Column on Mobile */}
+                      <td className={`px-3.5 py-3 sticky left-0 z-10 bg-white border-r border-slate-100 min-w-[130px] max-w-[155px] shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)] ${isHighlightedRow ? "!bg-amber-50/70" : ""}`}>
+                        <p className="font-bold text-slate-800 text-xs truncate" title={formatFishStock(row.fishStock)}>
+                          {formatFishStock(row.fishStock)}
+                        </p>
+                        {row.stockDate && row.stockDate !== "—" && (
+                          <span className="inline-block mt-0.5 text-[10px] text-teal-700 font-semibold bg-teal-50 border border-teal-200/80 px-1.5 py-0.2 rounded truncate max-w-full">
+                            {row.stockDate}
+                          </span>
+                        )}
+                      </td>
+
+                      {/* Feed Brand */}
+                      <td className="px-4 py-3 font-semibold text-slate-700 text-xs whitespace-nowrap">{row.brand}</td>
+
+                      {/* Pellet Size */}
+                      <td className="px-4 py-3"><Bdg label={row.size} color="blue" /></td>
+
+                      {/* Bags Opened (with discrepancy directly under it) */}
+                      <td className={`px-4 py-3 transition-all ${isBagsColHighlighted ? "bg-orange-100/70 ring-2 ring-orange-500 ring-inset rounded-lg" : ""}`}>
+                        <div className="font-bold text-slate-900 text-xs">
+                          {row.bagsOpened > 0 ? `${row.bagsOpened} bag${row.bagsOpened !== 1 ? "s" : ""}` : <span className="text-slate-300">—</span>}
+                        </div>
+                        {hasBagMismatch && (
+                          <div className="mt-1 flex flex-col gap-0.5">
+                            <span className="text-[10px] text-orange-800 font-bold bg-orange-100/90 border border-orange-300/80 px-1.5 py-0.5 rounded w-fit flex items-center gap-1 shadow-2xs">
+                              <AlertCircle size={10} className="shrink-0 text-orange-600" />
+                              Exp: {reconItem.expectedBags} bag{reconItem.expectedBags !== 1 ? "s" : ""}
+                            </span>
+                          </div>
+                        )}
+                      </td>
+
+                      {/* Feed Deducted (kg) */}
+                      <td className="px-4 py-3 font-bold text-green-700 font-['Barlow_Condensed',sans-serif] text-base whitespace-nowrap">
+                        {row.totalKgOpened > 0 ? `${row.totalKgOpened} kg` : <span className="text-slate-300 text-xs font-normal">—</span>}
+                      </td>
+
+                      {/* Leftover Feed (kg) (with discrepancy directly under it) */}
+                      <td className={`px-4 py-3 transition-all ${isRemainColHighlighted ? "bg-amber-100/70 ring-2 ring-amber-500 ring-inset rounded-lg" : ""}`}>
+                        <div className="font-semibold text-xs">
+                          {row.remainingKg > 0 ? <span className="text-amber-700 font-bold">{row.remainingKg} kg</span> : <span className="text-slate-300 text-xs">—</span>}
+                        </div>
+                        {hasRemainMismatch && (
+                          <div className="mt-1 flex flex-col gap-0.5">
+                            <span className="text-[10px] text-amber-900 font-bold bg-amber-100/90 border border-amber-300/80 px-1.5 py-0.5 rounded w-fit flex items-center gap-1 shadow-2xs">
+                              <AlertCircle size={10} className="shrink-0 text-amber-600" />
+                              Exp: {reconItem.expectedRemaining} kg
+                            </span>
+                          </div>
+                        )}
+                      </td>
+
+                      {/* Edit Button */}
+                      <td className="px-3 py-3 text-right">
+                        {canEdit && row.lastBagLog && (
+                          isRecordEditable(row.lastBagLog.date) ? (
+                            <button onClick={() => openEditDocBag(row.lastBagLog!)} className="p-1.5 rounded text-slate-400 hover:text-green-600 hover:bg-green-50 transition-colors" title="Edit">
+                              <Pencil size={13} />
+                            </button>
+                          ) : (
+                            <button onClick={() => alert("This record can only be edited by an Administrator or Manager after 24 hours.")} className="p-1.5 rounded text-slate-300 cursor-not-allowed" title="Locked">
+                              <Lock size={13} />
+                            </button>
+                          )
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -1604,10 +1750,12 @@ function FeedDocumentation({
               </div>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full text-sm min-w-[1100px]">
+                <table className="w-full text-sm min-w-[1050px]">
                   <thead>
                     <tr className="bg-slate-50 border-b border-slate-100">
-                      <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left whitespace-nowrap sticky left-0 z-20 bg-slate-50 border-r border-slate-200 min-w-[160px]">Fish Stock</th>
+                      <th className="px-3.5 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left whitespace-nowrap sticky left-0 z-20 bg-slate-50 border-r border-slate-200 min-w-[130px] max-w-[155px] shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
+                        Fish Stock
+                      </th>
                       <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left whitespace-nowrap">Pellet Size</th>
                       <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left whitespace-nowrap">Feed Brand</th>
                       <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left whitespace-nowrap">Ponds</th>
@@ -1633,10 +1781,10 @@ function FeedDocumentation({
                           className={`cursor-pointer transition-colors ${sc.rowBg} ${highlighted ? "outline outline-2 outline-green-400" : ""}`}
                           title="Click to view reconciliation detail popup"
                         >
-                          <td className="px-4 py-3 sticky left-0 z-10 bg-white border-r border-slate-100 min-w-[160px]">
-                            <p className="text-xs font-semibold text-slate-800 leading-tight">{formatFishStock(r.fishStock)}</p>
+                          <td className="px-3.5 py-3 sticky left-0 z-10 bg-white border-r border-slate-100 min-w-[130px] max-w-[155px] shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
+                            <p className="text-xs font-semibold text-slate-800 leading-tight truncate">{formatFishStock(r.fishStock)}</p>
                             {r.stockDate && r.stockDate !== "—" && (
-                              <p className="text-[10px] text-teal-700 font-medium mt-0.5">{r.stockDate}</p>
+                              <p className="text-[10px] text-teal-700 font-medium mt-0.5 truncate">{r.stockDate}</p>
                             )}
                           </td>
                           <td className="px-4 py-3"><Bdg label={r.size} color="blue" /></td>
@@ -1676,7 +1824,7 @@ function FeedDocumentation({
         );
       })()}
 
-      {/* ── Reconciliation Popup (Desktop & Mobile Compact Step Flow + Conversational Notes) ── */}
+      {/* ── Reconciliation Popup (Desktop & Mobile Clean Step Flow + Reduced Text Weights) ── */}
       {popupRecon && (() => {
         const pr = popupRecon;
         const bagErr = pr.status === "bag_mismatch" || pr.status === "multiple_mismatches";
@@ -1755,7 +1903,7 @@ function FeedDocumentation({
                 <div>
                   <h2 className="text-base sm:text-lg font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Reconciliation Breakdown</h2>
                   <p className="text-xs text-slate-500 mt-0.5">
-                    {selDate} · <strong className="text-slate-800">{formatFishStock(pr.fishStock)}</strong> {pr.stockDate !== "—" && `(${pr.stockDate})`} · {pr.brand} <span className="font-semibold text-blue-600 font-mono">({pr.size})</span>
+                    {selDate} · <span className="font-semibold text-slate-800">{formatFishStock(pr.fishStock)}</span> {pr.stockDate !== "—" && `(${pr.stockDate})`} · {pr.brand} <span className="font-semibold text-blue-600 font-mono">({pr.size})</span>
                   </p>
                 </div>
                 <button onClick={() => setPopupRecon(null)} className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"><X size={18} /></button>
@@ -1764,75 +1912,115 @@ function FeedDocumentation({
               {/* Body */}
               <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4 space-y-4 text-xs">
                 {/* Top Diagnostic Banner */}
-                <div className={`rounded-xl p-3.5 border ${
-                  diagnostic.color === "emerald" ? "bg-emerald-50 border-emerald-200 text-emerald-950" :
-                  diagnostic.color === "orange" ? "bg-orange-50 border-orange-200 text-orange-950" :
-                  diagnostic.color === "amber" ? "bg-amber-50 border-amber-200 text-amber-950" :
-                  "bg-red-50 border-red-200 text-red-950"
+                <div className={`rounded-xl p-4 border ${
+                  diagnostic.color === "emerald" ? "bg-emerald-50/70 border-emerald-200 text-emerald-950" :
+                  diagnostic.color === "orange" ? "bg-orange-50/70 border-orange-200 text-orange-950" :
+                  diagnostic.color === "amber" ? "bg-amber-50/70 border-amber-200 text-amber-950" :
+                  "bg-red-50/70 border-red-200 text-red-950"
                 }`}>
-                  <div className="flex items-center justify-between gap-2 mb-1">
-                    <span className="font-bold text-xs">{diagnostic.title}</span>
-                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${sc.cls}`}>{sc.label}</span>
+                  {/* Header: Title and Status Badge */}
+                  <div className="flex items-center justify-between gap-2 mb-1.5">
+                    <h3 className="font-bold text-sm text-slate-900 tracking-tight">{diagnostic.title}</h3>
+                    <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${sc.cls}`}>{sc.label}</span>
                   </div>
-                  <p className="text-xs leading-relaxed text-slate-700">{diagnostic.body}</p>
+
+                  {/* Stock Context Line */}
+                  <div className="text-[11px] text-slate-600 mb-2.5 flex flex-wrap items-center gap-1.5">
+                    <span className="font-medium text-slate-500">Fish Stock:</span>
+                    <span className="font-bold text-slate-800">{formatFishStock(pr.fishStock)}</span>
+                    {pr.stockDate !== "—" && (
+                      <span className="text-teal-700 bg-teal-50 px-1.5 py-0.2 rounded border border-teal-200 font-medium">
+                        {pr.stockDate}
+                      </span>
+                    )}
+                    <span className="text-slate-300">•</span>
+                    <span className="font-semibold text-slate-700">{pr.brand}</span>
+                    <span className="text-slate-300">•</span>
+                    <span className="font-mono font-bold text-blue-700 bg-blue-50 px-1.5 py-0.2 rounded border border-blue-200">{pr.size}</span>
+                  </div>
+
+                  {/* Diagnostic Body / Subtext */}
+                  <p className="text-xs leading-relaxed text-slate-600 font-normal">{diagnostic.body}</p>
+
+                  {/* Action Section with Direct Button */}
                   {diagnostic.action && (
-                    <p className="mt-2 text-xs font-semibold text-slate-900 flex items-start gap-1">
-                      <span className="text-blue-600 shrink-0">👉 Action:</span>
-                      <span>{diagnostic.action}</span>
-                    </p>
+                    <div className="mt-3 pt-2.5 border-t border-slate-200/60 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                      <p className="text-xs font-medium text-slate-800 flex items-start gap-1.5 flex-1">
+                        <span className="text-blue-600 font-bold shrink-0">👉 Action:</span>
+                        <span>{diagnostic.action}</span>
+                      </p>
+                      {bagErr && (
+                        <button
+                          type="button"
+                          onClick={() => goToOpenedBags(pr.fishStock, pr.size, pr.brand, "bags")}
+                          className="px-3.5 py-1.5 bg-orange-600 hover:bg-orange-700 text-white font-semibold text-xs rounded-lg transition-colors shadow-xs shrink-0 whitespace-nowrap"
+                        >
+                          Go to Opened Bags Tab →
+                        </button>
+                      )}
+                      {remErr && !bagErr && (
+                        <button
+                          type="button"
+                          onClick={() => goToOpenedBags(pr.fishStock, pr.size, pr.brand, "remaining")}
+                          className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-semibold text-xs rounded-lg transition-colors shadow-xs shrink-0 whitespace-nowrap"
+                        >
+                          Go to Opened Bags Tab →
+                        </button>
+                      )}
+                    </div>
                   )}
                 </div>
 
-                {/* Steps Flow — Clean Divided List (No Heavy Containers / Nested Strokes) */}
+                {/* Steps Flow — Clean Divided List (Clean, Light Typography) */}
                 <div className="divide-y divide-slate-100 border-y border-slate-100">
                   {/* Step 1 */}
                   <div className="py-2.5 flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="flex items-center gap-1.5">
-                        <span className="text-[11px] font-bold text-slate-800">Step 1 — Total Feed Given</span>
+                        <span className="text-xs font-semibold text-slate-800">Step 1 — Total Feed Given</span>
                       </div>
-                      <p className="text-[11px] text-slate-400 mt-0.5">Sum of feed fed to this stock today</p>
+                      <p className="text-[11px] text-slate-500 mt-0.5">Sum of feed fed to this stock today</p>
                       {pondsForRow.length > 0 && (
                         <div className="flex flex-wrap gap-1.5 mt-1">
                           {pondsForRow.map(r => (
-                            <span key={r.id} className="text-[10px] text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
-                              {r.pond}: <strong className="text-slate-700">{r.total} kg</strong>
+                            <span key={r.id} className="text-[10px] text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded">
+                              {r.pond}: <span className="font-semibold text-slate-800">{r.total} kg</span>
                             </span>
                           ))}
                         </div>
                       )}
                     </div>
-                    <span className="font-extrabold text-blue-700 text-sm font-mono shrink-0">{pr.totalFed} kg</span>
+                    <span className="font-semibold text-blue-700 text-sm font-mono shrink-0">{pr.totalFed} kg</span>
                   </div>
 
                   {/* Step 2 */}
                   <div className="py-2.5 flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <span className="text-[11px] font-bold text-slate-800">Step 2 — Yesterday's Carryover</span>
-                      <p className="text-[11px] text-slate-400 mt-0.5">Unfinished feed from open bags carried over</p>
+                      <span className="text-xs font-semibold text-slate-800">Step 2 — Yesterday's Carryover</span>
+                      <p className="text-[11px] text-slate-500 mt-0.5">Unfinished feed from open bags carried over</p>
                     </div>
-                    <span className="font-extrabold text-amber-700 text-sm font-mono shrink-0">{pr.carryover} kg</span>
+                    <span className="font-semibold text-amber-700 text-sm font-mono shrink-0">{pr.carryover} kg</span>
                   </div>
 
                   {/* Step 3 */}
                   <div className="py-2.5 flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="flex items-center gap-1.5">
-                        <span className="text-[11px] font-bold text-slate-800">Step 3 — Required New Feed</span>
-                        {qtyErr && <span className="text-[10px] text-red-600 font-bold">⚠ Exceeds available</span>}
+                        <span className="text-xs font-semibold text-slate-800">Step 3 — Required New Feed</span>
+                        {qtyErr && <span className="text-[10px] text-red-600 font-semibold">⚠ Exceeds available</span>}
                       </div>
-                      <p className="text-[11px] text-slate-400 font-mono mt-0.5">{pr.totalFed}kg − {pr.carryover}kg = {pr.netNeeded}kg</p>
+                      <p className="text-[11px] text-slate-500 font-mono mt-0.5">{pr.totalFed}kg − {pr.carryover}kg = {pr.netNeeded}kg</p>
                     </div>
-                    <span className={`font-extrabold text-sm font-mono shrink-0 ${qtyErr ? "text-red-600" : "text-slate-900"}`}>{pr.netNeeded} kg</span>
+                    <span className={`font-semibold text-sm font-mono shrink-0 ${qtyErr ? "text-red-600" : "text-slate-800"}`}>{pr.netNeeded} kg</span>
                   </div>
 
                   {/* Step 4 */}
                   <div className="py-2.5 flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <span className="text-[11px] font-bold text-slate-800">Step 4 — Expected Bags Opened</span>
-                      <p className="text-[11px] text-slate-400 font-mono mt-0.5">{pr.netNeeded}kg ÷ {pr.bagWeight}kg/bag = {ratio} (round up)</p>
+                      <span className="text-xs font-semibold text-slate-800">Step 4 — Expected Bags Opened</span>
+                      <p className="text-[11px] text-slate-500 font-mono mt-0.5">{pr.netNeeded}kg ÷ {pr.bagWeight}kg/bag = {ratio} (round up)</p>
                     </div>
-                    <span className="font-extrabold text-slate-900 text-sm font-mono shrink-0">{pr.expectedBags} bag{pr.expectedBags !== 1 ? "s" : ""}</span>
+                    <span className="font-semibold text-slate-800 text-sm font-mono shrink-0">{pr.expectedBags} bag{pr.expectedBags !== 1 ? "s" : ""}</span>
                   </div>
 
                   {/* Step 5 */}
@@ -1840,18 +2028,18 @@ function FeedDocumentation({
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <div className="flex items-center gap-1.5">
-                          <span className="text-[11px] font-bold text-slate-800">Step 5 — Recorded Bags Opened</span>
-                          {bagErr && <span className="text-[10px] text-orange-600 font-bold">⚠ Bag Mismatch</span>}
+                          <span className="text-xs font-semibold text-slate-800">Step 5 — Recorded Bags Opened</span>
+                          {bagErr && <span className="text-[10px] text-orange-600 font-semibold">⚠ Bag Mismatch</span>}
                         </div>
-                        <p className="text-[11px] text-slate-400 mt-0.5">Logged by attendants in Opened Bags</p>
+                        <p className="text-[11px] text-slate-500 mt-0.5">Logged by attendants in Opened Bags</p>
                       </div>
-                      <span className={`font-extrabold text-sm font-mono shrink-0 ${bagErr ? "text-orange-600" : "text-emerald-700"}`}>
+                      <span className={`font-semibold text-sm font-mono shrink-0 ${bagErr ? "text-orange-600 font-bold" : "text-emerald-700 font-bold"}`}>
                         {pr.recordedBags} bag{pr.recordedBags !== 1 ? "s" : ""} {bagErr ? "✗" : "✓"}
                       </span>
                     </div>
                     {bagErr && (
-                      <p className="text-[11px] text-orange-900 mt-1.5 bg-orange-100/60 p-2 rounded">
-                        <strong>Note:</strong> Expected bag count ({pr.expectedBags} bag{pr.expectedBags !== 1 ? "s" : ""}) is {pr.expectedBags > pr.recordedBags ? "more than" : "different from"} the bags logged ({pr.recordedBags} bag{pr.recordedBags !== 1 ? "s" : ""}).
+                      <p className="text-[11px] text-orange-900 mt-1.5 bg-orange-100/60 p-2 rounded leading-relaxed">
+                        <span className="font-semibold">Note:</span> Expected bag count ({pr.expectedBags} bag{pr.expectedBags !== 1 ? "s" : ""}) is {pr.expectedBags > pr.recordedBags ? "more than" : "different from"} the bags logged ({pr.recordedBags} bag{pr.recordedBags !== 1 ? "s" : ""}).
                       </p>
                     )}
                   </div>
@@ -1859,10 +2047,10 @@ function FeedDocumentation({
                   {/* Step 6 */}
                   <div className="py-2.5 flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <span className="text-[11px] font-bold text-slate-800">Step 6 — Expected Remaining Feed</span>
-                      <p className="text-[11px] text-slate-400 font-mono mt-0.5">{pr.carryover + (pr.expectedBags * pr.bagWeight)}kg opened − {pr.totalFed}kg fed</p>
+                      <span className="text-xs font-semibold text-slate-800">Step 6 — Expected Remaining Feed</span>
+                      <p className="text-[11px] text-slate-500 font-mono mt-0.5">{pr.carryover + (pr.expectedBags * pr.bagWeight)}kg opened − {pr.totalFed}kg fed</p>
                     </div>
-                    <span className="font-extrabold text-slate-900 text-sm font-mono shrink-0">{pr.expectedRemaining} kg</span>
+                    <span className="font-semibold text-slate-800 text-sm font-mono shrink-0">{pr.expectedRemaining} kg</span>
                   </div>
 
                   {/* Step 7 */}
@@ -1870,18 +2058,18 @@ function FeedDocumentation({
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <div className="flex items-center gap-1.5">
-                          <span className="text-[11px] font-bold text-slate-800">Step 7 — Recorded Remaining Feed</span>
-                          {remErr && <span className="text-[10px] text-amber-700 font-bold">⚠ Weight Mismatch</span>}
+                          <span className="text-xs font-semibold text-slate-800">Step 7 — Recorded Remaining Feed</span>
+                          {remErr && <span className="text-[10px] text-amber-700 font-semibold">⚠ Weight Mismatch</span>}
                         </div>
-                        <p className="text-[11px] text-slate-400 mt-0.5">Logged by attendants in Remaining Log</p>
+                        <p className="text-[11px] text-slate-500 mt-0.5">Logged by attendants in Remaining Log</p>
                       </div>
-                      <span className={`font-extrabold text-sm font-mono shrink-0 ${remErr ? "text-amber-700" : "text-emerald-700"}`}>
+                      <span className={`font-semibold text-sm font-mono shrink-0 ${remErr ? "text-amber-700 font-bold" : "text-emerald-700 font-bold"}`}>
                         {pr.recordedRemaining} kg {remErr ? "✗" : "✓"}
                       </span>
                     </div>
                     {remErr && (
-                      <p className="text-[11px] text-amber-950 mt-1.5 bg-amber-100/60 p-2 rounded">
-                        <strong>Note:</strong> Expected {pr.expectedRemaining} kg remaining in the open bag, but attendants recorded {pr.recordedRemaining} kg (difference of {Math.abs(pr.expectedRemaining - pr.recordedRemaining).toFixed(1)} kg).
+                      <p className="text-[11px] text-amber-950 mt-1.5 bg-amber-100/60 p-2 rounded leading-relaxed">
+                        <span className="font-semibold">Note:</span> Expected {pr.expectedRemaining} kg remaining in the open bag, but attendants recorded {pr.recordedRemaining} kg (difference of {Math.abs(pr.expectedRemaining - pr.recordedRemaining).toFixed(1)} kg).
                       </p>
                     )}
                   </div>
@@ -1894,8 +2082,8 @@ function FeedDocumentation({
                   {bagErr && (
                     <button
                       type="button"
-                      onClick={() => { setPopupRecon(null); setDocTab("bags"); }}
-                      className="px-3 py-1.5 bg-orange-600 hover:bg-orange-700 text-white font-bold text-xs rounded-lg transition-colors shadow-xs"
+                      onClick={() => goToOpenedBags(pr.fishStock, pr.size, pr.brand, "bags")}
+                      className="px-3.5 py-1.5 bg-orange-600 hover:bg-orange-700 text-white font-semibold text-xs rounded-lg transition-colors shadow-xs"
                     >
                       Go to Opened Bags Tab →
                     </button>
@@ -1903,17 +2091,17 @@ function FeedDocumentation({
                   {remErr && !bagErr && (
                     <button
                       type="button"
-                      onClick={() => { setPopupRecon(null); setDocTab("bags"); }}
-                      className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs rounded-lg transition-colors shadow-xs"
+                      onClick={() => goToOpenedBags(pr.fishStock, pr.size, pr.brand, "remaining")}
+                      className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-semibold text-xs rounded-lg transition-colors shadow-xs"
                     >
-                      Go to Remaining Log Tab →
+                      Go to Opened Bags Tab →
                     </button>
                   )}
                 </div>
                 <button
                   type="button"
                   onClick={() => setPopupRecon(null)}
-                  className="px-4 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold text-xs rounded-lg transition-colors"
+                  className="px-4 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold text-xs rounded-lg transition-colors"
                 >
                   Close
                 </button>
