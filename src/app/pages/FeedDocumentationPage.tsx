@@ -1762,142 +1762,134 @@ function FeedDocumentation({
               </div>
 
               {/* Body */}
-              <div className="flex-1 overflow-y-auto px-4 sm:px-5 py-4 space-y-3 text-xs">
-                {/* Conversational Diagnostic Explanation Card */}
+              <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4 space-y-4 text-xs">
+                {/* Top Diagnostic Banner */}
                 <div className={`rounded-xl p-3.5 border ${
-                  diagnostic.color === "emerald" ? "bg-emerald-50/80 border-emerald-200 text-emerald-900" :
-                  diagnostic.color === "orange" ? "bg-orange-50/90 border-orange-200 text-orange-950" :
-                  diagnostic.color === "amber" ? "bg-amber-50/90 border-amber-200 text-amber-950" :
-                  "bg-red-50/90 border-red-200 text-red-950"
+                  diagnostic.color === "emerald" ? "bg-emerald-50 border-emerald-200 text-emerald-950" :
+                  diagnostic.color === "orange" ? "bg-orange-50 border-orange-200 text-orange-950" :
+                  diagnostic.color === "amber" ? "bg-amber-50 border-amber-200 text-amber-950" :
+                  "bg-red-50 border-red-200 text-red-950"
                 }`}>
-                  <div className="flex items-center gap-2 mb-1.5">
-                    <span className="font-bold text-xs uppercase tracking-wider">{diagnostic.title}</span>
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <span className="font-bold text-xs">{diagnostic.title}</span>
                     <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${sc.cls}`}>{sc.label}</span>
                   </div>
-                  <p className="text-xs leading-relaxed font-normal">{diagnostic.body}</p>
+                  <p className="text-xs leading-relaxed text-slate-700">{diagnostic.body}</p>
                   {diagnostic.action && (
-                    <div className="mt-2 pt-2 border-t border-black/10 flex items-start gap-1.5 text-xs font-semibold">
-                      <span className="shrink-0">💡 Note / Next Step:</span>
+                    <p className="mt-2 text-xs font-semibold text-slate-900 flex items-start gap-1">
+                      <span className="text-blue-600 shrink-0">👉 Action:</span>
                       <span>{diagnostic.action}</span>
-                    </div>
+                    </p>
                   )}
                 </div>
 
-                {/* Step 1: Total Feed Given */}
-                <div className="bg-slate-50/70 border border-slate-200 rounded-xl p-3 space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Step 1 — Total Feed Given to Fish Stock</span>
-                    <span className="font-black text-blue-700 text-xs font-mono">{pr.totalFed} kg</span>
+                {/* Steps Flow — Clean Divided List (No Heavy Containers / Nested Strokes) */}
+                <div className="divide-y divide-slate-100 border-y border-slate-100">
+                  {/* Step 1 */}
+                  <div className="py-2.5 flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[11px] font-bold text-slate-800">Step 1 — Total Feed Given</span>
+                      </div>
+                      <p className="text-[11px] text-slate-400 mt-0.5">Sum of feed fed to this stock today</p>
+                      {pondsForRow.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 mt-1">
+                          {pondsForRow.map(r => (
+                            <span key={r.id} className="text-[10px] text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
+                              {r.pond}: <strong className="text-slate-700">{r.total} kg</strong>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <span className="font-extrabold text-blue-700 text-sm font-mono shrink-0">{pr.totalFed} kg</span>
                   </div>
-                  <div className="text-[11px] text-slate-600 flex flex-wrap gap-x-3 gap-y-1 pt-1 border-t border-slate-200/60">
-                    {pondsForRow.length === 0 ? (
-                      <span className="text-slate-400 italic">No feeding logged for this stock today.</span>
-                    ) : (
-                      pondsForRow.map(r => (
-                        <span key={r.id} className="inline-flex items-center gap-1 bg-white px-2 py-0.5 rounded border border-slate-200 text-[10px]">
-                          <strong>{r.pond}:</strong> {r.total} kg
-                        </span>
-                      ))
+
+                  {/* Step 2 */}
+                  <div className="py-2.5 flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <span className="text-[11px] font-bold text-slate-800">Step 2 — Yesterday's Carryover</span>
+                      <p className="text-[11px] text-slate-400 mt-0.5">Unfinished feed from open bags carried over</p>
+                    </div>
+                    <span className="font-extrabold text-amber-700 text-sm font-mono shrink-0">{pr.carryover} kg</span>
+                  </div>
+
+                  {/* Step 3 */}
+                  <div className="py-2.5 flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[11px] font-bold text-slate-800">Step 3 — Required New Feed</span>
+                        {qtyErr && <span className="text-[10px] text-red-600 font-bold">⚠ Exceeds available</span>}
+                      </div>
+                      <p className="text-[11px] text-slate-400 font-mono mt-0.5">{pr.totalFed}kg − {pr.carryover}kg = {pr.netNeeded}kg</p>
+                    </div>
+                    <span className={`font-extrabold text-sm font-mono shrink-0 ${qtyErr ? "text-red-600" : "text-slate-900"}`}>{pr.netNeeded} kg</span>
+                  </div>
+
+                  {/* Step 4 */}
+                  <div className="py-2.5 flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <span className="text-[11px] font-bold text-slate-800">Step 4 — Expected Bags Opened</span>
+                      <p className="text-[11px] text-slate-400 font-mono mt-0.5">{pr.netNeeded}kg ÷ {pr.bagWeight}kg/bag = {ratio} (round up)</p>
+                    </div>
+                    <span className="font-extrabold text-slate-900 text-sm font-mono shrink-0">{pr.expectedBags} bag{pr.expectedBags !== 1 ? "s" : ""}</span>
+                  </div>
+
+                  {/* Step 5 */}
+                  <div className={`py-2.5 ${bagErr ? "bg-orange-50/50 -mx-4 sm:-mx-6 px-4 sm:px-6 rounded-lg" : ""}`}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[11px] font-bold text-slate-800">Step 5 — Recorded Bags Opened</span>
+                          {bagErr && <span className="text-[10px] text-orange-600 font-bold">⚠ Bag Mismatch</span>}
+                        </div>
+                        <p className="text-[11px] text-slate-400 mt-0.5">Logged by attendants in Opened Bags</p>
+                      </div>
+                      <span className={`font-extrabold text-sm font-mono shrink-0 ${bagErr ? "text-orange-600" : "text-emerald-700"}`}>
+                        {pr.recordedBags} bag{pr.recordedBags !== 1 ? "s" : ""} {bagErr ? "✗" : "✓"}
+                      </span>
+                    </div>
+                    {bagErr && (
+                      <p className="text-[11px] text-orange-900 mt-1.5 bg-orange-100/60 p-2 rounded">
+                        <strong>Note:</strong> Expected bag count ({pr.expectedBags} bag{pr.expectedBags !== 1 ? "s" : ""}) is {pr.expectedBags > pr.recordedBags ? "more than" : "different from"} the bags logged ({pr.recordedBags} bag{pr.recordedBags !== 1 ? "s" : ""}).
+                      </p>
                     )}
                   </div>
-                </div>
 
-                {/* Step 2: Carryover */}
-                <div className="bg-slate-50/70 border border-slate-200 rounded-xl p-3 flex items-center justify-between">
-                  <div>
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Step 2 — Yesterday's Carryover</span>
-                    <p className="text-[11px] text-slate-500 mt-0.5">Unfinished feed in opened bag carried over from previous day</p>
-                  </div>
-                  <span className="font-bold text-amber-700 text-xs font-mono">{pr.carryover} kg</span>
-                </div>
-
-                {/* Step 3: Required New Feed */}
-                <div className={`rounded-xl p-3 border ${qtyErr ? "bg-red-50/80 border-red-200" : "bg-slate-50/70 border-slate-200"}`}>
-                  <div className="flex items-center justify-between">
-                    <span className={`text-[10px] font-bold uppercase tracking-wider ${qtyErr ? "text-red-600 font-bold" : "text-slate-500"}`}>
-                      Step 3 — Required New Feed from Bags {qtyErr && "⚠"}
-                    </span>
-                    <span className={`font-black text-xs font-mono ${qtyErr ? "text-red-700 font-bold" : "text-slate-800"}`}>
-                      {pr.netNeeded} kg
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-slate-500 font-mono mt-1">
-                    {pr.totalFed} kg (total fed) − {pr.carryover} kg (carryover) = <strong className="text-slate-800">{pr.netNeeded} kg</strong> needed
-                  </p>
-                  {qtyErr && (
-                    <div className="mt-2 pt-1.5 border-t border-red-200 text-[11px] text-red-700 leading-snug">
-                      <strong>Note:</strong> Total feed given ({pr.totalFed} kg) exceeds available feed in store ({pr.carryover} kg carryover + {pr.recordedBags * pr.bagWeight} kg in {pr.recordedBags} opened bags = {pr.carryover + (pr.recordedBags * pr.bagWeight)} kg).
+                  {/* Step 6 */}
+                  <div className="py-2.5 flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <span className="text-[11px] font-bold text-slate-800">Step 6 — Expected Remaining Feed</span>
+                      <p className="text-[11px] text-slate-400 font-mono mt-0.5">{pr.carryover + (pr.expectedBags * pr.bagWeight)}kg opened − {pr.totalFed}kg fed</p>
                     </div>
-                  )}
-                </div>
+                    <span className="font-extrabold text-slate-900 text-sm font-mono shrink-0">{pr.expectedRemaining} kg</span>
+                  </div>
 
-                {/* Step 4 & 5: Bags Grouping */}
-                <div className={`rounded-xl p-3 border space-y-2.5 ${bagErr ? "bg-orange-50/70 border-orange-200" : "bg-slate-50/70 border-slate-200"}`}>
-                  <div>
-                    <div className="flex items-center justify-between">
-                      <span className={`text-[10px] font-bold uppercase tracking-wider ${bagErr ? "text-orange-700 font-bold" : "text-slate-500"}`}>
-                        Steps 4 &amp; 5 — Bag Count Reconciliation {bagErr && "⚠"}
+                  {/* Step 7 */}
+                  <div className={`py-2.5 ${remErr ? "bg-amber-50/50 -mx-4 sm:-mx-6 px-4 sm:px-6 rounded-lg" : ""}`}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[11px] font-bold text-slate-800">Step 7 — Recorded Remaining Feed</span>
+                          {remErr && <span className="text-[10px] text-amber-700 font-bold">⚠ Weight Mismatch</span>}
+                        </div>
+                        <p className="text-[11px] text-slate-400 mt-0.5">Logged by attendants in Remaining Log</p>
+                      </div>
+                      <span className={`font-extrabold text-sm font-mono shrink-0 ${remErr ? "text-amber-700" : "text-emerald-700"}`}>
+                        {pr.recordedRemaining} kg {remErr ? "✗" : "✓"}
                       </span>
-                      <span className="text-[10px] text-slate-500">Bag size: <strong className="text-slate-700">{pr.bagWeight} kg/bag</strong></span>
                     </div>
-                    <div className="grid grid-cols-2 gap-2 mt-1.5">
-                      <div className="bg-white p-2.5 rounded-lg border border-slate-200">
-                        <p className="text-[10px] uppercase font-bold text-slate-400">Step 4: Expected Bags</p>
-                        <p className="text-sm font-extrabold text-slate-800 font-mono mt-0.5">{pr.expectedBags} bag{pr.expectedBags !== 1 ? "s" : ""}</p>
-                        <p className="text-[10px] text-slate-400 font-mono mt-0.5">{pr.netNeeded}kg ÷ {pr.bagWeight}kg = {ratio}</p>
-                      </div>
-                      <div className={`p-2.5 rounded-lg border ${bagErr ? "bg-orange-100/50 border-orange-300" : "bg-white border-slate-200"}`}>
-                        <p className="text-[10px] uppercase font-bold text-slate-400">Step 5: Recorded Bags</p>
-                        <p className={`text-sm font-extrabold font-mono mt-0.5 ${bagErr ? "text-orange-700" : "text-emerald-700"}`}>
-                          {pr.recordedBags} bag{pr.recordedBags !== 1 ? "s" : ""} {bagErr ? "✗" : "✓"}
-                        </p>
-                        <p className="text-[10px] text-slate-500 mt-0.5">Logged in Opened Bags</p>
-                      </div>
-                    </div>
+                    {remErr && (
+                      <p className="text-[11px] text-amber-950 mt-1.5 bg-amber-100/60 p-2 rounded">
+                        <strong>Note:</strong> Expected {pr.expectedRemaining} kg remaining in the open bag, but attendants recorded {pr.recordedRemaining} kg (difference of {Math.abs(pr.expectedRemaining - pr.recordedRemaining).toFixed(1)} kg).
+                      </p>
+                    )}
                   </div>
-
-                  {bagErr && (
-                    <div className="bg-white/80 p-2.5 rounded-lg border border-orange-200 text-[11px] text-orange-950 leading-relaxed">
-                      <strong>Note:</strong> The information shows that your <strong>expected bag count ({pr.expectedBags} bags)</strong> is {pr.expectedBags > pr.recordedBags ? "more than" : "different from"} the <strong>bags you recorded ({pr.recordedBags} bags)</strong>.
-                    </div>
-                  )}
-                </div>
-
-                {/* Step 6 & 7: Remaining Feed Grouping */}
-                <div className={`rounded-xl p-3 border space-y-2.5 ${remErr ? "bg-amber-50/70 border-amber-200" : "bg-slate-50/70 border-slate-200"}`}>
-                  <div>
-                    <div className="flex items-center justify-between">
-                      <span className={`text-[10px] font-bold uppercase tracking-wider ${remErr ? "text-amber-700 font-bold" : "text-slate-500"}`}>
-                        Steps 6 &amp; 7 — Remaining Feed Weight in Open Bag {remErr && "⚠"}
-                      </span>
-                      {remErr && <span className="text-[10px] text-amber-700 font-bold">Diff: {Math.abs(pr.expectedRemaining - pr.recordedRemaining).toFixed(1)} kg</span>}
-                    </div>
-                    <div className="grid grid-cols-2 gap-2 mt-1.5">
-                      <div className="bg-white p-2.5 rounded-lg border border-slate-200">
-                        <p className="text-[10px] uppercase font-bold text-slate-400">Step 6: Expected Remaining</p>
-                        <p className="text-sm font-extrabold text-slate-800 font-mono mt-0.5">{pr.expectedRemaining} kg</p>
-                        <p className="text-[10px] text-slate-400 font-mono mt-0.5">{pr.carryover + (pr.expectedBags * pr.bagWeight)}kg − {pr.totalFed}kg</p>
-                      </div>
-                      <div className={`p-2.5 rounded-lg border ${remErr ? "bg-amber-100/50 border-amber-300" : "bg-white border-slate-200"}`}>
-                        <p className="text-[10px] uppercase font-bold text-slate-400">Step 7: Recorded Remaining</p>
-                        <p className={`text-sm font-extrabold font-mono mt-0.5 ${remErr ? "text-amber-800" : "text-emerald-700"}`}>
-                          {pr.recordedRemaining} kg {remErr ? "✗" : "✓"}
-                        </p>
-                        <p className="text-[10px] text-slate-500 mt-0.5">Logged in Remaining Log</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {remErr && (
-                    <div className="bg-white/80 p-2.5 rounded-lg border border-amber-200 text-[11px] text-amber-950 leading-relaxed">
-                      <strong>Note:</strong> Expected remaining weight in the open bag is <strong>{pr.expectedRemaining} kg</strong>, but attendants recorded <strong>{pr.recordedRemaining} kg</strong> (a difference of <strong>{Math.abs(pr.expectedRemaining - pr.recordedRemaining).toFixed(1)} kg</strong>).
-                    </div>
-                  )}
                 </div>
               </div>
 
               {/* Footer Actions */}
-              <div className="px-5 py-3.5 border-t border-slate-100 bg-slate-50/80 flex flex-wrap items-center justify-between gap-2 shrink-0">
+              <div className="px-4 sm:px-6 py-3 border-t border-slate-100 bg-slate-50 flex flex-wrap items-center justify-between gap-2 shrink-0">
                 <div className="flex items-center gap-2">
                   {bagErr && (
                     <button
@@ -1921,7 +1913,7 @@ function FeedDocumentation({
                 <button
                   type="button"
                   onClick={() => setPopupRecon(null)}
-                  className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold text-xs rounded-lg transition-colors"
+                  className="px-4 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold text-xs rounded-lg transition-colors"
                 >
                   Close
                 </button>
