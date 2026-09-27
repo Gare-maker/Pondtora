@@ -2175,8 +2175,9 @@ function FeedDocumentation({
                 <p className="text-xs text-slate-300 mt-1">Log feeding sessions and opened bags to see reconciliation.</p>
               </div>
             ) : (
-          {/* Desktop Table View */}
-          <div className="hidden md:block overflow-x-auto">
+              <>
+                {/* Desktop Table View */}
+                <div className="hidden md:block overflow-x-auto">
             <table className="w-full text-sm min-w-[720px]">
               <thead>
                 <tr className="bg-slate-50/80 border-b border-slate-100">
@@ -2376,6 +2377,7 @@ function FeedDocumentation({
               );
             })}
           </div>
+              </>
             )}
           </Card>
         );
