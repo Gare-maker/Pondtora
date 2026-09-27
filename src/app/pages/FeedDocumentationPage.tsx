@@ -303,13 +303,13 @@ function FeedDocumentation({
   };
 
   const normalizeFishStock = (stock?: string | null): string => {
-    if (!stock || stock === "—" || !stock.trim()) return "—";
+    if (!stock || stock === "—" || typeof stock !== "string" || !stock.trim()) return "—";
     const trimmed = stock.trim();
-    const matchingPond = (ponds || []).find(p => p && p.name.toLowerCase() === trimmed.toLowerCase());
+    const matchingPond = (ponds || []).find(p => p && p.name && typeof p.name === "string" && p.name.toLowerCase() === trimmed.toLowerCase());
     if (matchingPond) {
       return pondToStock(matchingPond.name);
     }
-    const activeStock = (ponds || []).map(p => getPondFishStock(p)).find(s => s && s.toLowerCase().trim() === trimmed.toLowerCase());
+    const activeStock = (ponds || []).map(p => p ? getPondFishStock(p) : "").find(s => s && typeof s === "string" && s.toLowerCase().trim() === trimmed.toLowerCase());
     if (activeStock) {
       return activeStock;
     }
@@ -888,11 +888,18 @@ function FeedDocumentation({
     const map = new Map<string, MergedBagRow>();
     dayBagLogs.forEach(b => {
       const fs = normalizeFishStock(b.fishStock) || "—";
-      const k = `${b.brand}||${b.size}||${fs}`;
+      const brand = b.brand || "—";
+      const size = b.size || "—";
+      const k = `${brand}||${size}||${fs}`;
       const existing = map.get(k);
       const bags = Number(b.bagsOpened) || 0;
       const kgPb = Number(b.kgPerBag) || 15;
       const totalKg = Number(b.totalKg) || (bags * kgPb);
+      const matchingPond = (ponds || []).find(p => p && (pondToStock(p.name) === fs || p.name === fs));
+      const stockDate = matchingPond?.stockingDate && matchingPond.stockingDate !== "—"
+        ? formatFishStockDate(matchingPond.stockingDate)
+        : (fs && /^\d{4}-\d{2}-\d{2}/.test(fs) ? formatFishStockDate(fs) : (fs !== "—" && fs !== "General Stock" ? formatFishStock(fs) : "—"));
+
       if (existing) {
         // Keep single entry per stock and pallet size rather than accumulating duplicate entries
         existing.bagsOpened = bags;
@@ -900,10 +907,10 @@ function FeedDocumentation({
         existing.lastBagLog = b;
       } else {
         map.set(k, {
-          brand: b.brand,
-          size: b.size,
+          brand,
+          size,
           fishStock: fs,
-          stockDate: formatFishStockDate(fs),
+          stockDate: stockDate !== fs ? stockDate : "—",
           bagsOpened: bags,
           totalKgOpened: totalKg,
           remainingKg: 0,
@@ -914,16 +921,23 @@ function FeedDocumentation({
     const dayRemainLogs = (remainLogs || []).filter(r => r && isSameDate(r.date, selDate));
     dayRemainLogs.forEach(r => {
       const fs = normalizeFishStock(r.fishStock) || "—";
-      const k = `${r.brand}||${r.size}||${fs}`;
+      const brand = r.brand || "—";
+      const size = r.size || "—";
+      const k = `${brand}||${size}||${fs}`;
       const existing = map.get(k);
+      const matchingPond = (ponds || []).find(p => p && (pondToStock(p.name) === fs || p.name === fs));
+      const stockDate = matchingPond?.stockingDate && matchingPond.stockingDate !== "—"
+        ? formatFishStockDate(matchingPond.stockingDate)
+        : (fs && /^\d{4}-\d{2}-\d{2}/.test(fs) ? formatFishStockDate(fs) : (fs !== "—" && fs !== "General Stock" ? formatFishStock(fs) : "—"));
+
       if (existing) {
         existing.remainingKg += (Number(r.remainingKg) || 0);
       } else {
         map.set(k, {
-          brand: r.brand,
-          size: r.size,
+          brand,
+          size,
           fishStock: fs,
-          stockDate: formatFishStockDate(fs),
+          stockDate: stockDate !== fs ? stockDate : "—",
           bagsOpened: 0,
           totalKgOpened: 0,
           remainingKg: Number(r.remainingKg) || 0,
@@ -943,11 +957,16 @@ function FeedDocumentation({
       if (!map.has(k)) {
         const anyBrandExisting = Array.from(map.values()).find(m => m.size === size && normalizeFishStock(m.fishStock) === normalizeFishStock(fs));
         if (!anyBrandExisting) {
+          const matchingPond = (ponds || []).find(p => p && (pondToStock(p.name) === fs || p.name === fs));
+          const stockDate = matchingPond?.stockingDate && matchingPond.stockingDate !== "—"
+            ? formatFishStockDate(matchingPond.stockingDate)
+            : (fs && /^\d{4}-\d{2}-\d{2}/.test(fs) ? formatFishStockDate(fs) : (fs !== "—" && fs !== "General Stock" ? formatFishStock(fs) : "—"));
+
           map.set(k, {
-            brand: brand,
-            size: size,
+            brand,
+            size,
             fishStock: fs,
-            stockDate: formatFishStockDate(fs),
+            stockDate: stockDate !== fs ? stockDate : "—",
             bagsOpened: 0,
             totalKgOpened: 0,
             remainingKg: 0,
@@ -964,10 +983,10 @@ function FeedDocumentation({
     if (!bagsSearch.trim()) return mergedBagRows;
     const q = bagsSearch.toLowerCase().trim();
     return mergedBagRows.filter(r =>
-      r.brand.toLowerCase().includes(q) ||
-      r.size.toLowerCase().includes(q) ||
-      r.fishStock.toLowerCase().includes(q) ||
-      r.stockDate.toLowerCase().includes(q)
+      (r.brand && r.brand.toLowerCase().includes(q)) ||
+      (r.size && r.size.toLowerCase().includes(q)) ||
+      (r.fishStock && r.fishStock.toLowerCase().includes(q)) ||
+      (r.stockDate && r.stockDate.toLowerCase().includes(q))
     );
   }, [mergedBagRows, bagsSearch]);
 
@@ -975,11 +994,11 @@ function FeedDocumentation({
     if (!reconSearch.trim()) return reconRows;
     const q = reconSearch.toLowerCase().trim();
     return reconRows.filter(r =>
-      r.fishStock.toLowerCase().includes(q) ||
-      r.stockDate.toLowerCase().includes(q) ||
-      r.brand.toLowerCase().includes(q) ||
-      r.size.toLowerCase().includes(q) ||
-      r.ponds.some(p => p.toLowerCase().includes(q))
+      (r.fishStock && r.fishStock.toLowerCase().includes(q)) ||
+      (r.stockDate && r.stockDate.toLowerCase().includes(q)) ||
+      (r.brand && r.brand.toLowerCase().includes(q)) ||
+      (r.size && r.size.toLowerCase().includes(q)) ||
+      (r.ponds && r.ponds.some(p => p && p.toLowerCase().includes(q)))
     );
   }, [reconRows, reconSearch]);
 
@@ -1624,6 +1643,8 @@ function FeedDocumentation({
                 {filteredMergedBagRows.map((row, i) => {
                   const isHighlightedRow = Boolean(
                     bagsHighlight &&
+                    bagsHighlight.stock &&
+                    row.fishStock &&
                     normalizeFishStock(bagsHighlight.stock) === normalizeFishStock(row.fishStock) &&
                     bagsHighlight.size === row.size
                   );
@@ -1635,14 +1656,14 @@ function FeedDocumentation({
                   const reconItem = reconRows.find(r =>
                     normalizeFishStock(r.fishStock) === normalizeFishStock(row.fishStock) &&
                     r.size === row.size &&
-                    (!row.brand || row.brand === "—" || !r.brand || r.brand === "—" || r.brand.toLowerCase().trim() === row.brand.toLowerCase().trim())
+                    (!row.brand || row.brand === "—" || !r.brand || r.brand === "—" || (typeof r.brand === "string" && typeof row.brand === "string" && r.brand.toLowerCase().trim() === row.brand.toLowerCase().trim()))
                   ) || reconRows.find(r =>
                     normalizeFishStock(r.fishStock) === normalizeFishStock(row.fishStock) &&
                     r.size === row.size
                   );
 
-                  const hasBagMismatch = reconItem && reconItem.expectedBags !== row.bagsOpened;
-                  const hasRemainMismatch = reconItem && Math.abs(reconItem.expectedRemaining - row.remainingKg) >= 0.1;
+                  const hasBagMismatch = Boolean(reconItem && reconItem.expectedBags !== row.bagsOpened);
+                  const hasRemainMismatch = Boolean(reconItem && Math.abs(reconItem.expectedRemaining - row.remainingKg) >= 0.1);
 
                   return (
                     <tr
@@ -1672,7 +1693,7 @@ function FeedDocumentation({
                         <div className="font-bold text-slate-900 text-xs">
                           {row.bagsOpened > 0 ? `${row.bagsOpened} bag${row.bagsOpened !== 1 ? "s" : ""}` : <span className="text-slate-300">—</span>}
                         </div>
-                        {hasBagMismatch && (
+                        {hasBagMismatch && reconItem && (
                           <div className="mt-1 flex flex-col gap-0.5">
                             <span className="text-[10px] text-orange-800 font-bold bg-orange-100/90 border border-orange-300/80 px-1.5 py-0.5 rounded w-fit flex items-center gap-1 shadow-2xs">
                               <AlertCircle size={10} className="shrink-0 text-orange-600" />
@@ -1692,7 +1713,7 @@ function FeedDocumentation({
                         <div className="font-semibold text-xs">
                           {row.remainingKg > 0 ? <span className="text-amber-700 font-bold">{row.remainingKg} kg</span> : <span className="text-slate-300 text-xs">—</span>}
                         </div>
-                        {hasRemainMismatch && (
+                        {hasRemainMismatch && reconItem && (
                           <div className="mt-1 flex flex-col gap-0.5">
                             <span className="text-[10px] text-amber-900 font-bold bg-amber-100/90 border border-amber-300/80 px-1.5 py-0.5 rounded w-fit flex items-center gap-1 shadow-2xs">
                               <AlertCircle size={10} className="shrink-0 text-amber-600" />

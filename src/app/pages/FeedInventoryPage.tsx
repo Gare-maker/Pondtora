@@ -111,19 +111,19 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
   };
 
   const getStockInfo = (stockStr: string) => {
-    if (!stockStr || stockStr === "—" || stockStr === "General Stock") {
+    if (!stockStr || stockStr === "—" || stockStr === "General Stock" || typeof stockStr !== "string") {
       return { name: stockStr || "General Stock", stockDate: "—", ponds: [] };
     }
     const stockLower = stockStr.toLowerCase().trim();
     const matchingPonds = (ponds || []).filter(p =>
       p && (
-        getPondFishStock(p).toLowerCase().trim() === stockLower ||
+        (p.name && getPondFishStock(p).toLowerCase().trim() === stockLower) ||
         (p.species && p.species.toLowerCase().trim() === stockLower) ||
         (p.stockingDate && (formatFishStockDate(p.stockingDate).toLowerCase() === stockLower || p.stockingDate.toLowerCase() === stockLower)) ||
-        p.name.toLowerCase() === stockLower
+        (p.name && p.name.toLowerCase() === stockLower)
       )
     );
-    const pondNames = matchingPonds.map(p => p.name);
+    const pondNames = matchingPonds.map(p => p.name).filter(Boolean);
     const rawStockDate = matchingPonds[0]?.stockingDate ? formatFishStockDate(matchingPonds[0].stockingDate) : formatFishStockDate(stockStr);
     const name = formatFishStock(stockStr);
     return { name, stockDate: rawStockDate !== "—" ? rawStockDate : "—", ponds: pondNames };
@@ -243,11 +243,11 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
     if (fDailySize !== "All" && r.size !== fDailySize) return false;
     if (dailySearch) {
       const q = dailySearch.toLowerCase().trim();
-      const matchStock = r.fishStock.toLowerCase().includes(q) || r.stockDate.toLowerCase().includes(q);
-      const matchBrand = r.brand.toLowerCase().includes(q);
-      const matchSize = r.size.toLowerCase().includes(q);
-      const matchDate = r.date.toLowerCase().includes(q) || r.dateFormatted.toLowerCase().includes(q);
-      const matchPonds = r.ponds.some(p => p.toLowerCase().includes(q));
+      const matchStock = (r.fishStock && r.fishStock.toLowerCase().includes(q)) || (r.stockDate && r.stockDate.toLowerCase().includes(q));
+      const matchBrand = r.brand && r.brand.toLowerCase().includes(q);
+      const matchSize = r.size && r.size.toLowerCase().includes(q);
+      const matchDate = (r.date && r.date.toLowerCase().includes(q)) || (r.dateFormatted && r.dateFormatted.toLowerCase().includes(q));
+      const matchPonds = r.ponds && r.ponds.some(p => p && p.toLowerCase().includes(q));
       if (!matchStock && !matchBrand && !matchSize && !matchDate && !matchPonds) return false;
     }
     return true;
