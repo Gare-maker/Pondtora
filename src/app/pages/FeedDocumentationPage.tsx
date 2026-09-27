@@ -777,6 +777,7 @@ function FeedDocumentation({
     const bagWeight = invItem?.weightPerBag || 15;
 
     const netNeeded = Math.max(0, totalFed - carryover);
+    const expectedBags = netNeeded > 0 ? Math.ceil(netNeeded / bagWeight) : 0;
     const loggedBags = getBagsLoggedTodayForStockAndSize(normStock, brand, size, targetDate);
     const effectiveBags = bagsOpenedOverride !== undefined ? bagsOpenedOverride : (totalFed > 0 ? expectedBags : loggedBags);
     const totalAvailable = carryover + (effectiveBags * bagWeight);
@@ -1967,12 +1968,18 @@ function FeedDocumentation({
                         bagsHighlight &&
                         bagsHighlight.stock &&
                         row.fishStock &&
-                        normalizeFishStock(bagsHighlight.stock) === normalizeFishStock(row.fishStock) &&
-                        bagsHighlight.size === row.size
+                        (
+                          normalizeFishStock(bagsHighlight.stock).toLowerCase().trim() === normalizeFishStock(row.fishStock).toLowerCase().trim() ||
+                          bagsHighlight.stock.toLowerCase().trim() === row.fishStock.toLowerCase().trim() ||
+                          normalizeFishStock(bagsHighlight.stock).toLowerCase().trim() === row.fishStock.toLowerCase().trim() ||
+                          bagsHighlight.stock.toLowerCase().trim() === normalizeFishStock(row.fishStock).toLowerCase().trim()
+                        ) &&
+                        (!bagsHighlight.brand || bagsHighlight.brand === "—" || !row.brand || row.brand === "—" || bagsHighlight.brand.toLowerCase().trim() === row.brand.toLowerCase().trim()) &&
+                        bagsHighlight.size.toLowerCase().trim() === row.size.toLowerCase().trim()
                       );
 
-                      const isBagsColHighlighted = isHighlightedRow && (bagsHighlight?.col === "bags" || bagsHighlight?.col === "all");
-                      const isRemainColHighlighted = isHighlightedRow && (bagsHighlight?.col === "remaining" || bagsHighlight?.col === "all");
+                      const isBagsColHighlighted = isHighlightedRow && (bagsHighlight?.col === "bags" || bagsHighlight?.col === "all" || !bagsHighlight?.col);
+                      const isRemainColHighlighted = isHighlightedRow && (bagsHighlight?.col === "remaining" || bagsHighlight?.col === "all" || !bagsHighlight?.col);
 
                       // Find reconciliation discrepancy for this stock & size
                       const reconItem = reconRows.find(r =>
@@ -2102,9 +2109,18 @@ function FeedDocumentation({
                   bagsHighlight &&
                   bagsHighlight.stock &&
                   row.fishStock &&
-                  normalizeFishStock(bagsHighlight.stock) === normalizeFishStock(row.fishStock) &&
-                  bagsHighlight.size === row.size
+                  (
+                    normalizeFishStock(bagsHighlight.stock).toLowerCase().trim() === normalizeFishStock(row.fishStock).toLowerCase().trim() ||
+                    bagsHighlight.stock.toLowerCase().trim() === row.fishStock.toLowerCase().trim() ||
+                    normalizeFishStock(bagsHighlight.stock).toLowerCase().trim() === row.fishStock.toLowerCase().trim() ||
+                    bagsHighlight.stock.toLowerCase().trim() === normalizeFishStock(row.fishStock).toLowerCase().trim()
+                  ) &&
+                  (!bagsHighlight.brand || bagsHighlight.brand === "—" || !row.brand || row.brand === "—" || bagsHighlight.brand.toLowerCase().trim() === row.brand.toLowerCase().trim()) &&
+                  bagsHighlight.size.toLowerCase().trim() === row.size.toLowerCase().trim()
                 );
+
+                const isBagsColHighlighted = isHighlightedRow && (bagsHighlight?.col === "bags" || bagsHighlight?.col === "all" || !bagsHighlight?.col);
+                const isRemainColHighlighted = isHighlightedRow && (bagsHighlight?.col === "remaining" || bagsHighlight?.col === "all" || !bagsHighlight?.col);
 
                 const reconItem = reconRows.find(r =>
                   normalizeFishStock(r.fishStock) === normalizeFishStock(row.fishStock) &&
@@ -2123,8 +2139,21 @@ function FeedDocumentation({
                   <div
                     key={i}
                     onClick={() => setViewBagDetail(row)}
-                    className={`bg-white border border-slate-200/80 rounded-2xl p-4 shadow-xs transition-all cursor-pointer hover:border-green-300 hover:shadow-sm relative ${isHighlightedRow ? "bg-orange-50/40 border-orange-300" : ""}`}
+                    className={`bg-white border rounded-2xl p-4 shadow-xs transition-all cursor-pointer hover:border-green-300 hover:shadow-sm relative ${
+                      isHighlightedRow
+                        ? "bg-orange-50/70 border-orange-400 ring-2 ring-orange-400 shadow-md"
+                        : "border-slate-200/80"
+                    }`}
                   >
+                    {isHighlightedRow && (
+                      <div className="mb-2.5 flex items-center justify-between gap-1.5 pb-2 border-b border-orange-200/80">
+                        <span className="inline-flex items-center gap-1 text-[10px] font-bold text-orange-900 bg-orange-100/90 px-2 py-0.5 rounded-md border border-orange-300">
+                          <AlertCircle size={11} className="text-orange-600 shrink-0" /> Discrepancy Highlighted
+                        </span>
+                        {isBagsColHighlighted && <span className="text-[10px] text-orange-800 font-semibold">Check Bags Opened</span>}
+                        {isRemainColHighlighted && !isBagsColHighlighted && <span className="text-[10px] text-amber-800 font-semibold">Check Leftover Feed</span>}
+                      </div>
+                    )}
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0 flex-1">
                         <h3 className="font-bold text-slate-900 text-sm sm:text-base truncate">
@@ -2180,13 +2209,13 @@ function FeedDocumentation({
                     {/* Card Metrics Grid */}
                     <div className="mt-3 pt-2.5 border-t border-slate-100 grid grid-cols-3 gap-2 text-xs">
                       {/* Bags Opened */}
-                      <div className="bg-slate-50 rounded-lg p-2">
+                      <div className={`rounded-lg p-2 transition-all ${isBagsColHighlighted ? "bg-orange-100/90 border border-orange-400 ring-1 ring-orange-400" : "bg-slate-50"}`}>
                         <span className="text-[10px] text-slate-400 block mb-0.5">Bags Opened</span>
                         <span className="font-bold text-slate-900 text-xs">
                           {row.bagsOpened > 0 ? `${row.bagsOpened} bag${row.bagsOpened !== 1 ? "s" : ""}` : "—"}
                         </span>
                         {reconItem ? (
-                          <p className={`text-[10px] font-medium mt-0.5 ${hasBagMismatch ? "text-amber-600 font-semibold" : "text-slate-400"}`}>
+                          <p className={`text-[10px] font-medium mt-0.5 ${hasBagMismatch ? "text-amber-700 font-bold" : "text-slate-400"}`}>
                             Exp: {reconItem.expectedBags}
                           </p>
                         ) : null}
@@ -2201,13 +2230,13 @@ function FeedDocumentation({
                       </div>
 
                       {/* Leftover Feed */}
-                      <div className="bg-slate-50 rounded-lg p-2">
+                      <div className={`rounded-lg p-2 transition-all ${isRemainColHighlighted ? "bg-amber-100/90 border border-amber-400 ring-1 ring-amber-400" : "bg-slate-50"}`}>
                         <span className="text-[10px] text-slate-400 block mb-0.5">Leftover Feed</span>
                         <span className="font-semibold text-slate-800 text-xs">
                           {row.remainingKg > 0 ? `${row.remainingKg} kg` : "—"}
                         </span>
                         {reconItem ? (
-                          <p className={`text-[10px] font-medium mt-0.5 ${hasRemainMismatch ? "text-amber-600 font-semibold" : "text-slate-400"}`}>
+                          <p className={`text-[10px] font-medium mt-0.5 ${hasRemainMismatch ? "text-amber-700 font-bold" : "text-slate-400"}`}>
                             Exp: {reconItem.expectedRemaining} kg
                           </p>
                         ) : null}
