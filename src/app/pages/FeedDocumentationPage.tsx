@@ -1650,138 +1650,488 @@ function FeedDocumentation({
 
       {/* ── Daily Feed tab ── */}
       {docTab === "daily" && (
-        <Card className="overflow-hidden">
-          <div className="px-5 py-4 border-b border-slate-100 bg-slate-50 flex items-center justify-between gap-3">
-            <div>
-              <h2 className="text-base font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">{selDate}</h2>
-            </div>
-            <div className="flex items-center gap-3">
-              <div className="relative">
-                <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" />
-                <input value={dailySearch} onChange={e => setDailySearch(e.target.value)} placeholder="Search pond, stock, or size…" className={`${IC} pl-8 w-44 sm:w-52 text-xs py-1.5`} />
+        <>
+          {/* Desktop Table View */}
+          <div className="hidden md:block">
+            <Card className="overflow-hidden">
+              <div className="px-5 py-4 border-b border-slate-100 bg-slate-50 flex items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-base font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">{selDate}</h2>
+                </div>
+                <div className="flex items-center gap-3">
+                  <div className="relative">
+                    <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" />
+                    <input value={dailySearch} onChange={e => setDailySearch(e.target.value)} placeholder="Search pond, stock, or size…" className={`${IC} pl-8 w-44 sm:w-52 text-xs py-1.5`} />
+                  </div>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm min-w-[700px] md:min-w-[950px]">
+                  <thead>
+                    <tr className="bg-slate-50 border-b border-slate-100">
+                      <th className="w-12 min-w-[48px] max-w-[48px] px-2 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-center sticky left-0 z-20 bg-slate-50">#</th>
+                      <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left sticky left-[48px] z-20 bg-slate-50 border-r border-slate-200 min-w-[130px]">Pond</th>
+                      <th className="hidden md:table-cell px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left whitespace-nowrap">Stock Date</th>
+                      <th className="hidden md:table-cell px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left whitespace-nowrap">Initial Stock</th>
+                      <th className="hidden md:table-cell px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left whitespace-nowrap">Fish Count</th>
+                      {["Pellet Size", "Morning (kg)", "AM Time", "Evening (kg)", "PM Time", "Total (kg)", "Recorded By"].map(h => (
+                        <th key={h} className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left whitespace-nowrap">{h}</th>
+                      ))}
+                      <th className="px-4 py-3 w-8" />
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                    {filteredDayRows.map(({ pond, rec }, i) => {
+                      const hasFeed = !!rec;
+                      const pondMaxKgMap = pond.maxKgByPallet;
+                      const atMax = hasFeed && pondMaxKgMap && rec!.size in pondMaxKgMap && (feedingRecords || []).filter(r => r && r.pond === pond.name && r.size === rec!.size).reduce((s, r) => s + (Number(r.total) || 0), 0) >= (pondMaxKgMap[rec!.size] || Infinity);
+                      const isEdited = (rec?.editHistory?.length || 0) > 0;
+                      const stockDateFormatted = pond.stockingDate && pond.stockingDate !== "—" ? formatFishStockDate(pond.stockingDate) : "—";
+                      return (
+                        <tr key={pond.id} onClick={() => rec && setViewFeedRec(rec)} className={`transition-colors ${hasFeed ? "hover:bg-green-50/30 cursor-pointer" : "opacity-40 hover:opacity-60"}`}>
+                          <td className={`w-12 min-w-[48px] max-w-[48px] px-2 py-3.5 text-slate-300 text-xs font-mono text-center sticky left-0 z-10 ${hasFeed ? "bg-white" : "bg-white"}`}>{i + 1}</td>
+                          <td className="px-4 py-3.5 min-w-[130px] sticky left-[48px] z-10 bg-white border-r border-slate-100">
+                            <p className="font-semibold text-slate-900 leading-tight">{pond.name}</p>
+                            {stockDateFormatted !== "—" ? (
+                              <p className="text-[11px] text-teal-700 font-medium leading-tight mt-0.5">{stockDateFormatted}</p>
+                            ) : (
+                              <p className="text-[11px] text-slate-400 leading-tight mt-0.5">—</p>
+                            )}
+                          </td>
+                          <td className="hidden md:table-cell px-4 py-3.5 text-xs text-teal-700 font-medium whitespace-nowrap">
+                            {stockDateFormatted !== "—" ? (
+                              <span className="inline-flex items-center gap-1 bg-teal-50 px-2 py-0.5 rounded border border-teal-200">{stockDateFormatted}</span>
+                            ) : (
+                              <span className="text-slate-300">—</span>
+                            )}
+                          </td>
+                          <td className="hidden md:table-cell px-4 py-3.5 text-slate-500 font-['Barlow_Condensed',sans-serif] text-base">{pond.initialStock.toLocaleString()}</td>
+                          <td className="hidden md:table-cell px-4 py-3.5 font-semibold text-green-700 font-['Barlow_Condensed',sans-serif] text-base">{pond.currentCount.toLocaleString()}</td>
+                          <td className="px-4 py-3.5">{rec ? <span className="flex items-center gap-1.5"><Bdg label={rec.size} color={atMax ? "red" : "blue"} />{atMax && <span className="text-[10px] font-bold text-red-500">⚠ Limit</span>}</span> : <span className="text-slate-300 text-xs">—</span>}</td>
+                          <td className="px-4 py-3.5 font-medium">{rec ? `${rec.morning}kg` : <span className="text-slate-300">—</span>}</td>
+                          <td className="px-4 py-3.5 text-slate-500 text-xs">{rec?.morningTime || <span className="text-slate-300">—</span>}</td>
+                          <td className="px-4 py-3.5 font-medium">{rec ? `${rec.evening}kg` : <span className="text-slate-300">—</span>}</td>
+                          <td className="px-4 py-3.5 text-slate-500 text-xs">{rec?.eveningTime || <span className="text-slate-300">—</span>}</td>
+                          <td className="px-4 py-3.5">{rec ? <span className="inline-flex items-center gap-1.5"><span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-green-100 text-green-800 font-bold text-sm font-['Barlow_Condensed',sans-serif]">{rec.total}kg</span>{isEdited && <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-700">Edited</span>}</span> : <span className="text-slate-200 text-xs">Not fed</span>}</td>
+                          <td className="px-4 py-3.5 text-slate-400 text-xs">{rec?.recordedBy || <span className="text-slate-300">—</span>}</td>
+                          <td className="px-4 py-3.5" onClick={e => e.stopPropagation()}>
+                            <div className="flex items-center gap-1">
+                              {rec && (isRecordEditable(rec.date) ? (
+                                <>
+                                  {canEdit && <button onClick={() => openEditRec(rec)} className="p-1.5 rounded-lg text-slate-300 hover:text-green-600 hover:bg-green-50 transition-colors" title="Edit record"><Pencil size={13} /></button>}
+                                  {canDelete && onDeleteRecord && <button onClick={() => setDeleteRecId(rec.id)} className="p-1.5 rounded-lg text-slate-300 hover:text-red-600 hover:bg-red-50 transition-colors" title="Delete record"><Trash2 size={13} /></button>}
+                                </>
+                              ) : <button onClick={() => alert("This record can only be edited by an Administrator or Manager after 24 hours.")} className="p-1.5 rounded-lg text-slate-200 cursor-not-allowed" title="Locked after 24 hours"><Lock size={13} /></button>)}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  {dayGrand > 0 && (
+                    <tfoot>
+                      <tr className="bg-slate-50 border-t-2 border-slate-200">
+                        <td colSpan={11} className="hidden md:table-cell px-4 py-3 text-right text-xs font-bold text-slate-500 uppercase tracking-wider">Grand Total</td>
+                        <td className="px-4 py-3"><span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-green-600 text-white font-bold text-sm font-['Barlow_Condensed',sans-serif]">{dayGrand}kg</span></td>
+                        <td colSpan={2} />
+                      </tr>
+                    </tfoot>
+                  )}
+                </table>
+              </div>
+
+              {filteredDayRows.length === 0 && (
+                <div className="py-12 text-center">
+                  <Droplets size={32} className="text-slate-200 mx-auto mb-3" />
+                  <p className="text-sm font-semibold text-slate-400">{dailySearch ? "No ponds match search" : `No feeding recorded on ${selDate}`}</p>
+                  <p className="text-xs text-slate-300 mt-1">Select a highlighted date or log a new session</p>
+                </div>
+              )}
+            </Card>
+          </div>
+
+          {/* Mobile Isolated Cards View */}
+          <div className="md:hidden space-y-3">
+            {/* Mobile Search Bar */}
+            <div className="bg-white border border-slate-200/80 rounded-2xl p-3 shadow-xs flex items-center gap-2">
+              <div className="relative flex-1">
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" />
+                <input
+                  value={dailySearch}
+                  onChange={e => setDailySearch(e.target.value)}
+                  placeholder="Search pond, stock, or size…"
+                  className={`${IC} pl-8 w-full text-xs py-1.5`}
+                />
               </div>
             </div>
-          </div>
 
-          {/* Desktop Table View */}
-          <div className="hidden md:block overflow-x-auto">
-            <table className="w-full text-sm min-w-[700px] md:min-w-[950px]">
-              <thead>
-                <tr className="bg-slate-50 border-b border-slate-100">
-                  <th className="w-12 min-w-[48px] max-w-[48px] px-2 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-center sticky left-0 z-20 bg-slate-50">#</th>
-                  <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left sticky left-[48px] z-20 bg-slate-50 border-r border-slate-200 min-w-[130px]">Pond</th>
-                  <th className="hidden md:table-cell px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left whitespace-nowrap">Stock Date</th>
-                  <th className="hidden md:table-cell px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left whitespace-nowrap">Initial Stock</th>
-                  <th className="hidden md:table-cell px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left whitespace-nowrap">Fish Count</th>
-                  {["Pellet Size", "Morning (kg)", "AM Time", "Evening (kg)", "PM Time", "Total (kg)", "Recorded By"].map(h => (
-                    <th key={h} className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left whitespace-nowrap">{h}</th>
-                  ))}
-                  <th className="px-4 py-3 w-8" />
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-50">
-                {filteredDayRows.map(({ pond, rec }, i) => {
-                  const hasFeed = !!rec;
-                  const pondMaxKgMap = pond.maxKgByPallet;
-                  const atMax = hasFeed && pondMaxKgMap && rec!.size in pondMaxKgMap && (feedingRecords || []).filter(r => r && r.pond === pond.name && r.size === rec!.size).reduce((s, r) => s + (Number(r.total) || 0), 0) >= (pondMaxKgMap[rec!.size] || Infinity);
-                  const isEdited = (rec?.editHistory?.length || 0) > 0;
-                  const stockDateFormatted = pond.stockingDate && pond.stockingDate !== "—" ? formatFishStockDate(pond.stockingDate) : "—";
-                  return (
-                    <tr key={pond.id} onClick={() => rec && setViewFeedRec(rec)} className={`transition-colors ${hasFeed ? "hover:bg-green-50/30 cursor-pointer" : "opacity-40 hover:opacity-60"}`}>
-                      <td className={`w-12 min-w-[48px] max-w-[48px] px-2 py-3.5 text-slate-300 text-xs font-mono text-center sticky left-0 z-10 ${hasFeed ? "bg-white" : "bg-white"}`}>{i + 1}</td>
-                      <td className="px-4 py-3.5 min-w-[130px] sticky left-[48px] z-10 bg-white border-r border-slate-100">
-                        <p className="font-semibold text-slate-900 leading-tight">{pond.name}</p>
-                        {stockDateFormatted !== "—" ? (
-                          <p className="text-[11px] text-teal-700 font-medium leading-tight mt-0.5">{stockDateFormatted}</p>
-                        ) : (
-                          <p className="text-[11px] text-slate-400 leading-tight mt-0.5">—</p>
-                        )}
-                      </td>
-                      <td className="hidden md:table-cell px-4 py-3.5 text-xs text-teal-700 font-medium whitespace-nowrap">
-                        {stockDateFormatted !== "—" ? (
-                          <span className="inline-flex items-center gap-1 bg-teal-50 px-2 py-0.5 rounded border border-teal-200">{stockDateFormatted}</span>
-                        ) : (
-                          <span className="text-slate-300">—</span>
-                        )}
-                      </td>
-                      <td className="hidden md:table-cell px-4 py-3.5 text-slate-500 font-['Barlow_Condensed',sans-serif] text-base">{pond.initialStock.toLocaleString()}</td>
-                      <td className="hidden md:table-cell px-4 py-3.5 font-semibold text-green-700 font-['Barlow_Condensed',sans-serif] text-base">{pond.currentCount.toLocaleString()}</td>
-                      <td className="px-4 py-3.5">{rec ? <span className="flex items-center gap-1.5"><Bdg label={rec.size} color={atMax ? "red" : "blue"} />{atMax && <span className="text-[10px] font-bold text-red-500">⚠ Limit</span>}</span> : <span className="text-slate-300 text-xs">—</span>}</td>
-                      <td className="px-4 py-3.5 font-medium">{rec ? `${rec.morning}kg` : <span className="text-slate-300">—</span>}</td>
-                      <td className="px-4 py-3.5 text-slate-500 text-xs">{rec?.morningTime || <span className="text-slate-300">—</span>}</td>
-                      <td className="px-4 py-3.5 font-medium">{rec ? `${rec.evening}kg` : <span className="text-slate-300">—</span>}</td>
-                      <td className="px-4 py-3.5 text-slate-500 text-xs">{rec?.eveningTime || <span className="text-slate-300">—</span>}</td>
-                      <td className="px-4 py-3.5">{rec ? <span className="inline-flex items-center gap-1.5"><span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-green-100 text-green-800 font-bold text-sm font-['Barlow_Condensed',sans-serif]">{rec.total}kg</span>{isEdited && <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-700">Edited</span>}</span> : <span className="text-slate-200 text-xs">Not fed</span>}</td>
-                      <td className="px-4 py-3.5 text-slate-400 text-xs">{rec?.recordedBy || <span className="text-slate-300">—</span>}</td>
-                      <td className="px-4 py-3.5" onClick={e => e.stopPropagation()}>
-                        <div className="flex items-center gap-1">
-                          {rec && (isRecordEditable(rec.date) ? (
-                            <>
-                              {canEdit && <button onClick={() => openEditRec(rec)} className="p-1.5 rounded-lg text-slate-300 hover:text-green-600 hover:bg-green-50 transition-colors" title="Edit record"><Pencil size={13} /></button>}
-                              {canDelete && onDeleteRecord && <button onClick={() => setDeleteRecId(rec.id)} className="p-1.5 rounded-lg text-slate-300 hover:text-red-600 hover:bg-red-50 transition-colors" title="Delete record"><Trash2 size={13} /></button>}
-                            </>
-                          ) : <button onClick={() => alert("This record can only be edited by an Administrator or Manager after 24 hours.")} className="p-1.5 rounded-lg text-slate-200 cursor-not-allowed" title="Locked after 24 hours"><Lock size={13} /></button>)}
+            {filteredDayRows.length === 0 ? (
+              <div className="py-10 text-center bg-white border border-slate-200/80 rounded-2xl p-4 shadow-xs">
+                <Droplets size={28} className="text-slate-300 mx-auto mb-2" />
+                <p className="text-xs font-semibold text-slate-500">{dailySearch ? "No ponds match search" : `No feeding recorded on ${selDate}`}</p>
+                <p className="text-[11px] text-slate-400 mt-1">Select a date or log feeding</p>
+              </div>
+            ) : (
+              filteredDayRows.map(({ pond, rec }, i) => {
+                const hasFeed = !!rec;
+                const pondMaxKgMap = pond.maxKgByPallet;
+                const atMax = hasFeed && pondMaxKgMap && rec!.size in pondMaxKgMap && (feedingRecords || []).filter(r => r && r.pond === pond.name && r.size === rec!.size).reduce((s, r) => s + (Number(r.total) || 0), 0) >= (pondMaxKgMap[rec!.size] || Infinity);
+                const isEdited = (rec?.editHistory?.length || 0) > 0;
+                const stockDateFormatted = pond.stockingDate && pond.stockingDate !== "—" ? formatFishStockDate(pond.stockingDate) : "—";
+                const isMenuOpen = activeDailyMenuId === pond.id;
+
+                return (
+                  <div
+                    key={pond.id}
+                    onClick={() => rec && setViewFeedRec(rec)}
+                    className={`bg-white border border-slate-200/80 rounded-2xl p-4 shadow-xs transition-all relative ${hasFeed ? "hover:border-green-300 hover:shadow-sm cursor-pointer" : "opacity-70"}`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h3 className="font-bold text-slate-900 text-sm sm:text-base">{pond.name}</h3>
+                          {stockDateFormatted !== "—" && (
+                            <span className="text-[10px] text-teal-700 bg-teal-50 px-2 py-0.5 rounded border border-teal-200 font-medium">
+                              {stockDateFormatted}
+                            </span>
+                          )}
                         </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-              {dayGrand > 0 && (
-                <tfoot>
-                  <tr className="bg-slate-50 border-t-2 border-slate-200">
-                    <td colSpan={11} className="hidden md:table-cell px-4 py-3 text-right text-xs font-bold text-slate-500 uppercase tracking-wider">Grand Total</td>
-                    <td className="px-4 py-3"><span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-green-600 text-white font-bold text-sm font-['Barlow_Condensed',sans-serif]">{dayGrand}kg</span></td>
-                    <td colSpan={2} />
-                  </tr>
-                </tfoot>
-              )}
-            </table>
-          </div>
+                        <p className="text-[11px] text-slate-500 mt-0.5">
+                          Stock: <strong className="text-slate-700">{pond.currentCount.toLocaleString()}</strong> fish
+                          {pond.initialStock > 0 && <span className="text-slate-400"> (Initial: {pond.initialStock.toLocaleString()})</span>}
+                        </p>
+                      </div>
 
-          {/* Mobile Card View */}
-          <div className="md:hidden divide-y divide-slate-100">
-            {filteredDayRows.map(({ pond, rec }, i) => {
-              const hasFeed = !!rec;
-              const pondMaxKgMap = pond.maxKgByPallet;
-              const atMax = hasFeed && pondMaxKgMap && rec!.size in pondMaxKgMap && (feedingRecords || []).filter(r => r && r.pond === pond.name && r.size === rec!.size).reduce((s, r) => s + (Number(r.total) || 0), 0) >= (pondMaxKgMap[rec!.size] || Infinity);
-              const isEdited = (rec?.editHistory?.length || 0) > 0;
-              const stockDateFormatted = pond.stockingDate && pond.stockingDate !== "—" ? formatFishStockDate(pond.stockingDate) : "—";
-              const isMenuOpen = activeDailyMenuId === pond.id;
-
-              return (
-                <div
-                  key={pond.id}
-                  onClick={() => rec && setViewFeedRec(rec)}
-                  className={`p-4 transition-colors relative ${hasFeed ? "hover:bg-green-50/30 cursor-pointer" : "opacity-60"}`}
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <h3 className="font-bold text-slate-900 text-sm">{pond.name}</h3>
-                        {stockDateFormatted !== "—" && (
-                          <span className="text-[10px] text-teal-700 bg-teal-50 px-2 py-0.5 rounded border border-teal-200 font-medium">
-                            {stockDateFormatted}
+                      <div className="flex items-center gap-1.5 shrink-0" onClick={e => e.stopPropagation()}>
+                        {hasFeed && (
+                          <span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-green-100 text-green-800 font-bold text-sm font-['Barlow_Condensed',sans-serif]">
+                            {rec.total} kg
                           </span>
                         )}
+                        {hasFeed && (
+                          <div className="relative">
+                            <button
+                              type="button"
+                              onClick={() => setActiveDailyMenuId(isMenuOpen ? null : pond.id)}
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+                              title="Actions"
+                            >
+                              <MoreVertical size={16} />
+                            </button>
+                            {isMenuOpen && (
+                              <div className="absolute right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl z-30 py-1 min-w-[130px] animate-in fade-in zoom-in-95 duration-100">
+                                <button
+                                  type="button"
+                                  onClick={() => { setActiveDailyMenuId(null); setViewFeedRec(rec); }}
+                                  className="w-full px-3 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                                >
+                                  <Eye size={13} className="text-slate-400" /> View Details
+                                </button>
+                                {isRecordEditable(rec.date) ? (
+                                  <>
+                                    {canEdit && (
+                                      <button
+                                        type="button"
+                                        onClick={() => { setActiveDailyMenuId(null); openEditRec(rec); }}
+                                        className="w-full px-3 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                                      >
+                                        <Pencil size={13} className="text-green-600" /> Edit Record
+                                      </button>
+                                    )}
+                                    {canDelete && onDeleteRecord && (
+                                      <button
+                                        type="button"
+                                        onClick={() => { setActiveDailyMenuId(null); setDeleteRecId(rec.id); }}
+                                        className="w-full px-3 py-2 text-left text-xs font-medium text-red-600 hover:bg-red-50 flex items-center gap-2"
+                                      >
+                                        <Trash2 size={13} className="text-red-500" /> Delete Record
+                                      </button>
+                                    )}
+                                  </>
+                                ) : (
+                                  <div className="px-3 py-1.5 text-[11px] text-slate-400 flex items-center gap-1.5">
+                                    <Lock size={12} /> Locked
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
-                      <p className="text-[11px] text-slate-500 mt-0.5">
-                        Stock: <strong className="text-slate-700">{pond.currentCount.toLocaleString()}</strong> fish
-                        {pond.initialStock > 0 && <span className="text-slate-400"> (Initial: {pond.initialStock.toLocaleString()})</span>}
-                      </p>
                     </div>
 
-                    <div className="flex items-center gap-1.5 shrink-0" onClick={e => e.stopPropagation()}>
-                      {hasFeed && (
-                        <span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-green-100 text-green-800 font-bold text-sm font-['Barlow_Condensed',sans-serif]">
-                          {rec.total} kg
-                        </span>
-                      )}
-                      {hasFeed && (
+                    {hasFeed ? (
+                      <div className="mt-3 pt-2.5 border-t border-slate-100 grid grid-cols-3 gap-2 text-xs">
+                        <div className="bg-slate-50 rounded-lg p-2">
+                          <span className="text-[10px] text-slate-400 block mb-0.5">Pellet Size</span>
+                          <div className="flex items-center gap-1">
+                            <Bdg label={rec.size} color={atMax ? "red" : "blue"} />
+                            {atMax && <span className="text-[10px] font-bold text-red-500">⚠ Limit</span>}
+                          </div>
+                        </div>
+                        <div className="bg-slate-50 rounded-lg p-2">
+                          <span className="text-[10px] text-slate-400 block mb-0.5">Morning</span>
+                          <span className="font-semibold text-slate-800">{rec.morning} kg</span>
+                        </div>
+                        <div className="bg-slate-50 rounded-lg p-2">
+                          <span className="text-[10px] text-slate-400 block mb-0.5">Evening</span>
+                          <span className="font-semibold text-slate-800">{rec.evening} kg</span>
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-slate-400 mt-2 italic">Not fed on {selDate}</p>
+                    )}
+                  </div>
+                );
+              })
+            )}
+
+            {dayGrand > 0 && (
+              <div className="p-4 bg-white border border-slate-200/80 rounded-2xl flex items-center justify-between shadow-xs">
+                <span className="text-xs font-bold text-slate-600 uppercase tracking-wide">Total Feed Fed</span>
+                <span className="inline-flex items-center px-3 py-1 rounded-xl bg-green-600 text-white font-bold text-base font-['Barlow_Condensed',sans-serif]">
+                  {dayGrand} kg
+                </span>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
+      {/* ── Opened Bags tab ── */}
+      {docTab === "bags" && (
+        <>
+          {/* Desktop Table View */}
+          <div className="hidden md:block">
+            <Card className="overflow-hidden">
+              <div className="px-5 py-3 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wider text-slate-600">Opened Bags — {selDate}</p>
+                  <p className="text-[11px] text-slate-400">{filteredMergedBagRows.length} entries</p>
+                </div>
+                <div className="relative">
+                  <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" />
+                  <input value={bagsSearch} onChange={e => setBagsSearch(e.target.value)} placeholder="Search stock, brand, or size…" className={`${IC} pl-8 w-52 text-xs py-1.5`} />
+                </div>
+              </div>
+
+              {/* Dismissible Highlighting Banner if navigated from reconciliation */}
+              {bagsHighlight && (
+                <div className="mx-4 sm:mx-5 my-2.5 px-3.5 py-2.5 bg-orange-50/90 border border-orange-200 rounded-xl flex items-center justify-between text-xs text-orange-950 animate-in fade-in duration-200 shadow-2xs">
+                  <div className="flex items-center gap-2">
+                    <AlertCircle size={15} className="text-orange-600 shrink-0" />
+                    <span>
+                      Showing discrepancy for <strong className="font-bold text-orange-950">{formatFishStock(bagsHighlight.stock)}</strong> ({bagsHighlight.size}). Update the highlighted cell below to reconcile.
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setBagsHighlight(null)}
+                    className="text-orange-700 hover:text-orange-950 font-bold text-xs px-2 py-0.5 hover:bg-orange-100 rounded-lg transition-colors ml-2 shrink-0"
+                  >
+                    Clear
+                  </button>
+                </div>
+              )}
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm min-w-[640px]">
+                  <thead>
+                    <tr className="border-b border-slate-100 bg-slate-50">
+                      <th className="text-left px-3.5 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider sticky left-0 z-30 bg-slate-50 border-r border-slate-200 min-w-[130px] max-w-[155px] shadow-[2px_0_5px_-2px_rgba(0,0,0,0.08)]">
+                        Fish Stock
+                      </th>
+                      <th className="text-left px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Feed Brand</th>
+                      <th className="text-left px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Pellet Size</th>
+                      <th className="text-left px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Bags Opened</th>
+                      <th className="text-left px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Feed Deducted</th>
+                      <th className="text-left px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Leftover Feed</th>
+                      <th className="px-3 py-3 w-10" />
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                    {filteredMergedBagRows.length === 0 && <tr><td colSpan={7} className="text-center text-xs text-slate-400 py-8">No bags logged for {selDate}</td></tr>}
+                    {filteredMergedBagRows.map((row, i) => {
+                      const isHighlightedRow = Boolean(
+                        bagsHighlight &&
+                        bagsHighlight.stock &&
+                        row.fishStock &&
+                        normalizeFishStock(bagsHighlight.stock) === normalizeFishStock(row.fishStock) &&
+                        bagsHighlight.size === row.size
+                      );
+
+                      const isBagsColHighlighted = isHighlightedRow && (bagsHighlight?.col === "bags" || bagsHighlight?.col === "all");
+                      const isRemainColHighlighted = isHighlightedRow && (bagsHighlight?.col === "remaining" || bagsHighlight?.col === "all");
+
+                      // Find reconciliation discrepancy for this stock & size
+                      const reconItem = reconRows.find(r =>
+                        normalizeFishStock(r.fishStock) === normalizeFishStock(row.fishStock) &&
+                        r.size === row.size &&
+                        (!row.brand || row.brand === "—" || !r.brand || r.brand === "—" || (typeof r.brand === "string" && typeof row.brand === "string" && r.brand.toLowerCase().trim() === row.brand.toLowerCase().trim()))
+                      ) || reconRows.find(r =>
+                        normalizeFishStock(r.fishStock) === normalizeFishStock(row.fishStock) &&
+                        r.size === row.size
+                      );
+
+                      const hasBagMismatch = Boolean(reconItem && reconItem.expectedBags !== row.bagsOpened);
+                      const hasRemainMismatch = Boolean(reconItem && Math.abs(reconItem.expectedRemaining - row.remainingKg) >= 0.1);
+
+                      return (
+                        <tr
+                          key={i}
+                          className={`hover:bg-slate-50/80 transition-colors ${isHighlightedRow ? "bg-orange-50/30" : ""}`}
+                        >
+                          {/* Sticky Fish Stock Column (Solid Opaque Background & High Z-Index) */}
+                          <td className={`px-3.5 py-3 sticky left-0 z-20 border-r border-slate-100 min-w-[130px] max-w-[155px] shadow-[2px_0_5px_-2px_rgba(0,0,0,0.08)] ${isHighlightedRow ? "!bg-[#fffbeb]" : "bg-white"}`}>
+                            <p className="font-bold text-slate-800 text-xs truncate" title={getStockDisplayName(row.fishStock, row.stockDate)}>
+                              {getStockDisplayName(row.fishStock, row.stockDate)}
+                            </p>
+                          </td>
+
+                          {/* Feed Brand */}
+                          <td className="px-4 py-3 font-semibold text-slate-700 text-xs whitespace-nowrap">{row.brand}</td>
+
+                          {/* Pellet Size */}
+                          <td className="px-4 py-3"><Bdg label={row.size} color="blue" /></td>
+
+                          {/* Bags Opened (with expected bags cleanly under it without boxed fields) */}
+                          <td className={`px-4 py-3 relative z-0 transition-all ${isBagsColHighlighted ? "bg-orange-50 ring-1 ring-orange-400 ring-inset rounded" : ""}`}>
+                            <div className="font-bold text-slate-900 text-xs">
+                              {row.bagsOpened > 0 ? `${row.bagsOpened} bag${row.bagsOpened !== 1 ? "s" : ""}` : <span className="text-slate-300">—</span>}
+                            </div>
+                            {reconItem ? (
+                              <p className={`text-[11px] font-medium mt-0.5 leading-tight ${hasBagMismatch ? "text-amber-600 font-semibold" : "text-slate-400"}`}>
+                                Exp: {reconItem.expectedBags} bag{reconItem.expectedBags !== 1 ? "s" : ""}
+                              </p>
+                            ) : null}
+                          </td>
+
+                          {/* Feed Deducted (kg) */}
+                          <td className="px-4 py-3 font-bold text-green-700 font-['Barlow_Condensed',sans-serif] text-base whitespace-nowrap">
+                            {row.totalKgOpened > 0 ? `${row.totalKgOpened} kg` : <span className="text-slate-300 text-xs font-normal">—</span>}
+                          </td>
+
+                          {/* Leftover Feed (kg) (with expected leftover cleanly under it without boxed fields) */}
+                          <td className={`px-4 py-3 relative z-0 transition-all ${isRemainColHighlighted ? "bg-amber-50 ring-1 ring-amber-400 ring-inset rounded" : ""}`}>
+                            <div className="font-semibold text-xs">
+                              {row.remainingKg > 0 ? <span className="text-slate-800 font-bold">{row.remainingKg} kg</span> : <span className="text-slate-300 text-xs">—</span>}
+                            </div>
+                            {reconItem ? (
+                              <p className={`text-[11px] font-medium mt-0.5 leading-tight ${hasRemainMismatch ? "text-amber-600 font-semibold" : "text-slate-400"}`}>
+                                Exp: {reconItem.expectedRemaining} kg
+                              </p>
+                            ) : null}
+                          </td>
+
+                          {/* Edit Button */}
+                          <td className="px-3 py-3 text-right">
+                            {canEdit && (
+                              isRecordEditable(row.lastBagLog?.date || selDate) ? (
+                                <button onClick={() => openEditMergedRow(row)} className="p-1.5 rounded text-slate-400 hover:text-green-600 hover:bg-green-50 transition-colors" title="Edit entry">
+                                  <Pencil size={13} />
+                                </button>
+                              ) : (
+                                <button onClick={() => alert("This record can only be edited by an Administrator or Manager after 24 hours.")} className="p-1.5 rounded text-slate-300 cursor-not-allowed" title="Locked">
+                                  <Lock size={13} />
+                                </button>
+                              )
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          </div>
+
+          {/* Mobile Isolated Cards View */}
+          <div className="md:hidden space-y-3">
+            {/* Mobile Search Bar */}
+            <div className="bg-white border border-slate-200/80 rounded-2xl p-3 shadow-xs flex items-center justify-between gap-2">
+              <div className="relative flex-1">
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" />
+                <input
+                  value={bagsSearch}
+                  onChange={e => setBagsSearch(e.target.value)}
+                  placeholder="Search stock, brand, or size…"
+                  className={`${IC} pl-8 w-full text-xs py-1.5`}
+                />
+              </div>
+              <span className="text-[11px] font-semibold text-slate-500 shrink-0">{filteredMergedBagRows.length} entries</span>
+            </div>
+
+            {/* Dismissible Highlighting Banner if navigated from reconciliation */}
+            {bagsHighlight && (
+              <div className="px-3.5 py-2.5 bg-orange-50 border border-orange-200 rounded-2xl flex items-center justify-between text-xs text-orange-950 shadow-xs">
+                <div className="flex items-center gap-2">
+                  <AlertCircle size={15} className="text-orange-600 shrink-0" />
+                  <span>
+                    Showing discrepancy for <strong className="font-bold text-orange-950">{formatFishStock(bagsHighlight.stock)}</strong> ({bagsHighlight.size}).
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setBagsHighlight(null)}
+                  className="text-orange-700 hover:text-orange-950 font-bold text-xs px-2 py-0.5 hover:bg-orange-100 rounded-lg transition-colors ml-2 shrink-0"
+                >
+                  Clear
+                </button>
+              </div>
+            )}
+
+            {filteredMergedBagRows.length === 0 ? (
+              <div className="py-8 text-center text-xs text-slate-400 bg-white border border-slate-200/80 rounded-2xl shadow-xs">
+                No bags logged for {selDate}
+              </div>
+            ) : (
+              filteredMergedBagRows.map((row, i) => {
+                const isHighlightedRow = Boolean(
+                  bagsHighlight &&
+                  bagsHighlight.stock &&
+                  row.fishStock &&
+                  normalizeFishStock(bagsHighlight.stock) === normalizeFishStock(row.fishStock) &&
+                  bagsHighlight.size === row.size
+                );
+
+                const reconItem = reconRows.find(r =>
+                  normalizeFishStock(r.fishStock) === normalizeFishStock(row.fishStock) &&
+                  r.size === row.size &&
+                  (!row.brand || row.brand === "—" || !r.brand || r.brand === "—" || (typeof r.brand === "string" && typeof row.brand === "string" && r.brand.toLowerCase().trim() === row.brand.toLowerCase().trim()))
+                ) || reconRows.find(r =>
+                  normalizeFishStock(r.fishStock) === normalizeFishStock(row.fishStock) &&
+                  r.size === row.size
+                );
+
+                const hasBagMismatch = Boolean(reconItem && reconItem.expectedBags !== row.bagsOpened);
+                const hasRemainMismatch = Boolean(reconItem && Math.abs(reconItem.expectedRemaining - row.remainingKg) >= 0.1);
+                const isMenuOpen = activeBagMenuId === `${row.fishStock}__${row.brand}__${row.size}`;
+
+                return (
+                  <div
+                    key={i}
+                    onClick={() => setViewBagDetail(row)}
+                    className={`bg-white border border-slate-200/80 rounded-2xl p-4 shadow-xs transition-all cursor-pointer hover:border-green-300 hover:shadow-sm relative ${isHighlightedRow ? "bg-orange-50/40 border-orange-300" : ""}`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <h3 className="font-bold text-slate-900 text-sm sm:text-base truncate">
+                          {getStockDisplayName(row.fishStock, row.stockDate)}
+                        </h3>
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className="text-xs font-semibold text-slate-600">{row.brand}</span>
+                          <Bdg label={row.size} color="blue" />
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-1.5 shrink-0" onClick={e => e.stopPropagation()}>
+                        {/* 3-dots Menu Button */}
                         <div className="relative">
                           <button
                             type="button"
-                            onClick={() => setActiveDailyMenuId(isMenuOpen ? null : pond.id)}
+                            onClick={() => setActiveBagMenuId(isMenuOpen ? null : `${row.fishStock}__${row.brand}__${row.size}`)}
                             className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
                             title="Actions"
                           >
@@ -1791,595 +2141,341 @@ function FeedDocumentation({
                             <div className="absolute right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl z-30 py-1 min-w-[130px] animate-in fade-in zoom-in-95 duration-100">
                               <button
                                 type="button"
-                                onClick={() => { setActiveDailyMenuId(null); setViewFeedRec(rec); }}
+                                onClick={() => { setActiveBagMenuId(null); setViewBagDetail(row); }}
                                 className="w-full px-3 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2"
                               >
                                 <Eye size={13} className="text-slate-400" /> View Details
                               </button>
-                              {isRecordEditable(rec.date) ? (
-                                <>
-                                  {canEdit && (
-                                    <button
-                                      type="button"
-                                      onClick={() => { setActiveDailyMenuId(null); openEditRec(rec); }}
-                                      className="w-full px-3 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2"
-                                    >
-                                      <Pencil size={13} className="text-green-600" /> Edit Record
-                                    </button>
-                                  )}
-                                  {canDelete && onDeleteRecord && (
-                                    <button
-                                      type="button"
-                                      onClick={() => { setActiveDailyMenuId(null); setDeleteRecId(rec.id); }}
-                                      className="w-full px-3 py-2 text-left text-xs font-medium text-red-600 hover:bg-red-50 flex items-center gap-2"
-                                    >
-                                      <Trash2 size={13} className="text-red-500" /> Delete Record
-                                    </button>
-                                  )}
-                                </>
-                              ) : (
-                                <div className="px-3 py-1.5 text-[11px] text-slate-400 flex items-center gap-1.5">
-                                  <Lock size={12} /> Locked
-                                </div>
+                              {canEdit && (
+                                isRecordEditable(row.lastBagLog?.date || selDate) ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => { setActiveBagMenuId(null); openEditMergedRow(row); }}
+                                    className="w-full px-3 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                                  >
+                                    <Pencil size={13} className="text-green-600" /> Edit Entry
+                                  </button>
+                                ) : (
+                                  <div className="px-3 py-1.5 text-[11px] text-slate-400 flex items-center gap-1.5">
+                                    <Lock size={12} /> Locked
+                                  </div>
+                                )
                               )}
                             </div>
                           )}
                         </div>
-                      )}
+                      </div>
                     </div>
-                  </div>
 
-                  {hasFeed ? (
+                    {/* Card Metrics Grid */}
                     <div className="mt-3 pt-2.5 border-t border-slate-100 grid grid-cols-3 gap-2 text-xs">
+                      {/* Bags Opened */}
                       <div className="bg-slate-50 rounded-lg p-2">
-                        <span className="text-[10px] text-slate-400 block mb-0.5">Pellet Size</span>
-                        <div className="flex items-center gap-1">
-                          <Bdg label={rec.size} color={atMax ? "red" : "blue"} />
-                          {atMax && <span className="text-[10px] font-bold text-red-500">⚠ Limit</span>}
-                        </div>
-                      </div>
-                      <div className="bg-slate-50 rounded-lg p-2">
-                        <span className="text-[10px] text-slate-400 block mb-0.5">Morning</span>
-                        <span className="font-semibold text-slate-800">{rec.morning} kg</span>
-                      </div>
-                      <div className="bg-slate-50 rounded-lg p-2">
-                        <span className="text-[10px] text-slate-400 block mb-0.5">Evening</span>
-                        <span className="font-semibold text-slate-800">{rec.evening} kg</span>
-                      </div>
-                    </div>
-                  ) : (
-                    <p className="text-xs text-slate-400 mt-2 italic">Not fed on {selDate}</p>
-                  )}
-                </div>
-              );
-            })}
-            {dayGrand > 0 && (
-              <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
-                <span className="text-xs font-bold text-slate-600 uppercase tracking-wide">Total Feed Fed</span>
-                <span className="inline-flex items-center px-3 py-1 rounded-xl bg-green-600 text-white font-bold text-base font-['Barlow_Condensed',sans-serif]">
-                  {dayGrand} kg
-                </span>
-              </div>
-            )}
-          </div>
-
-          {filteredDayRows.length === 0 && (
-            <div className="py-12 text-center">
-              <Droplets size={32} className="text-slate-200 mx-auto mb-3" />
-              <p className="text-sm font-semibold text-slate-400">{dailySearch ? "No ponds match search" : `No feeding recorded on ${selDate}`}</p>
-              <p className="text-xs text-slate-300 mt-1">Select a highlighted date or log a new session</p>
-            </div>
-          )}
-        </Card>
-      )}
-
-      {/* ── Opened Bags tab ── */}
-      {docTab === "bags" && (
-        <Card>
-          <div className="px-5 py-3 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <p className="text-xs font-bold uppercase tracking-wider text-slate-600">Opened Bags — {selDate}</p>
-              <p className="text-[11px] text-slate-400">{filteredMergedBagRows.length} entries</p>
-            </div>
-            <div className="relative">
-              <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" />
-              <input value={bagsSearch} onChange={e => setBagsSearch(e.target.value)} placeholder="Search stock, brand, or size…" className={`${IC} pl-8 w-52 text-xs py-1.5`} />
-            </div>
-          </div>
-
-          {/* Dismissible Highlighting Banner if navigated from reconciliation */}
-          {bagsHighlight && (
-            <div className="mx-4 sm:mx-5 my-2.5 px-3.5 py-2.5 bg-orange-50/90 border border-orange-200 rounded-xl flex items-center justify-between text-xs text-orange-950 animate-in fade-in duration-200 shadow-2xs">
-              <div className="flex items-center gap-2">
-                <AlertCircle size={15} className="text-orange-600 shrink-0" />
-                <span>
-                  Showing discrepancy for <strong className="font-bold text-orange-950">{formatFishStock(bagsHighlight.stock)}</strong> ({bagsHighlight.size}). Update the highlighted cell below to reconcile.
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setBagsHighlight(null)}
-                className="text-orange-700 hover:text-orange-950 font-bold text-xs px-2 py-0.5 hover:bg-orange-100 rounded-lg transition-colors ml-2 shrink-0"
-              >
-                Clear
-              </button>
-            </div>
-          )}
-
-          {/* Desktop Table View */}
-          <div className="hidden md:block overflow-x-auto">
-            <table className="w-full text-sm min-w-[640px]">
-              <thead>
-                <tr className="border-b border-slate-100 bg-slate-50">
-                  <th className="text-left px-3.5 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider sticky left-0 z-30 bg-slate-50 border-r border-slate-200 min-w-[130px] max-w-[155px] shadow-[2px_0_5px_-2px_rgba(0,0,0,0.08)]">
-                    Fish Stock
-                  </th>
-                  <th className="text-left px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Feed Brand</th>
-                  <th className="text-left px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Pellet Size</th>
-                  <th className="text-left px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Bags Opened</th>
-                  <th className="text-left px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Feed Deducted</th>
-                  <th className="text-left px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Leftover Feed</th>
-                  <th className="px-3 py-3 w-10" />
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-50">
-                {filteredMergedBagRows.length === 0 && <tr><td colSpan={7} className="text-center text-xs text-slate-400 py-8">No bags logged for {selDate}</td></tr>}
-                {filteredMergedBagRows.map((row, i) => {
-                  const isHighlightedRow = Boolean(
-                    bagsHighlight &&
-                    bagsHighlight.stock &&
-                    row.fishStock &&
-                    normalizeFishStock(bagsHighlight.stock) === normalizeFishStock(row.fishStock) &&
-                    bagsHighlight.size === row.size
-                  );
-
-                  const isBagsColHighlighted = isHighlightedRow && (bagsHighlight?.col === "bags" || bagsHighlight?.col === "all");
-                  const isRemainColHighlighted = isHighlightedRow && (bagsHighlight?.col === "remaining" || bagsHighlight?.col === "all");
-
-                  // Find reconciliation discrepancy for this stock & size
-                  const reconItem = reconRows.find(r =>
-                    normalizeFishStock(r.fishStock) === normalizeFishStock(row.fishStock) &&
-                    r.size === row.size &&
-                    (!row.brand || row.brand === "—" || !r.brand || r.brand === "—" || (typeof r.brand === "string" && typeof row.brand === "string" && r.brand.toLowerCase().trim() === row.brand.toLowerCase().trim()))
-                  ) || reconRows.find(r =>
-                    normalizeFishStock(r.fishStock) === normalizeFishStock(row.fishStock) &&
-                    r.size === row.size
-                  );
-
-                  const hasBagMismatch = Boolean(reconItem && reconItem.expectedBags !== row.bagsOpened);
-                  const hasRemainMismatch = Boolean(reconItem && Math.abs(reconItem.expectedRemaining - row.remainingKg) >= 0.1);
-
-                  return (
-                    <tr
-                      key={i}
-                      className={`hover:bg-slate-50/80 transition-colors ${isHighlightedRow ? "bg-orange-50/30" : ""}`}
-                    >
-                      {/* Sticky Fish Stock Column (Solid Opaque Background & High Z-Index) */}
-                      <td className={`px-3.5 py-3 sticky left-0 z-20 border-r border-slate-100 min-w-[130px] max-w-[155px] shadow-[2px_0_5px_-2px_rgba(0,0,0,0.08)] ${isHighlightedRow ? "!bg-[#fffbeb]" : "bg-white"}`}>
-                        <p className="font-bold text-slate-800 text-xs truncate" title={getStockDisplayName(row.fishStock, row.stockDate)}>
-                          {getStockDisplayName(row.fishStock, row.stockDate)}
-                        </p>
-                      </td>
-
-                      {/* Feed Brand */}
-                      <td className="px-4 py-3 font-semibold text-slate-700 text-xs whitespace-nowrap">{row.brand}</td>
-
-                      {/* Pellet Size */}
-                      <td className="px-4 py-3"><Bdg label={row.size} color="blue" /></td>
-
-                      {/* Bags Opened (with expected bags cleanly under it without boxed fields) */}
-                      <td className={`px-4 py-3 relative z-0 transition-all ${isBagsColHighlighted ? "bg-orange-50 ring-1 ring-orange-400 ring-inset rounded" : ""}`}>
-                        <div className="font-bold text-slate-900 text-xs">
-                          {row.bagsOpened > 0 ? `${row.bagsOpened} bag${row.bagsOpened !== 1 ? "s" : ""}` : <span className="text-slate-300">—</span>}
-                        </div>
+                        <span className="text-[10px] text-slate-400 block mb-0.5">Bags Opened</span>
+                        <span className="font-bold text-slate-900 text-xs">
+                          {row.bagsOpened > 0 ? `${row.bagsOpened} bag${row.bagsOpened !== 1 ? "s" : ""}` : "—"}
+                        </span>
                         {reconItem ? (
-                          <p className={`text-[11px] font-medium mt-0.5 leading-tight ${hasBagMismatch ? "text-amber-600 font-semibold" : "text-slate-400"}`}>
-                            Exp: {reconItem.expectedBags} bag{reconItem.expectedBags !== 1 ? "s" : ""}
+                          <p className={`text-[10px] font-medium mt-0.5 ${hasBagMismatch ? "text-amber-600 font-semibold" : "text-slate-400"}`}>
+                            Exp: {reconItem.expectedBags}
                           </p>
                         ) : null}
-                      </td>
+                      </div>
 
-                      {/* Feed Deducted (kg) */}
-                      <td className="px-4 py-3 font-bold text-green-700 font-['Barlow_Condensed',sans-serif] text-base whitespace-nowrap">
-                        {row.totalKgOpened > 0 ? `${row.totalKgOpened} kg` : <span className="text-slate-300 text-xs font-normal">—</span>}
-                      </td>
+                      {/* Feed Deducted */}
+                      <div className="bg-slate-50 rounded-lg p-2">
+                        <span className="text-[10px] text-slate-400 block mb-0.5">Feed Deducted</span>
+                        <span className="font-bold text-green-700 font-['Barlow_Condensed',sans-serif] text-sm">
+                          {row.totalKgOpened > 0 ? `${row.totalKgOpened} kg` : "—"}
+                        </span>
+                      </div>
 
-                      {/* Leftover Feed (kg) (with expected leftover cleanly under it without boxed fields) */}
-                      <td className={`px-4 py-3 relative z-0 transition-all ${isRemainColHighlighted ? "bg-amber-50 ring-1 ring-amber-400 ring-inset rounded" : ""}`}>
-                        <div className="font-semibold text-xs">
-                          {row.remainingKg > 0 ? <span className="text-slate-800 font-bold">{row.remainingKg} kg</span> : <span className="text-slate-300 text-xs">—</span>}
-                        </div>
+                      {/* Leftover Feed */}
+                      <div className="bg-slate-50 rounded-lg p-2">
+                        <span className="text-[10px] text-slate-400 block mb-0.5">Leftover Feed</span>
+                        <span className="font-semibold text-slate-800 text-xs">
+                          {row.remainingKg > 0 ? `${row.remainingKg} kg` : "—"}
+                        </span>
                         {reconItem ? (
-                          <p className={`text-[11px] font-medium mt-0.5 leading-tight ${hasRemainMismatch ? "text-amber-600 font-semibold" : "text-slate-400"}`}>
+                          <p className={`text-[10px] font-medium mt-0.5 ${hasRemainMismatch ? "text-amber-600 font-semibold" : "text-slate-400"}`}>
                             Exp: {reconItem.expectedRemaining} kg
                           </p>
                         ) : null}
-                      </td>
-
-                      {/* Edit Button */}
-                      <td className="px-3 py-3 text-right">
-                        {canEdit && (
-                          isRecordEditable(row.lastBagLog?.date || selDate) ? (
-                            <button onClick={() => openEditMergedRow(row)} className="p-1.5 rounded text-slate-400 hover:text-green-600 hover:bg-green-50 transition-colors" title="Edit entry">
-                              <Pencil size={13} />
-                            </button>
-                          ) : (
-                            <button onClick={() => alert("This record can only be edited by an Administrator or Manager after 24 hours.")} className="p-1.5 rounded text-slate-300 cursor-not-allowed" title="Locked">
-                              <Lock size={13} />
-                            </button>
-                          )
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Mobile Card View */}
-          <div className="md:hidden divide-y divide-slate-100">
-            {filteredMergedBagRows.length === 0 && (
-              <div className="py-8 text-center text-xs text-slate-400">
-                No bags logged for {selDate}
-              </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
             )}
-            {filteredMergedBagRows.map((row, i) => {
-              const isHighlightedRow = Boolean(
-                bagsHighlight &&
-                bagsHighlight.stock &&
-                row.fishStock &&
-                normalizeFishStock(bagsHighlight.stock) === normalizeFishStock(row.fishStock) &&
-                bagsHighlight.size === row.size
-              );
-
-              const reconItem = reconRows.find(r =>
-                normalizeFishStock(r.fishStock) === normalizeFishStock(row.fishStock) &&
-                r.size === row.size &&
-                (!row.brand || row.brand === "—" || !r.brand || r.brand === "—" || (typeof r.brand === "string" && typeof row.brand === "string" && r.brand.toLowerCase().trim() === row.brand.toLowerCase().trim()))
-              ) || reconRows.find(r =>
-                normalizeFishStock(r.fishStock) === normalizeFishStock(row.fishStock) &&
-                r.size === row.size
-              );
-
-              const hasBagMismatch = Boolean(reconItem && reconItem.expectedBags !== row.bagsOpened);
-              const hasRemainMismatch = Boolean(reconItem && Math.abs(reconItem.expectedRemaining - row.remainingKg) >= 0.1);
-              const isMenuOpen = activeBagMenuId === `${row.fishStock}__${row.brand}__${row.size}`;
-
-              return (
-                <div
-                  key={i}
-                  onClick={() => setViewBagDetail(row)}
-                  className={`p-4 transition-colors cursor-pointer relative hover:bg-slate-50/80 ${isHighlightedRow ? "bg-orange-50/40" : ""}`}
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0 flex-1">
-                      <h3 className="font-bold text-slate-900 text-sm truncate">
-                        {getStockDisplayName(row.fishStock, row.stockDate)}
-                      </h3>
-                      <div className="flex items-center gap-2 mt-1">
-                        <span className="text-xs font-semibold text-slate-600">{row.brand}</span>
-                        <Bdg label={row.size} color="blue" />
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-1.5 shrink-0" onClick={e => e.stopPropagation()}>
-                      {/* 3-dots Menu Button */}
-                      <div className="relative">
-                        <button
-                          type="button"
-                          onClick={() => setActiveBagMenuId(isMenuOpen ? null : `${row.fishStock}__${row.brand}__${row.size}`)}
-                          className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
-                          title="Actions"
-                        >
-                          <MoreVertical size={16} />
-                        </button>
-                        {isMenuOpen && (
-                          <div className="absolute right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl z-30 py-1 min-w-[130px] animate-in fade-in zoom-in-95 duration-100">
-                            <button
-                              type="button"
-                              onClick={() => { setActiveBagMenuId(null); setViewBagDetail(row); }}
-                              className="w-full px-3 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2"
-                            >
-                              <Eye size={13} className="text-slate-400" /> View Details
-                            </button>
-                            {canEdit && (
-                              isRecordEditable(row.lastBagLog?.date || selDate) ? (
-                                <button
-                                  type="button"
-                                  onClick={() => { setActiveBagMenuId(null); openEditMergedRow(row); }}
-                                  className="w-full px-3 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2"
-                                >
-                                  <Pencil size={13} className="text-green-600" /> Edit Entry
-                                </button>
-                              ) : (
-                                <div className="px-3 py-1.5 text-[11px] text-slate-400 flex items-center gap-1.5">
-                                  <Lock size={12} /> Locked
-                                </div>
-                              )
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Card Metrics Grid */}
-                  <div className="mt-3 pt-2.5 border-t border-slate-100 grid grid-cols-3 gap-2 text-xs">
-                    {/* Bags Opened */}
-                    <div className="bg-slate-50 rounded-lg p-2">
-                      <span className="text-[10px] text-slate-400 block mb-0.5">Bags Opened</span>
-                      <span className="font-bold text-slate-900 text-xs">
-                        {row.bagsOpened > 0 ? `${row.bagsOpened} bag${row.bagsOpened !== 1 ? "s" : ""}` : "—"}
-                      </span>
-                      {reconItem ? (
-                        <p className={`text-[10px] font-medium mt-0.5 ${hasBagMismatch ? "text-amber-600 font-semibold" : "text-slate-400"}`}>
-                          Exp: {reconItem.expectedBags}
-                        </p>
-                      ) : null}
-                    </div>
-
-                    {/* Feed Deducted */}
-                    <div className="bg-slate-50 rounded-lg p-2">
-                      <span className="text-[10px] text-slate-400 block mb-0.5">Feed Deducted</span>
-                      <span className="font-bold text-green-700 font-['Barlow_Condensed',sans-serif] text-sm">
-                        {row.totalKgOpened > 0 ? `${row.totalKgOpened} kg` : "—"}
-                      </span>
-                    </div>
-
-                    {/* Leftover Feed */}
-                    <div className="bg-slate-50 rounded-lg p-2">
-                      <span className="text-[10px] text-slate-400 block mb-0.5">Leftover Feed</span>
-                      <span className="font-semibold text-slate-800 text-xs">
-                        {row.remainingKg > 0 ? `${row.remainingKg} kg` : "—"}
-                      </span>
-                      {reconItem ? (
-                        <p className={`text-[10px] font-medium mt-0.5 ${hasRemainMismatch ? "text-amber-600 font-semibold" : "text-slate-400"}`}>
-                          Exp: {reconItem.expectedRemaining} kg
-                        </p>
-                      ) : null}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
           </div>
-        </Card>
+        </>
       )}
 
       {/* ── Reconciliation tab (Clean, Streamlined & Uncluttered) ── */}
       {docTab === "reconciliation" && (() => {
         const issues = filteredReconRows.filter(r => r.status !== "matched").length;
         return (
-          <Card className="overflow-hidden">
-            <div className="px-5 py-3.5 border-b border-slate-100 bg-white flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <h2 className="text-base font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Feed Reconciliation — {selDate}</h2>
-                <p className="text-xs text-slate-400 mt-0.5">Summary of feed usage and balance. Tap any row for full calculation breakdown.</p>
-              </div>
-              <div className="flex items-center gap-3 flex-wrap">
-                <div className="relative">
-                  <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" />
-                  <input value={reconSearch} onChange={e => setReconSearch(e.target.value)} placeholder="Search stock, brand, or pond…" className={`${IC} pl-8 w-52 text-xs py-1.5`} />
+          <>
+            {/* Desktop Table View */}
+            <div className="hidden md:block">
+              <Card className="overflow-hidden">
+                <div className="px-5 py-3.5 border-b border-slate-100 bg-white flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h2 className="text-base font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Feed Reconciliation — {selDate}</h2>
+                    <p className="text-xs text-slate-400 mt-0.5">Summary of feed usage and balance. Tap any row for full calculation breakdown.</p>
+                  </div>
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <div className="relative">
+                      <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" />
+                      <input value={reconSearch} onChange={e => setReconSearch(e.target.value)} placeholder="Search stock, brand, or pond…" className={`${IC} pl-8 w-52 text-xs py-1.5`} />
+                    </div>
+                    {issues > 0 ? (
+                      <span className="px-2.5 py-1 rounded-full bg-red-50 border border-red-200/80 text-red-600 text-xs font-semibold">{issues} discrepancy needing review</span>
+                    ) : (
+                      <span className="px-2.5 py-1 rounded-full bg-emerald-50 border border-emerald-200/80 text-emerald-700 text-xs font-semibold">All Balanced</span>
+                    )}
+                  </div>
+                </div>
+
+                {filteredReconRows.length === 0 ? (
+                  <div className="px-5 py-10 text-center">
+                    <p className="text-sm text-slate-400">No feeding data to reconcile for {selDate}.</p>
+                    <p className="text-xs text-slate-300 mt-1">Log feeding sessions and opened bags to see reconciliation.</p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm min-w-[720px]">
+                      <thead>
+                        <tr className="bg-slate-50/80 border-b border-slate-100">
+                          <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left sticky left-0 z-30 bg-slate-50 border-r border-slate-200 min-w-[140px] shadow-[2px_0_5px_-2px_rgba(0,0,0,0.08)]">
+                            Fish Stock &amp; Brand
+                          </th>
+                          <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left">Feed Given</th>
+                          <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left">Bags Opened</th>
+                          <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left">Leftover Feed</th>
+                          <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left">Status</th>
+                          <th className="px-4 py-3 w-8" />
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 bg-white">
+                        {filteredReconRows.map(r => {
+                          const rowKey = `${r.fishStock}||${r.size}||${r.brand}`;
+                          const highlighted = !!(reconFocus && (reconFocus.key === `${r.fishStock}__${r.size}` || reconFocus.key === `${r.fishStock}__${r.brand}__${r.size}`));
+                          const sc = STATUS_CFG[r.status] || STATUS_CFG.matched;
+                          const hasBagMismatch = r.status === "bag_mismatch" || r.status === "multiple_mismatches";
+                          const hasRemainMismatch = r.status === "remaining_mismatch" || r.status === "multiple_mismatches";
+
+                          return (
+                            <tr
+                              key={rowKey}
+                              onClick={() => setPopupRecon(r)}
+                              className={`group cursor-pointer transition-colors hover:bg-slate-50/80 ${highlighted ? "outline outline-2 outline-green-400" : ""}`}
+                              title="Click to view full reconciliation breakdown"
+                            >
+                              {/* Fish Stock & Brand / Pellet Size */}
+                              <td className="px-4 py-3.5 sticky left-0 z-20 bg-white group-hover:bg-slate-50/80 border-r border-slate-100 min-w-[140px] shadow-[2px_0_5px_-2px_rgba(0,0,0,0.08)]">
+                                <p className="text-xs font-bold text-slate-800 leading-tight truncate">{getStockDisplayName(r.fishStock, r.stockDate)}</p>
+                                <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                                  <Bdg label={r.size} color="blue" />
+                                  <span className="text-[11px] text-slate-500 font-medium">{r.brand}</span>
+                                </div>
+                              </td>
+
+                              {/* Feed Given */}
+                              <td className="px-4 py-3.5 whitespace-nowrap">
+                                <span className="font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] text-base">{r.totalFed} kg</span>
+                                <p className="text-[11px] text-slate-400 mt-0.5 truncate max-w-[160px]">
+                                  {r.ponds.length === 0 ? "No ponds" : r.ponds.length === 1 ? r.ponds[0] : `${r.ponds.length} ponds: ${r.ponds.join(", ")}`}
+                                </p>
+                              </td>
+
+                              {/* Bags Opened */}
+                              <td className="px-4 py-3.5 whitespace-nowrap">
+                                {hasBagMismatch ? (
+                                  <div>
+                                    <span className="text-xs font-bold text-orange-700">{r.recordedBags} bag{r.recordedBags !== 1 ? "s" : ""}</span>
+                                    <span className="text-[11px] text-slate-400 font-medium block mt-0.5">Exp: {r.expectedBags} bag{r.expectedBags !== 1 ? "s" : ""}</span>
+                                  </div>
+                                ) : (
+                                  <div>
+                                    <span className="text-xs font-semibold text-slate-800">{r.recordedBags} bag{r.recordedBags !== 1 ? "s" : ""}</span>
+                                    <span className="text-[11px] text-slate-400 font-medium block mt-0.5">Exp: {r.expectedBags}</span>
+                                  </div>
+                                )}
+                              </td>
+
+                              {/* Leftover Feed */}
+                              <td className="px-4 py-3.5 whitespace-nowrap">
+                                {hasRemainMismatch ? (
+                                  <div>
+                                    <span className="text-xs font-bold text-amber-700">{r.recordedRemaining} kg</span>
+                                    <span className="text-[11px] text-slate-400 font-medium block mt-0.5">Exp: {r.expectedRemaining} kg</span>
+                                  </div>
+                                ) : (
+                                  <div>
+                                    <span className="text-xs font-semibold text-slate-700">{r.recordedRemaining} kg</span>
+                                    <span className="text-[11px] text-slate-400 font-medium block mt-0.5">Exp: {r.expectedRemaining} kg</span>
+                                  </div>
+                                )}
+                              </td>
+
+                              {/* Status */}
+                              <td className="px-4 py-3.5 whitespace-nowrap">
+                                <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold ${sc.cls}`}>
+                                  {sc.label}
+                                </span>
+                              </td>
+
+                              {/* Action Arrow */}
+                              <td className="px-4 py-3.5 text-right">
+                                <span className="text-slate-300 group-hover:text-green-600 transition-colors inline-block text-xs font-bold">
+                                  <ChevronRight size={15} />
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </Card>
+            </div>
+
+            {/* Mobile Isolated Cards View */}
+            <div className="md:hidden space-y-3">
+              {/* Mobile Search and Status Header */}
+              <div className="bg-white border border-slate-200/80 rounded-2xl p-3 shadow-xs flex flex-wrap items-center justify-between gap-2">
+                <div className="relative flex-1 min-w-[160px]">
+                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" />
+                  <input
+                    value={reconSearch}
+                    onChange={e => setReconSearch(e.target.value)}
+                    placeholder="Search stock, brand, or pond…"
+                    className={`${IC} pl-8 w-full text-xs py-1.5`}
+                  />
                 </div>
                 {issues > 0 ? (
-                  <span className="px-2.5 py-1 rounded-full bg-red-50 border border-red-200/80 text-red-600 text-xs font-semibold">{issues} discrepancy needing review</span>
+                  <span className="px-2.5 py-1 rounded-full bg-red-50 border border-red-200/80 text-red-600 text-xs font-semibold shrink-0">
+                    {issues} discrepancy
+                  </span>
                 ) : (
-                  <span className="px-2.5 py-1 rounded-full bg-emerald-50 border border-emerald-200/80 text-emerald-700 text-xs font-semibold">All Balanced</span>
+                  <span className="px-2.5 py-1 rounded-full bg-emerald-50 border border-emerald-200/80 text-emerald-700 text-xs font-semibold shrink-0">
+                    All Balanced
+                  </span>
                 )}
               </div>
-            </div>
-            {filteredReconRows.length === 0 ? (
-              <div className="px-5 py-10 text-center">
-                <p className="text-sm text-slate-400">No feeding data to reconcile for {selDate}.</p>
-                <p className="text-xs text-slate-300 mt-1">Log feeding sessions and opened bags to see reconciliation.</p>
-              </div>
-            ) : (
-              <>
-                {/* Desktop Table View */}
-                <div className="hidden md:block overflow-x-auto">
-            <table className="w-full text-sm min-w-[720px]">
-              <thead>
-                <tr className="bg-slate-50/80 border-b border-slate-100">
-                  <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left sticky left-0 z-30 bg-slate-50 border-r border-slate-200 min-w-[140px] shadow-[2px_0_5px_-2px_rgba(0,0,0,0.08)]">
-                    Fish Stock &amp; Brand
-                  </th>
-                  <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left">Feed Given</th>
-                  <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left">Bags Opened</th>
-                  <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left">Leftover Feed</th>
-                  <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left">Status</th>
-                  <th className="px-4 py-3 w-8" />
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 bg-white">
-                {filteredReconRows.map(r => {
+
+              {filteredReconRows.length === 0 ? (
+                <div className="px-5 py-10 text-center bg-white border border-slate-200/80 rounded-2xl shadow-xs">
+                  <p className="text-sm text-slate-400">No feeding data to reconcile for {selDate}.</p>
+                  <p className="text-xs text-slate-300 mt-1">Log feeding sessions and opened bags to see reconciliation.</p>
+                </div>
+              ) : (
+                filteredReconRows.map(r => {
                   const rowKey = `${r.fishStock}||${r.size}||${r.brand}`;
                   const highlighted = !!(reconFocus && (reconFocus.key === `${r.fishStock}__${r.size}` || reconFocus.key === `${r.fishStock}__${r.brand}__${r.size}`));
                   const sc = STATUS_CFG[r.status] || STATUS_CFG.matched;
                   const hasBagMismatch = r.status === "bag_mismatch" || r.status === "multiple_mismatches";
                   const hasRemainMismatch = r.status === "remaining_mismatch" || r.status === "multiple_mismatches";
+                  const isMenuOpen = activeReconMenuId === rowKey;
 
                   return (
-                    <tr
+                    <div
                       key={rowKey}
                       onClick={() => setPopupRecon(r)}
-                      className={`group cursor-pointer transition-colors hover:bg-slate-50/80 ${highlighted ? "outline outline-2 outline-green-400" : ""}`}
-                      title="Click to view full reconciliation breakdown"
+                      className={`bg-white border border-slate-200/80 rounded-2xl p-4 shadow-xs transition-all cursor-pointer hover:border-green-300 hover:shadow-sm relative ${highlighted ? "outline outline-2 outline-green-400" : ""}`}
                     >
-                      {/* Fish Stock & Brand / Pellet Size */}
-                      <td className="px-4 py-3.5 sticky left-0 z-20 bg-white group-hover:bg-slate-50/80 border-r border-slate-100 min-w-[140px] shadow-[2px_0_5px_-2px_rgba(0,0,0,0.08)]">
-                        <p className="text-xs font-bold text-slate-800 leading-tight truncate">{getStockDisplayName(r.fishStock, r.stockDate)}</p>
-                        <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                          <Bdg label={r.size} color="blue" />
-                          <span className="text-[11px] text-slate-500 font-medium">{r.brand}</span>
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <h3 className="font-bold text-slate-900 text-sm sm:text-base truncate">
+                            {getStockDisplayName(r.fishStock, r.stockDate)}
+                          </h3>
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className="text-xs font-semibold text-slate-600">{r.brand}</span>
+                            <Bdg label={r.size} color="blue" />
+                          </div>
                         </div>
-                      </td>
 
-                      {/* Feed Given */}
-                      <td className="px-4 py-3.5 whitespace-nowrap">
-                        <span className="font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] text-base">{r.totalFed} kg</span>
-                        <p className="text-[11px] text-slate-400 mt-0.5 truncate max-w-[160px]">
-                          {r.ponds.length === 0 ? "No ponds" : r.ponds.length === 1 ? r.ponds[0] : `${r.ponds.length} ponds: ${r.ponds.join(", ")}`}
-                        </p>
-                      </td>
-
-                      {/* Bags Opened */}
-                      <td className="px-4 py-3.5 whitespace-nowrap">
-                        {hasBagMismatch ? (
-                          <div>
-                            <span className="text-xs font-bold text-orange-700">{r.recordedBags} bag{r.recordedBags !== 1 ? "s" : ""}</span>
-                            <span className="text-[11px] text-slate-400 font-medium block mt-0.5">Exp: {r.expectedBags} bag{r.expectedBags !== 1 ? "s" : ""}</span>
-                          </div>
-                        ) : (
-                          <div>
-                            <span className="text-xs font-semibold text-slate-800">{r.recordedBags} bag{r.recordedBags !== 1 ? "s" : ""}</span>
-                            <span className="text-[11px] text-slate-400 font-medium block mt-0.5">Exp: {r.expectedBags}</span>
-                          </div>
-                        )}
-                      </td>
-
-                      {/* Leftover Feed */}
-                      <td className="px-4 py-3.5 whitespace-nowrap">
-                        {hasRemainMismatch ? (
-                          <div>
-                            <span className="text-xs font-bold text-amber-700">{r.recordedRemaining} kg</span>
-                            <span className="text-[11px] text-slate-400 font-medium block mt-0.5">Exp: {r.expectedRemaining} kg</span>
-                          </div>
-                        ) : (
-                          <div>
-                            <span className="text-xs font-semibold text-slate-700">{r.recordedRemaining} kg</span>
-                            <span className="text-[11px] text-slate-400 font-medium block mt-0.5">Exp: {r.expectedRemaining} kg</span>
-                          </div>
-                        )}
-                      </td>
-
-                      {/* Status */}
-                      <td className="px-4 py-3.5 whitespace-nowrap">
-                        <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold ${sc.cls}`}>
-                          {sc.label}
-                        </span>
-                      </td>
-
-                      {/* Action Arrow */}
-                      <td className="px-4 py-3.5 text-right">
-                        <span className="text-slate-300 group-hover:text-green-600 transition-colors inline-block text-xs font-bold">
-                          <ChevronRight size={15} />
-                        </span>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Mobile Card View */}
-          <div className="md:hidden divide-y divide-slate-100">
-            {filteredReconRows.map(r => {
-              const rowKey = `${r.fishStock}||${r.size}||${r.brand}`;
-              const highlighted = !!(reconFocus && (reconFocus.key === `${r.fishStock}__${r.size}` || reconFocus.key === `${r.fishStock}__${r.brand}__${r.size}`));
-              const sc = STATUS_CFG[r.status] || STATUS_CFG.matched;
-              const hasBagMismatch = r.status === "bag_mismatch" || r.status === "multiple_mismatches";
-              const hasRemainMismatch = r.status === "remaining_mismatch" || r.status === "multiple_mismatches";
-              const isMenuOpen = activeReconMenuId === rowKey;
-
-              return (
-                <div
-                  key={rowKey}
-                  onClick={() => setPopupRecon(r)}
-                  className={`p-4 transition-colors cursor-pointer relative hover:bg-slate-50/80 ${highlighted ? "outline outline-2 outline-green-400" : ""}`}
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0 flex-1">
-                      <h3 className="font-bold text-slate-900 text-sm truncate">
-                        {getStockDisplayName(r.fishStock, r.stockDate)}
-                      </h3>
-                      <div className="flex items-center gap-2 mt-1">
-                        <span className="text-xs font-semibold text-slate-600">{r.brand}</span>
-                        <Bdg label={r.size} color="blue" />
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-1.5 shrink-0" onClick={e => e.stopPropagation()}>
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold ${sc.cls}`}>
-                        {sc.label}
-                      </span>
-                      {/* 3-dots Menu Button */}
-                      <div className="relative">
-                        <button
-                          type="button"
-                          onClick={() => setActiveReconMenuId(isMenuOpen ? null : rowKey)}
-                          className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
-                          title="Actions"
-                        >
-                          <MoreVertical size={16} />
-                        </button>
-                        {isMenuOpen && (
-                          <div className="absolute right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl z-30 py-1 min-w-[140px] animate-in fade-in zoom-in-95 duration-100">
+                        <div className="flex items-center gap-1.5 shrink-0" onClick={e => e.stopPropagation()}>
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold ${sc.cls}`}>
+                            {sc.label}
+                          </span>
+                          {/* 3-dots Menu Button */}
+                          <div className="relative">
                             <button
                               type="button"
-                              onClick={() => { setActiveReconMenuId(null); setPopupRecon(r); }}
-                              className="w-full px-3 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                              onClick={() => setActiveReconMenuId(isMenuOpen ? null : rowKey)}
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+                              title="Actions"
                             >
-                              <Eye size={13} className="text-slate-400" /> View Breakdown
+                              <MoreVertical size={16} />
                             </button>
-                            {r.status !== "matched" && (
-                              <button
-                                type="button"
-                                onClick={() => { setActiveReconMenuId(null); goToOpenedBags(r.fishStock, r.size, r.brand); }}
-                                className="w-full px-3 py-2 text-left text-xs font-medium text-blue-600 hover:bg-blue-50 flex items-center gap-2"
-                              >
-                                <Layers size={13} className="text-blue-500" /> Go to Opened Bags
-                              </button>
+                            {isMenuOpen && (
+                              <div className="absolute right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl z-30 py-1 min-w-[140px] animate-in fade-in zoom-in-95 duration-100">
+                                <button
+                                  type="button"
+                                  onClick={() => { setActiveReconMenuId(null); setPopupRecon(r); }}
+                                  className="w-full px-3 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                                >
+                                  <Eye size={13} className="text-slate-400" /> View Breakdown
+                                </button>
+                                {r.status !== "matched" && (
+                                  <button
+                                    type="button"
+                                    onClick={() => { setActiveReconMenuId(null); goToOpenedBags(r.fishStock, r.size, r.brand); }}
+                                    className="w-full px-3 py-2 text-left text-xs font-medium text-blue-600 hover:bg-blue-50 flex items-center gap-2"
+                                  >
+                                    <Layers size={13} className="text-blue-500" /> Go to Opened Bags
+                                  </button>
+                                )}
+                              </div>
                             )}
                           </div>
-                        )}
+                        </div>
+                      </div>
+
+                      {/* Metrics Grid */}
+                      <div className="mt-3 pt-2.5 border-t border-slate-100 grid grid-cols-3 gap-2 text-xs">
+                        {/* Feed Given */}
+                        <div className="bg-slate-50 rounded-lg p-2">
+                          <span className="text-[10px] text-slate-400 block mb-0.5">Feed Given</span>
+                          <span className="font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] text-sm">
+                            {r.totalFed} kg
+                          </span>
+                          <p className="text-[10px] text-slate-400 mt-0.5 truncate">
+                            {r.ponds.length} pond{r.ponds.length !== 1 ? "s" : ""}
+                          </p>
+                        </div>
+
+                        {/* Bags Opened */}
+                        <div className="bg-slate-50 rounded-lg p-2">
+                          <span className="text-[10px] text-slate-400 block mb-0.5">Bags Opened</span>
+                          <span className={`text-xs font-bold ${hasBagMismatch ? "text-orange-700" : "text-slate-800"}`}>
+                            {r.recordedBags} bag{r.recordedBags !== 1 ? "s" : ""}
+                          </span>
+                          <p className="text-[10px] text-slate-400 mt-0.5">
+                            Exp: {r.expectedBags}
+                          </p>
+                        </div>
+
+                        {/* Leftover Feed */}
+                        <div className="bg-slate-50 rounded-lg p-2">
+                          <span className="text-[10px] text-slate-400 block mb-0.5">Leftover Feed</span>
+                          <span className={`text-xs font-semibold ${hasRemainMismatch ? "text-amber-700 font-bold" : "text-slate-700"}`}>
+                            {r.recordedRemaining} kg
+                          </span>
+                          <p className="text-[10px] text-slate-400 mt-0.5">
+                            Exp: {r.expectedRemaining} kg
+                          </p>
+                        </div>
                       </div>
                     </div>
-                  </div>
-
-                  {/* Metrics Grid */}
-                  <div className="mt-3 pt-2.5 border-t border-slate-100 grid grid-cols-3 gap-2 text-xs">
-                    {/* Feed Given */}
-                    <div className="bg-slate-50 rounded-lg p-2">
-                      <span className="text-[10px] text-slate-400 block mb-0.5">Feed Given</span>
-                      <span className="font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] text-sm">
-                        {r.totalFed} kg
-                      </span>
-                      <p className="text-[10px] text-slate-400 mt-0.5 truncate">
-                        {r.ponds.length} pond{r.ponds.length !== 1 ? "s" : ""}
-                      </p>
-                    </div>
-
-                    {/* Bags Opened */}
-                    <div className="bg-slate-50 rounded-lg p-2">
-                      <span className="text-[10px] text-slate-400 block mb-0.5">Bags Opened</span>
-                      <span className={`text-xs font-bold ${hasBagMismatch ? "text-orange-700" : "text-slate-800"}`}>
-                        {r.recordedBags} bag{r.recordedBags !== 1 ? "s" : ""}
-                      </span>
-                      <p className="text-[10px] text-slate-400 mt-0.5">
-                        Exp: {r.expectedBags}
-                      </p>
-                    </div>
-
-                    {/* Leftover Feed */}
-                    <div className="bg-slate-50 rounded-lg p-2">
-                      <span className="text-[10px] text-slate-400 block mb-0.5">Leftover Feed</span>
-                      <span className={`text-xs font-semibold ${hasRemainMismatch ? "text-amber-700 font-bold" : "text-slate-700"}`}>
-                        {r.recordedRemaining} kg
-                      </span>
-                      <p className="text-[10px] text-slate-400 mt-0.5">
-                        Exp: {r.expectedRemaining} kg
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-              </>
-            )}
-          </Card>
+                  );
+                })
+              )}
+            </div>
+          </>
         );
       })()}
 
