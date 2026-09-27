@@ -32,6 +32,8 @@ export interface AdminUser {
   hasPaid?: boolean;
   paystackReference?: string;
   lastPaymentDate?: string;
+  referralCode?: string;
+  referredBy?: string;
   createdAt?: string;
 }
 

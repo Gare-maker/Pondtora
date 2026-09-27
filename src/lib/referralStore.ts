@@ -1,4 +1,3 @@
-import { supabase } from "./supabase";
 import type { AdminUser } from "../admin/types";
 import { loadAllAdminUsers, saveAllAdminUsers, logActivity } from "./userSync";
 
