@@ -52,7 +52,8 @@ GRANT EXECUTE ON FUNCTION public.is_admin() TO authenticated, anon;
 -- from the customer user list and only tracked as operational staff under their farm.
 -- Auto-repairs user_profiles and farms for any registered farm owners in auth.users.
 -- ------------------------------------------------------------------------------
-DROP FUNCTION IF EXISTS public.get_all_users_for_admin();
+DROP FUNCTION IF EXISTS public.get_all_users_for_admin() CASCADE;
+DROP FUNCTION IF EXISTS public.get_all_users_for_admin CASCADE;
 
 CREATE OR REPLACE FUNCTION public.get_all_users_for_admin()
 RETURNS TABLE (
@@ -206,6 +207,8 @@ GRANT EXECUTE ON FUNCTION public.get_all_users_for_admin() TO authenticated, ano
 -- 3. Admin Update Function: admin_update_user_profile()
 -- Allows authenticated Admin to update any user's profile, role, status, and active plan
 -- ------------------------------------------------------------------------------
+DROP FUNCTION IF EXISTS public.admin_update_user_profile CASCADE;
+
 CREATE OR REPLACE FUNCTION public.admin_update_user_profile(
   target_user_id UUID,
   new_name TEXT DEFAULT NULL,
