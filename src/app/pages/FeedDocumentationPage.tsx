@@ -320,6 +320,25 @@ function FeedDocumentation({
     return trimmed;
   };
 
+  const getStockDisplayName = (fishStock?: string | null, stockDate?: string | null): string => {
+    if (stockDate && stockDate !== "—" && stockDate !== "General Stock") {
+      const fmt = formatFishStockDate(stockDate);
+      if (fmt && fmt !== "—") return fmt;
+      return stockDate;
+    }
+    if (!fishStock || fishStock === "—") return "—";
+    if (/^\d{4}-\d{2}-\d{2}$/.test(fishStock)) {
+      const fmt = formatFishStockDate(fishStock);
+      if (fmt && fmt !== "—") return fmt;
+    }
+    const matchingPond = (ponds || []).find(p => p && (pondToStock(p.name) === fishStock || p.name === fishStock));
+    if (matchingPond?.stockingDate && matchingPond.stockingDate !== "—") {
+      const fmt = formatFishStockDate(matchingPond.stockingDate);
+      if (fmt && fmt !== "—") return fmt;
+    }
+    return formatFishStock(fishStock);
+  };
+
   /* ── reconFocus effect ── */
   useEffect(() => {
     if (!reconFocus || !reconFocus.date) return;
@@ -612,30 +631,71 @@ function FeedDocumentation({
 
   const openEditDocBag = (b: BagOpenLog) => {
     setEditDocBag({ ...b });
-    const fs = b.fishStock || "";
-    const existing = (remainLogs || []).find(r => isSameDate(r.date, b.date) && r.brand === b.brand && r.size === b.size && r.fishStock === fs);
+    const fs = normalizeFishStock(b.fishStock) || "";
+    const existing = (remainLogs || []).find(r => isSameDate(r.date, b.date) && r.brand === b.brand && r.size === b.size && normalizeFishStock(r.fishStock) === fs);
     setEditBagRemainKg(existing ? String(existing.remainingKg) : "");
+  };
+
+  const openEditMergedRow = (row: MergedBagRow) => {
+    const brand = row.brand && row.brand !== "—" ? row.brand : (invBrands[0] || "");
+    const size = row.size && row.size !== "—" ? row.size : (invSizesForBrand(brand)[0] || "");
+    const inv = (inventory || []).find(f => f && f.brand === brand && f.size === size);
+    const kgPb = row.lastBagLog?.kgPerBag || inv?.weightPerBag || 15;
+
+    const bLog: BagOpenLog = row.lastBagLog || {
+      id: uid(),
+      date: selDate,
+      month: toMon(selDate),
+      year: toYr(selDate),
+      brand,
+      size,
+      kgPerBag: kgPb,
+      bagsOpened: row.bagsOpened,
+      totalKg: row.totalKgOpened || (row.bagsOpened * kgPb),
+      fishStock: row.fishStock
+    };
+
+    setEditDocBag(bLog);
+    const fs = normalizeFishStock(row.fishStock) || "";
+    const existing = (remainLogs || []).find(r => isSameDate(r.date, selDate) && r.brand === brand && r.size === size && normalizeFishStock(r.fishStock) === fs);
+    setEditBagRemainKg(existing ? String(existing.remainingKg) : (row.remainingKg > 0 ? String(row.remainingKg) : ""));
   };
 
   const handleSaveEditDocBag = () => {
     if (!editDocBag) return;
-    onEditBagLog && onEditBagLog({ ...editDocBag, totalKg: editDocBag.bagsOpened * editDocBag.kgPerBag });
+    const existingBag = (bagLogs || []).find(b => b.id === editDocBag.id || (isSameDate(b.date, editDocBag.date) && b.brand === editDocBag.brand && b.size === editDocBag.size && normalizeFishStock(b.fishStock) === normalizeFishStock(editDocBag.fishStock)));
+
+    if (existingBag) {
+      onEditBagLog && onEditBagLog({ ...existingBag, bagsOpened: editDocBag.bagsOpened, kgPerBag: editDocBag.kgPerBag, totalKg: editDocBag.bagsOpened * editDocBag.kgPerBag });
+    } else if (editDocBag.bagsOpened > 0) {
+      onAddBagLog && onAddBagLog({
+        ...editDocBag,
+        id: editDocBag.id || uid(),
+        totalKg: editDocBag.bagsOpened * editDocBag.kgPerBag
+      });
+    }
+
     const remKg = Number(editBagRemainKg);
-    const fs = editDocBag.fishStock || "";
-    if (remKg > 0 && fs) {
-      const existing = (remainLogs || []).find(r => r.brand === editDocBag.brand && r.size === editDocBag.size && r.fishStock === fs && isSameDate(r.date, editDocBag.date));
-      if (existing) { onEditRemainLog({ ...existing, remainingKg: remKg }); }
-      else { onAddRemainLog({ id: uid(), brand: editDocBag.brand, size: editDocBag.size, fishStock: fs, remainingKg: remKg, date: editDocBag.date }); }
+    const fs = normalizeFishStock(editDocBag.fishStock) || "";
+    if (fs) {
+      const existing = (remainLogs || []).find(r => r.brand === editDocBag.brand && r.size === editDocBag.size && normalizeFishStock(r.fishStock) === fs && isSameDate(r.date, editDocBag.date));
+      if (!isNaN(remKg) && remKg > 0) {
+        if (existing) { onEditRemainLog({ ...existing, remainingKg: remKg }); }
+        else { onAddRemainLog({ id: uid(), brand: editDocBag.brand, size: editDocBag.size, fishStock: fs, remainingKg: remKg, date: editDocBag.date }); }
+      } else if (existing && remKg === 0) {
+        onEditRemainLog({ ...existing, remainingKg: 0 });
+      }
     }
     setEditDocBag(null);
+    toast.success("Updated successfully");
   };
 
   /* ── helper: calculate expected bags and expected remaining for a fish stock, brand, and size on a date ── */
   const getExpectedFeedData = (targetDate: string, fishStock: string, brand: string, size: string, bagsOpenedOverride?: number) => {
-    if (!fishStock || !size || !targetDate) {
+    if (!size || !targetDate) {
       return { hasFed: false, totalFed: 0, carryover: 0, bagWeight: 15, expectedBags: 0, expectedRemaining: 0 };
     }
-    const normStock = normalizeFishStock(fishStock);
+    const normStock = (fishStock && fishStock !== "—") ? normalizeFishStock(fishStock) : "";
     const dateLabel = toDateLabel(targetDate);
     const mIdx = MIDX_GLOBAL[toMon(targetDate)] ?? MIDX_GLOBAL[dateLabel.split(" ")[0]] ?? viewMonth;
     const yr = toYr(targetDate) || viewYear;
@@ -643,22 +703,32 @@ function FeedDocumentation({
     const prevDt = new Date(yr, mIdx, dNum - 1);
     const prevDateLabel = `${MON_NAMES[prevDt.getMonth()]} ${prevDt.getDate()}`;
 
-    const pondsForStock = (ponds || []).filter(p => p && pondToStock(p.name) === normStock).map(p => p.name);
+    const pondsForStock = normStock ? (ponds || []).filter(p => p && pondToStock(p.name) === normStock).map(p => p.name) : [];
 
-    const fedRecords = (feedingRecords || []).filter(r =>
-      r && (isSameDate(r.date, targetDate) || isSameDate(r.date, dateLabel)) &&
-      r.size === size &&
-      (!brand || brand === "—" || !r.brand || r.brand.toLowerCase().trim() === brand.toLowerCase().trim()) &&
-      (pondsForStock.length === 0 || pondsForStock.includes(r.pond) || pondToStock(r.pond) === normStock)
-    );
-    const totalFed = fedRecords.reduce((s, r) => s + (Number(r.total) || 0), 0);
+    const fedRecords = (feedingRecords || []).filter(r => {
+      if (!r) return false;
+      const dateMatch = isSameDate(r.date, targetDate) || isSameDate(r.date, dateLabel);
+      if (!dateMatch) return false;
+      if (size && size !== "—" && r.size && r.size !== size) return false;
+      if (brand && brand !== "—" && r.brand && r.brand.toLowerCase().trim() !== brand.toLowerCase().trim()) return false;
+      if (normStock && normStock !== "—") {
+        return pondsForStock.length === 0 || pondsForStock.includes(r.pond) || pondToStock(r.pond) === normStock || normalizeFishStock(r.fishStock) === normStock;
+      }
+      return true;
+    });
+    const totalFed = fedRecords.reduce((s, r) => s + (Number(r.total) || ((Number(r.morning) || 0) + (Number(r.evening) || 0))), 0);
 
-    const carryover = (remainLogs || []).filter(r =>
-      r && (isSameDate(r.date, prevDateLabel) || isSameDate(r.date, `${MON_NAMES[prevDt.getMonth()]} ${prevDt.getDate()}`)) &&
-      r.size === size &&
-      (!brand || brand === "—" || !r.brand || r.brand.toLowerCase().trim() === brand.toLowerCase().trim()) &&
-      normalizeFishStock(r.fishStock) === normStock
-    ).reduce((s, r) => s + (Number(r.remainingKg) || 0), 0);
+    const carryover = (remainLogs || []).filter(r => {
+      if (!r) return false;
+      const dateMatch = isSameDate(r.date, prevDateLabel) || isSameDate(r.date, `${MON_NAMES[prevDt.getMonth()]} ${prevDt.getDate()}`);
+      if (!dateMatch) return false;
+      if (size && size !== "—" && r.size && r.size !== size) return false;
+      if (brand && brand !== "—" && r.brand && r.brand.toLowerCase().trim() !== brand.toLowerCase().trim()) return false;
+      if (normStock && normStock !== "—") {
+        return normalizeFishStock(r.fishStock) === normStock;
+      }
+      return true;
+    }).reduce((s, r) => s + (Number(r.remainingKg) || 0), 0);
 
     const invItem = (inventory || []).find(f => f && (brand && brand !== "—" ? f.brand.toLowerCase().trim() === brand.toLowerCase().trim() : true) && f.size === size) || (inventory || []).find(f => f && f.size === size);
     const bagWeight = invItem?.weightPerBag || 15;
@@ -1677,6 +1747,7 @@ function FeedDocumentation({
               <thead>
                 <tr className="border-b border-slate-100 bg-slate-50">
                   <th className="text-left px-3.5 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider sticky left-0 z-20 bg-slate-50 border-r border-slate-200 min-w-[130px] max-w-[155px] shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
+                  <th className="text-left px-3.5 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider sticky left-0 z-30 bg-slate-50 border-r border-slate-200 min-w-[130px] max-w-[155px] shadow-[2px_0_5px_-2px_rgba(0,0,0,0.08)]">
                     Fish Stock
                   </th>
                   <th className="text-left px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Feed Brand</th>
@@ -1719,16 +1790,11 @@ function FeedDocumentation({
                       key={i}
                       className={`hover:bg-slate-50/80 transition-colors ${isHighlightedRow ? "bg-orange-50/30" : ""}`}
                     >
-                      {/* Sticky Fish Stock Column on Mobile */}
-                      <td className={`px-3.5 py-3 sticky left-0 z-10 bg-white border-r border-slate-100 min-w-[130px] max-w-[155px] shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)] ${isHighlightedRow ? "!bg-amber-50/70" : ""}`}>
-                        <p className="font-bold text-slate-800 text-xs truncate" title={formatFishStock(row.fishStock)}>
-                          {formatFishStock(row.fishStock)}
+                      {/* Sticky Fish Stock Column (Solid Opaque Background & High Z-Index) */}
+                      <td className={`px-3.5 py-3 sticky left-0 z-20 border-r border-slate-100 min-w-[130px] max-w-[155px] shadow-[2px_0_5px_-2px_rgba(0,0,0,0.08)] ${isHighlightedRow ? "!bg-[#fffbeb]" : "bg-white"}`}>
+                        <p className="font-bold text-slate-800 text-xs truncate" title={getStockDisplayName(row.fishStock, row.stockDate)}>
+                          {getStockDisplayName(row.fishStock, row.stockDate)}
                         </p>
-                        {row.stockDate && row.stockDate !== "—" && (
-                          <span className="inline-block mt-0.5 text-[10px] text-teal-700 font-semibold bg-teal-50 border border-teal-200/80 px-1.5 py-0.2 rounded truncate max-w-full">
-                            {row.stockDate}
-                          </span>
-                        )}
                       </td>
 
                       {/* Feed Brand */}
@@ -1738,7 +1804,7 @@ function FeedDocumentation({
                       <td className="px-4 py-3"><Bdg label={row.size} color="blue" /></td>
 
                       {/* Bags Opened (with expected bags cleanly under it without boxed fields) */}
-                      <td className={`px-4 py-3 transition-all ${isBagsColHighlighted ? "bg-orange-50 ring-1 ring-orange-400 ring-inset rounded" : ""}`}>
+                      <td className={`px-4 py-3 relative z-0 transition-all ${isBagsColHighlighted ? "bg-orange-50 ring-1 ring-orange-400 ring-inset rounded" : ""}`}>
                         <div className="font-bold text-slate-900 text-xs">
                           {row.bagsOpened > 0 ? `${row.bagsOpened} bag${row.bagsOpened !== 1 ? "s" : ""}` : <span className="text-slate-300">—</span>}
                         </div>
@@ -1755,7 +1821,7 @@ function FeedDocumentation({
                       </td>
 
                       {/* Leftover Feed (kg) (with expected leftover cleanly under it without boxed fields) */}
-                      <td className={`px-4 py-3 transition-all ${isRemainColHighlighted ? "bg-amber-50 ring-1 ring-amber-400 ring-inset rounded" : ""}`}>
+                      <td className={`px-4 py-3 relative z-0 transition-all ${isRemainColHighlighted ? "bg-amber-50 ring-1 ring-amber-400 ring-inset rounded" : ""}`}>
                         <div className="font-semibold text-xs">
                           {row.remainingKg > 0 ? <span className="text-slate-800 font-bold">{row.remainingKg} kg</span> : <span className="text-slate-300 text-xs">—</span>}
                         </div>
@@ -1768,9 +1834,9 @@ function FeedDocumentation({
 
                       {/* Edit Button */}
                       <td className="px-3 py-3 text-right">
-                        {canEdit && row.lastBagLog && (
-                          isRecordEditable(row.lastBagLog.date) ? (
-                            <button onClick={() => openEditDocBag(row.lastBagLog!)} className="p-1.5 rounded text-slate-400 hover:text-green-600 hover:bg-green-50 transition-colors" title="Edit">
+                        {canEdit && (
+                          isRecordEditable(row.lastBagLog?.date || selDate) ? (
+                            <button onClick={() => openEditMergedRow(row)} className="p-1.5 rounded text-slate-400 hover:text-green-600 hover:bg-green-50 transition-colors" title="Edit entry">
                               <Pencil size={13} />
                             </button>
                           ) : (
@@ -1821,7 +1887,7 @@ function FeedDocumentation({
                 <table className="w-full text-sm min-w-[720px]">
                   <thead>
                     <tr className="bg-slate-50/80 border-b border-slate-100">
-                      <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left sticky left-0 z-20 bg-slate-50 border-r border-slate-200 min-w-[140px]">
+                      <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left sticky left-0 z-30 bg-slate-50 border-r border-slate-200 min-w-[140px] shadow-[2px_0_5px_-2px_rgba(0,0,0,0.08)]">
                         Fish Stock &amp; Brand
                       </th>
                       <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left">Feed Given</th>
@@ -1847,14 +1913,11 @@ function FeedDocumentation({
                           title="Click to view full reconciliation breakdown"
                         >
                           {/* Fish Stock & Brand / Pellet Size */}
-                          <td className="px-4 py-3.5 sticky left-0 z-10 bg-white group-hover:bg-slate-50/80 border-r border-slate-100 min-w-[140px]">
-                            <p className="text-xs font-bold text-slate-800 leading-tight truncate">{formatFishStock(r.fishStock)}</p>
+                          <td className="px-4 py-3.5 sticky left-0 z-20 bg-white group-hover:bg-slate-50/80 border-r border-slate-100 min-w-[140px] shadow-[2px_0_5px_-2px_rgba(0,0,0,0.08)]">
+                            <p className="text-xs font-bold text-slate-800 leading-tight truncate">{getStockDisplayName(r.fishStock, r.stockDate)}</p>
                             <div className="flex items-center gap-1.5 mt-1 flex-wrap">
                               <Bdg label={r.size} color="blue" />
                               <span className="text-[11px] text-slate-500 font-medium">{r.brand}</span>
-                              {r.stockDate && r.stockDate !== "—" && (
-                                <span className="text-[10px] text-teal-700 bg-teal-50 px-1.5 py-0.2 rounded border border-teal-200/70">{r.stockDate}</span>
-                              )}
                             </div>
                           </td>
 
@@ -2617,11 +2680,15 @@ function FeedDocumentation({
                         return (
                           <p className="text-[11px] text-slate-500 font-medium mt-1">
                             <span className="text-green-700 font-semibold">Expected: {exp.expectedBags} bag{exp.expectedBags !== 1 ? "s" : ""}</span>
-                            <span className="text-slate-400"> ({exp.totalFed}kg fed)</span>
+                            <span className="text-slate-400"> ({exp.totalFed}kg fed{exp.carryover > 0 ? `, ${exp.carryover}kg carryover` : ""})</span>
                           </p>
                         );
                       }
-                      return null;
+                      return (
+                        <p className="text-[11px] text-slate-400 mt-1">
+                          No feeding logged yet for this stock on {toDateLabel(editDocBag.date)}
+                        </p>
+                      );
                     })()}
                   </div>
                   <F label="kg per Bag"><NumInput value={editDocBag.kgPerBag} onChange={v => setEditDocBag(p => p ? { ...p, kgPerBag: Number(v) || 0 } : p)} className={IC} /></F>
@@ -2640,10 +2707,15 @@ function FeedDocumentation({
                       return (
                         <p className="text-[11px] text-slate-500 font-medium mt-1">
                           <span className="text-amber-700 font-semibold">Expected leftover: {exp.expectedRemaining} kg</span>
+                          <span className="text-slate-400"> ({exp.totalFed}kg fed today)</span>
                         </p>
                       );
                     }
-                    return null;
+                    return (
+                      <p className="text-[11px] text-slate-400 mt-1">
+                        No feeding logged yet for this stock on {toDateLabel(editDocBag.date)}
+                      </p>
+                    );
                   })()}
                 </div>
                 {editDocBag.fishStock && <p className="text-[11px] text-slate-500 mt-1">Linked to: <span className="font-semibold">{editDocBag.fishStock}</span></p>}

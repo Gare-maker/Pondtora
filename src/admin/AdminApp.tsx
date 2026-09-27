@@ -223,8 +223,14 @@ export default function AdminApp({ onExit }: { onExit?: () => void } = {}) {
         const isMasterAdmin = email === "edafejesugarec@gmail.com";
         const isAdminRole = session?.user?.user_metadata?.role === "admin" || session?.user?.user_metadata?.role === "superadmin";
 
-        if (!session || (!isMasterAdmin && !isAdminRole)) {
-          if (session?.user?.id) {
+        if (session) {
+          if (isMasterAdmin || isAdminRole) {
+            setAdminEmail(email || "edafejesugarec@gmail.com");
+            localStorage.setItem("pondtora_admin_auth", "true");
+            setLoggedIn(true);
+            return;
+          }
+          if (session.user.id) {
             const { data: prof } = await supabase
               .from("user_profiles")
               .select("role, email")
@@ -232,17 +238,12 @@ export default function AdminApp({ onExit }: { onExit?: () => void } = {}) {
               .maybeSingle();
 
             if (prof?.role === "admin" || prof?.role === "superadmin" || prof?.email?.toLowerCase() === "edafejesugarec@gmail.com") {
-              setAdminEmail(email || "edafejesugarec@gmail.com");
+              setAdminEmail(email || prof?.email || "edafejesugarec@gmail.com");
+              localStorage.setItem("pondtora_admin_auth", "true");
               setLoggedIn(true);
               return;
             }
           }
-          localStorage.removeItem("pondtora_admin_auth");
-          setLoggedIn(false);
-        } else {
-          setAdminEmail(email || "edafejesugarec@gmail.com");
-          localStorage.setItem("pondtora_admin_auth", "true");
-          setLoggedIn(true);
         }
       } catch {
         // Leave local state intact if network is temporarily unreachable
@@ -424,6 +425,18 @@ export default function AdminApp({ onExit }: { onExit?: () => void } = {}) {
       localStorage.removeItem("pondtora_admin_mode");
       window.location.href = window.location.origin + window.location.pathname;
     }
+  }
+
+  if (!loggedIn) {
+    return (
+      <AdminLogin
+        onLogin={info => {
+          if (info?.email) setAdminEmail(info.email);
+          setLoggedIn(true);
+        }}
+        onExit={onExit}
+      />
+    );
   }
 
   return (
