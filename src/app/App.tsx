@@ -4301,13 +4301,9 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       }
       return updated;
     });
-    try {
-      await api.feeding.create(farmRec);
-      toast.success("Feeding logged");
-    } catch(err:any) {
+    api.feeding.create(farmRec).catch(err => {
       console.error("Failed to persist feeding record to database:", err);
-      toast.error(err?.message || "Feeding saved locally — offline or sync error");
-    }
+    });
   };
   const editFeedRecord=async(r:FeedingRecord)=>{
     if (!canEdit("Feeding Records")) {
@@ -4336,12 +4332,9 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       }
     }
     setFeeding(prev=>prev.map(x=>x.id===farmRec.id?farmRec:x));
-    try {
-      await api.feeding.update(farmRec);
-    } catch(err:any) {
+    api.feeding.update(farmRec).catch(err => {
       console.error("Failed to update feeding record in database:", err);
-      toast.error(err?.message || "Failed to update feeding record");
-    }
+    });
   };
   const deleteFeedRecord=async(id:string)=>{
     if (!canDelete("Feeding Records")) {
@@ -4379,7 +4372,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   const editBagLog=async(b:BagOpenLog)=>{
     const farmBag:BagOpenLog={...b,farmId:b.farmId||activeFarmId||farms[0]?.id||""};
     setBagLogs(prev=>prev.map(x=>x.id===farmBag.id?farmBag:x));
-    await api.bagLogs.update(farmBag).catch(console.warn);
+    api.bagLogs.update(farmBag).catch(console.warn);
   };
   const addRemainLog=async(r:FeedRemainingLog)=>{
     const fid=r.farmId||activeFarmId||farms[0]?.id||"";
@@ -4393,7 +4386,6 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       setRemainLogs(prev=>[farmRemain,...prev]);
       api.remainLogs.create(farmRemain).catch(console.warn);
     }
-    toast.success("Remaining feed logged");
   };
   const editRemainLog=(r:FeedRemainingLog)=>{
     const farmRemain:FeedRemainingLog={...r,farmId:r.farmId||activeFarmId||farms[0]?.id||""};

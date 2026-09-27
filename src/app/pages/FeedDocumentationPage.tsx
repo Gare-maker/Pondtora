@@ -810,41 +810,20 @@ function FeedDocumentation({
     if (Object.keys(errs).length) { setBagsErr(errs); return; }
     setBagsErr({});
 
-    try {
-      for (const r of bagRows) {
-        const n = Number(r.qty);
-        if (r.id) {
-          const existingRec = (bagLogs || []).find(x => x.id === r.id);
-          if (existingRec && onEditBagLog) {
-            await onEditBagLog({
-              ...existingRec,
-              date: dateLabel,
-              month: toMon(bagsDate),
-              year: toYr(bagsDate),
-              brand: r.brand,
-              size: r.size,
-              kgPerBag: r.kgPerBag,
-              bagsOpened: n,
-              totalKg: n * r.kgPerBag,
-              fishStock: normalizeFishStock(r.fishStock) || undefined
-            });
-          } else {
-            await onAddBagLog({
-              id: r.id,
-              date: dateLabel,
-              month: toMon(bagsDate),
-              year: toYr(bagsDate),
-              brand: r.brand,
-              size: r.size,
-              kgPerBag: r.kgPerBag,
-              bagsOpened: n,
-              totalKg: n * r.kgPerBag,
-              fishStock: normalizeFishStock(r.fishStock) || undefined
-            });
-          }
-        } else {
-          await onAddBagLog({
-            id: uid(),
+    // Close modal and show success feedback immediately
+    setShowBagsModal(false);
+    toast.success("Opened bags logged");
+    setSelDate(dateLabel);
+    setDocTab("bags");
+
+    const promises: Promise<any>[] = [];
+    for (const r of bagRows) {
+      const n = Number(r.qty);
+      if (r.id) {
+        const existingRec = (bagLogs || []).find(x => x.id === r.id);
+        if (existingRec && onEditBagLog) {
+          promises.push(Promise.resolve(onEditBagLog({
+            ...existingRec,
             date: dateLabel,
             month: toMon(bagsDate),
             year: toYr(bagsDate),
@@ -854,16 +833,39 @@ function FeedDocumentation({
             bagsOpened: n,
             totalKg: n * r.kgPerBag,
             fishStock: normalizeFishStock(r.fishStock) || undefined
-          });
+          })));
+        } else {
+          promises.push(Promise.resolve(onAddBagLog({
+            id: r.id,
+            date: dateLabel,
+            month: toMon(bagsDate),
+            year: toYr(bagsDate),
+            brand: r.brand,
+            size: r.size,
+            kgPerBag: r.kgPerBag,
+            bagsOpened: n,
+            totalKg: n * r.kgPerBag,
+            fishStock: normalizeFishStock(r.fishStock) || undefined
+          })));
         }
+      } else {
+        promises.push(Promise.resolve(onAddBagLog({
+          id: uid(),
+          date: dateLabel,
+          month: toMon(bagsDate),
+          year: toYr(bagsDate),
+          brand: r.brand,
+          size: r.size,
+          kgPerBag: r.kgPerBag,
+          bagsOpened: n,
+          totalKg: n * r.kgPerBag,
+          fishStock: normalizeFishStock(r.fishStock) || undefined
+        })));
       }
-      toast.success("Opened bags logged");
-      setSelDate(dateLabel);
-      setDocTab("bags");
-      setShowBagsModal(false);
-    } catch (err: any) {
-      setBagsErr({ entries: err?.message || "Failed to save bags log" });
     }
+    Promise.all(promises).catch(err => {
+      console.error("Failed to save bags log:", err);
+    });
   };
 
   /* ── merged bags rows for display ── */
@@ -1012,37 +1014,40 @@ function FeedDocumentation({
     }
 
     setRemainValidErr("");
-    try {
-      for (const r of remainRows) {
-        const val = Number(r.remainingKg) || 0;
-        if (r.id) {
-          const existingRec = (remainLogs || []).find(x => x.id === r.id);
-          if (existingRec && onEditRemainLog) {
-            await onEditRemainLog({
-              ...existingRec,
-              brand: r.brand,
-              size: r.size,
-              fishStock: normalizeFishStock(r.fishStock),
-              remainingKg: val,
-              date: selDate
-            });
-          }
-        } else {
-          await onAddRemainLog({
-            id: uid(),
+
+    // Close modal and show success feedback immediately
+    setShowRemainModal(false);
+    toast.success("Remaining feed logged");
+
+    const promises: Promise<any>[] = [];
+    for (const r of remainRows) {
+      const val = Number(r.remainingKg) || 0;
+      if (r.id) {
+        const existingRec = (remainLogs || []).find(x => x.id === r.id);
+        if (existingRec && onEditRemainLog) {
+          promises.push(Promise.resolve(onEditRemainLog({
+            ...existingRec,
             brand: r.brand,
             size: r.size,
             fishStock: normalizeFishStock(r.fishStock),
             remainingKg: val,
             date: selDate
-          });
+          })));
         }
+      } else {
+        promises.push(Promise.resolve(onAddRemainLog({
+          id: uid(),
+          brand: r.brand,
+          size: r.size,
+          fishStock: normalizeFishStock(r.fishStock),
+          remainingKg: val,
+          date: selDate
+        })));
       }
-      toast.success("Remaining feed logged");
-      setShowRemainModal(false);
-    } catch (err: any) {
-      setRemainValidErr(err?.message || "Failed to save remaining feed");
     }
+    Promise.all(promises).catch(err => {
+      console.error("Failed to save remaining feed:", err);
+    });
   };
 
   /* ── bulk log (Log Feeding — All Ponds) ── */
@@ -1228,76 +1233,75 @@ function FeedDocumentation({
     }
 
     setFeedErr({});
-    setSavingFeed(true);
 
     const now = new Date().toLocaleString("en", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
     const recorder = bulkBy.trim() || currentUser?.name || "Admin";
 
-    try {
-      for (const r of bulkRows) {
-        const m = Number(r.morning) || 0;
-        const e = Number(r.evening) || 0;
-        if (m > 0 || e > 0) {
-          const existing = (feedingRecords || []).find(x => x && x.pond === r.pondName && (isSameDate(x.date, bulkDate) || x.date === dateLabel));
-          if (existing) {
-            const hasChange = m !== existing.morning || e !== existing.evening || r.size !== existing.size;
-            const entry: FeedEditEntry = {
-              originalMorning: existing.morning,
-              updatedMorning: m,
-              originalEvening: existing.evening,
-              updatedEvening: e,
-              editedAt: now,
-              editedBy: recorder,
-              editedById: ""
-            };
-            await onEditFeedRecord({
-              ...existing,
-              size: r.size,
-              morning: m,
-              evening: e,
-              total: m + e,
-              recordedBy: recorder,
-              morningTime: r.morningTime || existing.morningTime,
-              eveningTime: r.eveningTime || existing.eveningTime,
-              fishStock: existing.fishStock || pondToStock(r.pondName),
-              editHistory: hasChange ? [...(existing.editHistory || []), entry] : (existing.editHistory || [])
-            });
-          } else {
-            const brandForFeed = (bagLogs || []).find(b => (isSameDate(b.date, bulkDate) || isSameDate(b.date, dateLabel)) && b.size === r.size && (!b.fishStock || normalizeFishStock(b.fishStock) === pondToStock(r.pondName)))?.brand || (inventory || []).find(f => f && f.size === r.size)?.brand || "";
-            await onAddRecord({
-              id: uid(),
-              date: dateLabel,
-              month: toMon(bulkDate),
-              year: toYr(bulkDate),
-              pond: r.pondName,
-              fishStock: pondToStock(r.pondName),
-              brand: brandForFeed,
-              size: r.size,
-              morning: m,
-              evening: e,
-              total: m + e,
-              recordedBy: recorder,
-              morningTime: r.morningTime || undefined,
-              eveningTime: r.eveningTime || undefined
-            });
-          }
-        }
+    // Immediate UI feedback and instant modal close
+    if (bulkDate) {
+      const iso = bulkDate.match(/^(\d{4})-(\d{2})-(\d{2})/);
+      if (iso) {
+        setViewYear(parseInt(iso[1], 10));
+        setViewMonth(parseInt(iso[2], 10) - 1);
       }
-      if (bulkDate) {
-        const iso = bulkDate.match(/^(\d{4})-(\d{2})-(\d{2})/);
-        if (iso) {
-          setViewYear(parseInt(iso[1], 10));
-          setViewMonth(parseInt(iso[2], 10) - 1);
-        }
-      }
-      setSelDate(dateLabel);
-      setShowLog(false);
-    } catch (err: any) {
-      console.error("Error saving feeding records:", err);
-      setFeedErr({ amounts: "Failed to save records. Please check connection." });
-    } finally {
-      setSavingFeed(false);
     }
+    setSelDate(dateLabel);
+    setShowLog(false);
+    toast.success("Feeding records saved");
+
+    const promises: Promise<any>[] = [];
+    for (const r of bulkRows) {
+      const m = Number(r.morning) || 0;
+      const e = Number(r.evening) || 0;
+      if (m > 0 || e > 0) {
+        const existing = (feedingRecords || []).find(x => x && x.pond === r.pondName && (isSameDate(x.date, bulkDate) || x.date === dateLabel));
+        if (existing) {
+          const hasChange = m !== existing.morning || e !== existing.evening || r.size !== existing.size;
+          const entry: FeedEditEntry = {
+            originalMorning: existing.morning,
+            updatedMorning: m,
+            originalEvening: existing.evening,
+            updatedEvening: e,
+            editedAt: now,
+            editedBy: recorder,
+            editedById: ""
+          };
+          promises.push(Promise.resolve(onEditFeedRecord({
+            ...existing,
+            size: r.size,
+            morning: m,
+            evening: e,
+            total: m + e,
+            recordedBy: recorder,
+            morningTime: r.morningTime || existing.morningTime,
+            eveningTime: r.eveningTime || existing.eveningTime,
+            fishStock: existing.fishStock || pondToStock(r.pondName),
+            editHistory: hasChange ? [...(existing.editHistory || []), entry] : (existing.editHistory || [])
+          })));
+        } else {
+          const brandForFeed = (bagLogs || []).find(b => (isSameDate(b.date, bulkDate) || isSameDate(b.date, dateLabel)) && b.size === r.size && (!b.fishStock || normalizeFishStock(b.fishStock) === pondToStock(r.pondName)))?.brand || (inventory || []).find(f => f && f.size === r.size)?.brand || "";
+          promises.push(Promise.resolve(onAddRecord({
+            id: uid(),
+            date: dateLabel,
+            month: toMon(bulkDate),
+            year: toYr(bulkDate),
+            pond: r.pondName,
+            fishStock: pondToStock(r.pondName),
+            brand: brandForFeed,
+            size: r.size,
+            morning: m,
+            evening: e,
+            total: m + e,
+            recordedBy: recorder,
+            morningTime: r.morningTime || undefined,
+            eveningTime: r.eveningTime || undefined
+          })));
+        }
+      }
+    }
+    Promise.all(promises).catch(err => {
+      console.error("Error saving feeding records in background:", err);
+    });
   };
 
   /* ── download helpers ── */

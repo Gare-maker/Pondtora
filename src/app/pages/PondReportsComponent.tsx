@@ -350,16 +350,16 @@ export default function PondReportsComponent({
     <div className="space-y-4">
       {/* ── Period Selector & Category Flow Controls ── */}
       <Card className="p-3.5 bg-white shadow-xs">
-        <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-100">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
           {/* Period Mode Selector (Using darkened tabs fill) */}
-          <div className="flex items-center gap-2">
-            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Period:</span>
-            <div className="flex gap-1 bg-slate-200/90 border border-slate-300/70 p-1 rounded-xl shadow-2xs">
+          <div className="flex flex-col xs:flex-row items-start xs:items-center gap-2 w-full sm:w-auto">
+            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider shrink-0">Period:</span>
+            <div className="grid grid-cols-4 sm:flex gap-1 bg-slate-200/90 border border-slate-300/70 p-1 rounded-xl shadow-2xs w-full sm:w-auto">
               {(["Monthly", "Quarterly", "Yearly", "Custom"] as const).map(m => (
                 <button
                   key={m}
                   onClick={() => setPeriodMode(m)}
-                  className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
+                  className={`px-2 sm:px-3 py-1.5 sm:py-1 rounded-lg text-[11px] sm:text-xs text-center font-semibold transition-all whitespace-nowrap ${
                     periodMode === m
                       ? "bg-white text-slate-900 shadow-sm border border-slate-200/80 font-bold"
                       : "text-slate-600 hover:text-slate-900"
@@ -372,13 +372,13 @@ export default function PondReportsComponent({
           </div>
 
           {/* Period Value Pickers */}
-          <div className="flex items-center gap-2 text-xs">
+          <div className="flex items-center gap-2 text-xs w-full sm:w-auto justify-end">
             {periodMode === "Monthly" && (
               <input
                 type="month"
                 value={periodMonth}
                 onChange={e => setPeriodMonth(e.target.value)}
-                className="px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-slate-700 text-xs focus:ring-1 focus:ring-green-400"
+                className="w-full sm:w-auto px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-slate-700 text-xs focus:ring-1 focus:ring-green-400"
                 style={{ colorScheme: "light" }}
               />
             )}
@@ -386,7 +386,7 @@ export default function PondReportsComponent({
               <select
                 value={periodQuarter}
                 onChange={e => setPeriodQuarter(e.target.value)}
-                className="px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-slate-700 text-xs"
+                className="w-full sm:w-auto px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-slate-700 text-xs"
               >
                 {["2026-Q1", "2026-Q2", "2026-Q3", "2026-Q4", "2025-Q1", "2025-Q2", "2025-Q3", "2025-Q4"].map(q => (
                   <option key={q} value={q}>{q.replace("-", " ")}</option>
@@ -397,7 +397,7 @@ export default function PondReportsComponent({
               <select
                 value={periodYear}
                 onChange={e => setPeriodYear(e.target.value)}
-                className="px-2.5 py-1 bg-white border border-slate-200 rounded-lg text-slate-700 text-xs"
+                className="w-full sm:w-auto px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-slate-700 text-xs"
               >
                 {["2026", "2025", "2024"].map(y => (
                   <option key={y} value={y}>{y}</option>
@@ -405,13 +405,13 @@ export default function PondReportsComponent({
               </select>
             )}
             {periodMode === "Custom" && (
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-1.5 w-full sm:w-auto">
                 <input
                   type="date"
                   value={customStartDate}
                   onChange={e => setCustomStartDate(e.target.value)}
                   placeholder="From"
-                  className="px-2 py-1 bg-white border border-slate-200 rounded-lg text-slate-700 text-xs"
+                  className="w-full sm:w-auto px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-slate-700 text-xs"
                   style={{ colorScheme: "light" }}
                 />
                 <span className="text-slate-400">to</span>
@@ -420,7 +420,7 @@ export default function PondReportsComponent({
                   value={customEndDate}
                   onChange={e => setCustomEndDate(e.target.value)}
                   placeholder="To"
-                  className="px-2 py-1 bg-white border border-slate-200 rounded-lg text-slate-700 text-xs"
+                  className="w-full sm:w-auto px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-slate-700 text-xs"
                   style={{ colorScheme: "light" }}
                 />
               </div>
