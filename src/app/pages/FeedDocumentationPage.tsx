@@ -56,6 +56,57 @@ interface FishStockOption {
   label: string;
 }
 
+export type ReconRow = {
+  fishStock: string;
+  stockDate: string;
+  brand: string;
+  size: string;
+  ponds: string[];
+  totalFed: number;
+  carryover: number;
+  netNeeded: number;
+  bagWeight: number;
+  expectedBags: number;
+  recordedBags: number;
+  kgOpened: number;
+  kgConsumed: number;
+  remainingKg: number;
+  expectedRemaining: number;
+  recordedRemaining: number;
+  status: ReconStatus;
+  reason: string;
+};
+
+export type MergedBagRow = {
+  brand: string;
+  size: string;
+  fishStock: string;
+  stockDate: string;
+  bagsOpened: number;
+  totalKgOpened: number;
+  remainingKg: number;
+  lastBagLog: BagOpenLog | null;
+};
+
+export type BagRow = {
+  id?: string;
+  fishStock: string;
+  brand: string;
+  size: string;
+  kgPerBag: number;
+  qty: string;
+};
+
+export type RemainRow = {
+  id?: string;
+  brand: string;
+  size: string;
+  fishStock: string;
+  remainingKg: string;
+};
+
+export type LogColKey = "size" | "morning" | "morningTime" | "evening" | "eveningTime" | "total";
+
 function FeedDocumentation({
   feedingRecords = [],
   onAddRecord,
@@ -379,28 +430,6 @@ function FeedDocumentation({
       label: `${opt.name} — Ponds: ${opt.ponds.join(", ")}`
     }));
   }, [activePonds]);
-
-  /* ── ReconRow type ── */
-  type ReconRow = {
-    fishStock: string;
-    stockDate: string;
-    brand: string;
-    size: string;
-    ponds: string[];
-    totalFed: number;
-    carryover: number;
-    netNeeded: number;
-    bagWeight: number;
-    expectedBags: number;
-    recordedBags: number;
-    kgOpened: number;
-    kgConsumed: number;
-    remainingKg: number;
-    expectedRemaining: number;
-    recordedRemaining: number;
-    status: ReconStatus;
-    reason: string;
-  };
 
   /* ── reconRows (selDate only, grouped strictly by Fish Stock + Pellet Size + Brand across all ponds in that stock) ── */
   const reconRows = useMemo((): ReconRow[] => {
@@ -790,7 +819,6 @@ function FeedDocumentation({
 
   /* ── bags opened modal state ── */
   const [bagsDate, setBagsDate] = useState(TODAY);
-  type BagRow = { id?: string; fishStock: string; brand: string; size: string; kgPerBag: number; qty: string };
   const blankBagRow = (targetDate?: string): BagRow => {
     const fs = activeFishStockOptions[0]?.name || "";
     const b = invBrands[0] || "";
@@ -1001,7 +1029,6 @@ function FeedDocumentation({
   };
 
   /* ── merged bags rows for display ── */
-  type MergedBagRow = { brand: string; size: string; fishStock: string; stockDate: string; bagsOpened: number; totalKgOpened: number; remainingKg: number; lastBagLog: BagOpenLog | null };
   const mergedBagRows = useMemo((): MergedBagRow[] => {
     const dayBagLogs = (bagLogs || []).filter(b => b && isSameDate(b.date, selDate));
     const map = new Map<string, MergedBagRow>();
@@ -1122,7 +1149,6 @@ function FeedDocumentation({
   }, [reconRows, reconSearch]);
 
   /* ── log remaining feed state ── */
-  type RemainRow = { id?: string; brand: string; size: string; fishStock: string; remainingKg: string };
   const blankRemainRow = (): RemainRow => {
     const b = invBrands[0] || "";
     const s = invSizesForBrand(b)[0] || "";
@@ -1236,7 +1262,6 @@ function FeedDocumentation({
   const [logTime] = useState(nowTime);
 
   /* Column reordering for Log Feeding table */
-  type LogColKey = "size" | "morning" | "morningTime" | "evening" | "eveningTime" | "total";
   const DEFAULT_LOG_COLS: LogColKey[] = ["size", "morning", "morningTime", "evening", "eveningTime", "total"];
   const [logColOrder, setLogColOrder] = useState<LogColKey[]>(DEFAULT_LOG_COLS);
   const [draggedLogCol, setDraggedLogCol] = useState<LogColKey | null>(null);
