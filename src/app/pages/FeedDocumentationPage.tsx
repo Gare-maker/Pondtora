@@ -2906,7 +2906,7 @@ function FeedDocumentation({
                 const isOverStock = requestedBags > avail.remainingBags;
 
                 return (
-                  <div key={i} className={`p-3 border rounded-xl relative space-y-2.5 bg-white text-xs ${isOverStock ? "border-red-300 ring-1 ring-red-200" : "border-slate-200/90 shadow-2xs"}`}>
+                  <div key={i} className={`p-3 border rounded-xl relative space-y-2.5 ${isOverStock ? "border-red-300 bg-red-50/50" : "border-slate-200/90 bg-slate-50/90"}`}>
                     {bagRows.length > 1 && (
                       <button type="button" onClick={() => removeBagRow(i)} className="absolute top-2.5 right-2.5 p-1 rounded text-slate-300 hover:text-red-500 transition-colors">
                         <X size={13} />
@@ -2919,7 +2919,7 @@ function FeedDocumentation({
                       <select
                         value={row.fishStock}
                         onChange={e => updateBagRow(i, "fishStock", e.target.value)}
-                        className="w-full text-xs px-2.5 py-1.5 bg-slate-50/60 border border-slate-200 rounded-lg text-slate-700 font-normal focus:bg-white focus:outline-none focus:ring-1 focus:ring-green-400"
+                        className="w-full text-[11px] px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-slate-800 font-normal focus:outline-none focus:ring-1 focus:ring-green-400"
                       >
                         <option value="">Select fish stock…</option>
                         {activeFishStockOptions.map(opt => (
@@ -2956,7 +2956,7 @@ function FeedDocumentation({
                               return next;
                             });
                           }}
-                          className="w-full text-xs px-2.5 py-1.5 bg-slate-50/60 border border-slate-200 rounded-lg text-slate-700 font-normal focus:bg-white focus:outline-none focus:ring-1 focus:ring-green-400 h-[34px]"
+                          className="w-full text-[11px] px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-slate-800 font-normal focus:outline-none focus:ring-1 focus:ring-green-400 h-[34px]"
                         >
                           {invSizesForBrand(row.brand).map(s => (
                             <option key={s} value={s}>{s}</option>
@@ -2966,9 +2966,9 @@ function FeedDocumentation({
                     </div>
 
                     {/* Stock available badge */}
-                    <div className="flex items-center justify-between px-2.5 py-1 rounded-md bg-slate-50/80 border border-slate-100 text-[11px] text-slate-500">
+                    <div className="flex items-center justify-between px-2.5 py-1 rounded-md bg-white border border-slate-200/80 text-[11px] text-slate-500">
                       <span className="text-[10px] uppercase font-medium text-slate-400">Store Stock:</span>
-                      <span className={`font-medium ${avail.remainingBags <= 2 ? "text-amber-600" : "text-slate-600"}`}>
+                      <span className={`font-medium ${avail.remainingBags <= 2 ? "text-amber-600" : "text-slate-700"}`}>
                         {avail.remainingBags} bag{avail.remainingBags !== 1 ? "s" : ""} ({avail.remainingKg} kg)
                       </span>
                     </div>
@@ -2976,14 +2976,14 @@ function FeedDocumentation({
                     {/* Bags Opened & Leftover Feed (2 columns side by side) */}
                     <div className="grid grid-cols-2 gap-2 pt-0.5">
                       {/* Left: Bags Opened */}
-                      <div className="bg-slate-50/50 p-2.5 rounded-lg border border-slate-150 space-y-1">
+                      <div className="bg-white p-2.5 rounded-lg border border-slate-200/80 space-y-1">
                         <label className="block text-[10px] font-medium text-slate-500 uppercase tracking-wider">Bags Opened</label>
                         <input
                           type="number"
                           min="0"
                           value={row.qty}
                           onChange={e => updateBagRow(i, "qty", e.target.value)}
-                          className={`w-full text-xs px-2 py-1 bg-white border ${isOverStock ? "border-red-300 focus:ring-red-100" : "border-slate-200 focus:ring-green-400"} rounded-md font-normal text-slate-800 placeholder:text-slate-300 focus:outline-none focus:ring-1`}
+                          className={`w-full text-[11px] px-2 py-1 bg-slate-50/50 border ${isOverStock ? "border-red-300 focus:ring-red-100" : "border-slate-200 focus:ring-green-400"} rounded-md font-normal text-slate-800 placeholder:text-slate-300 focus:outline-none focus:ring-1`}
                           placeholder="0"
                         />
                         {(() => {
@@ -3013,7 +3013,7 @@ function FeedDocumentation({
                       </div>
 
                       {/* Right: Leftover Feed */}
-                      <div className="bg-slate-50/50 p-2.5 rounded-lg border border-slate-150 space-y-1">
+                      <div className="bg-white p-2.5 rounded-lg border border-slate-200/80 space-y-1">
                         <label className="block text-[10px] font-medium text-slate-500 uppercase tracking-wider">Leftover (kg)</label>
                         <input
                           type="number"
@@ -3021,7 +3021,7 @@ function FeedDocumentation({
                           step="0.1"
                           value={row.remainingKg}
                           onChange={e => updateBagRow(i, "remainingKg", e.target.value)}
-                          className="w-full text-xs px-2 py-1 bg-white border border-slate-200 rounded-md font-normal text-slate-800 placeholder:text-slate-300 focus:outline-none focus:ring-1 focus:ring-green-400"
+                          className="w-full text-[11px] px-2 py-1 bg-slate-50/50 border border-slate-200 rounded-md font-normal text-slate-800 placeholder:text-slate-300 focus:outline-none focus:ring-1 focus:ring-green-400"
                           placeholder="0.0"
                         />
                         {(() => {
