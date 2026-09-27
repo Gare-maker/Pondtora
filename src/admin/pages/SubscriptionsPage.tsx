@@ -3,6 +3,7 @@ import { Search, Edit2, Gift, CreditCard, Sparkles, CheckCircle, Clock, DollarSi
 import { Card, Bdg, PBtn, Pagination, PER_PAGE, Modal, F, IC, SC } from "../../app/shared";
 import type { AdminUser, AdminPlan } from "../types";
 import { fmtDate, trialDaysLeft, fmtMoney, computeSubscriptionStatus, effectivePrice } from "../types";
+import { isStaffUser } from "../../lib/userSync";
 
 interface Props {
   users: AdminUser[];
@@ -19,8 +20,6 @@ const STATUS_COLOR: Record<string, "green" | "amber" | "red" | "gray"> = {
 };
 
 const STATUSES = ["All", "Active", "Trial", "Expired", "Suspended", "Free Access"];
-
-import { isStaffUser } from "../../lib/userSync";
 
 export default function SubscriptionsPage({ users, plans, onUpdate }: Props) {
   const [q, setQ] = useState("");

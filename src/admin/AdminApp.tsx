@@ -343,10 +343,6 @@ export default function AdminApp({ onExit }: { onExit?: () => void } = {}) {
     setPage("dashboard");
   }, []);
 
-  if (!loggedIn) {
-    return <AdminLogin onLogin={handleLoginSuccess} onExit={onExit} />;
-  }
-
   function handleUpdateUser(u: AdminUser) {
     setUsers(prev => {
       const next = prev.map(x => (x.id === u.id ? u : x));
@@ -428,15 +424,7 @@ export default function AdminApp({ onExit }: { onExit?: () => void } = {}) {
   }
 
   if (!loggedIn) {
-    return (
-      <AdminLogin
-        onLogin={info => {
-          if (info?.email) setAdminEmail(info.email);
-          setLoggedIn(true);
-        }}
-        onExit={onExit}
-      />
-    );
+    return <AdminLogin onLogin={handleLoginSuccess} onExit={onExit} />;
   }
 
   return (
