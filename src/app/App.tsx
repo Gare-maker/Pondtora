@@ -3001,7 +3001,7 @@ function SettingsPage({farms,onAddFarm,onEditFarm,onDeleteFarm,userProfile,onUpd
   const initials=(userProfile?.name||"U").split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase();
   return(
     <div className="p-4 sm:p-6 space-y-5 w-full">
-      <div className="sticky top-0 z-10 bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 flex flex-col gap-2.5">
+      <div className="sticky top-0 z-30 bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 flex flex-col gap-2.5 border-b border-slate-200/80 shadow-xs">
         <div>
           <h1 className="text-xl sm:text-2xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Settings</h1>
           <p className="text-xs text-slate-500 mt-0.5">Manage your profile, farm details, and referral rewards.</p>
@@ -3188,7 +3188,7 @@ function SettingsPage({farms,onAddFarm,onEditFarm,onDeleteFarm,userProfile,onUpd
           {/* Header Banner */}
           <div className="bg-gradient-to-br from-slate-900 via-slate-800 to-emerald-950 text-white rounded-3xl p-5 sm:p-7 shadow-xl relative overflow-hidden border border-emerald-500/20">
             <div className="absolute right-0 top-0 w-80 h-80 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none -translate-y-20 translate-x-20" />
-            <div className="relative z-10 max-w-3xl">
+            <div className="relative max-w-3xl">
               <div className="inline-flex items-center gap-2 px-3 py-1 bg-emerald-500/20 border border-emerald-400/30 rounded-full text-emerald-300 text-xs font-bold mb-3">
                 <Gift size={14} className="text-emerald-400" /> Pondtora Referral & Partner Program
               </div>
@@ -6918,7 +6918,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       </div>
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Mobile top bar */}
-        <div className="lg:hidden flex items-center justify-between px-4 py-2.5 bg-slate-900 border-b border-slate-800 shrink-0 z-20">
+        <div className="lg:hidden flex items-center justify-between px-4 py-2.5 bg-slate-900 border-b border-slate-800 shrink-0 z-40">
           <div className="flex items-center gap-2.5">
             <button onClick={()=>setSideOpen(true)} className="p-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 transition-colors">
               <Menu size={20}/>
