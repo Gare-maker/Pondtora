@@ -2971,8 +2971,8 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
       {/* ─── 11. FOOTER ──────────────────────────────────────────────────────── */}
       <footer className="bg-slate-950 text-slate-400 border-t border-slate-800 py-12 sm:py-16">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-8 pb-12 border-b border-slate-800">
-            <div className="space-y-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-8 pb-12 border-b border-slate-800">
+            <div className="space-y-3 lg:col-span-1">
               <div className="flex items-center gap-2">
                 <img src={pondtoraLogo} alt="Pondtora" className="h-8 w-auto object-contain" />
                 <span className="text-xl font-bold text-white font-['Barlow_Condensed',sans-serif]">Pondtora</span>
@@ -3009,6 +3009,34 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
                 <li><button onClick={() => scrollTo("testimonials")} className="hover:text-white">Farmer Stories</button></li>
                 <li><button onClick={() => scrollTo("pricing")} className="hover:text-white">Pricing & Plans</button></li>
                 <li><button onClick={() => scrollTo("faq")} className="hover:text-white">FAQ</button></li>
+              </ul>
+            </div>
+
+            <div>
+              <p className="text-xs uppercase tracking-widest font-black text-emerald-400 mb-3">Contact & Support</p>
+              <ul className="space-y-2.5 text-xs text-slate-300">
+                <li>
+                  <span className="block text-[10px] text-slate-500 uppercase font-bold">Email Support</span>
+                  <a href="mailto:pondtora.site@gmail.com" className="hover:text-white font-medium text-emerald-400 break-all">
+                    pondtora.site@gmail.com
+                  </a>
+                </li>
+                <li>
+                  <span className="block text-[10px] text-slate-500 uppercase font-bold">Phone / WhatsApp</span>
+                  <a href="tel:09123667343" className="hover:text-white font-medium text-slate-200">
+                    09123667343
+                  </a>
+                </li>
+                <li>
+                  <a
+                    href="https://wa.me/2349123667343?text=Hello%20Pondtora%20Support,%20I%20have%20an%20inquiry%20about%20the%20platform."
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/30 rounded-lg font-semibold text-[11px] transition-colors"
+                  >
+                    <span>💬 Chat on WhatsApp</span>
+                  </a>
+                </li>
               </ul>
             </div>
           </div>

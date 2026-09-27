@@ -9,3 +9,19 @@ input:-webkit-autofill:active {
   caret-color: #0f172a;
   transition: background-color 9999s ease-in-out 0s;
 }
+
+/* Prevent mobile / iOS auto-zoom on input focus by maintaining minimum 16px font-size on mobile devices */
+@media screen and (max-width: 768px) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
+html, body {
+  overflow-x: hidden;
+  max-width: 100vw;
+  -webkit-text-size-adjust: 100%;
+}
+

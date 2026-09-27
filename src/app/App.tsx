@@ -2940,8 +2940,8 @@ function SettingsPage({farms,onAddFarm,onEditFarm,onDeleteFarm,userProfile,onUpd
     }
   };
 
-  const whatsappShareMsg = `Hello! I recommend Pondtora for complete fish farm and pond management. Sign up using my referral link to get started: ${refStats.referralLink}`;
-  const whatsappShareUrl = `https://wa.me/?text=${encodeURIComponent(whatsappShareMsg)}`;
+  const whatsappShareMsg = `Join Pondtora for complete fish farm and pond management: ${refStats.referralLink}`;
+  const whatsappShareUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(whatsappShareMsg)}`;
 
   /* ── Profile ── */
   const [profF,setProfF]=useState({name:userProfile?.name||"",phone:userProfile?.phone||""});
@@ -3608,19 +3608,19 @@ function SettingsPage({farms,onAddFarm,onEditFarm,onDeleteFarm,userProfile,onUpd
 
               <div className="space-y-2.5 pt-1">
                 <a
-                  href="tel:+2348000000000"
+                  href="tel:09123667343"
                   className="w-full flex items-center justify-center gap-2 py-3 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl shadow-xs transition-colors"
                 >
-                  <Phone size={15} /> Call Support Desk (+234 800 000 0000)
+                  <Phone size={15} /> Call Support Desk (09123667343)
                 </a>
 
                 <a
-                  href={`https://wa.me/2348000000000?text=${encodeURIComponent(`Hello Pondtora Admin, I would like to redeem my referral commission balance of ₦${refStats.availableEarnings.toLocaleString()} for account: ${userProfile?.email || userProfile?.name} (Referral Link: ${refStats.referralLink}).`)}`}
+                  href={`https://wa.me/2349123667343?text=${encodeURIComponent(`Hello Pondtora Admin, I would like to redeem my referral commission balance of ₦${refStats.availableEarnings.toLocaleString()} for account: ${userProfile?.email || userProfile?.name} (Referral Link: ${refStats.referralLink}).`)}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="w-full flex items-center justify-center gap-2 py-3 bg-[#25D366] hover:bg-[#20bd5a] text-white text-xs font-bold rounded-xl shadow-xs transition-colors"
                 >
-                  <MessageCircle size={15} /> Chat on WhatsApp to Redeem
+                  <MessageCircle size={15} /> Chat on WhatsApp to Redeem (09123667343)
                 </a>
               </div>
             </div>
@@ -6841,7 +6841,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
             Your farm account (<strong className="text-white">{userProfile?.email}</strong>) has been temporarily suspended by the platform administrator.
           </p>
           <p className="text-xs text-slate-500">
-            Please reach out to the site administrator at <a href="mailto:edafejesugarec@gmail.com" className="text-green-400 hover:underline">edafejesugarec@gmail.com</a> to reactivate your access.
+            Please reach out to the site administrator at <a href="mailto:pondtora.site@gmail.com" className="text-green-400 hover:underline">pondtora.site@gmail.com</a> to reactivate your access.
           </p>
           <div className="pt-2">
             <button
