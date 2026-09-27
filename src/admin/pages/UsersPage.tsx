@@ -1346,39 +1346,45 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                     </div>
 
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mb-3">
-                      <div className="bg-slate-50 border border-slate-200 p-2.5 rounded-xl">
-                        <p className="text-[10px] uppercase font-bold text-slate-400">Referral Code</p>
+                      <div className="bg-slate-50 border border-slate-200 p-2.5 rounded-xl col-span-2 sm:col-span-1">
+                        <p className="text-[10px] uppercase font-bold text-slate-400">Referral Link</p>
                         <div className="flex items-center justify-between mt-0.5">
-                          <p className="font-mono font-bold text-slate-800 text-xs truncate">{userRefStats.referralCode}</p>
-                          <button onClick={() => copyToClipboard(userRefStats.referralCode, "Referral Code")} className="text-slate-400 hover:text-slate-600 p-0.5">
-                            <Copy size={11} />
+                          <p className="font-mono text-slate-700 text-xs truncate max-w-[120px]" title={userRefStats.referralLink}>{userRefStats.referralLink}</p>
+                          <button onClick={() => copyToClipboard(userRefStats.referralLink, "Referral Link")} className="text-slate-400 hover:text-emerald-600 p-0.5" title="Copy Referral Link">
+                            <Copy size={12} />
                           </button>
                         </div>
                       </div>
 
                       <div className="bg-slate-50 border border-slate-200 p-2.5 rounded-xl">
-                        <p className="text-[10px] uppercase font-bold text-slate-400">Registered Referrals</p>
+                        <p className="text-[10px] uppercase font-bold text-slate-400">Total Referrals</p>
                         <p className="font-extrabold text-slate-800 text-base mt-0.5">{userRefStats.totalReferralsCount}</p>
+                        <p className="text-[10px] text-slate-500">{userRefStats.paidReferralsCount} Paid • {userRefStats.trialReferralsCount} Trial</p>
                       </div>
 
                       <div className="bg-slate-50 border border-slate-200 p-2.5 rounded-xl">
-                        <p className="text-[10px] uppercase font-bold text-slate-400">Paid Referrals</p>
-                        <p className="font-extrabold text-emerald-600 text-base mt-0.5">{userRefStats.paidReferralsCount}</p>
+                        <p className="text-[10px] uppercase font-bold text-slate-400">Total Commission</p>
+                        <p className="font-extrabold text-slate-900 text-base mt-0.5">₦{userRefStats.totalEarnings.toLocaleString()}</p>
+                        <p className="text-[10px] text-slate-500">30% 1st / 10% rec.</p>
                       </div>
 
-                      <div className="bg-emerald-50/70 border border-emerald-200 p-2.5 rounded-xl">
-                        <p className="text-[10px] uppercase font-bold text-emerald-700">Total Earned</p>
-                        <p className="font-extrabold text-emerald-700 text-base mt-0.5">₦{userRefStats.totalEarnings.toLocaleString()}</p>
+                      <div className="bg-emerald-50/80 border border-emerald-200 p-2.5 rounded-xl">
+                        <p className="text-[10px] uppercase font-bold text-emerald-800">Available to Pay</p>
+                        <p className="font-extrabold text-emerald-700 text-base mt-0.5">₦{userRefStats.availableEarnings.toLocaleString()}</p>
+                        <p className="text-[10px] text-emerald-600 font-semibold">Pending payout</p>
                       </div>
                     </div>
 
                     {/* Action button if user calls to redeem */}
                     {userRefStats.availableEarnings > 0 && (
-                      <div className="bg-emerald-50/50 border border-emerald-200 rounded-xl p-3 mb-3 flex items-center justify-between gap-3">
+                      <div className="bg-emerald-50/80 border border-emerald-300 rounded-xl p-3 mb-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs">
                         <div>
-                          <p className="font-bold text-emerald-900 text-xs">Payout Requested / Redeem Balance</p>
-                          <p className="text-[11px] text-emerald-700">
-                            Available: <strong>₦{userRefStats.availableEarnings.toLocaleString()}</strong>. When this farmer calls and you complete bank transfer, click here to record payout.
+                          <p className="font-bold text-emerald-900 text-xs flex items-center gap-1.5">
+                            <CheckCircle size={13} className="text-emerald-600" />
+                            Commission Payout Requested / Available Balance
+                          </p>
+                          <p className="text-[11px] text-emerald-700 mt-0.5 leading-relaxed">
+                            Balance to transfer: <strong className="font-mono text-emerald-900 text-xs">₦{userRefStats.availableEarnings.toLocaleString()}</strong>. Once you transfer the funds to this farmer's bank account, click below to record the payout.
                           </p>
                         </div>
                         <button
@@ -1389,7 +1395,7 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                             // Force update modal
                             setViewUser({ ...viewUser });
                           }}
-                          className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg shadow-xs transition-colors shrink-0"
+                          className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs transition-colors shrink-0 whitespace-nowrap"
                         >
                           Mark Payout as Paid
                         </button>
@@ -1397,34 +1403,53 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                     )}
 
                     {/* Table of Referred Users */}
-                    <div className="border border-slate-200 rounded-xl overflow-hidden">
-                      <div className="bg-slate-100/70 px-3 py-2 border-b border-slate-200 flex items-center justify-between">
-                        <span className="font-bold text-slate-700 text-xs flex items-center gap-1.5">
-                          <UsersIcon size={12} className="text-slate-500" />
+                    <div className="border border-slate-200 rounded-xl overflow-hidden shadow-xs">
+                      <div className="bg-slate-100/80 px-3.5 py-2.5 border-b border-slate-200 flex items-center justify-between">
+                        <span className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
+                          <UsersIcon size={13} className="text-slate-500" />
                           Referred Farmers List ({userRefStats.referredUsers.length})
                         </span>
-                        <span className="text-[10px] text-slate-400">30% 1st payment • 10% recurring</span>
+                        <span className="text-[10px] text-slate-500 font-medium">30% 1st Payment • 10% Recurring Renewals</span>
                       </div>
 
                       {userRefStats.referredUsers.length === 0 ? (
-                        <div className="p-3.5 text-center text-slate-400">
+                        <div className="p-4 text-center text-slate-400">
                           <p className="text-xs">No referrals registered by this user yet.</p>
                         </div>
                       ) : (
-                        <div className="divide-y divide-slate-100 max-h-40 overflow-y-auto">
+                        <div className="divide-y divide-slate-100 max-h-56 overflow-y-auto">
                           {userRefStats.referredUsers.map((r) => (
-                            <div key={r.id} className="p-2.5 flex items-center justify-between gap-2 hover:bg-slate-50 transition-colors">
+                            <div key={r.id} className="p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 hover:bg-slate-50 transition-colors">
                               <div className="min-w-0">
-                                <p className="font-bold text-slate-800 text-xs truncate">{r.name}</p>
-                                <p className="text-[11px] text-slate-500 truncate">{r.email}</p>
+                                <div className="flex items-center gap-2">
+                                  <p className="font-bold text-slate-900 text-xs truncate">{r.name}</p>
+                                  {r.hasPaid ? (
+                                    <span className="text-[9px] px-2 py-0.5 rounded font-bold bg-emerald-100 text-emerald-800 flex items-center gap-0.5">
+                                      <CheckCircle size={9} /> Subscribed ({r.activePlan})
+                                    </span>
+                                  ) : (
+                                    <span className="text-[9px] px-2 py-0.5 rounded font-bold bg-amber-100 text-amber-800 flex items-center gap-0.5">
+                                      <Sparkles size={9} /> {r.trialStatusText}
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="text-[11px] text-slate-500 truncate mt-0.5">
+                                  {r.email} • {r.farmName || "Primary Farm"} • Reg: {r.createdAt}
+                                </p>
                               </div>
-                              <div className="flex items-center gap-3 shrink-0">
-                                <span className={`text-[10px] px-2 py-0.5 rounded font-bold ${r.hasPaid ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>
-                                  {r.hasPaid ? "Subscribed" : "Trial"}
-                                </span>
-                                <span className="font-bold text-emerald-700 font-mono text-xs">
-                                  ₦{r.totalCommission.toLocaleString()}
-                                </span>
+                              <div className="flex items-center justify-between sm:justify-end gap-3 shrink-0 pt-1 sm:pt-0 border-t sm:border-t-0 border-slate-100">
+                                <div className="text-left sm:text-right">
+                                  <p className="text-[10px] text-slate-400 uppercase font-bold">Paid</p>
+                                  <p className="font-mono text-xs text-slate-700 font-semibold">
+                                    {r.paymentAmount > 0 ? `₦${r.paymentAmount.toLocaleString()}` : "₦0"}
+                                  </p>
+                                </div>
+                                <div className="text-right">
+                                  <p className="text-[10px] text-slate-400 uppercase font-bold">Commission</p>
+                                  <p className="font-bold text-emerald-700 font-mono text-xs">
+                                    ₦{r.totalCommission.toLocaleString()}
+                                  </p>
+                                </div>
                               </div>
                             </div>
                           ))}

@@ -20,6 +20,8 @@ CREATE TABLE IF NOT EXISTS user_profiles (
   trial_start_date TIMESTAMPTZ,
   role TEXT NOT NULL DEFAULT 'owner',
   status TEXT NOT NULL DEFAULT 'Active',
+  referred_by TEXT DEFAULT NULL,
+  referral_code TEXT DEFAULT NULL,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );

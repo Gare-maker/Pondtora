@@ -173,6 +173,8 @@ export async function fetchLiveAdminUsers(): Promise<{
           staffCount: Number(p.staff_count) || local?.staffCount || 0,
           paystackReference: local?.paystackReference || p.paystack_reference,
           lastPaymentDate: local?.lastPaymentDate || p.last_payment_date,
+          referralCode: p.referral_code || p.referralCode || local?.referralCode,
+          referredBy: p.referred_by || p.referredBy || local?.referredBy || (p.raw_user_meta_data?.referred_by),
           createdAt: p.created_at ? String(p.created_at).slice(0, 10) : (local?.createdAt || new Date().toISOString().slice(0, 10)),
         };
         u.subscriptionStatus = computeSubscriptionStatus(u);
@@ -283,6 +285,8 @@ export async function fetchLiveAdminUsers(): Promise<{
             totalFishStocked: userPonds.reduce((s: number, pd: any) => s + (Number(pd.current_count ?? pd.initial_stock) || 0), 0),
             paystackReference: local?.paystackReference || p.paystack_reference,
             lastPaymentDate: local?.lastPaymentDate || p.last_payment_date,
+            referralCode: p.referral_code || p.referralCode || local?.referralCode,
+            referredBy: p.referred_by || p.referredBy || local?.referredBy || (p.raw_user_meta_data?.referred_by),
             createdAt: p.created_at ? String(p.created_at).slice(0, 10) : (local?.createdAt || new Date().toISOString().slice(0, 10)),
           };
           u.subscriptionStatus = computeSubscriptionStatus(u);
@@ -765,6 +769,8 @@ export function syncUserProfileToAdmin(
       farmCount: Math.max(farmCount || 1, current.farmCount || 1),
       subscriptionStart: hasPaid ? current.subscriptionStart : null,
       subscriptionExpiry: hasPaid ? current.subscriptionExpiry : null,
+      referralCode: profile.referralCode || current.referralCode || (profile as any).referral_code,
+      referredBy: profile.referredBy || current.referredBy || (profile as any).referred_by,
     };
     userObj.subscriptionStatus = computeSubscriptionStatus(userObj);
     users[existingIdx] = userObj;
@@ -792,6 +798,8 @@ export function syncUserProfileToAdmin(
       farmCount: farmCount || 1,
       pondCount: 0,
       staffCount: 0,
+      referralCode: profile.referralCode || (profile as any).referral_code,
+      referredBy: profile.referredBy || (profile as any).referred_by,
       createdAt: new Date().toISOString().slice(0, 10),
     };
     userObj.subscriptionStatus = computeSubscriptionStatus(userObj);
@@ -821,6 +829,8 @@ export function syncUserProfileToAdmin(
       role: userObj.role || "owner",
       active_plan: userObj.activePlan,
       status: userObj.accountStatus,
+      referred_by: userObj.referredBy || null,
+      referral_code: userObj.referralCode || null,
       updated_at: new Date().toISOString(),
     }).then(() => {}).catch(() => {});
   }

@@ -445,6 +445,7 @@ export const auth = {
     currencyCode?: string;
     activePlan?: string;
     planBilling?: string;
+    referredBy?: string;
   }) => {
     const { data, error } = await supabase.auth.signUp({
       email: opts.email,
@@ -465,6 +466,7 @@ export const auth = {
           trial_start_date: new Date().toISOString(),
           plan_billing: opts.planBilling || "monthly",
           subscription_status: "trialing",
+          referred_by: opts.referredBy || null,
         },
       },
     });

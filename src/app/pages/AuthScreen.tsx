@@ -498,6 +498,7 @@ function AuthScreen({
     const cleanEmail = cEmail.trim().toLowerCase();
     try {
       const phoneStr = `${DIAL_CODES[cDialC] ?? ""} ${cPhone.trim()}`.trim();
+      const pendingRef = getPendingReferrerCode();
 
       const performSignUp = () => auth.signUp({
         email: cleanEmail,
@@ -512,6 +513,7 @@ function AuthScreen({
         currencyCode: cur.code,
         activePlan: planName,
         planBilling: trialBilling,
+        referredBy: pendingRef || undefined,
       });
 
       let data: any;
@@ -563,6 +565,7 @@ function AuthScreen({
         trialStartDate: new Date().toISOString(),
         role: "owner",
         status: "Active",
+        referredBy: pendingRef || undefined,
       };
 
       // Ensure user profile & primary farm are immediately in the backend database
@@ -583,6 +586,7 @@ function AuthScreen({
             trial_start_date: new Date().toISOString(),
             role: "owner",
             status: "Active",
+            referred_by: pendingRef || null,
             updated_at: new Date().toISOString(),
           });
           await supabase.from("farms").insert({
@@ -597,7 +601,7 @@ function AuthScreen({
 
       // Sync into admin local state / logs immediately
       syncUserProfileToAdmin(profile, planName, 1);
-      attachReferralToNewUser({ id: createdUserId, email: cleanEmail, name: cName }, getPendingReferrerCode());
+      attachReferralToNewUser({ id: createdUserId, email: cleanEmail, name: cName }, pendingRef);
 
       // Strict enforcement: only auto-login if email is confirmed
       if (data.session && data.user?.email_confirmed_at) {

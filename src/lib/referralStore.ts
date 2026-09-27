@@ -1,5 +1,6 @@
 import type { AdminUser } from "../admin/types";
 import { loadAllAdminUsers, saveAllAdminUsers, logActivity } from "./userSync";
+import { supabase } from "./supabase";
 
 const REFERRALS_STORAGE_KEY = "pondtora_referral_rewards";
 const PENDING_REF_KEY = "pondtora_pending_referrer_code";
@@ -30,8 +31,13 @@ export interface ReferredUserRecord {
   createdAt: string;
   subscriptionStatus: string;
   hasPaid: boolean;
+  activePlan: string;
+  paymentAmount: number;
+  trialDaysLeft: number;
+  trialStatusText: string;
   totalCommission: number;
   paymentCount: number;
+  commissionBreakdown: string;
 }
 
 export interface ReferralStats {
@@ -39,6 +45,7 @@ export interface ReferralStats {
   referralLink: string;
   totalReferralsCount: number;
   paidReferralsCount: number;
+  trialReferralsCount: number;
   totalEarnings: number;
   availableEarnings: number;
   paidOutEarnings: number;
@@ -66,7 +73,7 @@ export function generateReferralCode(name?: string, email?: string, id?: string)
  */
 export function getUserReferralCode(user: { id?: string; name?: string; email?: string; referralCode?: string } | null): string {
   if (!user) return "PONDTORA-REF";
-  if (user.referralCode) return user.referralCode;
+  if (user.referralCode && user.referralCode.trim()) return user.referralCode.trim().toUpperCase();
 
   // Check in AdminUsers list
   const cleanEmail = (user.email || "").toLowerCase().trim();
@@ -88,8 +95,16 @@ export function getUserReferralCode(user: { id?: string; name?: string; email?: 
 /**
  * Builds the full referral share link
  */
-export function getReferralLink(code: string): string {
-  if (typeof window === "undefined") return `https://app.pondtora.com/?ref=${code}`;
+export function getReferralLink(codeOrUser: string | { id?: string; name?: string; email?: string; referralCode?: string } | null): string {
+  let code = "";
+  if (typeof codeOrUser === "string") {
+    code = codeOrUser.trim();
+  } else {
+    code = getUserReferralCode(codeOrUser);
+  }
+  if (!code) code = "PONDTORA-REF";
+
+  if (typeof window === "undefined") return `https://app.pondtora.com/?ref=${encodeURIComponent(code)}`;
   const origin = window.location.origin;
   return `${origin}/?ref=${encodeURIComponent(code)}`;
 }
@@ -101,10 +116,21 @@ export function captureReferralParam(): string | null {
   if (typeof window === "undefined") return null;
   try {
     const urlParams = new URLSearchParams(window.location.search);
-    const ref = urlParams.get("ref") || urlParams.get("referral") || urlParams.get("referrer");
+    const hash = window.location.hash || "";
+    const hashParams = new URLSearchParams(hash.startsWith("#") ? hash.slice(hash.indexOf("?") + 1) : "");
+
+    const ref =
+      urlParams.get("ref") ||
+      urlParams.get("referral") ||
+      urlParams.get("referrer") ||
+      hashParams.get("ref") ||
+      hashParams.get("referral") ||
+      hashParams.get("referrer");
+
     if (ref && ref.trim()) {
       const cleanRef = ref.trim().toUpperCase();
       localStorage.setItem(PENDING_REF_KEY, cleanRef);
+      sessionStorage.setItem(PENDING_REF_KEY, cleanRef);
       return cleanRef;
     }
   } catch {}
@@ -114,7 +140,11 @@ export function captureReferralParam(): string | null {
 export function getPendingReferrerCode(): string | null {
   if (typeof window === "undefined") return null;
   try {
-    return localStorage.getItem(PENDING_REF_KEY) || null;
+    return (
+      sessionStorage.getItem(PENDING_REF_KEY) ||
+      localStorage.getItem(PENDING_REF_KEY) ||
+      null
+    );
   } catch {}
   return null;
 }
@@ -123,6 +153,7 @@ export function clearPendingReferrerCode() {
   if (typeof window === "undefined") return;
   try {
     localStorage.removeItem(PENDING_REF_KEY);
+    sessionStorage.removeItem(PENDING_REF_KEY);
   } catch {}
 }
 
@@ -151,7 +182,7 @@ export function saveAllReferralRewards(rewards: ReferralReward[]) {
  * Records a new user signup with their referring code
  */
 export function attachReferralToNewUser(newUser: { id?: string; email: string; name?: string }, referrerCode?: string | null) {
-  const code = referrerCode || getPendingReferrerCode();
+  const code = (referrerCode || getPendingReferrerCode() || "").trim().toUpperCase();
   if (!code || !newUser.email) return;
 
   const cleanUserEmail = newUser.email.toLowerCase().trim();
@@ -159,12 +190,35 @@ export function attachReferralToNewUser(newUser: { id?: string; email: string; n
 
   const userIdx = allUsers.findIndex(u => (u.email || "").toLowerCase().trim() === cleanUserEmail);
   if (userIdx >= 0) {
-    (allUsers[userIdx] as any).referredBy = code.toUpperCase();
+    (allUsers[userIdx] as any).referredBy = code;
     saveAllAdminUsers(allUsers);
+  }
+
+  // Also sync to Supabase user_profiles if user ID is available
+  if (newUser.id) {
+    try {
+      supabase
+        .from("user_profiles")
+        .update({ referred_by: code })
+        .eq("id", newUser.id)
+        .then(() => {})
+        .catch(() => {});
+    } catch {}
   }
 
   // Clear pending referral after assigning
   clearPendingReferrerCode();
+}
+
+/**
+ * Calculates standard plan price fallback if not stored
+ */
+function getStandardPlanPrice(planName: string): number {
+  const clean = (planName || "").toLowerCase();
+  if (clean.includes("commercial")) return 50000;
+  if (clean.includes("growth") || clean.includes("pro")) return 25000;
+  if (clean.includes("starter") || clean.includes("basic")) return 15000;
+  return 15000;
 }
 
 /**
@@ -185,7 +239,7 @@ export function processReferralCommission(params: {
   const allUsers = loadAllAdminUsers();
   const payerUser = allUsers.find(u => (u.email || "").toLowerCase().trim() === cleanPayerEmail);
 
-  const referrerCode = (payerUser as any)?.referredBy || getPendingReferrerCode();
+  const referrerCode = (payerUser as any)?.referredBy || (payerUser as any)?.referred_by || getPendingReferrerCode();
   if (!referrerCode) return null;
 
   const cleanRefCode = referrerCode.trim().toUpperCase();
@@ -193,7 +247,9 @@ export function processReferralCommission(params: {
   // Find the referrer account
   const referrerUser = allUsers.find(u => {
     const uCode = ((u as any).referralCode || generateReferralCode(u.name, u.email, u.id)).toUpperCase();
-    return uCode === cleanRefCode || (u.id && u.id.toUpperCase() === cleanRefCode);
+    const uEmail = (u.email || "").toUpperCase();
+    const uId = (u.id || "").toUpperCase();
+    return uCode === cleanRefCode || uId === cleanRefCode || uEmail === cleanRefCode;
   });
 
   const allRewards = loadAllReferralRewards();
@@ -244,21 +300,30 @@ export function getUserReferralStats(user: { id?: string; name?: string; email?:
   const code = getUserReferralCode(user);
   const cleanCode = code.toUpperCase();
   const cleanEmail = (user?.email || "").toLowerCase().trim();
+  const userId = (user?.id || "").toUpperCase();
 
   const allUsers = loadAllAdminUsers();
   const allRewards = loadAllReferralRewards();
 
   // Find all users referred by this user
   const referredUsersList = allUsers.filter(u => {
-    const refBy = ((u as any).referredBy || "").trim().toUpperCase();
-    return refBy === cleanCode || (user?.email && refBy === user.email.toUpperCase());
+    const refBy = (((u as any).referredBy || (u as any).referred_by || "") as string).trim().toUpperCase();
+    if (!refBy) return false;
+    return (
+      refBy === cleanCode ||
+      (cleanEmail && refBy === cleanEmail.toUpperCase()) ||
+      (userId && refBy === userId)
+    );
   });
 
   // Rewards for this user
   const myRewards = allRewards.filter(r => {
+    const rRef = (r.referrerCode || "").toUpperCase();
+    const rEmail = (r.referrerEmail || "").toLowerCase().trim();
     return (
-      r.referrerCode.toUpperCase() === cleanCode ||
-      (cleanEmail && (r.referrerEmail || "").toLowerCase().trim() === cleanEmail)
+      rRef === cleanCode ||
+      (userId && rRef === userId) ||
+      (cleanEmail && rEmail === cleanEmail)
     );
   });
 
@@ -275,26 +340,89 @@ export function getUserReferralStats(user: { id?: string; name?: string; email?:
     const userRewards = myRewards.filter(r => (r.referredUserEmail || "").toLowerCase().trim() === uEmail);
     const commTotal = userRewards.reduce((s, r) => s + (r.commissionAmount || 0), 0);
 
+    const hasPaid = Boolean(
+      u.hasPaid ||
+      u.paystackReference ||
+      u.lastPaymentDate ||
+      userRewards.length > 0 ||
+      (u.subscriptionStatus && u.subscriptionStatus.toLowerCase() === "active" && !u.freeAccess)
+    );
+
+    // Calculate trial days left (14-day free trial window)
+    let trialDaysLeft = 0;
+    let trialStatusText = "Trial Expired";
+
+    if (!hasPaid) {
+      const startRef = u.trialStartDate || u.createdAt;
+      if (startRef) {
+        const startDate = new Date(startRef);
+        const now = new Date();
+        const diffMs = now.getTime() - startDate.getTime();
+        const daysElapsed = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+        trialDaysLeft = Math.max(0, 14 - daysElapsed);
+        if (trialDaysLeft > 0) {
+          trialStatusText = `Free Trial (${trialDaysLeft} day${trialDaysLeft === 1 ? "" : "s"} left)`;
+        } else {
+          trialStatusText = "Free Trial (Ended)";
+        }
+      } else {
+        trialDaysLeft = 14;
+        trialStatusText = "Free Trial (14 days left)";
+      }
+    }
+
+    // Payment Amount
+    let paymentAmount = 0;
+    if (userRewards.length > 0) {
+      paymentAmount = userRewards.reduce((sum, r) => sum + (r.paymentAmount || 0), 0);
+    } else if (hasPaid) {
+      paymentAmount = u.subscriptionAmount || getStandardPlanPrice(u.activePlan || "Starter");
+    }
+
+    // Breakdown text
+    let commissionBreakdown = "";
+    if (userRewards.length > 0) {
+      const firstRew = userRewards.find(r => r.paymentType === "first");
+      const recRews = userRewards.filter(r => r.paymentType === "recurring");
+      const parts: string[] = [];
+      if (firstRew) parts.push(`30% 1st (₦${firstRew.commissionAmount.toLocaleString()})`);
+      if (recRews.length > 0) {
+        const recTotal = recRews.reduce((s, r) => s + r.commissionAmount, 0);
+        parts.push(`10% renewals (₦${recTotal.toLocaleString()})`);
+      }
+      commissionBreakdown = parts.join(" + ");
+    } else if (hasPaid && commTotal === 0) {
+      const estimated = Math.round(paymentAmount * 0.30);
+      commissionBreakdown = `30% 1st (₦${estimated.toLocaleString()})`;
+    }
+
     return {
       id: u.id,
       name: u.name || uEmail.split("@")[0],
       email: u.email,
       farmName: u.farmName,
       createdAt: u.createdAt || "Recently",
-      subscriptionStatus: u.subscriptionStatus || "Trial",
-      hasPaid: Boolean(u.hasPaid || userRewards.length > 0),
+      subscriptionStatus: hasPaid ? "Active" : (trialDaysLeft > 0 ? "Trial" : "Expired"),
+      hasPaid,
+      activePlan: u.activePlan || "Starter Plan",
+      paymentAmount,
+      trialDaysLeft,
+      trialStatusText,
       totalCommission: commTotal,
-      paymentCount: userRewards.length,
+      paymentCount: userRewards.length || (hasPaid ? 1 : 0),
+      commissionBreakdown,
     };
   });
 
   const paidReferralsCount = referredUsers.filter(u => u.hasPaid || u.totalCommission > 0).length;
+  const trialReferralsCount = referredUsers.filter(u => !u.hasPaid && u.totalCommission === 0).length;
 
   return {
     referralCode: code,
     referralLink: getReferralLink(code),
     totalReferralsCount: referredUsers.length,
     paidReferralsCount,
+    trialReferralsCount,
     totalEarnings,
     availableEarnings,
     paidOutEarnings,
