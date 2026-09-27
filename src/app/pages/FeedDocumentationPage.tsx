@@ -1628,12 +1628,22 @@ function FeedDocumentation({
         const pondsRemaining = Math.max(0, totalPonds - pondsFedToday);
         const bagsOpenedToday = (bagLogs || []).filter(b => b && isSameDate(b.date, selDate)).reduce((s, b) => s + (Number(b.bagsOpened) || 0), 0);
         return (
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <StatCard label="Total Ponds" value={String(totalPonds)} sub="active" icon={Layers} />
-            <StatCard label="Ponds Fed" value={String(pondsFedToday)} sub={selDate} icon={CheckCircle} hi />
-            <StatCard label="Ponds Remaining" value={String(pondsRemaining)} sub="not yet fed" icon={BookOpen} />
-            <StatCard label="Bags Opened" value={String(bagsOpenedToday)} sub={selDate} icon={Package} />
-          </div>
+          <>
+            {/* Desktop Stats (4 cards) */}
+            <div className="hidden sm:grid sm:grid-cols-4 gap-3">
+              <StatCard label="Total Ponds" value={String(totalPonds)} sub="active" icon={Layers} />
+              <StatCard label="Ponds Fed" value={String(pondsFedToday)} sub={selDate} icon={CheckCircle} hi />
+              <StatCard label="Ponds Remaining" value={String(pondsRemaining)} sub="not yet fed" icon={BookOpen} />
+              <StatCard label="Bags Opened" value={String(bagsOpenedToday)} sub={selDate} icon={Package} />
+            </div>
+
+            {/* Mobile Stats (Only 3 cards: Total Ponds, Ponds Fed, Remaining in 1 compact row) */}
+            <div className="grid sm:hidden grid-cols-3 gap-2">
+              <StatCard label="Total Ponds" value={String(totalPonds)} icon={Layers} />
+              <StatCard label="Ponds Fed" value={String(pondsFedToday)} icon={CheckCircle} hi />
+              <StatCard label="Remaining" value={String(pondsRemaining)} icon={BookOpen} />
+            </div>
+          </>
         );
       })()}
 
@@ -1753,17 +1763,15 @@ function FeedDocumentation({
 
           {/* Mobile Isolated Cards View */}
           <div className="md:hidden space-y-3">
-            {/* Mobile Search Bar */}
-            <div className="bg-white border border-slate-200/80 rounded-2xl p-3 shadow-xs flex items-center gap-2">
-              <div className="relative flex-1">
-                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" />
-                <input
-                  value={dailySearch}
-                  onChange={e => setDailySearch(e.target.value)}
-                  placeholder="Search pond, stock, or size…"
-                  className={`${IC} pl-8 w-full text-xs py-1.5`}
-                />
-              </div>
+            {/* Search and Filter */}
+            <div className="relative">
+              <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" />
+              <input
+                value={dailySearch}
+                onChange={e => setDailySearch(e.target.value)}
+                placeholder="Search pond, stock, or size…"
+                className={`${IC} pl-8 w-full text-xs py-1.5`}
+              />
             </div>
 
             {filteredDayRows.length === 0 ? (
@@ -1789,15 +1797,17 @@ function FeedDocumentation({
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <h3 className="font-bold text-slate-900 text-sm sm:text-base">{pond.name}</h3>
+                        <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                          <h3 className="font-bold text-slate-900 text-sm sm:text-base truncate max-w-[140px] xs:max-w-[180px] sm:max-w-[220px]" title={pond.name}>
+                            {pond.name}
+                          </h3>
                           {stockDateFormatted !== "—" && (
-                            <span className="text-[10px] text-teal-700 bg-teal-50 px-2 py-0.5 rounded border border-teal-200 font-medium">
+                            <span className="text-[10px] text-teal-700 bg-teal-50 px-2 py-0.5 rounded border border-teal-200 font-medium shrink-0">
                               {stockDateFormatted}
                             </span>
                           )}
                         </div>
-                        <p className="text-[11px] text-slate-500 mt-0.5">
+                        <p className="text-[11px] text-slate-500 mt-0.5 truncate">
                           Stock: <strong className="text-slate-700">{pond.currentCount.toLocaleString()}</strong> fish
                           {pond.initialStock > 0 && <span className="text-slate-400"> (Initial: {pond.initialStock.toLocaleString()})</span>}
                         </p>
@@ -2049,10 +2059,10 @@ function FeedDocumentation({
 
           {/* Mobile Isolated Cards View */}
           <div className="md:hidden space-y-3">
-            {/* Mobile Search Bar */}
-            <div className="bg-white border border-slate-200/80 rounded-2xl p-3 shadow-xs flex items-center justify-between gap-2">
+            {/* Search and Filter */}
+            <div className="flex items-center gap-2">
               <div className="relative flex-1">
-                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" />
+                <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" />
                 <input
                   value={bagsSearch}
                   onChange={e => setBagsSearch(e.target.value)}
@@ -2060,7 +2070,7 @@ function FeedDocumentation({
                   className={`${IC} pl-8 w-full text-xs py-1.5`}
                 />
               </div>
-              <span className="text-[11px] font-semibold text-slate-500 shrink-0">{filteredMergedBagRows.length} entries</span>
+              <span className="text-xs text-slate-500 font-medium shrink-0">({filteredMergedBagRows.length})</span>
             </div>
 
             {/* Dismissible Highlighting Banner if navigated from reconciliation */}
@@ -2344,10 +2354,10 @@ function FeedDocumentation({
 
             {/* Mobile Isolated Cards View */}
             <div className="md:hidden space-y-3">
-              {/* Mobile Search and Status Header */}
-              <div className="bg-white border border-slate-200/80 rounded-2xl p-3 shadow-xs flex flex-wrap items-center justify-between gap-2">
-                <div className="relative flex-1 min-w-[160px]">
-                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" />
+              {/* Search and Filter */}
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="relative flex-1 min-w-[150px]">
+                  <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" />
                   <input
                     value={reconSearch}
                     onChange={e => setReconSearch(e.target.value)}
@@ -2506,19 +2516,15 @@ function FeedDocumentation({
           }
           if (pr.status === "bag_mismatch") {
             if (pr.expectedBags > pr.recordedBags) {
-              const diff = pr.expectedBags - pr.recordedBags;
               return {
                 title: "Bag Count Under-Reported",
                 body: `Your ponds consumed ${pr.totalFed} kg of feed today, which mathematically requires ${pr.expectedBags} bag(s) (${pr.bagWeight} kg/bag), but only ${pr.recordedBags} bag(s) were logged in Opened Bags. Attendants likely opened ${pr.expectedBags} bags but only recorded ${pr.recordedBags}.`,
-                action: `Please log the missing ${diff} opened bag${diff !== 1 ? "s" : ""} in the Opened Bags tab to reconcile.`,
                 color: "orange",
               };
             } else {
-              const diff = pr.recordedBags - pr.expectedBags;
               return {
                 title: "Bag Count Over-Reported",
                 body: `You logged ${pr.recordedBags} bags opened (${pr.recordedBags * pr.bagWeight} kg), but your fish only consumed ${pr.totalFed} kg (which only required ${pr.expectedBags} bag(s)).`,
-                action: `Please check if ${diff} extra bag${diff !== 1 ? "s were" : " was"} logged by mistake in Opened Bags, or if feeding was omitted in Daily Feed.`,
                 color: "orange",
               };
             }
@@ -2528,7 +2534,6 @@ function FeedDocumentation({
             return {
               title: "Remaining Feed Weight Discrepancy",
               body: `After feeding ${pr.totalFed} kg from ${pr.expectedBags} opened bag(s) (${pr.carryover} kg yesterday carryover + ${pr.expectedBags * pr.bagWeight} kg in bags), the opened bag should mathematically have ${pr.expectedRemaining} kg remaining. However, attendants recorded ${pr.recordedRemaining} kg (difference of ${diffKg} kg).`,
-              action: `Please verify the physical scale weight of the opened bag in your feed store or update the Remaining Log.`,
               color: "amber",
             };
           }
@@ -2536,14 +2541,12 @@ function FeedDocumentation({
             return {
               title: "Feed Given Exceeds Available Feed",
               body: `Total feed fed to ponds (${pr.totalFed} kg) is greater than the total available feed (${pr.carryover} kg carryover + ${pr.recordedBags * pr.bagWeight} kg from ${pr.recordedBags} opened bags = ${pr.carryover + (pr.recordedBags * pr.bagWeight)} kg).`,
-              action: `Please record the additional opened bag(s) in Opened Bags that supplied this feed.`,
               color: "red",
             };
           }
           return {
             title: "Multiple Discrepancies Detected",
             body: `Both the opened bag count (${pr.recordedBags} recorded vs ${pr.expectedBags} expected) and the remaining feed (${pr.recordedRemaining} kg recorded vs ${pr.expectedRemaining} kg expected) have mismatches.`,
-            action: `Please review both the Opened Bags log and the Remaining Feed log for ${selDate}.`,
             color: "red",
           };
         };
@@ -2593,14 +2596,6 @@ function FeedDocumentation({
                     <span className="text-slate-300">•</span>
                     <span className="font-mono font-bold text-blue-700 bg-blue-50 px-1.5 py-0.2 rounded border border-blue-200">{pr.size}</span>
                   </div>
-
-                  {/* Action Section */}
-                  {diagnostic.action && (
-                    <div className="mt-3 pt-2.5 border-t border-slate-200/60 flex items-start sm:items-center gap-1.5 flex-wrap">
-                      <span className="text-blue-600 font-bold shrink-0 text-xs">👉 Action:</span>
-                      <span className="text-xs font-medium text-slate-800">{diagnostic.action}</span>
-                    </div>
-                  )}
                 </div>
 
                 {/* Steps Flow — Clean Divided List (Clean, Light Typography) */}
@@ -3387,7 +3382,7 @@ function FeedDocumentation({
           <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full sm:max-w-md flex flex-col" style={{ maxHeight: "90vh" }}>
             <div className="flex items-start justify-between px-5 py-4 border-b border-slate-100 shrink-0">
               <div>
-                <h2 className="text-base font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Feed Record</h2>
+                <h2 className="text-base font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Feed Record Details</h2>
                 <p className="text-xs text-slate-400 mt-0.5">{viewFeedRec.pond} · {viewFeedRec.date}</p>
               </div>
               <button onClick={() => setViewFeedRec(null)} className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors ml-4 shrink-0"><X size={18} /></button>
@@ -3411,17 +3406,64 @@ function FeedDocumentation({
                 );
               })()}
               <div className="grid grid-cols-2 gap-2">
-                <div className="bg-slate-50 rounded-xl p-3"><p className="text-[10px] uppercase tracking-wider text-slate-400 mb-0.5">Pellet Size</p><Bdg label={viewFeedRec.size} color="blue" /></div>
+                <div className="bg-slate-50 rounded-xl p-3">
+                  <p className="text-[10px] uppercase tracking-wider text-slate-400 mb-0.5">Pellet Size {viewFeedRec.brand ? `(${viewFeedRec.brand})` : ""}</p>
+                  <Bdg label={viewFeedRec.size} color="blue" />
+                </div>
                 <div className="bg-slate-50 rounded-xl p-3"><p className="text-[10px] uppercase tracking-wider text-slate-400 mb-0.5">Recorded By</p><p className="text-sm text-slate-700">{viewFeedRec.recordedBy || "—"}</p></div>
               </div>
               <div className="grid grid-cols-3 gap-2">
-                <div className="bg-slate-50 rounded-xl p-3"><p className="text-[10px] uppercase tracking-wider text-slate-400 mb-0.5">Morning</p><p className="text-sm font-bold text-slate-800">{viewFeedRec.morning} kg</p></div>
-                <div className="bg-slate-50 rounded-xl p-3"><p className="text-[10px] uppercase tracking-wider text-slate-400 mb-0.5">Evening</p><p className="text-sm font-bold text-slate-800">{viewFeedRec.evening} kg</p></div>
-                <div className="bg-green-50 rounded-xl p-3 border border-green-200"><p className="text-[10px] uppercase tracking-wider text-green-600 mb-0.5">Total</p><p className="text-sm font-black text-green-700">{viewFeedRec.total} kg</p></div>
+                <div className="bg-slate-50 rounded-xl p-3 flex flex-col justify-between">
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wider text-slate-400 mb-0.5">Morning</p>
+                    <p className="text-sm font-bold text-slate-800">{viewFeedRec.morning} kg</p>
+                  </div>
+                  <p className="text-[10px] text-slate-500 mt-1 font-mono">{viewFeedRec.morningTime || "—"}</p>
+                </div>
+                <div className="bg-slate-50 rounded-xl p-3 flex flex-col justify-between">
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wider text-slate-400 mb-0.5">Evening</p>
+                    <p className="text-sm font-bold text-slate-800">{viewFeedRec.evening} kg</p>
+                  </div>
+                  <p className="text-[10px] text-slate-500 mt-1 font-mono">{viewFeedRec.eveningTime || "—"}</p>
+                </div>
+                <div className="bg-green-50 rounded-xl p-3 border border-green-200 flex flex-col justify-between">
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wider text-green-600 mb-0.5">Total</p>
+                    <p className="text-base font-black text-green-700">{viewFeedRec.total} kg</p>
+                  </div>
+                  <p className="text-[10px] text-green-700 font-semibold">Feed Given</p>
+                </div>
               </div>
+              {viewFeedRec.editHistory && viewFeedRec.editHistory.length > 0 && (
+                <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900">
+                  <p className="font-semibold mb-1">Edit History ({viewFeedRec.editHistory.length} edit{viewFeedRec.editHistory.length !== 1 ? "s" : ""})</p>
+                  <div className="space-y-1 text-[11px] text-amber-800">
+                    {viewFeedRec.editHistory.map((h, idx) => (
+                      <div key={idx} className="flex items-center justify-between">
+                        <span>By {h.editedBy || "Staff"} at {h.editedAt}</span>
+                        <span className="font-mono">{h.originalMorning + h.originalEvening}kg → {h.updatedMorning + h.updatedEvening}kg</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
-            <div className="px-5 py-4 border-t border-slate-100 shrink-0">
-              <button onClick={() => setViewFeedRec(null)} className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-sm rounded-xl transition-colors">Close</button>
+            <div className="px-5 py-4 border-t border-slate-100 flex items-center justify-end gap-2 shrink-0">
+              {canEdit && isRecordEditable(viewFeedRec.date) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const r = viewFeedRec;
+                    setViewFeedRec(null);
+                    openEditRec(r);
+                  }}
+                  className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white font-semibold text-xs rounded-xl transition-colors inline-flex items-center gap-1.5"
+                >
+                  <Pencil size={13} /> Edit
+                </button>
+              )}
+              <button onClick={() => setViewFeedRec(null)} className="py-2 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs rounded-xl transition-colors">Close</button>
             </div>
           </div>
         </div>
