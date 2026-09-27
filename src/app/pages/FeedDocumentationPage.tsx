@@ -523,10 +523,15 @@ function FeedDocumentation({
       const kgConsumed = totalFed;
       const netNeeded = Math.max(0, kgConsumed - carryover);
       const expectedBags = netNeeded === 0 ? 0 : Math.ceil(netNeeded / bagWeight);
-      const expectedRemaining = (carryover === 0 && kgOpened === 0 && kgConsumed === 0 && recordedRemaining > 0)
+      const totalAvailableFeed = carryover + kgOpened;
+      const expectedRemaining = (carryover === 0 && recordedBags === 0)
+        ? 0
+        : (carryover === 0 && kgOpened === 0 && kgConsumed === 0 && recordedRemaining > 0)
         ? recordedRemaining
-        : Math.max(0, carryover + kgOpened - kgConsumed);
-      const remainingKg = Math.max(0, (carryover + kgOpened) - kgConsumed);
+        : Math.max(0, totalAvailableFeed - kgConsumed);
+      const remainingKg = (carryover === 0 && recordedBags === 0)
+        ? 0
+        : Math.max(0, totalAvailableFeed - kgConsumed);
       const bagsDiff = Math.abs(expectedBags - recordedBags);
       const remainDiff = Math.abs(expectedRemaining - recordedRemaining);
       const feedQtyIssue = recordedBags > 0 && kgConsumed > carryover + kgOpened + 0.01;
@@ -766,7 +771,8 @@ function FeedDocumentation({
     const expectedBags = totalFed > 0 ? (netNeeded === 0 ? 0 : Math.ceil(netNeeded / bagWeight)) : 0;
 
     const effectiveBags = bagsOpenedOverride !== undefined ? bagsOpenedOverride : expectedBags;
-    const expectedRemaining = Math.max(0, (carryover + (effectiveBags * bagWeight)) - totalFed);
+    const totalAvailable = carryover + (effectiveBags * bagWeight);
+    const expectedRemaining = (carryover === 0 && effectiveBags === 0) ? 0 : Math.max(0, totalAvailable - totalFed);
 
     return {
       hasFed: totalFed > 0,

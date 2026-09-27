@@ -91,6 +91,11 @@ function Sidebar({active,onNav,collapsed,onToggle,farms,activeFarmId,onSwitchFar
             {(unreadCount??0)>0&&<span className="absolute top-0.5 right-0.5 w-2 h-2 rounded-full bg-red-500"/>}
           </button>
         )}
+        {sideOpen && !collapsed && (
+          <button onClick={onToggle} title="Close sidebar" className="lg:hidden p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors shrink-0 ml-auto">
+            <X size={18}/>
+          </button>
+        )}
       </div>
       {/* Farm Switcher */}
       {!collapsed&&(
