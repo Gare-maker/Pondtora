@@ -1470,33 +1470,24 @@ function FeedDocumentation({
   return (
     <div className="p-4 sm:p-6 space-y-5 w-full">
       {/* ── Header ── */}
-      <div className="sticky top-0 z-10 bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="sticky top-0 z-10 bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 space-y-2.5">
+        {/* Top Row: Title + Date Picker */}
+        <div className="flex items-start justify-between gap-2.5 sm:gap-4">
           <div className="min-w-0 flex-1">
             <h1 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Feeding Records</h1>
-            <p className="text-xs text-slate-400 mt-0.5">Record and review daily feeding sessions across all active ponds grouped by Fish Stock.</p>
+            <p className="text-xs text-slate-400 mt-0.5 leading-tight break-words">Record and review daily feeding sessions across all active ponds grouped by Fish Stock.</p>
           </div>
-          <div className="shrinking-0 relative" ref={feedMobileMenuRef}>
-            <button onClick={() => setFeedMobileMenuOpen(p => !p)} className="flex items-center gap-1.5 p-2 rounded-lg border border-slate-200 bg-white text-slate-600 hover:border-green-400 hover:text-green-600 transition-colors"><MoreVertical size={15} /></button>
-            {feedMobileMenuOpen && (
-              <div className="absolute right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl z-50 overflow-hidden min-w-[150px]">
-                <button onClick={() => { downloadDayCSV(); setFeedMobileMenuOpen(false); }} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-2"><Download size={13} /> Export CSV</button>
-                <button onClick={() => { downloadDayPDF(); setFeedMobileMenuOpen(false); }} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-2"><FileText size={13} /> Export PDF</button>
-              </div>
-            )}
-          </div>
-        </div>
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          {/* Date selector */}
-          <div className="relative">
-            <button onClick={() => setShowCal(p => !p)} className="flex items-center gap-2.5 px-3 py-1.5 bg-white border border-slate-200 rounded-xl shadow-xs hover:border-green-400 hover:shadow-sm transition-all text-xs font-semibold text-slate-700">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-green-500"><rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /></svg>
-              <span className="font-['Barlow_Condensed',sans-serif] text-sm tracking-tight">{selDate}</span>
+
+          {/* Date selector (Top Right) */}
+          <div className="shrink-0 relative">
+            <button onClick={() => setShowCal(p => !p)} className="flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3 py-1.5 bg-white border border-slate-200 rounded-xl shadow-xs hover:border-green-400 hover:shadow-sm transition-all text-xs font-semibold text-slate-700">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-green-500 shrink-0"><rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /></svg>
+              <span className="font-['Barlow_Condensed',sans-serif] text-xs sm:text-sm tracking-tight whitespace-nowrap">{selDate}</span>
               <ChevronDown size={13} className={`text-slate-400 transition-transform ${showCal ? "rotate-180" : ""}`} />
             </button>
             {showCal && (<>
               <div className="fixed inset-0 z-20" onClick={() => setShowCal(false)} />
-              <div className="absolute left-0 top-full mt-2 z-30 bg-white border border-slate-200 rounded-2xl shadow-xl p-4 w-[280px]">
+              <div className="absolute right-0 top-full mt-2 z-30 bg-white border border-slate-200 rounded-2xl shadow-xl p-4 w-[280px]">
                 <div className="flex items-center justify-between mb-3">
                   <button onClick={() => navMonth(-1)} className="p-1.5 rounded-lg hover:bg-slate-100 transition-colors text-slate-500"><ChevronLeft size={15}/></button>
                   <span className="text-sm font-bold text-slate-800 font-['Barlow_Condensed',sans-serif] tracking-wide">{curMonLabel} {viewYear}</span>
@@ -1526,12 +1517,32 @@ function FeedDocumentation({
               </div>
             </>)}
           </div>
+        </div>
+
+        {/* Bottom Row: Action Buttons + Export 3-dots Menu */}
+        <div className="flex items-center justify-end gap-1.5 sm:gap-2">
           {canCreate && (
-            <div className="flex items-center gap-1.5 sm:gap-2">
+            <>
               <PBtn onClick={openLog} sm className="whitespace-nowrap px-2.5 sm:px-3 text-xs"><Plus size={13} /> Log Feeding</PBtn>
-              <PBtn onClick={openBagsModal} sm outline className="whitespace-nowrap px-2.5 sm:px-3 text-xs"><Package size={13} /> Log Bags & Leftover</PBtn>
-            </div>
+              <PBtn onClick={openBagsModal} sm outline className="whitespace-nowrap px-2.5 sm:px-3 text-xs"><Package size={13} /> Log Bags &amp; Leftover</PBtn>
+            </>
           )}
+          <div className="shrink-0 relative" ref={feedMobileMenuRef}>
+            <button
+              type="button"
+              onClick={() => setFeedMobileMenuOpen(p => !p)}
+              className="flex items-center justify-center p-2 rounded-xl border border-slate-200 bg-white text-slate-600 hover:border-green-400 hover:text-green-600 hover:bg-slate-50 transition-colors shadow-2xs"
+              title="Export Options"
+            >
+              <MoreVertical size={15} />
+            </button>
+            {feedMobileMenuOpen && (
+              <div className="absolute right-0 top-full mt-1.5 bg-white border border-slate-200 rounded-xl shadow-xl z-50 overflow-hidden min-w-[150px] animate-in fade-in zoom-in-95 duration-100">
+                <button onClick={() => { downloadDayCSV(); setFeedMobileMenuOpen(false); }} className="w-full text-left px-3.5 py-2 text-xs font-medium text-slate-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-2 transition-colors"><Download size={13} /> Export CSV</button>
+                <button onClick={() => { downloadDayPDF(); setFeedMobileMenuOpen(false); }} className="w-full text-left px-3.5 py-2 text-xs font-medium text-slate-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-2 transition-colors"><FileText size={13} /> Export PDF</button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
