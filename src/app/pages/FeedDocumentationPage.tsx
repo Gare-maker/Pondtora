@@ -1963,31 +1963,11 @@ function FeedDocumentation({
                   {/* Diagnostic Body / Subtext */}
                   <p className="text-xs leading-relaxed text-slate-600 font-normal">{diagnostic.body}</p>
 
-                  {/* Action Section with Direct Button */}
+                  {/* Action Section */}
                   {diagnostic.action && (
-                    <div className="mt-3 pt-2.5 border-t border-slate-200/60 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-                      <p className="text-xs font-medium text-slate-800 flex items-start gap-1.5 flex-1">
-                        <span className="text-blue-600 font-bold shrink-0">👉 Action:</span>
-                        <span>{diagnostic.action}</span>
-                      </p>
-                      {bagErr && (
-                        <button
-                          type="button"
-                          onClick={() => goToOpenedBags(pr.fishStock, pr.size, pr.brand, "bags")}
-                          className="px-3.5 py-1.5 bg-orange-600 hover:bg-orange-700 text-white font-semibold text-xs rounded-lg transition-colors shadow-xs shrink-0 whitespace-nowrap"
-                        >
-                          Go to Opened Bags Tab →
-                        </button>
-                      )}
-                      {remErr && !bagErr && (
-                        <button
-                          type="button"
-                          onClick={() => goToOpenedBags(pr.fishStock, pr.size, pr.brand, "remaining")}
-                          className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-semibold text-xs rounded-lg transition-colors shadow-xs shrink-0 whitespace-nowrap"
-                        >
-                          Go to Opened Bags Tab →
-                        </button>
-                      )}
+                    <div className="mt-3 pt-2.5 border-t border-slate-200/60 flex items-start sm:items-center gap-1.5 flex-wrap">
+                      <span className="text-blue-600 font-bold shrink-0 text-xs">👉 Action:</span>
+                      <span className="text-xs font-medium text-slate-800">{diagnostic.action}</span>
                     </div>
                   )}
                 </div>
