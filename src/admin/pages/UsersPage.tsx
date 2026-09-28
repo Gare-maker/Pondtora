@@ -345,9 +345,13 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
     investors: [],
   });
 
-  useEffect(() => {
-    if (!viewUser?.id) {
-      setUserExtra({
+  // Fast in-memory cache to make re-opening or switching users instant
+  const userExtraCacheRef = useRef<Map<string, any>>(new Map());
+
+  // Synchronous extractor for instant data display
+  const getSynchronousUserExtra = (u: AdminUser | null) => {
+    if (!u) {
+      return {
         loading: false,
         farms: [],
         ponds: [],
@@ -358,42 +362,200 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
         expenses: [],
         invoices: [],
         investors: [],
-      });
+      };
+    }
+
+    if (userExtraCacheRef.current.has(u.id)) {
+      return { ...userExtraCacheRef.current.get(u.id), loading: false };
+    }
+    if (u.email && userExtraCacheRef.current.has(u.email)) {
+      return { ...userExtraCacheRef.current.get(u.email), loading: false };
+    }
+
+    let localFarms: any[] = [];
+    let localPonds: any[] = [];
+    let localStaff: any[] = [];
+    let localFeed: any[] = [];
+    let localFeeding: any[] = [];
+    let localRevenues: any[] = [];
+    let localExpenses: any[] = [];
+    let localInvoices: any[] = [];
+    let localInvestors: any[] = [];
+
+    try {
+      const rawFarms = localStorage.getItem("pondtora_farms");
+      if (rawFarms) {
+        const parsed = JSON.parse(rawFarms);
+        if (Array.isArray(parsed)) {
+          localFarms = parsed.filter((f: any) => f && (f.user_id === u.id || f.owner_id === u.id));
+        }
+      }
+    } catch {}
+
+    try {
+      const rawPonds = localStorage.getItem("pondtora_ponds");
+      if (rawPonds) {
+        const parsed = JSON.parse(rawPonds);
+        if (Array.isArray(parsed)) {
+          localPonds = parsed.filter((p: any) => p && (p.user_id === u.id || p.owner_id === u.id));
+        }
+      }
+    } catch {}
+
+    try {
+      const rawStaff = localStorage.getItem("pondtora_staff");
+      if (rawStaff) {
+        const parsed = JSON.parse(rawStaff);
+        if (Array.isArray(parsed)) {
+          localStaff = parsed.filter((s: any) => s && (s.user_id === u.id || s.owner_id === u.id));
+        }
+      }
+    } catch {}
+
+    try {
+      const rawFeed = localStorage.getItem("pondtora_feed_inventory");
+      if (rawFeed) {
+        const parsed = JSON.parse(rawFeed);
+        if (Array.isArray(parsed)) {
+          localFeed = parsed.filter((f: any) => f && f.user_id === u.id);
+        }
+      }
+    } catch {}
+
+    try {
+      const rawFeeding = localStorage.getItem("pondtora_feeding_records");
+      if (rawFeeding) {
+        const parsed = JSON.parse(rawFeeding);
+        if (Array.isArray(parsed)) {
+          localFeeding = parsed.filter((r: any) => r && r.user_id === u.id);
+        }
+      }
+    } catch {}
+
+    try {
+      const rawInvoices = localStorage.getItem("pondtora_invoices");
+      if (rawInvoices) {
+        const parsed = JSON.parse(rawInvoices);
+        if (Array.isArray(parsed)) {
+          localInvoices = parsed.filter((inv: any) => inv && inv.user_id === u.id);
+        }
+      }
+    } catch {}
+
+    try {
+      const rawRevenues = localStorage.getItem("pondtora_revenues");
+      if (rawRevenues) {
+        const parsed = JSON.parse(rawRevenues);
+        if (Array.isArray(parsed)) {
+          localRevenues = parsed.filter((r: any) => r && r.user_id === u.id);
+        }
+      }
+    } catch {}
+
+    try {
+      const rawExpenses = localStorage.getItem("pondtora_expenses");
+      if (rawExpenses) {
+        const parsed = JSON.parse(rawExpenses);
+        if (Array.isArray(parsed)) {
+          localExpenses = parsed.filter((e: any) => e && e.user_id === u.id);
+        }
+      }
+    } catch {}
+
+    if (localFarms.length === 0 && (u.farmCount || u.farmName)) {
+      localFarms = [{ id: `farm-${u.id}`, name: u.farmName || "Primary Farm", city: u.city, state: u.state, country: u.country }];
+    }
+
+    return {
+      loading: false,
+      farms: localFarms,
+      ponds: localPonds,
+      staff: localStaff,
+      feedInventory: localFeed,
+      feedingRecords: localFeeding,
+      revenues: localRevenues,
+      expenses: localExpenses,
+      invoices: localInvoices,
+      investors: localInvestors,
+    };
+  };
+
+  useEffect(() => {
+    if (!viewUser?.id) {
+      setUserExtra(getSynchronousUserExtra(null));
       return;
     }
+
+    // 1. Immediately provide cached/seeded data so modal opens in 0ms with non-zero counts
+    const initialSync = getSynchronousUserExtra(viewUser);
+    setUserExtra({ ...initialSync, loading: true });
+
     let isSubscribed = true;
-    setUserExtra(prev => ({ ...prev, loading: true }));
-    Promise.all([
-      supabase.from("farms").select("id, name, city, state, country, created_at").eq("user_id", viewUser.id).order("created_at", { ascending: true }),
-      supabase.from("ponds").select("id, name, size_m2, farm_id, current_count, initial_stock, species, stocking_date").eq("user_id", viewUser.id).order("created_at", { ascending: false }),
-      supabase.from("staff_members").select("id, name, email, role, status").eq("user_id", viewUser.id).order("created_at", { ascending: false }),
-      supabase.from("feed_inventory").select("id, brand, size, bags_in_stock, weight_per_bag, total_kg").eq("user_id", viewUser.id),
-      supabase.from("feeding_records").select("id, pond, date, total, size, morning, evening").eq("user_id", viewUser.id).order("created_at", { ascending: false }).limit(30),
-      supabase.from("revenues").select("id, category, amount, date, customer").eq("user_id", viewUser.id).order("date", { ascending: false }).limit(30),
-      supabase.from("expenses").select("id, category, amount, date, description").eq("user_id", viewUser.id).order("date", { ascending: false }).limit(30),
-      supabase.from("invoices").select("id, invoice_number, customer_name, grand_total, status, created_at").eq("user_id", viewUser.id).order("created_at", { ascending: false }).limit(30),
-      supabase.from("investors").select("id, name, email, phone, total_invested").eq("user_id", viewUser.id),
-    ]).then(([farmsRes, pondsRes, staffRes, feedRes, feedingRes, revRes, expRes, invRes, investRes]) => {
+
+    // 2. Fetch live data in background with timeout safety and Promise.allSettled
+    const fetchLiveData = async () => {
+      const timeoutPromise = new Promise<{ isTimeout: true }>(resolve =>
+        setTimeout(() => resolve({ isTimeout: true }), 3000)
+      );
+
+      const queriesPromise = Promise.allSettled([
+        supabase.from("farms").select("id, name, city, state, country, created_at").eq("user_id", viewUser.id).order("created_at", { ascending: true }),
+        supabase.from("ponds").select("id, name, size_m2, farm_id, current_count, initial_stock, species, stocking_date").eq("user_id", viewUser.id).order("created_at", { ascending: false }),
+        supabase.from("staff_members").select("id, name, email, role, status").eq("user_id", viewUser.id).order("created_at", { ascending: false }),
+        supabase.from("feed_inventory").select("id, brand, size, bags_in_stock, weight_per_bag, total_kg").eq("user_id", viewUser.id),
+        supabase.from("feeding_records").select("id, pond, date, total, size, morning, evening").eq("user_id", viewUser.id).order("created_at", { ascending: false }).limit(40),
+        supabase.from("revenues").select("id, category, amount, date, customer").eq("user_id", viewUser.id).order("date", { ascending: false }).limit(40),
+        supabase.from("expenses").select("id, category, amount, date, description").eq("user_id", viewUser.id).order("date", { ascending: false }).limit(40),
+        supabase.from("invoices").select("id, invoice_number, customer_name, grand_total, status, created_at").eq("user_id", viewUser.id).order("created_at", { ascending: false }).limit(40),
+        supabase.from("investors").select("id, name, email, phone, total_invested").eq("user_id", viewUser.id),
+      ]);
+
+      const result = await Promise.race([queriesPromise, timeoutPromise]);
       if (!isSubscribed) return;
-      setUserExtra({
+
+      if ("isTimeout" in result) {
+        setUserExtra(prev => ({ ...prev, loading: false }));
+        return;
+      }
+
+      const [farmsRes, pondsRes, staffRes, feedRes, feedingRes, revRes, expRes, invRes, investRes] = result;
+
+      const extract = (res: PromiseSettledResult<any>, fallback: any[]) => {
+        if (res.status === "fulfilled" && res.value?.data && Array.isArray(res.value.data) && res.value.data.length > 0) {
+          return res.value.data;
+        }
+        return fallback;
+      };
+
+      const updated = {
         loading: false,
-        farms: farmsRes.data || [],
-        ponds: pondsRes.data || [],
-        staff: staffRes.data || [],
-        feedInventory: feedRes.data || [],
-        feedingRecords: feedingRes.data || [],
-        revenues: revRes.data || [],
-        expenses: expRes.data || [],
-        invoices: invRes.data || [],
-        investors: investRes.data || [],
-      });
-    }).catch(err => {
+        farms: extract(farmsRes, initialSync.farms),
+        ponds: extract(pondsRes, initialSync.ponds),
+        staff: extract(staffRes, initialSync.staff),
+        feedInventory: extract(feedRes, initialSync.feedInventory),
+        feedingRecords: extract(feedingRes, initialSync.feedingRecords),
+        revenues: extract(revRes, initialSync.revenues),
+        expenses: extract(expRes, initialSync.expenses),
+        invoices: extract(invRes, initialSync.invoices),
+        investors: extract(investRes, initialSync.investors),
+      };
+
+      userExtraCacheRef.current.set(viewUser.id, updated);
+      if (viewUser.email) userExtraCacheRef.current.set(viewUser.email, updated);
+
+      setUserExtra(updated);
+    };
+
+    fetchLiveData().catch(err => {
       if (!isSubscribed) return;
       console.warn("Could not load full user records:", err);
       setUserExtra(prev => ({ ...prev, loading: false }));
     });
-    return () => { isSubscribed = false; };
-  }, [viewUser?.id]);
+
+    return () => {
+      isSubscribed = false;
+    };
+  }, [viewUser?.id, viewUser?.email]);
 
   useEffect(() => {
     const handleClose = () => setMenu(null);
@@ -1158,34 +1320,42 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
             </div>
 
             {/* Navigation Tabs for Farmer Data */}
-            <div className="px-5 pt-3 border-b border-slate-200 flex items-center gap-1.5 overflow-x-auto bg-slate-50/50 shrink-0">
-              {[
-                { id: "summary", label: "📊 Overview", count: null },
-                { id: "ponds", label: "💧 Ponds & Fish", count: (userExtra?.ponds || []).length },
-                { id: "feed", label: "🌾 Feed & Stock", count: (userExtra?.feedInventory || []).length },
-                { id: "finance", label: "💰 Financials & Invoices", count: (userExtra?.invoices || []).length },
-                { id: "staff", label: "👥 Staff Team", count: (userExtra?.staff || []).length },
-                { id: "farms", label: "🏡 Farms", count: (userExtra?.farms || []).length },
-              ].map(t => (
-                <button
-                  key={t.id}
-                  onClick={() => setFarmerDataTab(t.id as any)}
-                  className={`px-3 py-1.5 text-xs font-bold rounded-t-lg transition-colors border-b-2 whitespace-nowrap flex items-center gap-1.5 ${
-                    farmerDataTab === t.id
-                      ? "border-emerald-600 text-emerald-700 bg-white shadow-2xs"
-                      : "border-transparent text-slate-500 hover:text-slate-800"
-                  }`}
-                >
-                  {t.label}
-                  {t.count !== null && (
-                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${
-                      farmerDataTab === t.id ? "bg-emerald-100 text-emerald-800" : "bg-slate-200 text-slate-600"
-                    }`}>
-                      {t.count}
-                    </span>
-                  )}
-                </button>
-              ))}
+            <div className="px-5 pt-3 border-b border-slate-200 flex items-center justify-between gap-1.5 overflow-x-auto bg-slate-50/50 shrink-0">
+              <div className="flex items-center gap-1.5 overflow-x-auto">
+                {[
+                  { id: "summary", label: "📊 Overview", count: null },
+                  { id: "ponds", label: "💧 Ponds & Fish", count: userExtra.ponds.length > 0 ? userExtra.ponds.length : (viewUser.pondCount ?? 0) },
+                  { id: "feed", label: "🌾 Feed & Stock", count: (userExtra?.feedInventory || []).length },
+                  { id: "finance", label: "💰 Financials & Invoices", count: userExtra.invoices.length > 0 ? userExtra.invoices.length : (viewUser.invoicesCount ?? 0) },
+                  { id: "staff", label: "👥 Staff Team", count: userExtra.staff.length > 0 ? userExtra.staff.length : (viewUser.staffCount ?? 0) },
+                  { id: "farms", label: "🏡 Farms", count: userExtra.farms.length > 0 ? userExtra.farms.length : (viewUser.farmCount ?? 1) },
+                ].map(t => (
+                  <button
+                    key={t.id}
+                    onClick={() => setFarmerDataTab(t.id as any)}
+                    className={`px-3 py-1.5 text-xs font-bold rounded-t-lg transition-colors border-b-2 whitespace-nowrap flex items-center gap-1.5 ${
+                      farmerDataTab === t.id
+                        ? "border-emerald-600 text-emerald-700 bg-white shadow-2xs"
+                        : "border-transparent text-slate-500 hover:text-slate-800"
+                    }`}
+                  >
+                    {t.label}
+                    {t.count !== null && (
+                      <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${
+                        farmerDataTab === t.id ? "bg-emerald-100 text-emerald-800" : "bg-slate-200 text-slate-600"
+                      }`}>
+                        {t.count}
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
+              {userExtra.loading && (
+                <div className="hidden sm:flex items-center gap-1.5 text-[11px] text-slate-400 font-medium px-2 py-1 shrink-0 animate-pulse">
+                  <RefreshCw size={11} className="animate-spin text-emerald-600" />
+                  <span>Syncing data...</span>
+                </div>
+              )}
             </div>
 
             {/* Modal Body with Tab Content */}
@@ -1251,13 +1421,15 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                       <div className="bg-blue-50/50 border border-blue-200/70 p-2.5 rounded-xl text-center">
                         <p className="text-[10px] uppercase font-bold text-blue-500">Ponds Active</p>
                         <p className="text-lg font-extrabold text-blue-700 font-['Barlow_Condensed',sans-serif] mt-0.5">
-                          {userExtra.ponds.length}
+                          {userExtra.ponds.length > 0 ? userExtra.ponds.length : (viewUser.pondCount || 0)}
                         </p>
                       </div>
                       <div className="bg-cyan-50/50 border border-cyan-200/70 p-2.5 rounded-xl text-center">
                         <p className="text-[10px] uppercase font-bold text-cyan-600">Fish Stocked</p>
                         <p className="text-lg font-extrabold text-cyan-800 font-['Barlow_Condensed',sans-serif] mt-0.5">
-                          {userExtra.ponds.reduce((s, p) => s + (Number(p.current_count ?? p.initial_stock) || 0), 0).toLocaleString()}
+                          {userExtra.ponds.length > 0
+                            ? userExtra.ponds.reduce((s, p) => s + (Number(p.current_count ?? p.initial_stock) || 0), 0).toLocaleString()
+                            : (viewUser.totalFishStocked ? Number(viewUser.totalFishStocked).toLocaleString() : "0")}
                         </p>
                       </div>
                       <div className="bg-emerald-50/50 border border-emerald-200/70 p-2.5 rounded-xl text-center">
@@ -1281,13 +1453,13 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                       <div className="bg-purple-50/50 border border-purple-200/70 p-2.5 rounded-xl text-center">
                         <p className="text-[10px] uppercase font-bold text-purple-600">Sales Invoices</p>
                         <p className="text-lg font-extrabold text-purple-800 font-['Barlow_Condensed',sans-serif] mt-0.5">
-                          {userExtra.invoices.length}
+                          {userExtra.invoices.length > 0 ? userExtra.invoices.length : (viewUser.invoicesCount || 0)}
                         </p>
                       </div>
                       <div className="bg-slate-50 border border-slate-200 p-2.5 rounded-xl text-center">
                         <p className="text-[10px] uppercase font-bold text-slate-500">Staff Team</p>
                         <p className="text-lg font-extrabold text-slate-800 font-['Barlow_Condensed',sans-serif] mt-0.5">
-                          {userExtra.staff.length}
+                          {userExtra.staff.length > 0 ? userExtra.staff.length : (viewUser.staffCount || 0)}
                         </p>
                       </div>
                     </div>
