@@ -87,6 +87,7 @@ BEGIN
 END $$;
 
 -- 4. Update get_all_users_for_admin RPC function
+DROP FUNCTION IF EXISTS get_all_users_for_admin();
 CREATE OR REPLACE FUNCTION get_all_users_for_admin()
 RETURNS TABLE (
   id UUID,
@@ -148,6 +149,8 @@ END;
 $$;
 
 -- 5. Update admin_update_user_profile RPC function
+DROP FUNCTION IF EXISTS admin_update_user_profile(UUID, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, NUMERIC, BOOLEAN);
+DROP FUNCTION IF EXISTS admin_update_user_profile;
 CREATE OR REPLACE FUNCTION admin_update_user_profile(
   target_user_id UUID,
   new_name TEXT,
