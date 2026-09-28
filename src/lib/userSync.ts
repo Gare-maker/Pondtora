@@ -492,6 +492,13 @@ export function subscribeToPlatformUpdates(onUpdate: () => void): () => void {
  */
 export async function updateAdminUserInDb(u: AdminUser): Promise<boolean> {
   try {
+    const cleanSubAmount =
+      typeof u.subscriptionAmount === "number" && !isNaN(u.subscriptionAmount)
+        ? u.subscriptionAmount
+        : typeof (u as any).subscriptionAmount === "string" && !isNaN(Number((u as any).subscriptionAmount)) && (u as any).subscriptionAmount.trim() !== ""
+        ? Number((u as any).subscriptionAmount)
+        : null;
+
     const profilePayload: Record<string, any> = {
       name: u.name,
       farm_name: u.farmName,
@@ -504,27 +511,44 @@ export async function updateAdminUserInDb(u: AdminUser): Promise<boolean> {
       role: u.role || "owner",
       trial_start_date: u.trialStartDate,
       subscription_status: u.subscriptionStatus,
-      subscription_amount: typeof u.subscriptionAmount === "number" && !isNaN(u.subscriptionAmount) ? u.subscriptionAmount : null,
+      subscription_amount: cleanSubAmount,
       free_access: Boolean(u.freeAccess),
       paystack_reference: u.paystackReference || null,
       last_payment_date: u.lastPaymentDate || null,
+      subscription_start: u.subscriptionStart || null,
+      subscription_expiry: u.subscriptionExpiry || null,
       raw_data: {
-        subscription_amount: typeof u.subscriptionAmount === "number" && !isNaN(u.subscriptionAmount) ? u.subscriptionAmount : null,
+        subscription_amount: cleanSubAmount,
         free_access: Boolean(u.freeAccess),
+        subscription_status: u.subscriptionStatus,
+        active_plan: u.activePlan,
       },
       updated_at: new Date().toISOString(),
     };
 
-    // 1. Direct Supabase user_profiles update
+    // 1. Direct Supabase user_profiles update (try by ID first)
     let profSuccess = false;
-    const { error: profError } = await supabase
+    let profRes = await supabase
       .from("user_profiles")
       .update(profilePayload)
-      .eq("id", u.id);
+      .eq("id", u.id)
+      .select();
 
-    if (!profError) {
+    if (!profRes.error && profRes.data && profRes.data.length > 0) {
       profSuccess = true;
-    } else {
+    } else if (u.email) {
+      // Fallback: update by email if ID did not match
+      profRes = await supabase
+        .from("user_profiles")
+        .update(profilePayload)
+        .ilike("email", u.email.trim())
+        .select();
+      if (!profRes.error && profRes.data && profRes.data.length > 0) {
+        profSuccess = true;
+      }
+    }
+
+    if (!profSuccess && profRes?.error) {
       // If subscription_amount or free_access columns do not exist yet in table schema, retry without them
       const fallbackPayload = { ...profilePayload };
       delete fallbackPayload.subscription_amount;
@@ -532,7 +556,7 @@ export async function updateAdminUserInDb(u: AdminUser): Promise<boolean> {
       const { error: fbErr } = await supabase
         .from("user_profiles")
         .update(fallbackPayload)
-        .eq("id", u.id);
+        .or(`id.eq.${u.id},email.ilike.${u.email}`);
       if (!fbErr) profSuccess = true;
     }
 
@@ -550,7 +574,7 @@ export async function updateAdminUserInDb(u: AdminUser): Promise<boolean> {
         new_active_plan: u.activePlan,
         new_status: u.accountStatus,
         new_subscription_status: u.subscriptionStatus,
-        new_subscription_amount: typeof u.subscriptionAmount === "number" && !isNaN(u.subscriptionAmount) ? u.subscriptionAmount : null,
+        new_subscription_amount: cleanSubAmount,
         new_free_access: Boolean(u.freeAccess),
       });
       if (!rpcErr) profSuccess = true;
@@ -567,7 +591,7 @@ export async function updateAdminUserInDb(u: AdminUser): Promise<boolean> {
           country: u.country,
           updated_at: new Date().toISOString(),
         })
-        .eq("user_id", u.id);
+        .or(`user_id.eq.${u.id}`);
     }
 
     // 4. Update staff_members table if applicable
@@ -583,17 +607,44 @@ export async function updateAdminUserInDb(u: AdminUser): Promise<boolean> {
         .or(`id.eq.${u.id},staff_auth_id.eq.${u.id},email.ilike.${u.email}`);
     }
 
-    // 5. Update shared admin local cache
+    // 5. Update shared admin local cache and individual user profile local storage
+    const normalizedUser: AdminUser = {
+      ...u,
+      subscriptionAmount: cleanSubAmount,
+      subscriptionStatus: computeSubscriptionStatus({ ...u, subscriptionAmount: cleanSubAmount }),
+    };
+
     const existing = loadAllAdminUsers();
     const idx = existing.findIndex(
       x => x.id === u.id || (x.email && x.email.toLowerCase() === (u.email || "").toLowerCase())
     );
     if (idx >= 0) {
-      existing[idx] = { ...existing[idx], ...u, subscriptionStatus: computeSubscriptionStatus(u) };
+      existing[idx] = { ...existing[idx], ...normalizedUser };
     } else {
-      existing.unshift({ ...u, subscriptionStatus: computeSubscriptionStatus(u) });
+      existing.unshift(normalizedUser);
     }
     saveAllAdminUsers(existing);
+
+    // Sync scoped local profile storage if present on this device
+    if (u.id) {
+      try {
+        const localKey = `pondtora_${u.id}_user_profile`;
+        const localProfRaw = localStorage.getItem(localKey);
+        if (localProfRaw) {
+          const parsed = JSON.parse(localProfRaw);
+          localStorage.setItem(
+            localKey,
+            JSON.stringify({
+              ...parsed,
+              subscriptionAmount: cleanSubAmount,
+              freeAccess: Boolean(u.freeAccess),
+              activePlan: u.activePlan,
+              subscriptionStatus: normalizedUser.subscriptionStatus,
+            })
+          );
+        }
+      } catch {}
+    }
 
     return profSuccess;
   } catch (e) {
@@ -786,11 +837,27 @@ export function syncUserProfileToAdmin(
   const users = loadAllAdminUsers().filter(u => !isStaffUser(u));
   const existingIdx = users.findIndex(u => (u?.email || "").trim().toLowerCase() === targetEmail);
 
+  const profileCustomAmount =
+    typeof profile.subscriptionAmount === "number" && !isNaN(profile.subscriptionAmount)
+      ? profile.subscriptionAmount
+      : typeof (profile as any).subscriptionAmount === "string" && !isNaN(Number((profile as any).subscriptionAmount)) && (profile as any).subscriptionAmount.trim() !== ""
+      ? Number((profile as any).subscriptionAmount)
+      : typeof (profile as any).subscription_amount === "number" && !isNaN((profile as any).subscription_amount)
+      ? (profile as any).subscription_amount
+      : typeof (profile as any).subscription_amount === "string" && !isNaN(Number((profile as any).subscription_amount)) && (profile as any).subscription_amount.trim() !== ""
+      ? Number((profile as any).subscription_amount)
+      : null;
+
+  const profileFreeAccess = Boolean(profile.freeAccess || (profile as any).free_access);
+
   let userObj: AdminUser;
 
   if (existingIdx >= 0) {
     const current = users[existingIdx];
     const hasPaid = Boolean(current.hasPaid || current.paystackReference || current.lastPaymentDate);
+    const resolvedCustomAmount = profileCustomAmount !== null ? profileCustomAmount : (typeof current.subscriptionAmount === "number" ? current.subscriptionAmount : null);
+    const resolvedFreeAccess = profileFreeAccess || Boolean(current.freeAccess);
+
     userObj = {
       ...current,
       name: profile.name || current.name || targetEmail.split("@")[0],
@@ -801,6 +868,8 @@ export function syncUserProfileToAdmin(
       country: profile.country || current.country || "Nigeria",
       role: profile.role || current.role || "owner",
       activePlan: activePlan || profile.activePlan || current.activePlan || "Starter",
+      subscriptionAmount: resolvedCustomAmount,
+      freeAccess: resolvedFreeAccess,
       hasPaid: hasPaid,
       trialStartDate: hasPaid ? null : (profile.trialStartDate || current.trialStartDate || new Date().toISOString().slice(0, 10)),
       farmCount: Math.max(farmCount || 1, current.farmCount || 1),
@@ -825,13 +894,13 @@ export function syncUserProfileToAdmin(
       activePlan: activePlan || profile.activePlan || "Starter",
       trialStartDate: profile.trialStartDate || new Date().toISOString().slice(0, 10),
       billingFrequency: "monthly",
-      subscriptionAmount: null,
+      subscriptionAmount: profileCustomAmount,
       hasPaid: false,
       subscriptionStatus: "Trial",
       subscriptionStart: null,
       subscriptionExpiry: null,
       accountStatus: "Active",
-      freeAccess: false,
+      freeAccess: profileFreeAccess,
       farmCount: farmCount || 1,
       pondCount: 0,
       staffCount: 0,
@@ -854,7 +923,7 @@ export function syncUserProfileToAdmin(
 
   // Self-heal profile directly to Supabase user_profiles
   if (profile.id) {
-    supabase.from("user_profiles").upsert({
+    const payload: Record<string, any> = {
       id: profile.id,
       name: userObj.name,
       farm_name: userObj.farmName,
@@ -869,7 +938,14 @@ export function syncUserProfileToAdmin(
       referred_by: userObj.referredBy || null,
       referral_code: userObj.referralCode || null,
       updated_at: new Date().toISOString(),
-    }).then(() => {}).catch(() => {});
+    };
+    if (userObj.subscriptionAmount !== null && userObj.subscriptionAmount !== undefined) {
+      payload.subscription_amount = userObj.subscriptionAmount;
+    }
+    if (userObj.freeAccess) {
+      payload.free_access = true;
+    }
+    supabase.from("user_profiles").upsert(payload).then(() => {}).catch(() => {});
   }
 
   return userObj;
@@ -889,15 +965,23 @@ export function getUserAdminOverride(
 } {
   const fallback = { isSuspended: false, hasFreeAccess: false, customAmount: null, activePlan: null };
 
+  const parseAmount = (val: any): number | null => {
+    if (typeof val === "number" && !isNaN(val)) return val;
+    if (typeof val === "string" && val.trim() !== "" && !isNaN(Number(val))) return Number(val);
+    return null;
+  };
+
   // 1. Direct profile object inspection
   const directCustomAmount =
-    profile && typeof profile.subscriptionAmount === "number" && !isNaN(profile.subscriptionAmount)
-      ? profile.subscriptionAmount
-      : profile && typeof profile.subscription_amount === "number" && !isNaN(profile.subscription_amount)
-      ? profile.subscription_amount
+    parseAmount(profile?.subscriptionAmount) !== null
+      ? parseAmount(profile?.subscriptionAmount)
+      : parseAmount(profile?.subscription_amount) !== null
+      ? parseAmount(profile?.subscription_amount)
+      : parseAmount(profile?.raw_data?.subscription_amount) !== null
+      ? parseAmount(profile?.raw_data?.subscription_amount)
       : null;
 
-  const directFreeAccess = Boolean(profile?.freeAccess || profile?.free_access);
+  const directFreeAccess = Boolean(profile?.freeAccess || profile?.free_access || profile?.raw_data?.free_access);
   const directSuspended = profile?.status === "Suspended" || profile?.accountStatus === "Suspended";
   const directPlan = profile?.activePlan || profile?.active_plan || null;
 
@@ -915,17 +999,19 @@ export function getUserAdminOverride(
 
   const cleanEmail = email.trim().toLowerCase();
   const users = loadAllAdminUsers();
-  const u = users.find(x => (x?.email || "").trim().toLowerCase() === cleanEmail);
+  const u = users.find(
+    x =>
+      (x?.email || "").trim().toLowerCase() === cleanEmail ||
+      (profile?.id && x?.id === profile.id)
+  );
+
+  const localCustomAmount = parseAmount(u?.subscriptionAmount);
+  const finalCustomAmount = directCustomAmount !== null ? directCustomAmount : localCustomAmount;
 
   return {
     isSuspended: directSuspended || (u ? u.accountStatus === "Suspended" : false),
     hasFreeAccess: directFreeAccess || Boolean(u?.freeAccess),
-    customAmount:
-      directCustomAmount !== null
-        ? directCustomAmount
-        : typeof u?.subscriptionAmount === "number" && !isNaN(u.subscriptionAmount)
-        ? u.subscriptionAmount
-        : null,
+    customAmount: finalCustomAmount,
     activePlan: directPlan || u?.activePlan || null,
   };
 }
@@ -998,8 +1084,27 @@ export function recordSuccessfulPayment(params: {
 
   saveAllAdminUsers(users);
 
+  // Directly update Supabase user_profiles table for persistence
+  supabase
+    .from("user_profiles")
+    .update({
+      active_plan: params.planName,
+      subscription_status: "Active",
+      subscription_amount: params.amount,
+      paystack_reference: params.reference,
+      last_payment_date: todayStr,
+      subscription_expiry: expiryStr,
+      subscription_start: todayStr,
+      trial_start_date: null,
+      updated_at: new Date().toISOString(),
+    })
+    .or(`email.ilike.${cleanEmail},id.eq.${userObj.id}`)
+    .then(() => {})
+    .catch(console.warn);
+
   try {
     window.dispatchEvent(new CustomEvent("pondtora:payment_successful", { detail: { ...params, name: userObj.name } }));
+    window.dispatchEvent(new CustomEvent("pondtora:users_updated", { detail: users }));
   } catch {}
 
   logActivity(

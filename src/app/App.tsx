@@ -2477,6 +2477,7 @@ function SubscriptionPage({
   currency = "₦",
   convertPrice = (n: number) => n,
   userProfile,
+  onProfileUpdated,
   activeFarmName,
 }: {
   farmCount?: number;
@@ -2487,6 +2488,7 @@ function SubscriptionPage({
   currency?: string;
   convertPrice?: (n: number) => number;
   userProfile?: UserProfile | null;
+  onProfileUpdated?: (p: Partial<UserProfile>) => void;
   activeFarmName?: string;
 }) {
   const cs = currency || "₦";
@@ -2500,40 +2502,116 @@ function SubscriptionPage({
   const [yearlyM, setYearlyM] = useState(false); /* multi farm billing toggle */
   const [checkoutLoading, setCheckoutLoading] = useState<string | null>(null);
 
+  const [liveProfile, setLiveProfile] = useState<UserProfile | null>(userProfile || null);
+  const [adminUsers, setAdminUsers] = useState<AdminUser[]>(() => loadAllAdminUsers() || []);
+
+  // Synchronize liveProfile whenever userProfile prop changes
+  useEffect(() => {
+    if (userProfile) setLiveProfile(userProfile);
+  }, [userProfile]);
+
+  // Actively fetch the latest profile directly from Supabase on mount and listen to changes
+  useEffect(() => {
+    let isMounted = true;
+    const fetchFreshProfile = async () => {
+      const email = userProfile?.email || liveProfile?.email;
+      const id = userProfile?.id || liveProfile?.id;
+      if (!email && !id) return;
+      try {
+        let query = supabase.from("user_profiles").select("*");
+        if (id && isUuid(id)) {
+          query = query.eq("id", id);
+        } else if (email) {
+          query = query.ilike("email", email.trim());
+        }
+        const { data, error } = await query.maybeSingle();
+        if (!error && data && isMounted) {
+          const fresh = objToCamel<UserProfile>(data);
+          setLiveProfile(prev => {
+            const merged = { ...(prev || {}), ...fresh };
+            if (merged.id) {
+              try {
+                localStorage.setItem(`pondtora_${merged.id}_user_profile`, JSON.stringify(merged));
+              } catch {}
+            }
+            return merged;
+          });
+          if (onProfileUpdated) onProfileUpdated(fresh);
+        }
+      } catch (err) {
+        console.warn("Error refreshing user subscription profile:", err);
+      }
+    };
+
+    fetchFreshProfile();
+
+    const handleUsersUpdate = () => {
+      setAdminUsers(loadAllAdminUsers());
+      fetchFreshProfile();
+    };
+
+    window.addEventListener("pondtora:users_updated", handleUsersUpdate);
+    window.addEventListener("pondtora:payment_successful", handleUsersUpdate);
+
+    // Subscribe to realtime database changes for this profile
+    const profileId = userProfile?.id || liveProfile?.id;
+    let channel: any = null;
+    if (profileId) {
+      try {
+        channel = supabase.channel(`user_sub_${profileId}_${Math.random().toString(36).substring(2, 7)}`)
+          .on("postgres_changes", { event: "*", schema: "public", table: "user_profiles", filter: `id=eq.${profileId}` }, () => {
+            fetchFreshProfile();
+          })
+          .subscribe();
+      } catch {}
+    }
+
+    return () => {
+      isMounted = false;
+      window.removeEventListener("pondtora:users_updated", handleUsersUpdate);
+      window.removeEventListener("pondtora:payment_successful", handleUsersUpdate);
+      if (channel) {
+        try { supabase.removeChannel(channel); } catch {}
+      }
+    };
+  }, [userProfile?.id, userProfile?.email]);
+
+  const effectiveProfile = liveProfile || userProfile;
+
   const adminOverride = useMemo(() => {
     try {
-      return getUserAdminOverride(userProfile?.email, userProfile);
+      return getUserAdminOverride(effectiveProfile?.email, effectiveProfile);
     } catch {
       return { isSuspended: false, hasFreeAccess: false, customAmount: null, activePlan: null };
     }
-  }, [userProfile?.email, userProfile?.subscriptionAmount, userProfile?.freeAccess, userProfile]);
-
-  const adminUsers = useMemo(() => {
-    try {
-      return loadAllAdminUsers() || [];
-    } catch {
-      return [];
-    }
-  }, []);
+  }, [effectiveProfile?.email, effectiveProfile?.subscriptionAmount, effectiveProfile?.freeAccess, effectiveProfile, adminUsers]);
 
   const currentAdminUser = useMemo(() => {
-    if (!userProfile?.email) return null;
-    const em = (userProfile.email || "").trim().toLowerCase();
-    return (adminUsers || []).find(u => (u?.email || "").trim().toLowerCase() === em) || null;
-  }, [adminUsers, userProfile?.email]);
+    if (!effectiveProfile?.email) return null;
+    const em = (effectiveProfile.email || "").trim().toLowerCase();
+    return (adminUsers || []).find(
+      u => (u?.email || "").trim().toLowerCase() === em || (effectiveProfile.id && u?.id === effectiveProfile.id)
+    ) || null;
+  }, [adminUsers, effectiveProfile?.email, effectiveProfile?.id]);
 
-  const isPaidActive = Boolean(currentAdminUser?.subscriptionStatus === "Active" && currentAdminUser?.subscriptionExpiry);
+  const isPaidActive = Boolean(
+    (currentAdminUser?.subscriptionStatus === "Active" && (currentAdminUser?.subscriptionExpiry || currentAdminUser?.hasPaid)) ||
+    (effectiveProfile?.subscriptionStatus === "Active" && (effectiveProfile?.subscriptionExpiry || (effectiveProfile as any)?.hasPaid)) ||
+    (effectiveProfile?.paystackReference && effectiveProfile?.subscriptionExpiry)
+  );
+
+  const expiryDateVal = effectiveProfile?.subscriptionExpiry || currentAdminUser?.subscriptionExpiry;
   
   const formattedExpiryDate = useMemo(() => {
-    if (!currentAdminUser?.subscriptionExpiry) return null;
+    if (!expiryDateVal) return null;
     try {
-      const d = new Date(currentAdminUser.subscriptionExpiry);
-      if (isNaN(d.getTime())) return String(currentAdminUser.subscriptionExpiry);
+      const d = new Date(expiryDateVal);
+      if (isNaN(d.getTime())) return String(expiryDateVal);
       return d.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
     } catch {
-      return String(currentAdminUser.subscriptionExpiry);
+      return String(expiryDateVal);
     }
-  }, [currentAdminUser?.subscriptionExpiry]);
+  }, [expiryDateVal]);
 
   const trialExpiryDate = useMemo(() => {
     if (!trialStartDate) return null;
@@ -2609,16 +2687,16 @@ function SubscriptionPage({
 
     try {
       const success = await initializePaystackCheckout({
-        email: userProfile?.email || "customer@pondtora.com",
+        email: effectiveProfile?.email || "customer@pondtora.com",
         amount: calculatedPrice,
         planName: plan.name || "Subscription",
         billingCycle: isYearly ? "yearly" : "monthly",
-        userName: userProfile?.name || "",
-        phone: userProfile?.phone || "",
-        farmName: activeFarmName || userProfile?.farmName || "Primary Farm",
+        userName: effectiveProfile?.name || "",
+        phone: effectiveProfile?.phone || "",
+        farmName: activeFarmName || effectiveProfile?.farmName || "Primary Farm",
         onSuccess: res => {
           recordSuccessfulPayment({
-            email: userProfile?.email || "",
+            email: effectiveProfile?.email || "",
             planName: plan.name,
             billingFrequency: isYearly ? "yearly" : "monthly",
             amount: calculatedPrice,
@@ -2627,6 +2705,26 @@ function SubscriptionPage({
           setActivePlan(plan.name);
           setTrialStartDate(null);
           api.profile.updatePlan(plan.name, TODAY).catch(console.warn);
+
+          const todayStr = new Date().toISOString().slice(0, 10);
+          const expDate = new Date();
+          expDate.setDate(expDate.getDate() + (isYearly ? 365 : 30));
+          const expStr = expDate.toISOString().slice(0, 10);
+
+          const updatedProf: Partial<UserProfile> = {
+            activePlan: plan.name,
+            trialStartDate: null,
+            subscriptionStatus: "Active",
+            subscriptionExpiry: expStr,
+            subscriptionStart: todayStr,
+            paystackReference: res.reference,
+            lastPaymentDate: todayStr,
+            billingFrequency: isYearly ? "yearly" : "monthly",
+          };
+
+          setLiveProfile(prev => ({ ...(prev || {}), ...updatedProf } as UserProfile));
+          if (onProfileUpdated) onProfileUpdated(updatedProf);
+
           try {
             confetti({ particleCount: 120, spread: 80, origin: { y: 0.6 } });
           } catch {}
@@ -2653,28 +2751,31 @@ function SubscriptionPage({
     <div className="p-4 sm:p-6 space-y-6 max-w-5xl mx-auto">
       <div className="sticky top-0 z-10 bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 text-center">
         {adminOverride.hasFreeAccess ? (
-          <div className="inline-flex items-center gap-2 bg-purple-50 border border-purple-200 rounded-full px-4 py-1.5 text-purple-800 text-xs font-semibold mb-3">
+          <div className="inline-flex items-center gap-2 bg-purple-50 border border-purple-200 rounded-full px-4 py-1.5 text-purple-800 text-xs font-semibold mb-3 shadow-xs">
             <Crown size={14} className="text-purple-600" /> <strong>Complimentary Lifetime Access:</strong> Your farm account has full VIP access with zero billing required.
           </div>
         ) : isPaidActive && formattedExpiryDate ? (
-          <div className="inline-flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-full px-4 py-1.5 text-emerald-800 text-xs font-semibold mb-3">
-            <CheckCircle size={14} className="text-emerald-600" /> <strong>Active Paid Subscription:</strong> {activePlan} ({currentAdminUser?.billingFrequency || "monthly"}) — Expires on <strong>{formattedExpiryDate}</strong> {currentAdminUser?.paystackReference ? `· Ref: ${currentAdminUser.paystackReference}` : ""}
+          <div className="inline-flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-full px-4 py-1.5 text-emerald-800 text-xs font-semibold mb-3 shadow-xs">
+            <CheckCircle size={14} className="text-emerald-600" /> <strong>Active Paid Subscription:</strong> {activePlan || effectiveProfile?.activePlan} ({effectiveProfile?.billingFrequency || currentAdminUser?.billingFrequency || "monthly"}) — Expires on <strong>{formattedExpiryDate}</strong> {effectiveProfile?.paystackReference || currentAdminUser?.paystackReference ? `· Ref: ${effectiveProfile?.paystackReference || currentAdminUser?.paystackReference}` : ""}
           </div>
         ) : trialExpiryDate ? (
-          <div className="inline-flex items-center gap-2 bg-green-50 border border-green-200 rounded-full px-4 py-1.5 text-green-700 text-xs font-semibold mb-3">
+          <div className="inline-flex items-center gap-2 bg-green-50 border border-green-200 rounded-full px-4 py-1.5 text-green-700 text-xs font-semibold mb-3 shadow-xs">
             <Crown size={13} /> Your free trial expires on <strong>{trialExpiryDate}</strong>
           </div>
         ) : null}
 
         {adminOverride.customAmount !== null && (
-          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-3 text-xs text-amber-900 flex items-center justify-between gap-3 max-w-md mx-auto mb-3 shadow-sm">
-            <div className="flex items-center gap-2">
-              <Sparkles size={16} className="text-amber-600 shrink-0" />
+          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-3.5 text-xs text-amber-900 flex items-center justify-between gap-3 max-w-lg mx-auto mb-3 shadow-xs">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-xl bg-amber-100 flex items-center justify-center shrink-0">
+                <Sparkles size={16} className="text-amber-600" />
+              </div>
               <div className="text-left">
-                <p className="font-bold">Special Negotiated Discount Applied</p>
-                <p className="text-amber-700 text-[11px]">Your custom rate: <strong>₦{(adminOverride.customAmount || 0).toLocaleString()}</strong></p>
+                <p className="font-bold text-slate-900">Custom Subscription Rate Applied</p>
+                <p className="text-amber-700 text-[11px]">Your updated rate: <strong className="text-slate-900 font-extrabold">{cs}{cvt(adminOverride.customAmount).toLocaleString()}</strong></p>
               </div>
             </div>
+            <span className="bg-amber-200 text-amber-900 font-extrabold text-[10px] px-2 py-0.5 rounded-full">Active Override</span>
           </div>
         )}
 
@@ -2738,7 +2839,9 @@ function SubscriptionPage({
                       <span className="text-4xl font-extrabold text-slate-900 font-['Barlow_Condensed',sans-serif]">
                         {cs}{cvt(planPrice).toLocaleString()}
                       </span>
-                      <span className="text-slate-400 text-sm">{yearlyS ? "/year" : "/month"}</span>
+                      <span className="text-slate-400 text-sm">
+                        {adminOverride.customAmount !== null ? " / payment" : (yearlyS ? "/year" : "/month")}
+                      </span>
                     </div>
                     {yearlyS && adminOverride.customAmount === null && (
                       <p className="text-[11px] text-green-600 mt-1">Save {cs}{cvt(sv(plan.monthlyPrice || 0)).toLocaleString()} per year</p>
@@ -2837,7 +2940,9 @@ function SubscriptionPage({
                       <span className="text-4xl font-extrabold text-slate-900 font-['Barlow_Condensed',sans-serif]">
                         {cs}{cvt(planPrice).toLocaleString()}
                       </span>
-                      <span className="text-slate-400 text-sm">{yearlyM ? "/year" : "/month"}</span>
+                      <span className="text-slate-400 text-sm">
+                        {adminOverride.customAmount !== null ? " / payment" : (yearlyM ? "/year" : "/month")}
+                      </span>
                     </div>
                     {yearlyM && adminOverride.customAmount === null && (
                       <p className="text-[10px] text-green-600 mt-0.5">Save {cs}{cvt(sv(plan.monthlyPrice || 0)).toLocaleString()} per year</p>
@@ -5149,6 +5254,15 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       const up = d.userProfiles[0];
       if (up.activePlan) setActivePlan(up.activePlan);
       if (up.trialStartDate) setTrialStartDate(up.trialStartDate);
+      setUserProfile(prev => {
+        const next = { ...(prev || {}), ...up };
+        if (up.id) {
+          try {
+            localStorage.setItem(`pondtora_${up.id}_user_profile`, JSON.stringify(next));
+          } catch {}
+        }
+        return next;
+      });
     }
 
 
@@ -6980,7 +7094,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
               {active==="investors"     &&(hasPerm("Investors")?<InvestorsPage investors={farmInvestors} investments={farmInvestments} payments={farmPayments} farms={farms} ponds={farmPonds} stockEvents={stockEvents} activeFarmId={activeFarmId} currency={cs} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}} isOwner={isOwner} canManage={isOwner||hasPerm("Investors")} onAddInvestor={handleAddInvestor} onEditInvestor={handleEditInvestor} onEditInvestment={handleEditInvestment} onDeleteInvestor={handleDeleteInvestor} onRecordPayment={handleRecordPayment} onMarkPaymentPaid={handleMarkPaymentPaid} canCreate={canCreate("Investors")} canEdit={canEdit("Investors")} canDelete={canDelete("Investors")}/>:<AccessDenied/>)}
               {active==="reports"       &&(hasPerm("Reports")?<ReportsPage reports={farmReports} staff={staff} onAdd={addReport} onEdit={editReportFn} onDelete={deleteReport} pondReports={farmPondReports} treatments={farmTreatments} farms={farms} ponds={farmPonds} stockEvents={stockEvents} onAddPondReport={handleAddPondReport} onDeletePondReport={deletePondReport} activeFarmId={activeFarmId} canCreate={canCreate("Reports")} canEdit={canEdit("Reports")} canDelete={canDelete("Reports")} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}} isOwner={isOwner}/>:<AccessDenied/>)}
               {active==="assessments"   &&(hasPerm("Staff Assessments")?<EmployeeAssessmentsPage kQuestions={kQuestions} cQuestions={cQuestions} kResults={kResults} cResults={cResults} onSaveKQuestions={saveKQuestions} onSaveCQuestions={saveCQuestions} onAddKResult={addKResult} onAddCResult={addCResult} ownerId={userProfile?.id??""}/>:<AccessDenied/>)}
-              {active==="pricing"       &&(isOwner?<SubscriptionPage farmCount={farms.length} activePlan={activePlan} setActivePlan={setActivePlan} trialStartDate={trialStartDate} setTrialStartDate={setTrialStartDate} currency={cs} convertPrice={cvt} userProfile={userProfile} activeFarmName={farms.find(f=>f.id===activeFarmId)?.name||userProfile?.farmName}/>:<AccessDenied/>)}
+              {active==="pricing"       &&(isOwner?<SubscriptionPage farmCount={farms.length} activePlan={activePlan} setActivePlan={setActivePlan} trialStartDate={trialStartDate} setTrialStartDate={setTrialStartDate} currency={cs} convertPrice={cvt} userProfile={userProfile} onProfileUpdated={(p) => setUserProfile(prev => { const next = { ...(prev || {}), ...p }; if(prev?.id){ try{ localStorage.setItem(`pondtora_${prev.id}_user_profile`, JSON.stringify(next)); }catch{} } return next; })} activeFarmName={farms.find(f=>f.id===activeFarmId)?.name||userProfile?.farmName}/>:<AccessDenied/>)}
               {active==="settings"      &&<SettingsPage farms={isOwner?farms:accessibleFarms} onAddFarm={handleAddFarmDirect} onEditFarm={handleEditFarm} onDeleteFarm={handleDeleteFarm} userProfile={userProfile} onUpdateProfile={handleUpdateProfile} isOwner={isOwner} ponds={ponds} activePlan={activePlan}/>}
               {active==="notifications" && (canView("Notifications") ? <NotificationsPage notifications={notifications} onMarkRead={markRead} onMarkAllRead={markAllRead} farms={farms} activeFarmId={activeFarmId} farmCount={farms.length} onDismiss={dismissNotif} onNotifNav={(n)=>{if(n.type==="reconciliation"&&n.reconDate&&n.reconKey){nav("documentation");setReconFocus({date:n.reconDate,key:n.reconKey});}}}/> : <AccessDenied/>)}
             </AppErrorBoundary>
