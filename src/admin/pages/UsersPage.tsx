@@ -1007,12 +1007,11 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
               ))
             )}
           </div>
-        </div>
 
-        <div className="px-4 py-3 border-t border-slate-100 bg-slate-50/50">
-          <Pagination total={filtered.length} page={page} perPage={PER_PAGE} onPage={setPage} />
-        </div>
-      </Card>
+          <div className="px-4 py-3 border-t border-slate-100 bg-slate-50/50">
+            <Pagination total={filtered.length} page={page} perPage={PER_PAGE} onPage={setPage} />
+          </div>
+        </Card>
 
       {/* Add User Modal */}
       {showAdd && (
