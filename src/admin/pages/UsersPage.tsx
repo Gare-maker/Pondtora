@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useRef } from "react";
 import {
   Search, Plus, MoreVertical, Eye, Edit2, Ban, Trash2, CheckCircle,
   ChevronUp, ChevronDown, Download, Clock, Shield, Sparkles, Filter,
-  RotateCw, Phone, Mail, MapPin, Copy, ExternalLink, MessageCircle,
+  RotateCw, RefreshCw, Phone, Mail, MapPin, Copy, ExternalLink, MessageCircle,
   Building, Droplets, Users as UsersIcon, X, Check, ArrowRight, UserCheck, AlertCircle,
   CreditCard, Gift, Tag, DollarSign, TrendingUp, Package, FileText, Layers, Fish, Activity
 } from "lucide-react";
@@ -1324,11 +1324,11 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
               <div className="flex items-center gap-1.5 overflow-x-auto">
                 {[
                   { id: "summary", label: "📊 Overview", count: null },
-                  { id: "ponds", label: "💧 Ponds & Fish", count: userExtra.ponds.length > 0 ? userExtra.ponds.length : (viewUser.pondCount ?? 0) },
+                  { id: "ponds", label: "💧 Ponds & Fish", count: (userExtra?.ponds || []).length > 0 ? userExtra.ponds.length : (viewUser.pondCount ?? 0) },
                   { id: "feed", label: "🌾 Feed & Stock", count: (userExtra?.feedInventory || []).length },
-                  { id: "finance", label: "💰 Financials & Invoices", count: userExtra.invoices.length > 0 ? userExtra.invoices.length : (viewUser.invoicesCount ?? 0) },
-                  { id: "staff", label: "👥 Staff Team", count: userExtra.staff.length > 0 ? userExtra.staff.length : (viewUser.staffCount ?? 0) },
-                  { id: "farms", label: "🏡 Farms", count: userExtra.farms.length > 0 ? userExtra.farms.length : (viewUser.farmCount ?? 1) },
+                  { id: "finance", label: "💰 Financials & Invoices", count: (userExtra?.invoices || []).length > 0 ? userExtra.invoices.length : (viewUser.invoicesCount ?? 0) },
+                  { id: "staff", label: "👥 Staff Team", count: (userExtra?.staff || []).length > 0 ? userExtra.staff.length : (viewUser.staffCount ?? 0) },
+                  { id: "farms", label: "🏡 Farms", count: (userExtra?.farms || []).length > 0 ? userExtra.farms.length : (viewUser.farmCount ?? 1) },
                 ].map(t => (
                   <button
                     key={t.id}
@@ -1350,7 +1350,7 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                   </button>
                 ))}
               </div>
-              {userExtra.loading && (
+              {userExtra?.loading && (
                 <div className="hidden sm:flex items-center gap-1.5 text-[11px] text-slate-400 font-medium px-2 py-1 shrink-0 animate-pulse">
                   <RefreshCw size={11} className="animate-spin text-emerald-600" />
                   <span>Syncing data...</span>
@@ -1415,51 +1415,51 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                       <div className="bg-slate-50 border border-slate-200 p-2.5 rounded-xl text-center">
                         <p className="text-[10px] uppercase font-bold text-slate-400">Total Farms</p>
                         <p className="text-lg font-extrabold text-slate-800 font-['Barlow_Condensed',sans-serif] mt-0.5">
-                          {userExtra.farms.length > 0 ? userExtra.farms.length : (viewUser.farmCount || 1)}
+                          {(userExtra?.farms || []).length > 0 ? userExtra.farms.length : (viewUser.farmCount || 1)}
                         </p>
                       </div>
                       <div className="bg-blue-50/50 border border-blue-200/70 p-2.5 rounded-xl text-center">
                         <p className="text-[10px] uppercase font-bold text-blue-500">Ponds Active</p>
                         <p className="text-lg font-extrabold text-blue-700 font-['Barlow_Condensed',sans-serif] mt-0.5">
-                          {userExtra.ponds.length > 0 ? userExtra.ponds.length : (viewUser.pondCount || 0)}
+                          {(userExtra?.ponds || []).length > 0 ? userExtra.ponds.length : (viewUser.pondCount || 0)}
                         </p>
                       </div>
                       <div className="bg-cyan-50/50 border border-cyan-200/70 p-2.5 rounded-xl text-center">
                         <p className="text-[10px] uppercase font-bold text-cyan-600">Fish Stocked</p>
                         <p className="text-lg font-extrabold text-cyan-800 font-['Barlow_Condensed',sans-serif] mt-0.5">
-                          {userExtra.ponds.length > 0
-                            ? userExtra.ponds.reduce((s, p) => s + (Number(p.current_count ?? p.initial_stock) || 0), 0).toLocaleString()
+                          {(userExtra?.ponds || []).length > 0
+                            ? userExtra.ponds.reduce((s, p) => s + (Number(p?.current_count ?? p?.initial_stock) || 0), 0).toLocaleString()
                             : (viewUser.totalFishStocked ? Number(viewUser.totalFishStocked).toLocaleString() : "0")}
                         </p>
                       </div>
                       <div className="bg-emerald-50/50 border border-emerald-200/70 p-2.5 rounded-xl text-center">
                         <p className="text-[10px] uppercase font-bold text-emerald-600">Feed in Stock</p>
                         <p className="text-lg font-extrabold text-emerald-800 font-['Barlow_Condensed',sans-serif] mt-0.5">
-                          {userExtra.feedInventory.reduce((s, f) => s + (Number(f.bags_in_stock) || 0), 0)} Bags
+                          {(userExtra?.feedInventory || []).reduce((s, f) => s + (Number(f?.bags_in_stock) || 0), 0)} Bags
                         </p>
                       </div>
                       <div className="bg-amber-50/50 border border-amber-200/70 p-2.5 rounded-xl text-center">
                         <p className="text-[10px] uppercase font-bold text-amber-700">Feed Consumed</p>
                         <p className="text-lg font-extrabold text-amber-800 font-['Barlow_Condensed',sans-serif] mt-0.5">
-                          {userExtra.feedingRecords.reduce((s, r) => s + (Number(r.total) || 0), 0)} kg
+                          {(userExtra?.feedingRecords || []).reduce((s, r) => s + (Number(r?.total) || 0), 0)} kg
                         </p>
                       </div>
                       <div className="bg-emerald-50/50 border border-emerald-200/70 p-2.5 rounded-xl text-center">
                         <p className="text-[10px] uppercase font-bold text-emerald-700">Total Revenue</p>
                         <p className="text-lg font-extrabold text-emerald-900 font-['Barlow_Condensed',sans-serif] mt-0.5">
-                          ₦{userExtra.revenues.reduce((s, r) => s + (Number(r.amount) || 0), 0).toLocaleString()}
+                          ₦{(userExtra?.revenues || []).reduce((s, r) => s + (Number(r?.amount) || 0), 0).toLocaleString()}
                         </p>
                       </div>
                       <div className="bg-purple-50/50 border border-purple-200/70 p-2.5 rounded-xl text-center">
                         <p className="text-[10px] uppercase font-bold text-purple-600">Sales Invoices</p>
                         <p className="text-lg font-extrabold text-purple-800 font-['Barlow_Condensed',sans-serif] mt-0.5">
-                          {userExtra.invoices.length > 0 ? userExtra.invoices.length : (viewUser.invoicesCount || 0)}
+                          {(userExtra?.invoices || []).length > 0 ? userExtra.invoices.length : (viewUser.invoicesCount || 0)}
                         </p>
                       </div>
                       <div className="bg-slate-50 border border-slate-200 p-2.5 rounded-xl text-center">
                         <p className="text-[10px] uppercase font-bold text-slate-500">Staff Team</p>
                         <p className="text-lg font-extrabold text-slate-800 font-['Barlow_Condensed',sans-serif] mt-0.5">
-                          {userExtra.staff.length > 0 ? userExtra.staff.length : (viewUser.staffCount || 0)}
+                          {(userExtra?.staff || []).length > 0 ? userExtra.staff.length : (viewUser.staffCount || 0)}
                         </p>
                       </div>
                     </div>
@@ -1516,20 +1516,20 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                   <div className="flex items-center justify-between">
                     <h3 className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
                       <Droplets size={14} className="text-blue-500" />
-                      All Registered Ponds ({userExtra.ponds.length})
+                      All Registered Ponds ({(userExtra?.ponds || []).length})
                     </h3>
                     <span className="text-[11px] text-slate-500 font-medium">
-                      Total Fish: <strong className="text-blue-700">{userExtra.ponds.reduce((s, p) => s + (Number(p.current_count ?? p.initial_stock) || 0), 0).toLocaleString()}</strong>
+                      Total Fish: <strong className="text-blue-700">{(userExtra?.ponds || []).reduce((s, p) => s + (Number(p?.current_count ?? p?.initial_stock) || 0), 0).toLocaleString()}</strong>
                     </span>
                   </div>
 
-                  {userExtra.ponds.length === 0 ? (
+                  {(userExtra?.ponds || []).length === 0 ? (
                     <div className="p-6 text-center border border-slate-200 rounded-xl bg-slate-50 text-slate-400">
                       No ponds created by this farmer yet.
                     </div>
                   ) : (
                     <div className="border border-slate-200 rounded-xl overflow-hidden shadow-2xs divide-y divide-slate-100">
-                      {userExtra.ponds.map((p, idx) => (
+                      {(userExtra?.ponds || []).map((p, idx) => (
                         <div key={p.id || idx} className="p-3 flex items-center justify-between gap-3 hover:bg-slate-50 transition-colors">
                           <div className="min-w-0">
                             <p className="font-bold text-slate-900 text-xs truncate">{p.name || `Pond #${idx + 1}`}</p>
@@ -1558,15 +1558,15 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                   <div>
                     <h3 className="text-xs font-bold text-slate-700 mb-2 flex items-center gap-1.5">
                       <Package size={14} className="text-emerald-600" />
-                      Feed Inventory in Stock ({userExtra.feedInventory.length})
+                      Feed Inventory in Stock ({(userExtra?.feedInventory || []).length})
                     </h3>
-                    {userExtra.feedInventory.length === 0 ? (
+                    {(userExtra?.feedInventory || []).length === 0 ? (
                       <div className="p-4 text-center border border-slate-200 rounded-xl bg-slate-50 text-slate-400 text-xs">
                         No feed items currently added to inventory.
                       </div>
                     ) : (
                       <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                        {userExtra.feedInventory.map((f, i) => (
+                        {(userExtra?.feedInventory || []).map((f, i) => (
                           <div key={f.id || i} className="bg-slate-50 border border-slate-200 p-2.5 rounded-xl">
                             <p className="font-bold text-slate-900 text-xs truncate">{f.brand || "Feed"}</p>
                             <p className="text-[11px] text-slate-600 mt-0.5">{f.size || "Standard"} • {f.weight_per_bag || 15}kg/bag</p>
@@ -1580,15 +1580,15 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                   <div>
                     <h3 className="text-xs font-bold text-slate-700 mb-2 flex items-center gap-1.5">
                       <Clock size={14} className="text-amber-600" />
-                      Recent Feeding Logs ({userExtra.feedingRecords.length})
+                      Recent Feeding Logs ({(userExtra?.feedingRecords || []).length})
                     </h3>
-                    {userExtra.feedingRecords.length === 0 ? (
+                    {(userExtra?.feedingRecords || []).length === 0 ? (
                       <div className="p-4 text-center border border-slate-200 rounded-xl bg-slate-50 text-slate-400 text-xs">
                         No feeding records logged yet.
                       </div>
                     ) : (
                       <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100 max-h-48 overflow-y-auto">
-                        {userExtra.feedingRecords.map((r, i) => (
+                        {(userExtra?.feedingRecords || []).map((r, i) => (
                           <div key={r.id || i} className="p-2.5 flex items-center justify-between gap-2 text-xs">
                             <div>
                               <span className="font-bold text-slate-800">{r.pond}</span>
@@ -1612,13 +1612,13 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                     <div className="bg-emerald-50/70 border border-emerald-200 p-3 rounded-xl text-center">
                       <p className="text-[10px] uppercase font-bold text-emerald-700">Recorded Revenue</p>
                       <p className="text-xl font-bold text-emerald-900 font-['Barlow_Condensed',sans-serif] mt-0.5">
-                        ₦{userExtra.revenues.reduce((s, r) => s + (Number(r.amount) || 0), 0).toLocaleString()}
+                        ₦{(userExtra?.revenues || []).reduce((s, r) => s + (Number(r?.amount) || 0), 0).toLocaleString()}
                       </p>
                     </div>
                     <div className="bg-rose-50/70 border border-rose-200 p-3 rounded-xl text-center">
                       <p className="text-[10px] uppercase font-bold text-rose-700">Recorded Expenses</p>
                       <p className="text-xl font-bold text-rose-900 font-['Barlow_Condensed',sans-serif] mt-0.5">
-                        ₦{userExtra.expenses.reduce((s, e) => s + (Number(e.amount) || 0), 0).toLocaleString()}
+                        ₦{(userExtra?.expenses || []).reduce((s, e) => s + (Number(e?.amount) || 0), 0).toLocaleString()}
                       </p>
                     </div>
                   </div>
@@ -1626,15 +1626,15 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                   <div>
                     <h3 className="text-xs font-bold text-slate-700 mb-2 flex items-center gap-1.5">
                       <FileText size={14} className="text-purple-600" />
-                      Sales Invoices ({userExtra.invoices.length})
+                      Sales Invoices ({(userExtra?.invoices || []).length})
                     </h3>
-                    {userExtra.invoices.length === 0 ? (
+                    {(userExtra?.invoices || []).length === 0 ? (
                       <div className="p-4 text-center border border-slate-200 rounded-xl bg-slate-50 text-slate-400 text-xs">
                         No sales invoices created yet.
                       </div>
                     ) : (
                       <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100 max-h-48 overflow-y-auto">
-                        {userExtra.invoices.map((inv, i) => (
+                        {(userExtra?.invoices || []).map((inv, i) => (
                           <div key={inv.id || i} className="p-2.5 flex items-center justify-between gap-2 text-xs hover:bg-slate-50">
                             <div>
                               <p className="font-bold text-slate-800">{inv.invoice_number || `Invoice #${i + 1}`} • {inv.customer_name || "Customer"}</p>
@@ -1659,15 +1659,15 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                 <div className="space-y-3">
                   <h3 className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
                     <UsersIcon size={14} className="text-emerald-600" />
-                    Staff Accounts Added by Farmer ({userExtra.staff.length})
+                    Staff Accounts Added by Farmer ({(userExtra?.staff || []).length})
                   </h3>
-                  {userExtra.staff.length === 0 ? (
+                  {(userExtra?.staff || []).length === 0 ? (
                     <div className="p-6 text-center border border-slate-200 rounded-xl bg-slate-50 text-slate-400 text-xs">
                       No staff members invited yet.
                     </div>
                   ) : (
                     <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100">
-                      {userExtra.staff.map((st) => (
+                      {(userExtra?.staff || []).map((st) => (
                         <div key={st.id} className="p-3 flex items-center justify-between gap-2 hover:bg-slate-50 transition-colors">
                           <div className="min-w-0">
                             <p className="font-bold text-slate-800 text-xs truncate">{st.name || "Staff Member"}</p>
@@ -1698,15 +1698,15 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                 <div className="space-y-3">
                   <h3 className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
                     <Building size={14} className="text-emerald-600" />
-                    Farms Owned by Farmer ({userExtra.farms.length})
+                    Farms Owned by Farmer ({(userExtra?.farms || []).length})
                   </h3>
-                  {userExtra.farms.length === 0 ? (
+                  {(userExtra?.farms || []).length === 0 ? (
                     <div className="p-6 text-center border border-slate-200 rounded-xl bg-slate-50 text-slate-400 text-xs">
                       Primary Farm: {viewUser.farmName || "Primary Farm"}
                     </div>
                   ) : (
                     <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100">
-                      {userExtra.farms.map((f, idx) => (
+                      {(userExtra?.farms || []).map((f, idx) => (
                         <div key={f.id || idx} className="p-3 flex items-center justify-between gap-2 hover:bg-slate-50">
                           <div>
                             <p className="font-bold text-slate-900 text-xs">{f.name}</p>
