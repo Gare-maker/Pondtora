@@ -785,7 +785,7 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                     <td className="px-4 py-3 max-w-[220px]">
                       <div className="flex items-center gap-2.5">
                         <div className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-500 to-green-600 text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-xs">
-                          {u.name.charAt(0).toUpperCase()}
+                          {(u.name || u.email || "Farmer").charAt(0).toUpperCase()}
                         </div>
                         <div className="min-w-0">
                           <div className="flex items-center gap-1.5 flex-wrap">
@@ -964,7 +964,7 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex items-center gap-2.5 min-w-0">
                       <div className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-500 to-green-600 text-white flex items-center justify-center font-bold text-xs shrink-0">
-                        {u.name.charAt(0).toUpperCase()}
+                        {(u.name || u.email || "Farmer").charAt(0).toUpperCase()}
                       </div>
                       <div className="min-w-0">
                         <p className="font-bold text-slate-900 text-sm truncate">{u.name}</p>
@@ -1161,11 +1161,11 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
             <div className="px-5 pt-3 border-b border-slate-200 flex items-center gap-1.5 overflow-x-auto bg-slate-50/50 shrink-0">
               {[
                 { id: "summary", label: "📊 Overview", count: null },
-                { id: "ponds", label: "💧 Ponds & Fish", count: userExtra.ponds.length },
-                { id: "feed", label: "🌾 Feed & Stock", count: userExtra.feedInventory.length },
-                { id: "finance", label: "💰 Financials & Invoices", count: userExtra.invoices.length },
-                { id: "staff", label: "👥 Staff Team", count: userExtra.staff.length },
-                { id: "farms", label: "🏡 Farms", count: userExtra.farms.length },
+                { id: "ponds", label: "💧 Ponds & Fish", count: (userExtra?.ponds || []).length },
+                { id: "feed", label: "🌾 Feed & Stock", count: (userExtra?.feedInventory || []).length },
+                { id: "finance", label: "💰 Financials & Invoices", count: (userExtra?.invoices || []).length },
+                { id: "staff", label: "👥 Staff Team", count: (userExtra?.staff || []).length },
+                { id: "farms", label: "🏡 Farms", count: (userExtra?.farms || []).length },
               ].map(t => (
                 <button
                   key={t.id}
