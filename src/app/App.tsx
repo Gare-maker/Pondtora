@@ -2812,26 +2812,6 @@ function SubscriptionPage({
           </div>
         ) : null}
 
-        {adminOverride.customAmount !== null && (
-          <div className="bg-amber-50 border border-amber-300/80 rounded-2xl p-4 text-xs text-amber-900 flex items-center justify-between gap-3 max-w-xl mx-auto mb-3 shadow-xs">
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl bg-amber-200/70 flex items-center justify-center shrink-0">
-                <Sparkles size={18} className="text-amber-700" />
-              </div>
-              <div className="text-left">
-                <p className="font-bold text-slate-900 text-sm">Personal Subscription Rate Applied</p>
-                <p className="text-amber-800 text-xs mt-0.5">
-                  Your special negotiated rate: <strong className="text-slate-900 font-extrabold text-sm">{cs}{cvt(adminOverride.customAmount).toLocaleString()}</strong>
-                  {adminOverride.activePlan ? ` for ${adminOverride.activePlan} Plan` : ""}
-                </p>
-              </div>
-            </div>
-            <span className="bg-amber-200 border border-amber-300 text-amber-900 font-extrabold text-[10px] px-2.5 py-1 rounded-full uppercase tracking-wider shrink-0">
-              Personal Price
-            </span>
-          </div>
-        )}
-
         <h1 className="text-3xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">
           Simple, Transparent Subscriptions
         </h1>

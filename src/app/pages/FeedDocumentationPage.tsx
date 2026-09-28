@@ -355,13 +355,14 @@ function FeedDocumentation({
 
   /* ── pondToStock & normalizeFishStock helpers ── */
   const pondToStock = (pondName: string): string => {
-    const p = (ponds || []).find(x => x && x.name === pondName);
+    if (!pondName) return "General Stock";
+    const p = (ponds || []).find(x => x && x.name && x.name.toLowerCase().trim() === pondName.toLowerCase().trim());
     if (!p) return pondName;
     return getPondFishStock(p);
   };
 
   const pondToStockDate = (pondName: string): string => {
-    const p = (ponds || []).find(x => x && x.name === pondName);
+    const p = (ponds || []).find(x => x && x.name && x.name.toLowerCase().trim() === (pondName || "").toLowerCase().trim());
     if (!p || !p.stockingDate || p.stockingDate === "—") return "—";
     return formatFishStockDate(p.stockingDate);
   };
@@ -369,7 +370,7 @@ function FeedDocumentation({
   const normalizeFishStock = (stock?: string | null): string => {
     if (!stock || stock === "—" || typeof stock !== "string" || !stock.trim()) return "—";
     const trimmed = stock.trim();
-    const matchingPond = (ponds || []).find(p => p && p.name && typeof p.name === "string" && p.name.toLowerCase() === trimmed.toLowerCase());
+    const matchingPond = (ponds || []).find(p => p && p.name && typeof p.name === "string" && p.name.toLowerCase().trim() === trimmed.toLowerCase());
     if (matchingPond) {
       return pondToStock(matchingPond.name);
     }
@@ -381,7 +382,40 @@ function FeedDocumentation({
       const formatted = formatFishStockDate(trimmed);
       if (formatted && formatted !== "—") return formatted;
     }
-    return trimmed;
+    return formatFishStock(trimmed);
+  };
+
+  const isStockMatch = (stockA?: string | null, stockB?: string | null): boolean => {
+    if (!stockA || !stockB) return false;
+    if (stockA === "—" || stockB === "—") return false;
+    const a = stockA.trim().toLowerCase();
+    const b = stockB.trim().toLowerCase();
+    if (a === b) return true;
+
+    const na = normalizeFishStock(stockA).trim().toLowerCase();
+    const nb = normalizeFishStock(stockB).trim().toLowerCase();
+    if (na === nb && na !== "—") return true;
+
+    const fa = formatFishStock(stockA).trim().toLowerCase();
+    const fb = formatFishStock(stockB).trim().toLowerCase();
+    if (fa === fb && fa !== "—") return true;
+
+    const pA = (ponds || []).find(p => p && p.name && p.name.toLowerCase().trim() === a);
+    if (pA) {
+      const psA = getPondFishStock(pA).trim().toLowerCase();
+      if (psA === b || psA === nb || psA === fb) return true;
+      if (pA.stockingDate && formatFishStockDate(pA.stockingDate).trim().toLowerCase() === b) return true;
+      if (pA.fishStock && pA.fishStock.trim().toLowerCase() === b) return true;
+    }
+    const pB = (ponds || []).find(p => p && p.name && p.name.toLowerCase().trim() === b);
+    if (pB) {
+      const psB = getPondFishStock(pB).trim().toLowerCase();
+      if (psB === a || psB === na || psB === fa) return true;
+      if (pB.stockingDate && formatFishStockDate(pB.stockingDate).trim().toLowerCase() === a) return true;
+      if (pB.fishStock && pB.fishStock.trim().toLowerCase() === a) return true;
+    }
+
+    return false;
   };
 
   const getStockDisplayName = (fishStock?: string | null, stockDate?: string | null): string => {
@@ -395,7 +429,7 @@ function FeedDocumentation({
       const fmt = formatFishStockDate(fishStock);
       if (fmt && fmt !== "—") return fmt;
     }
-    const matchingPond = (ponds || []).find(p => p && (pondToStock(p.name) === fishStock || p.name === fishStock));
+    const matchingPond = (ponds || []).find(p => p && (pondToStock(p.name) === fishStock || p.name === fishStock || isStockMatch(p.name, fishStock)));
     if (matchingPond?.stockingDate && matchingPond.stockingDate !== "—") {
       const fmt = formatFishStockDate(matchingPond.stockingDate);
       if (fmt && fmt !== "—") return fmt;
@@ -421,7 +455,8 @@ function FeedDocumentation({
   /* ── activeFishStockOptions for Bags Opened & Tracking ── */
   const activeFishStockOptions = useMemo((): FishStockOption[] => {
     const map = new Map<string, FishStockOption>();
-    activePonds.forEach(p => {
+    const pool = [...activePonds, ...(ponds || []).filter(p => p && !activePonds.some(ap => ap.id === p.id))];
+    pool.forEach(p => {
       const stockName = getPondFishStock(p);
       const dStr = p.stockingDate && p.stockingDate !== "—" ? formatFishStockDate(p.stockingDate) : "";
       const existing = map.get(stockName);
@@ -442,7 +477,7 @@ function FeedDocumentation({
       ...opt,
       label: `${opt.name} — Ponds: ${opt.ponds.join(", ")}`
     }));
-  }, [activePonds]);
+  }, [activePonds, ponds]);
 
   /* ── reconRows (selDate only, grouped strictly by Fish Stock + Pellet Size + Brand across all ponds in that stock) ── */
   const reconRows = useMemo((): ReconRow[] => {
@@ -479,58 +514,61 @@ function FeedDocumentation({
 
       // If brand is "—" or empty, try to resolve from bagLogs or remainLogs or inventory
       if (!brand || brand === "—") {
-        const brandFromBag = (bagLogs || []).find(b => isSameDate(b.date, selDate) && b.size === size && normalizeFishStock(b.fishStock) === fishStock && b.brand)?.brand;
-        const brandFromRemain = (remainLogs || []).find(r => isSameDate(r.date, selDate) && r.size === size && normalizeFishStock(r.fishStock) === fishStock && r.brand)?.brand;
-        const brandFromFeed = (feedingRecords || []).find(r => isSameDate(r.date, selDate) && r.size === size && pondToStock(r.pond) === fishStock && r.brand)?.brand;
+        const brandFromBag = (bagLogs || []).find(b => isSameDate(b.date, selDate) && b.size === size && isStockMatch(b.fishStock, fishStock) && b.brand)?.brand;
+        const brandFromRemain = (remainLogs || []).find(r => isSameDate(r.date, selDate) && r.size === size && isStockMatch(r.fishStock, fishStock) && r.brand)?.brand;
+        const brandFromFeed = (feedingRecords || []).find(r => isSameDate(r.date, selDate) && r.size === size && isStockMatch(r.pond, fishStock) && r.brand)?.brand;
         const brandFromInv = (inventory || []).find(f => f && f.size === size && f.brand)?.brand;
         brand = brandFromBag || brandFromRemain || brandFromFeed || brandFromInv || "—";
       }
 
-      const pondsForStock = (ponds || []).filter(p => p && pondToStock(p.name) === fishStock).map(p => p.name);
+      const pondsForStock = (ponds || []).filter(p => p && (isStockMatch(pondToStock(p.name), fishStock) || isStockMatch(p.name, fishStock))).map(p => p.name);
 
-      const fedRecords = (feedingRecords || []).filter(r =>
-        r && isSameDate(r.date, selDate) &&
-        r.size === size &&
-        (brand === "—" || !r.brand || r.brand.toLowerCase().trim() === brand.toLowerCase().trim()) &&
-        (pondsForStock.length === 0 || pondsForStock.includes(r.pond) || pondToStock(r.pond) === fishStock) &&
-        (Number(r.total) > 0 || Number(r.morning) > 0 || Number(r.evening) > 0)
-      );
+      const fedRecords = (feedingRecords || []).filter(r => {
+        if (!r || !isSameDate(r.date, selDate)) return false;
+        if (r.size && size && r.size.toLowerCase().trim() !== size.toLowerCase().trim()) return false;
+        const matchesStock = isStockMatch(fishStock, r.fishStock) ||
+                             isStockMatch(fishStock, pondToStock(r.pond)) ||
+                             isStockMatch(fishStock, r.pond) ||
+                             pondsForStock.some(pn => pn.toLowerCase().trim() === (r.pond || "").toLowerCase().trim());
+        if (!matchesStock) return false;
+        return (Number(r.total) > 0 || Number(r.morning) > 0 || Number(r.evening) > 0);
+      });
       const fedPonds = Array.from(new Set(fedRecords.map(r => r.pond).filter(Boolean)));
 
-      const totalFed = (feedingRecords || []).filter(r =>
-        r && isSameDate(r.date, selDate) &&
-        r.size === size &&
-        (brand === "—" || !r.brand || r.brand.toLowerCase().trim() === brand.toLowerCase().trim()) &&
-        (pondsForStock.length === 0 || pondsForStock.includes(r.pond) || pondToStock(r.pond) === fishStock)
-      ).reduce((s, r) => s + (Number(r.total) || 0), 0);
+      const totalFed = (feedingRecords || []).filter(r => {
+        if (!r || !isSameDate(r.date, selDate)) return false;
+        if (r.size && size && r.size.toLowerCase().trim() !== size.toLowerCase().trim()) return false;
+        return isStockMatch(fishStock, r.fishStock) ||
+               isStockMatch(fishStock, pondToStock(r.pond)) ||
+               isStockMatch(fishStock, r.pond) ||
+               pondsForStock.some(pn => pn.toLowerCase().trim() === (r.pond || "").toLowerCase().trim());
+      }).reduce((s, r) => s + (Number(r.total) || ((Number(r.morning) || 0) + (Number(r.evening) || 0))), 0);
 
       const matchingBagLogs = (bagLogs || []).filter(b =>
         b && isSameDate(b.date, selDate) &&
-        b.size === size &&
+        (size === "—" || (b.size || "").toLowerCase().trim() === size.toLowerCase().trim()) &&
         (brand === "—" || !b.brand || b.brand.toLowerCase().trim() === brand.toLowerCase().trim()) &&
-        (!b.fishStock || normalizeFishStock(b.fishStock) === fishStock)
+        (!b.fishStock || isStockMatch(b.fishStock, fishStock))
       );
       // If multiple duplicate bag logs exist for the same stock, brand, and pallet on this day, use the single session amount
       const recordedBags = matchingBagLogs.length > 0 ? (Number(matchingBagLogs[matchingBagLogs.length - 1].bagsOpened) || 0) : 0;
 
       const carryover = (remainLogs || []).filter(r =>
         r && isSameDate(r.date, prevDate) &&
-        r.size === size &&
-        (brand === "—" || !r.brand || r.brand.toLowerCase().trim() === brand.toLowerCase().trim()) &&
-        normalizeFishStock(r.fishStock) === fishStock
+        (size === "—" || (r.size || "").toLowerCase().trim() === size.toLowerCase().trim()) &&
+        isStockMatch(r.fishStock, fishStock)
       ).reduce((s, r) => s + (Number(r.remainingKg) || 0), 0);
 
       const recordedRemaining = (remainLogs || []).filter(r =>
         r && isSameDate(r.date, selDate) &&
-        r.size === size &&
-        (brand === "—" || !r.brand || r.brand.toLowerCase().trim() === brand.toLowerCase().trim()) &&
-        normalizeFishStock(r.fishStock) === fishStock
+        (size === "—" || (r.size || "").toLowerCase().trim() === size.toLowerCase().trim()) &&
+        isStockMatch(r.fishStock, fishStock)
       ).reduce((s, r) => s + (Number(r.remainingKg) || 0), 0);
 
       // If neither feed nor bags nor remaining was logged, skip
       if (totalFed === 0 && recordedBags === 0 && recordedRemaining === 0) continue;
 
-      const invItem = (inventory || []).find(f => f && (brand !== "—" ? f.brand.toLowerCase().trim() === brand.toLowerCase().trim() : true) && f.size === size) || (inventory || []).find(f => f && f.size === size);
+      const invItem = (inventory || []).find(f => f && (brand !== "—" ? f.brand.toLowerCase().trim() === brand.toLowerCase().trim() : true) && f.size.toLowerCase().trim() === size.toLowerCase().trim()) || (inventory || []).find(f => f && f.size.toLowerCase().trim() === size.toLowerCase().trim());
       const bagWeight = invItem?.weightPerBag || 15;
       const kgOpened = recordedBags * bagWeight;
       const kgConsumed = totalFed;
@@ -574,7 +612,7 @@ function FeedDocumentation({
         reason = "Feed given matches bags opened.";
       }
 
-      const stockDate = (ponds || []).find(p => p && pondToStock(p.name) === fishStock)?.stockingDate || fishStock;
+      const stockDate = (ponds || []).find(p => p && (pondToStock(p.name) === fishStock || isStockMatch(p.name, fishStock)))?.stockingDate || fishStock;
 
       rows.push({
         fishStock,
@@ -756,16 +794,21 @@ function FeedDocumentation({
     const prevDt = new Date(yr, mIdx, dNum - 1);
     const prevDateLabel = `${MON_NAMES[prevDt.getMonth()]} ${prevDt.getDate()}`;
 
-    const pondsForStock = normStock ? (ponds || []).filter(p => p && pondToStock(p.name) === normStock).map(p => p.name) : [];
+    const pondsForStock = normStock ? (ponds || []).filter(p => p && (isStockMatch(pondToStock(p.name), normStock) || isStockMatch(p.name, normStock))).map(p => p.name) : [];
 
     const fedRecords = (feedingRecords || []).filter(r => {
       if (!r) return false;
-      const dateMatch = isSameDate(r.date, targetDate) || isSameDate(r.date, dateLabel);
+      const dateMatch = isSameDate(r.date, targetDate) || isSameDate(r.date, dateLabel) || isSameDate(r.date, selDate);
       if (!dateMatch) return false;
-      if (size && size !== "—" && r.size && r.size !== size) return false;
-      if (brand && brand !== "—" && r.brand && r.brand.toLowerCase().trim() !== brand.toLowerCase().trim()) return false;
+      if (size && size !== "—" && r.size && r.size.toLowerCase().trim() !== size.toLowerCase().trim()) return false;
       if (normStock && normStock !== "—") {
-        return pondsForStock.length === 0 || pondsForStock.includes(r.pond) || pondToStock(r.pond) === normStock || normalizeFishStock(r.fishStock) === normStock;
+        const rStock = r.fishStock || pondToStock(r.pond);
+        const matchesStock = isStockMatch(normStock, rStock) ||
+                             isStockMatch(normStock, r.fishStock) ||
+                             isStockMatch(normStock, pondToStock(r.pond)) ||
+                             isStockMatch(normStock, r.pond) ||
+                             pondsForStock.some(pn => pn.toLowerCase().trim() === (r.pond || "").toLowerCase().trim());
+        if (!matchesStock) return false;
       }
       return true;
     });
@@ -775,15 +818,14 @@ function FeedDocumentation({
       if (!r) return false;
       const dateMatch = isSameDate(r.date, prevDateLabel) || isSameDate(r.date, `${MON_NAMES[prevDt.getMonth()]} ${prevDt.getDate()}`);
       if (!dateMatch) return false;
-      if (size && size !== "—" && r.size && r.size !== size) return false;
-      if (brand && brand !== "—" && r.brand && r.brand.toLowerCase().trim() !== brand.toLowerCase().trim()) return false;
+      if (size && size !== "—" && r.size && r.size.toLowerCase().trim() !== size.toLowerCase().trim()) return false;
       if (normStock && normStock !== "—") {
-        return normalizeFishStock(r.fishStock) === normStock;
+        return isStockMatch(normStock, r.fishStock);
       }
       return true;
     }).reduce((s, r) => s + (Number(r.remainingKg) || 0), 0);
 
-    const invItem = (inventory || []).find(f => f && (brand && brand !== "—" ? f.brand.toLowerCase().trim() === brand.toLowerCase().trim() : true) && f.size === size) || (inventory || []).find(f => f && f.size === size);
+    const invItem = (inventory || []).find(f => f && (brand && brand !== "—" ? f.brand.toLowerCase().trim() === brand.toLowerCase().trim() : true) && f.size.toLowerCase().trim() === size.toLowerCase().trim()) || (inventory || []).find(f => f && f.size.toLowerCase().trim() === size.toLowerCase().trim());
     const bagWeight = invItem?.weightPerBag || 15;
 
     const netNeeded = Math.max(0, totalFed - carryover);
@@ -815,10 +857,10 @@ function FeedDocumentation({
       (Number(b.bagsOpened) || 0) > 0 &&
       b.fishStock &&
       b.fishStock !== "—" &&
-      (isSameDate(b.date, checkDate) || isSameDate(b.date, dateLabel)) &&
-      normalizeFishStock(b.fishStock).toLowerCase().trim() === normalizedStock &&
+      (isSameDate(b.date, checkDate) || isSameDate(b.date, dateLabel) || isSameDate(b.date, selDate)) &&
+      (isStockMatch(b.fishStock, stockName) || normalizeFishStock(b.fishStock).toLowerCase().trim() === normalizedStock) &&
       (normalizedBrand === "" || (b.brand || "").toLowerCase().trim() === normalizedBrand) &&
-      (b.size || "").toLowerCase().trim() === normalizedSize
+      (palletSize === "—" || (b.size || "").toLowerCase().trim() === normalizedSize)
     );
     return matching.reduce((s, b) => s + (Number(b.bagsOpened) || 0), 0);
   };
@@ -901,6 +943,38 @@ function FeedDocumentation({
     if (map.size > 0) {
       return Array.from(map.values());
     }
+
+    // If no bag logs exist yet for this date, look at today's feeding records to pre-fill rows
+    const dayFeedRecords = (feedingRecords || []).filter(r =>
+      r && (isSameDate(r.date, checkDate) || isSameDate(r.date, dateLabel) || isSameDate(r.date, selDate)) &&
+      (Number(r.total) > 0 || Number(r.morning) > 0 || Number(r.evening) > 0)
+    );
+
+    if (dayFeedRecords.length > 0) {
+      const feedGroups = new Map<string, BagRow>();
+      dayFeedRecords.forEach(f => {
+        const fs = pondToStock(f.pond) || activeFishStockOptions[0]?.name || "";
+        const size = f.size || "";
+        if (!size) return;
+        const brand = f.brand || (inventory || []).find(item => item && item.size === size)?.brand || invBrands[0] || "";
+        const key = `${normalizeFishStock(fs)}__${brand}__${size}`;
+        if (!feedGroups.has(key)) {
+          const inv = (inventory || []).find(item => item && (brand ? item.brand.toLowerCase() === brand.toLowerCase() : true) && item.size.toLowerCase() === size.toLowerCase()) || (inventory || []).find(item => item && item.size.toLowerCase() === size.toLowerCase());
+          feedGroups.set(key, {
+            fishStock: fs,
+            brand: brand || inv?.brand || invBrands[0] || "",
+            size,
+            kgPerBag: inv?.weightPerBag || 15,
+            qty: "",
+            remainingKg: ""
+          });
+        }
+      });
+      if (feedGroups.size > 0) {
+        return Array.from(feedGroups.values());
+      }
+    }
+
     return [blankBagRow(checkDate)];
   };
 
@@ -1099,7 +1173,7 @@ function FeedDocumentation({
       const bags = Number(b.bagsOpened) || 0;
       const kgPb = Number(b.kgPerBag) || 15;
       const totalKg = Number(b.totalKg) || (bags * kgPb);
-      const matchingPond = (ponds || []).find(p => p && (pondToStock(p.name) === fs || p.name === fs));
+      const matchingPond = (ponds || []).find(p => p && (pondToStock(p.name) === fs || p.name === fs || isStockMatch(p.name, fs)));
       const stockDate = matchingPond?.stockingDate && matchingPond.stockingDate !== "—"
         ? formatFishStockDate(matchingPond.stockingDate)
         : (fs && /^\d{4}-\d{2}-\d{2}/.test(fs) ? formatFishStockDate(fs) : (fs !== "—" && fs !== "General Stock" ? formatFishStock(fs) : "—"));
@@ -1129,7 +1203,7 @@ function FeedDocumentation({
       const size = r.size || "—";
       const k = `${brand}||${size}||${fs}`;
       const existing = map.get(k);
-      const matchingPond = (ponds || []).find(p => p && (pondToStock(p.name) === fs || p.name === fs));
+      const matchingPond = (ponds || []).find(p => p && (pondToStock(p.name) === fs || p.name === fs || isStockMatch(p.name, fs)));
       const stockDate = matchingPond?.stockingDate && matchingPond.stockingDate !== "—"
         ? formatFishStockDate(matchingPond.stockingDate)
         : (fs && /^\d{4}-\d{2}-\d{2}/.test(fs) ? formatFishStockDate(fs) : (fs !== "—" && fs !== "General Stock" ? formatFishStock(fs) : "—"));
@@ -1159,9 +1233,9 @@ function FeedDocumentation({
       if (!size) return;
       const k = `${brand}||${size}||${fs}`;
       if (!map.has(k)) {
-        const anyBrandExisting = Array.from(map.values()).find(m => m.size === size && normalizeFishStock(m.fishStock) === normalizeFishStock(fs));
+        const anyBrandExisting = Array.from(map.values()).find(m => m.size.toLowerCase().trim() === size.toLowerCase().trim() && isStockMatch(m.fishStock, fs));
         if (!anyBrandExisting) {
-          const matchingPond = (ponds || []).find(p => p && (pondToStock(p.name) === fs || p.name === fs));
+          const matchingPond = (ponds || []).find(p => p && (pondToStock(p.name) === fs || p.name === fs || isStockMatch(p.name, fs)));
           const stockDate = matchingPond?.stockingDate && matchingPond.stockingDate !== "—"
             ? formatFishStockDate(matchingPond.stockingDate)
             : (fs && /^\d{4}-\d{2}-\d{2}/.test(fs) ? formatFishStockDate(fs) : (fs !== "—" && fs !== "General Stock" ? formatFishStock(fs) : "—"));
