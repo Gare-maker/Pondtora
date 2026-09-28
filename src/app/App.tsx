@@ -2519,7 +2519,9 @@ function SubscriptionPage({
       if (!email && !id) return;
       try {
         let query = supabase.from("user_profiles").select("*");
-        if (id && isUuid(id)) {
+        if (id && isUuid(id) && email) {
+          query = query.or(`id.eq.${id},email.ilike.${email.trim()}`);
+        } else if (id && isUuid(id)) {
           query = query.eq("id", id);
         } else if (email) {
           query = query.ilike("email", email.trim());
@@ -2551,27 +2553,38 @@ function SubscriptionPage({
     };
 
     window.addEventListener("pondtora:users_updated", handleUsersUpdate);
+    window.addEventListener("pondtora:user_profile_updated", handleUsersUpdate);
     window.addEventListener("pondtora:payment_successful", handleUsersUpdate);
 
-    // Subscribe to realtime database changes for this profile
+    // Subscribe to realtime database changes for user_profiles
     const profileId = userProfile?.id || liveProfile?.id;
+    const profileEmail = userProfile?.email || liveProfile?.email;
     let channel: any = null;
-    if (profileId) {
-      try {
-        channel = supabase.channel(`user_sub_${profileId}_${Math.random().toString(36).substring(2, 7)}`)
-          .on("postgres_changes", { event: "*", schema: "public", table: "user_profiles", filter: `id=eq.${profileId}` }, () => {
+    try {
+      channel = supabase
+        .channel(`user_sub_${Math.random().toString(36).substring(2, 7)}`)
+        .on("postgres_changes", { event: "*", schema: "public", table: "user_profiles" }, (payload: any) => {
+          const changed = payload.new;
+          if (
+            changed &&
+            ((profileId && changed.id === profileId) ||
+              (profileEmail && (changed.email || "").toLowerCase().trim() === profileEmail.toLowerCase().trim()))
+          ) {
             fetchFreshProfile();
-          })
-          .subscribe();
-      } catch {}
-    }
+          }
+        })
+        .subscribe();
+    } catch {}
 
     return () => {
       isMounted = false;
       window.removeEventListener("pondtora:users_updated", handleUsersUpdate);
+      window.removeEventListener("pondtora:user_profile_updated", handleUsersUpdate);
       window.removeEventListener("pondtora:payment_successful", handleUsersUpdate);
       if (channel) {
-        try { supabase.removeChannel(channel); } catch {}
+        try {
+          supabase.removeChannel(channel);
+        } catch {}
       }
     };
   }, [userProfile?.id, userProfile?.email]);
@@ -2584,7 +2597,7 @@ function SubscriptionPage({
     } catch {
       return { isSuspended: false, hasFreeAccess: false, customAmount: null, activePlan: null };
     }
-  }, [effectiveProfile?.email, effectiveProfile?.subscriptionAmount, effectiveProfile?.freeAccess, effectiveProfile, adminUsers]);
+  }, [effectiveProfile?.email, effectiveProfile?.subscriptionAmount, effectiveProfile?.freeAccess, effectiveProfile?.activePlan, effectiveProfile, adminUsers]);
 
   const currentAdminUser = useMemo(() => {
     if (!effectiveProfile?.email) return null;
@@ -2671,6 +2684,30 @@ function SubscriptionPage({
     return Math.round(price * 12 * 0.2);
   };
 
+  const getPlanPricing = (plan: any, isYearly: boolean) => {
+    const baseMonthly = typeof plan.monthlyPrice === "number" && !isNaN(plan.monthlyPrice) ? plan.monthlyPrice : 0;
+    const isUserAssignedPlan = Boolean(
+      adminOverride.customAmount !== null &&
+      (
+        !adminOverride.activePlan ||
+        adminOverride.activePlan.toLowerCase() === plan.name.toLowerCase() ||
+        (activePlan && activePlan.toLowerCase() === plan.name.toLowerCase())
+      )
+    );
+
+    const price = isUserAssignedPlan
+      ? adminOverride.customAmount!
+      : (adminOverride.customAmount !== null && !adminOverride.activePlan
+          ? adminOverride.customAmount!
+          : dp(baseMonthly, isYearly));
+
+    return {
+      price,
+      isCustom: isUserAssignedPlan,
+      baseMonthly,
+    };
+  };
+
   const handlePaystackPayment = async (plan: any, isYearly: boolean) => {
     if (!plan) return;
     if (adminOverride.hasFreeAccess) {
@@ -2678,12 +2715,19 @@ function SubscriptionPage({
       return;
     }
 
-    const baseMonthly = typeof plan.monthlyPrice === "number" && !isNaN(plan.monthlyPrice) ? plan.monthlyPrice : 0;
-    const calculatedPrice = adminOverride.customAmount !== null
-      ? adminOverride.customAmount
-      : (isYearly ? Math.round(baseMonthly * 12 * 0.8) : baseMonthly);
+    const { price: calculatedPrice } = getPlanPricing(plan, isYearly);
+
+    if (calculatedPrice <= 0) {
+      toast.info("This plan has zero billing amount.");
+      return;
+    }
 
     setCheckoutLoading(plan.name || "plan");
+
+    // Safety timeout: reset button if popup is closed or blocked
+    const safetyTimer = setTimeout(() => {
+      setCheckoutLoading(null);
+    }, 15000);
 
     try {
       const success = await initializePaystackCheckout({
@@ -2695,6 +2739,7 @@ function SubscriptionPage({
         phone: effectiveProfile?.phone || "",
         farmName: activeFarmName || effectiveProfile?.farmName || "Primary Farm",
         onSuccess: res => {
+          clearTimeout(safetyTimer);
           recordSuccessfulPayment({
             email: effectiveProfile?.email || "",
             planName: plan.name,
@@ -2732,15 +2777,18 @@ function SubscriptionPage({
           setCheckoutLoading(null);
         },
         onClose: () => {
+          clearTimeout(safetyTimer);
           setCheckoutLoading(null);
           toast.info("Paystack checkout window closed.");
         },
       });
 
       if (!success) {
+        clearTimeout(safetyTimer);
         setCheckoutLoading(null);
       }
     } catch (err: any) {
+      clearTimeout(safetyTimer);
       setCheckoutLoading(null);
       console.error("Paystack Checkout Error:", err);
       toast.error("Unable to initiate Paystack payment. Please try again.");
@@ -2765,17 +2813,22 @@ function SubscriptionPage({
         ) : null}
 
         {adminOverride.customAmount !== null && (
-          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-3.5 text-xs text-amber-900 flex items-center justify-between gap-3 max-w-lg mx-auto mb-3 shadow-xs">
-            <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-xl bg-amber-100 flex items-center justify-center shrink-0">
-                <Sparkles size={16} className="text-amber-600" />
+          <div className="bg-amber-50 border border-amber-300/80 rounded-2xl p-4 text-xs text-amber-900 flex items-center justify-between gap-3 max-w-xl mx-auto mb-3 shadow-xs">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-amber-200/70 flex items-center justify-center shrink-0">
+                <Sparkles size={18} className="text-amber-700" />
               </div>
               <div className="text-left">
-                <p className="font-bold text-slate-900">Custom Subscription Rate Applied</p>
-                <p className="text-amber-700 text-[11px]">Your updated rate: <strong className="text-slate-900 font-extrabold">{cs}{cvt(adminOverride.customAmount).toLocaleString()}</strong></p>
+                <p className="font-bold text-slate-900 text-sm">Personal Subscription Rate Applied</p>
+                <p className="text-amber-800 text-xs mt-0.5">
+                  Your special negotiated rate: <strong className="text-slate-900 font-extrabold text-sm">{cs}{cvt(adminOverride.customAmount).toLocaleString()}</strong>
+                  {adminOverride.activePlan ? ` for ${adminOverride.activePlan} Plan` : ""}
+                </p>
               </div>
             </div>
-            <span className="bg-amber-200 text-amber-900 font-extrabold text-[10px] px-2 py-0.5 rounded-full">Active Override</span>
+            <span className="bg-amber-200 border border-amber-300 text-amber-900 font-extrabold text-[10px] px-2.5 py-1 rounded-full uppercase tracking-wider shrink-0">
+              Personal Price
+            </span>
           </div>
         )}
 
@@ -2819,17 +2872,26 @@ function SubscriptionPage({
             {singlePlans.map(plan => {
               const isCurrent = activePlan === plan.name;
               const isCheckingThis = checkoutLoading === plan.name;
-              const planPrice = adminOverride.customAmount !== null
-                ? adminOverride.customAmount
-                : dp(plan.monthlyPrice || 0, yearlyS);
+              const { price: planPrice, isCustom, baseMonthly } = getPlanPricing(plan, yearlyS);
 
               return (
-                <div key={plan.name} className={`rounded-2xl border-2 ${plan.color || "border-slate-200"} bg-white p-6 flex flex-col relative shadow-sm hover:shadow-md transition-shadow`}>
-                  {plan.badge && (
+                <div
+                  key={plan.name}
+                  className={`rounded-2xl border-2 ${
+                    isCustom
+                      ? "border-amber-400 ring-2 ring-amber-300/40 bg-amber-50/10"
+                      : plan.color || "border-slate-200"
+                  } bg-white p-6 flex flex-col relative shadow-sm hover:shadow-md transition-shadow`}
+                >
+                  {isCustom ? (
+                    <span className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full text-[11px] font-bold bg-amber-500 text-white shadow-xs">
+                      ★ Your Special Rate
+                    </span>
+                  ) : plan.badge ? (
                     <span className={`absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full text-[11px] font-bold ${plan.badge === "Popular" ? "bg-green-600 text-white" : "bg-[#F97316] text-white"}`}>
                       {plan.badge}
                     </span>
-                  )}
+                  ) : null}
                   <div className="mb-5">
                     <p className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-0.5">{plan.name}</p>
                     <p className={`text-sm font-semibold mb-3 ${plan.limit === "Unlimited active ponds" ? "text-slate-700" : "text-green-600"}`}>
@@ -2840,11 +2902,14 @@ function SubscriptionPage({
                         {cs}{cvt(planPrice).toLocaleString()}
                       </span>
                       <span className="text-slate-400 text-sm">
-                        {adminOverride.customAmount !== null ? " / payment" : (yearlyS ? "/year" : "/month")}
+                        {isCustom ? " / payment" : (yearlyS ? "/year" : "/month")}
                       </span>
                     </div>
-                    {yearlyS && adminOverride.customAmount === null && (
-                      <p className="text-[11px] text-green-600 mt-1">Save {cs}{cvt(sv(plan.monthlyPrice || 0)).toLocaleString()} per year</p>
+                    {yearlyS && !isCustom && (
+                      <p className="text-[11px] text-green-600 mt-1">Save {cs}{cvt(sv(baseMonthly)).toLocaleString()} per year</p>
+                    )}
+                    {isCustom && (
+                      <p className="text-[11px] text-amber-700 font-semibold mt-1">Custom negotiated rate for your account</p>
                     )}
                     <p className="text-xs text-slate-400 mt-2 leading-relaxed">{plan.desc || ""}</p>
                   </div>
@@ -2870,15 +2935,17 @@ function SubscriptionPage({
                   </div>
 
                   {isPaidActive && isCurrent ? (
-                    <div className="w-full py-2.5 rounded-xl text-xs font-bold bg-emerald-100 text-emerald-800 mt-3 text-center flex items-center justify-center gap-1.5 border border-emerald-200">
+                    <div className="w-full py-2.5 rounded-xl text-xs font-bold bg-emerald-100 text-emerald-800 mt-auto text-center flex items-center justify-center gap-1.5 border border-emerald-200">
                       <CheckCircle size={14} className="text-emerald-600" /> Current Active Plan
                     </div>
                   ) : (
                     <button
                       onClick={() => handlePaystackPayment(plan, yearlyS)}
                       disabled={isCheckingThis}
-                      className={`w-full py-2.5 rounded-xl text-xs font-bold transition-all mt-3 flex items-center justify-center gap-2 shadow-sm ${
-                        plan.badge === "Popular"
+                      className={`w-full py-2.5 rounded-xl text-xs font-bold transition-all mt-auto flex items-center justify-center gap-2 shadow-sm ${
+                        isCustom
+                          ? "bg-amber-600 hover:bg-amber-700 text-white shadow-amber-600/20"
+                          : plan.badge === "Popular"
                           ? "bg-green-600 hover:bg-green-700 text-white"
                           : plan.badge === "Best Value"
                           ? "bg-[#F97316] hover:bg-[#ea6c0a] text-white"
@@ -2891,7 +2958,7 @@ function SubscriptionPage({
                         </>
                       ) : (
                         <>
-                          <CreditCard size={14} /> Pay with Paystack
+                          <CreditCard size={14} /> Pay {cs}{cvt(planPrice).toLocaleString()} with Paystack
                         </>
                       )}
                     </button>
@@ -2918,17 +2985,26 @@ function SubscriptionPage({
             {multiPlans.map(plan => {
               const isCurrent = activePlan === plan.name;
               const isCheckingThis = checkoutLoading === plan.name;
-              const planPrice = adminOverride.customAmount !== null
-                ? adminOverride.customAmount
-                : dp(plan.monthlyPrice || 0, yearlyM);
+              const { price: planPrice, isCustom, baseMonthly } = getPlanPricing(plan, yearlyM);
 
               return (
-                <div key={plan.name} className={`rounded-2xl border-2 ${plan.color || "border-slate-200"} bg-white p-6 flex flex-col relative shadow-sm hover:shadow-md transition-shadow`}>
-                  {plan.badge && (
+                <div
+                  key={plan.name}
+                  className={`rounded-2xl border-2 ${
+                    isCustom
+                      ? "border-amber-400 ring-2 ring-amber-300/40 bg-amber-50/10"
+                      : plan.color || "border-slate-200"
+                  } bg-white p-6 flex flex-col relative shadow-sm hover:shadow-md transition-shadow`}
+                >
+                  {isCustom ? (
+                    <span className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full text-[11px] font-bold bg-amber-500 text-white shadow-xs">
+                      ★ Your Special Rate
+                    </span>
+                  ) : plan.badge ? (
                     <span className={`absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full text-[11px] font-bold ${plan.badge === "Popular" ? "bg-green-600 text-white" : "bg-[#F97316] text-white"}`}>
                       {plan.badge}
                     </span>
-                  )}
+                  ) : null}
                   <div className="mb-4">
                     <p className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-0.5">{plan.name}</p>
                     <div className="flex items-center gap-1.5 mb-1">
@@ -2941,11 +3017,14 @@ function SubscriptionPage({
                         {cs}{cvt(planPrice).toLocaleString()}
                       </span>
                       <span className="text-slate-400 text-sm">
-                        {adminOverride.customAmount !== null ? " / payment" : (yearlyM ? "/year" : "/month")}
+                        {isCustom ? " / payment" : (yearlyM ? "/year" : "/month")}
                       </span>
                     </div>
-                    {yearlyM && adminOverride.customAmount === null && (
-                      <p className="text-[10px] text-green-600 mt-0.5">Save {cs}{cvt(sv(plan.monthlyPrice || 0)).toLocaleString()} per year</p>
+                    {yearlyM && !isCustom && (
+                      <p className="text-[10px] text-green-600 mt-0.5">Save {cs}{cvt(sv(baseMonthly)).toLocaleString()} per year</p>
+                    )}
+                    {isCustom && (
+                      <p className="text-[11px] text-amber-700 font-semibold mt-1">Custom negotiated rate for your account</p>
                     )}
                     <p className="text-xs text-slate-400 mt-2 leading-relaxed">{plan.desc || ""}</p>
                   </div>
@@ -2977,7 +3056,9 @@ function SubscriptionPage({
                       onClick={() => handlePaystackPayment(plan, yearlyM)}
                       disabled={isCheckingThis}
                       className={`w-full py-2.5 rounded-xl text-xs font-bold transition-all mt-auto flex items-center justify-center gap-2 shadow-sm ${
-                        plan.badge === "Popular"
+                        isCustom
+                          ? "bg-amber-600 hover:bg-amber-700 text-white shadow-amber-600/20"
+                          : plan.badge === "Popular"
                           ? "bg-green-600 hover:bg-green-700 text-white"
                           : plan.badge === "Best Value"
                           ? "bg-[#F97316] hover:bg-[#ea6c0a] text-white"
@@ -2990,7 +3071,7 @@ function SubscriptionPage({
                         </>
                       ) : (
                         <>
-                          <CreditCard size={14} /> Pay with Paystack
+                          <CreditCard size={14} /> Pay {cs}{cvt(planPrice).toLocaleString()} with Paystack
                         </>
                       )}
                     </button>
@@ -5596,8 +5677,8 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
           // Verify user profile exists in database (guards against ghost accounts if deleted by admin)
           const { data: prof, error: profErr } = await supabase
             .from("user_profiles")
-            .select("id, status, role")
-            .eq("id", session.user.id)
+            .select("*")
+            .or(`id.eq.${session.user.id},email.ilike.${session.user.email || ""}`)
             .maybeSingle();
 
           // Check if current user is an invited/assigned staff member
@@ -5650,7 +5731,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
             return;
           }
 
-          const country=meta.country||"Nigeria";
+          const country=meta.country||prof?.country||"Nigeria";
           const cc=COUNTRY_CURRENCIES[country]??COUNTRY_CURRENCIES["Nigeria"];
 
           let staffPerms: string[] = meta.permissions || [];
@@ -5689,18 +5770,63 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
             } catch {}
           }
 
+          const customSubAmount =
+            typeof prof?.subscription_amount === "number" && !isNaN(prof.subscription_amount)
+              ? prof.subscription_amount
+              : typeof (prof as any)?.subscriptionAmount === "number" && !isNaN((prof as any).subscriptionAmount)
+              ? (prof as any).subscriptionAmount
+              : typeof prof?.raw_data?.subscription_amount === "number" && !isNaN(prof.raw_data.subscription_amount)
+              ? prof.raw_data.subscription_amount
+              : typeof meta.subscription_amount === "number"
+              ? meta.subscription_amount
+              : null;
+
+          const hasFreeAccess = Boolean(
+            prof?.free_access ||
+            (prof as any)?.freeAccess ||
+            prof?.raw_data?.free_access ||
+            meta.free_access ||
+            meta.freeAccess ||
+            session.user.email?.toLowerCase().trim() === "edafejesugarec@gmail.com"
+          );
+
+          const resolvedPlan = prof?.active_plan || (prof as any)?.activePlan || meta.active_plan || meta.activePlan || "Starter";
+          const resolvedTrialStart = prof?.trial_start_date || (prof as any)?.trialStartDate || meta.trial_start_date || meta.trialStartDate || null;
+          const resolvedSubStatus = prof?.subscription_status || (prof as any)?.subscriptionStatus || meta.subscription_status || meta.subscriptionStatus || "Trial";
+          const resolvedSubExpiry = prof?.subscription_expiry || (prof as any)?.subscriptionExpiry || meta.subscription_expiry || meta.subscriptionExpiry || null;
+          const resolvedSubStart = prof?.subscription_start || (prof as any)?.subscriptionStart || meta.subscription_start || meta.subscriptionStart || null;
+          const resolvedBillingFreq = prof?.billing_frequency || (prof as any)?.billingFrequency || meta.billing_frequency || meta.billingFrequency || "monthly";
+          const resolvedPaystackRef = prof?.paystack_reference || (prof as any)?.paystackReference || meta.paystack_reference || meta.paystackReference || null;
+          const resolvedLastPayment = prof?.last_payment_date || (prof as any)?.lastPaymentDate || meta.last_payment_date || meta.lastPaymentDate || null;
+
+          if (resolvedPlan) setActivePlan(resolvedPlan);
+          if (resolvedTrialStart) setTrialStartDate(resolvedTrialStart);
+
           setUserProfile({
-            id:session.user.id,
-            name:staffMemberRecord?.name||meta.name||session.user.email?.split("@")[0]||"User",
-            farmName:meta.farm_name||"My Fish Farm",
-            city:meta.city||"",state:meta.state||"",country,
-            email:session.user.email||"",phone:meta.phone||"",
-            currencySymbol:meta.currency_symbol||cc.symbol,
-            currencyCode:meta.currency_code||cc.code,
-            role:staffRole,
-            permissions:staffPerms,
-            ownerId:staffOwnerId,
-            farms:staffFarms,
+            id: session.user.id,
+            name: prof?.name || staffMemberRecord?.name || meta.name || session.user.email?.split("@")[0] || "User",
+            farmName: prof?.farm_name || meta.farm_name || "My Fish Farm",
+            city: prof?.city || meta.city || "",
+            state: prof?.state || meta.state || "",
+            country,
+            email: session.user.email || "",
+            phone: prof?.phone || meta.phone || "",
+            currencySymbol: meta.currency_symbol || cc.symbol,
+            currencyCode: meta.currency_code || cc.code,
+            role: staffRole,
+            permissions: staffPerms,
+            ownerId: staffOwnerId,
+            farms: staffFarms,
+            activePlan: resolvedPlan,
+            trialStartDate: resolvedTrialStart,
+            subscriptionStatus: resolvedSubStatus,
+            subscriptionAmount: customSubAmount,
+            freeAccess: hasFreeAccess,
+            subscriptionExpiry: resolvedSubExpiry,
+            subscriptionStart: resolvedSubStart,
+            billingFrequency: resolvedBillingFreq,
+            paystackReference: resolvedPaystackRef,
+            lastPaymentDate: resolvedLastPayment,
           });
           if(meta.active_farm_id){
             setActiveFarmId(meta.active_farm_id);
@@ -5742,8 +5868,8 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
         // Verify profile exists before granting dashboard access
         const { data: prof, error: profErr } = await supabase
           .from("user_profiles")
-          .select("id, status, role")
-          .eq("id", session.user.id)
+          .select("*")
+          .or(`id.eq.${session.user.id},email.ilike.${session.user.email || ""}`)
           .maybeSingle();
 
         // Check if current user is an invited/assigned staff member
@@ -5816,7 +5942,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
           return;
         }
 
-        const country=meta.country||"Nigeria";
+        const country=meta.country||prof?.country||"Nigeria";
         const cc=COUNTRY_CURRENCIES[country]??COUNTRY_CURRENCIES["Nigeria"];
 
         let staffPerms: string[] = meta.permissions || [];
@@ -5855,24 +5981,63 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
           } catch {}
         }
 
-        const activePlanStr = meta.active_plan || prof?.active_plan || "Starter";
+        const customSubAmount =
+          typeof prof?.subscription_amount === "number" && !isNaN(prof.subscription_amount)
+            ? prof.subscription_amount
+            : typeof (prof as any)?.subscriptionAmount === "number" && !isNaN((prof as any).subscriptionAmount)
+            ? (prof as any).subscriptionAmount
+            : typeof prof?.raw_data?.subscription_amount === "number" && !isNaN(prof.raw_data.subscription_amount)
+            ? prof.raw_data.subscription_amount
+            : typeof meta.subscription_amount === "number"
+            ? meta.subscription_amount
+            : null;
+
+        const hasFreeAccess = Boolean(
+          prof?.free_access ||
+          (prof as any)?.freeAccess ||
+          prof?.raw_data?.free_access ||
+          meta.free_access ||
+          meta.freeAccess ||
+          session.user.email?.toLowerCase().trim() === "edafejesugarec@gmail.com"
+        );
+
+        const activePlanStr = prof?.active_plan || (prof as any)?.activePlan || meta.active_plan || meta.activePlan || "Starter";
+        const trialStartStr = prof?.trial_start_date || (prof as any)?.trialStartDate || meta.trial_start_date || meta.trialStartDate || new Date().toISOString();
+        const subStatusStr = prof?.subscription_status || (prof as any)?.subscriptionStatus || meta.subscription_status || meta.subscriptionStatus || "Trial";
+        const subExpiryStr = prof?.subscription_expiry || (prof as any)?.subscriptionExpiry || meta.subscription_expiry || meta.subscriptionExpiry || null;
+        const subStartStr = prof?.subscription_start || (prof as any)?.subscriptionStart || meta.subscription_start || meta.subscriptionStart || null;
+        const billingFreqStr = prof?.billing_frequency || (prof as any)?.billingFrequency || meta.billing_frequency || meta.billingFrequency || "monthly";
+        const paystackRefStr = prof?.paystack_reference || (prof as any)?.paystackReference || meta.paystack_reference || meta.paystackReference || null;
+        const lastPaymentStr = prof?.last_payment_date || (prof as any)?.lastPaymentDate || meta.last_payment_date || meta.lastPaymentDate || null;
+
+        if (activePlanStr) setActivePlan(activePlanStr);
+        if (trialStartStr) setTrialStartDate(trialStartStr);
+
         const newProfile: UserProfile = {
-          id:session.user.id,
-          name:staffMemberRecord?.name||meta.name||prof?.name||session.user.email?.split("@")[0]||"User",
-          farmName:meta.farm_name||prof?.farm_name||"My Fish Farm",
-          city:meta.city||prof?.city||"",
-          state:meta.state||prof?.state||"",
+          id: session.user.id,
+          name: staffMemberRecord?.name || meta.name || prof?.name || session.user.email?.split("@")[0] || "User",
+          farmName: meta.farm_name || prof?.farm_name || "My Fish Farm",
+          city: meta.city || prof?.city || "",
+          state: meta.state || prof?.state || "",
           country,
-          email:session.user.email||"",
-          phone:meta.phone||prof?.phone||"",
-          currencySymbol:meta.currency_symbol||cc.symbol,
-          currencyCode:meta.currency_code||cc.code,
-          role:staffRole,
-          permissions:staffPerms,
-          ownerId:staffOwnerId,
-          farms:staffFarms,
-          activePlan:activePlanStr,
-          trialStartDate:meta.trial_start_date||prof?.trial_start_date||new Date().toISOString(),
+          email: session.user.email || "",
+          phone: meta.phone || prof?.phone || "",
+          currencySymbol: meta.currency_symbol || cc.symbol,
+          currencyCode: meta.currency_code || cc.code,
+          role: staffRole,
+          permissions: staffPerms,
+          ownerId: staffOwnerId,
+          farms: staffFarms,
+          activePlan: activePlanStr,
+          trialStartDate: trialStartStr,
+          subscriptionStatus: subStatusStr,
+          subscriptionAmount: customSubAmount,
+          freeAccess: hasFreeAccess,
+          subscriptionExpiry: subExpiryStr,
+          subscriptionStart: subStartStr,
+          billingFrequency: billingFreqStr,
+          paystackReference: paystackRefStr,
+          lastPaymentDate: lastPaymentStr,
         };
 
         setUserProfile(prev=>{

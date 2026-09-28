@@ -129,10 +129,43 @@ export function loadPaystackScript(): Promise<boolean> {
   if (scriptPromise) return scriptPromise;
 
   scriptPromise = new Promise((resolve) => {
-    const existing = document.getElementById("paystack-inline-js");
+    if (typeof window === "undefined") {
+      resolve(false);
+      return;
+    }
+
+    if ((window as any).PaystackPop) {
+      resolve(true);
+      return;
+    }
+
+    // Safety timeout: never hang forever if network is slow or script fails
+    const timeoutId = setTimeout(() => {
+      if ((window as any).PaystackPop) {
+        resolve(true);
+      } else {
+        console.warn("Paystack script load timeout reached (6s)");
+        scriptPromise = null; // allow fresh retry
+        resolve(false);
+      }
+    }, 6000);
+
+    const existing = document.getElementById("paystack-inline-js") as HTMLScriptElement | null;
     if (existing) {
-      existing.addEventListener("load", () => resolve(true));
-      existing.addEventListener("error", () => resolve(false));
+      if ((window as any).PaystackPop) {
+        clearTimeout(timeoutId);
+        resolve(true);
+        return;
+      }
+      existing.addEventListener("load", () => {
+        clearTimeout(timeoutId);
+        resolve(true);
+      });
+      existing.addEventListener("error", () => {
+        clearTimeout(timeoutId);
+        scriptPromise = null;
+        resolve(false);
+      });
       return;
     }
 
@@ -140,8 +173,13 @@ export function loadPaystackScript(): Promise<boolean> {
     script.id = "paystack-inline-js";
     script.src = "https://js.paystack.co/v1/inline.js";
     script.async = true;
-    script.onload = () => resolve(true);
+    script.onload = () => {
+      clearTimeout(timeoutId);
+      resolve(true);
+    };
     script.onerror = () => {
+      clearTimeout(timeoutId);
+      scriptPromise = null;
       console.error("Failed to load Paystack Inline JS script.");
       resolve(false);
     };
@@ -176,31 +214,36 @@ export async function initializePaystackCheckout(options: PaystackCheckoutOption
     onClose,
   } = options;
 
-  if (!email) {
+  const cleanEmail = (email || "").trim().toLowerCase();
+  if (!cleanEmail || !cleanEmail.includes("@")) {
     alert("Please provide a valid email address for subscription.");
+    if (onClose) onClose();
     return false;
   }
 
   const isLoaded = await loadPaystackScript();
   if (!isLoaded || !(window as any).PaystackPop) {
     alert("Unable to load Paystack payment modal. Please check your internet connection and try again.");
+    if (onClose) onClose();
     return false;
   }
 
   const publicKey = getActivePaystackPublicKey();
   if (!publicKey) {
     alert("Paystack Public Key is not configured. Please contact the administrator.");
+    if (onClose) onClose();
     return false;
   }
 
   // Paystack expects amount in KOBO (1 NGN = 100 KOBO)
-  const amountInKobo = Math.round(amount * 100);
+  const validAmount = typeof amount === "number" && !isNaN(amount) && amount > 0 ? amount : 100;
+  const amountInKobo = Math.round(validAmount * 100);
   const reference = `PND_${Date.now()}_${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
 
   try {
     const handler = (window as any).PaystackPop.setup({
       key: publicKey,
-      email: email.trim().toLowerCase(),
+      email: cleanEmail,
       amount: amountInKobo,
       currency: "NGN",
       ref: reference,
@@ -219,7 +262,7 @@ export async function initializePaystackCheckout(options: PaystackCheckoutOption
           {
             display_name: "Customer Name",
             variable_name: "customer_name",
-            value: userName || email,
+            value: userName || cleanEmail,
           },
           {
             display_name: "Farm Name",
@@ -229,10 +272,18 @@ export async function initializePaystackCheckout(options: PaystackCheckoutOption
         ],
       },
       callback: (response: any) => {
-        onSuccess(response);
+        try {
+          onSuccess(response);
+        } catch (callbackErr) {
+          console.error("Paystack success callback error:", callbackErr);
+        }
       },
       onClose: () => {
-        if (onClose) onClose();
+        if (onClose) {
+          try {
+            onClose();
+          } catch {}
+        }
       },
     });
 
@@ -241,6 +292,7 @@ export async function initializePaystackCheckout(options: PaystackCheckoutOption
   } catch (err) {
     console.error("Error opening Paystack iframe:", err);
     alert("An error occurred while launching Paystack. Please try again.");
+    if (onClose) onClose();
     return false;
   }
 }

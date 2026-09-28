@@ -8,7 +8,10 @@ ALTER TABLE IF EXISTS user_profiles
   ADD COLUMN IF NOT EXISTS subscription_amount NUMERIC DEFAULT NULL,
   ADD COLUMN IF NOT EXISTS free_access BOOLEAN DEFAULT FALSE,
   ADD COLUMN IF NOT EXISTS paystack_reference TEXT DEFAULT NULL,
-  ADD COLUMN IF NOT EXISTS last_payment_date TEXT DEFAULT NULL;
+  ADD COLUMN IF NOT EXISTS last_payment_date TEXT DEFAULT NULL,
+  ADD COLUMN IF NOT EXISTS subscription_expiry TEXT DEFAULT NULL,
+  ADD COLUMN IF NOT EXISTS subscription_start TEXT DEFAULT NULL,
+  ADD COLUMN IF NOT EXISTS billing_frequency TEXT DEFAULT 'monthly';
 
 -- 2. Create platform_settings table for persistent Paystack & Pricing configurations
 CREATE TABLE IF NOT EXISTS platform_settings (

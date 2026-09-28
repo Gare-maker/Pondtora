@@ -1172,18 +1172,24 @@ export const api = {
       };
 
       // 1. First fetch profile to know current user email and role
+      let userEmail = "";
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        userEmail = (session?.user?.email || "").toLowerCase().trim();
+      } catch {}
+
+      const profileQuery = userEmail
+        ? supabase.from("user_profiles").select("*").or(`id.eq.${userId},email.ilike.${userEmail}`)
+        : supabase.from("user_profiles").select("*").eq("id", userId);
+
       const [profilesRes, currentStaffRes] = await Promise.all([
-        safeQuery(supabase.from("user_profiles").select("*").eq("id", userId)),
+        safeQuery(profileQuery),
         safeQuery(supabase.from("staff_members").select("*").eq("staff_auth_id", userId).maybeSingle()),
       ]);
 
       const userProfilesList = (profilesRes?.data || []).map((r: any) => objToCamel<UserProfile>(r));
-      let userEmail = (userProfilesList[0]?.email || "").toLowerCase().trim();
-      if (!userEmail) {
-        try {
-          const { data: { session } } = await supabase.auth.getSession();
-          userEmail = (session?.user?.email || "").toLowerCase().trim();
-        } catch {}
+      if (!userEmail && userProfilesList[0]?.email) {
+        userEmail = (userProfilesList[0].email || "").toLowerCase().trim();
       }
 
       let staffMember = currentStaffRes?.data ? objToCamel<StaffMember>(currentStaffRes.data) : null;

@@ -184,9 +184,32 @@ export function useDynamicPlans() {
 
     window.addEventListener("pondtora:plans_updated", handleUpdate);
     window.addEventListener("storage", handleStorage);
+
+    // Supabase realtime subscription for global pricing updates across devices
+    let channel: any = null;
+    try {
+      channel = supabase
+        .channel(`plans_realtime_${Math.random().toString(36).slice(2, 7)}`)
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "platform_settings", filter: "key=eq.admin_plans" },
+          () => {
+            fetchRemotePlans().then(p => {
+              if (p && p.length > 0) setPlans(p);
+            });
+          }
+        )
+        .subscribe();
+    } catch {}
+
     return () => {
       window.removeEventListener("pondtora:plans_updated", handleUpdate);
       window.removeEventListener("storage", handleStorage);
+      if (channel) {
+        try {
+          supabase.removeChannel(channel);
+        } catch {}
+      }
     };
   }, []);
 

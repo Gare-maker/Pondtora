@@ -499,65 +499,78 @@ export async function updateAdminUserInDb(u: AdminUser): Promise<boolean> {
         ? Number((u as any).subscriptionAmount)
         : null;
 
+    const isFree = Boolean(u.freeAccess);
+    const finalAmount = isFree ? null : cleanSubAmount;
+
     const profilePayload: Record<string, any> = {
       name: u.name,
       farm_name: u.farmName,
-      phone: u.phone,
-      city: u.city,
-      state: u.state,
-      country: u.country,
+      phone: u.phone || "",
+      city: u.city || "Lagos",
+      state: u.state || "Lagos",
+      country: u.country || "Nigeria",
       active_plan: u.activePlan,
-      status: u.accountStatus,
+      status: u.accountStatus || "Active",
       role: u.role || "owner",
-      trial_start_date: u.trialStartDate,
-      subscription_status: u.subscriptionStatus,
-      subscription_amount: cleanSubAmount,
-      free_access: Boolean(u.freeAccess),
+      trial_start_date: u.trialStartDate || null,
+      subscription_status: u.subscriptionStatus || "Trial",
+      subscription_amount: finalAmount,
+      free_access: isFree,
       paystack_reference: u.paystackReference || null,
       last_payment_date: u.lastPaymentDate || null,
       subscription_start: u.subscriptionStart || null,
       subscription_expiry: u.subscriptionExpiry || null,
+      billing_frequency: u.billingFrequency || "monthly",
       raw_data: {
-        subscription_amount: cleanSubAmount,
-        free_access: Boolean(u.freeAccess),
+        subscription_amount: finalAmount,
+        subscriptionAmount: finalAmount,
+        free_access: isFree,
+        freeAccess: isFree,
         subscription_status: u.subscriptionStatus,
         active_plan: u.activePlan,
+        billing_frequency: u.billingFrequency || "monthly",
       },
       updated_at: new Date().toISOString(),
     };
 
-    // 1. Direct Supabase user_profiles update (try by ID first)
     let profSuccess = false;
-    let profRes = await supabase
-      .from("user_profiles")
-      .update(profilePayload)
-      .eq("id", u.id)
-      .select();
 
-    if (!profRes.error && profRes.data && profRes.data.length > 0) {
-      profSuccess = true;
-    } else if (u.email) {
-      // Fallback: update by email if ID did not match
-      profRes = await supabase
+    // 1. Direct Supabase user_profiles upsert/update (by ID or email)
+    if (u.id) {
+      const { data: updateData, error: updateErr } = await supabase
         .from("user_profiles")
         .update(profilePayload)
-        .ilike("email", u.email.trim())
+        .eq("id", u.id)
         .select();
-      if (!profRes.error && profRes.data && profRes.data.length > 0) {
+
+      if (!updateErr && updateData && updateData.length > 0) {
         profSuccess = true;
       }
     }
 
-    if (!profSuccess && profRes?.error) {
-      // If subscription_amount or free_access columns do not exist yet in table schema, retry without them
-      const fallbackPayload = { ...profilePayload };
-      delete fallbackPayload.subscription_amount;
-      delete fallbackPayload.free_access;
-      const { error: fbErr } = await supabase
+    if (!profSuccess && u.email) {
+      const { data: emailData, error: emailErr } = await supabase
         .from("user_profiles")
-        .update(fallbackPayload)
-        .or(`id.eq.${u.id},email.ilike.${u.email}`);
-      if (!fbErr) profSuccess = true;
+        .update(profilePayload)
+        .ilike("email", u.email.trim())
+        .select();
+
+      if (!emailErr && emailData && emailData.length > 0) {
+        profSuccess = true;
+      }
+    }
+
+    if (!profSuccess) {
+      // Upsert full row if record did not previously exist
+      const upsertPayload: Record<string, any> = {
+        ...profilePayload,
+        email: (u.email || "").trim().toLowerCase(),
+      };
+      if (u.id) upsertPayload.id = u.id;
+      const { error: upsertErr } = await supabase
+        .from("user_profiles")
+        .upsert(upsertPayload, { onConflict: "id" });
+      if (!upsertErr) profSuccess = true;
     }
 
     // 2. Try RPC admin_update_user_profile if present in schema
@@ -574,14 +587,14 @@ export async function updateAdminUserInDb(u: AdminUser): Promise<boolean> {
         new_active_plan: u.activePlan,
         new_status: u.accountStatus,
         new_subscription_status: u.subscriptionStatus,
-        new_subscription_amount: cleanSubAmount,
-        new_free_access: Boolean(u.freeAccess),
+        new_subscription_amount: finalAmount,
+        new_free_access: isFree,
       });
       if (!rpcErr) profSuccess = true;
     } catch {}
 
     // 3. Update farms table
-    if (u.farmName) {
+    if (u.farmName && u.id) {
       await supabase
         .from("farms")
         .update({
@@ -594,24 +607,12 @@ export async function updateAdminUserInDb(u: AdminUser): Promise<boolean> {
         .or(`user_id.eq.${u.id}`);
     }
 
-    // 4. Update staff_members table if applicable
-    if (u.role && u.role !== "owner") {
-      await supabase
-        .from("staff_members")
-        .update({
-          name: u.name,
-          role: u.role,
-          status: u.accountStatus === "Suspended" ? "Inactive" : "Active",
-          updated_at: new Date().toISOString(),
-        })
-        .or(`id.eq.${u.id},staff_auth_id.eq.${u.id},email.ilike.${u.email}`);
-    }
-
-    // 5. Update shared admin local cache and individual user profile local storage
+    // 4. Update shared admin local cache and individual user profile local storage
     const normalizedUser: AdminUser = {
       ...u,
-      subscriptionAmount: cleanSubAmount,
-      subscriptionStatus: computeSubscriptionStatus({ ...u, subscriptionAmount: cleanSubAmount }),
+      subscriptionAmount: finalAmount,
+      freeAccess: isFree,
+      subscriptionStatus: computeSubscriptionStatus({ ...u, subscriptionAmount: finalAmount, freeAccess: isFree }),
     };
 
     const existing = loadAllAdminUsers();
@@ -626,26 +627,41 @@ export async function updateAdminUserInDb(u: AdminUser): Promise<boolean> {
     saveAllAdminUsers(existing);
 
     // Sync scoped local profile storage if present on this device
-    if (u.id) {
+    const scopedKeys = [
+      u.id ? `pondtora_${u.id}_user_profile` : null,
+      u.email ? `pondtora_${u.email.trim().toLowerCase()}_user_profile` : null,
+    ].filter(Boolean) as string[];
+
+    for (const localKey of scopedKeys) {
       try {
-        const localKey = `pondtora_${u.id}_user_profile`;
         const localProfRaw = localStorage.getItem(localKey);
-        if (localProfRaw) {
-          const parsed = JSON.parse(localProfRaw);
-          localStorage.setItem(
-            localKey,
-            JSON.stringify({
-              ...parsed,
-              subscriptionAmount: cleanSubAmount,
-              freeAccess: Boolean(u.freeAccess),
-              activePlan: u.activePlan,
-              subscriptionStatus: normalizedUser.subscriptionStatus,
-            })
-          );
-        }
+        const parsed = localProfRaw ? JSON.parse(localProfRaw) : {};
+        localStorage.setItem(
+          localKey,
+          JSON.stringify({
+            ...parsed,
+            id: u.id,
+            name: u.name,
+            email: u.email,
+            farmName: u.farmName,
+            phone: u.phone,
+            city: u.city,
+            state: u.state,
+            country: u.country,
+            role: u.role || "owner",
+            subscriptionAmount: finalAmount,
+            freeAccess: isFree,
+            activePlan: u.activePlan,
+            subscriptionStatus: normalizedUser.subscriptionStatus,
+            billingFrequency: u.billingFrequency || "monthly",
+            subscriptionStart: u.subscriptionStart,
+            subscriptionExpiry: u.subscriptionExpiry,
+          })
+        );
       } catch {}
     }
 
+    window.dispatchEvent(new CustomEvent("pondtora:user_profile_updated", { detail: normalizedUser }));
     return profSuccess;
   } catch (e) {
     console.warn("updateAdminUserInDb error:", e);

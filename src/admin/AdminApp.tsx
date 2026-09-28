@@ -33,6 +33,7 @@ import type { AdminUser, AdminPlan, AdminActivityLog } from "./types";
 import { DEFAULT_PLANS } from "./types";
 import { projectId } from "../../utils/supabase/info";
 import { supabase } from "../lib/supabase";
+import { saveStoredPlans } from "../lib/plansStore";
 import { loadPaystackConfig, savePaystackConfig, fetchRemotePaystackConfig, PaystackConfig } from "../lib/paystack";
 import {
   loadAllAdminUsers,
@@ -388,12 +389,16 @@ export default function AdminApp({ onExit }: { onExit?: () => void } = {}) {
 
   function handleAddPlan(p: Omit<AdminPlan, "id">) {
     const created = { ...p, id: uid() };
-    setPlans(prev => [...prev, created]);
+    const next = [...plans, created];
+    setPlans(next);
+    saveStoredPlans(next);
     logAction("Plan Created", "plan", `Created new plan: ${p.name} at ₦${p.monthlyPrice.toLocaleString()}/mo`);
   }
 
   function handleUpdatePlan(p: AdminPlan) {
-    setPlans(prev => prev.map(x => (x.id === p.id ? p : x)));
+    const next = plans.map(x => (x.id === p.id ? p : x));
+    setPlans(next);
+    saveStoredPlans(next);
     logAction(
       "Plan Modified",
       "plan",
@@ -403,6 +408,7 @@ export default function AdminApp({ onExit }: { onExit?: () => void } = {}) {
 
   function handleResetDefaultPlans() {
     setPlans(DEFAULT_PLANS);
+    saveStoredPlans(DEFAULT_PLANS);
     logAction("Plans Reset", "plan", `Reset all plans to standard default rates`);
   }
 
