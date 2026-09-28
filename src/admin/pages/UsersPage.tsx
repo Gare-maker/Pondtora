@@ -4,7 +4,7 @@ import {
   ChevronUp, ChevronDown, Download, Clock, Shield, Sparkles, Filter,
   RotateCw, Phone, Mail, MapPin, Copy, ExternalLink, MessageCircle,
   Building, Droplets, Users as UsersIcon, X, Check, ArrowRight, UserCheck, AlertCircle,
-  CreditCard, Gift, Tag
+  CreditCard, Gift, Tag, DollarSign, TrendingUp, Package, FileText, Layers, Fish, Activity
 } from "lucide-react";
 import { Card, Bdg, PBtn, Pagination, PER_PAGE, Modal, F, IC, SC } from "../../app/shared";
 import type { AdminUser, AdminPlan, AccountStatus } from "../types";
@@ -319,40 +319,81 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
   const [delUser, setDelUser] = useState<AdminUser | null>(null);
   const [form, setForm] = useState<Partial<AdminUser>>({ ...BLANK });
   const [fErr, setFErr] = useState<Record<string, string>>({});
+  const [farmerDataTab, setFarmerDataTab] = useState<"summary" | "ponds" | "feed" | "finance" | "staff" | "farms">("summary");
 
   const [userExtra, setUserExtra] = useState<{
     loading: boolean;
-    farms: { id: string; name: string; city?: string; state?: string }[];
-    ponds: { id: string; name?: string; size_m2?: number; farm_id?: string }[];
+    farms: { id: string; name: string; city?: string; state?: string; country?: string; created_at?: string }[];
+    ponds: { id: string; name?: string; size_m2?: number; farm_id?: string; current_count?: number; initial_stock?: number; species?: string; stocking_date?: string }[];
     staff: { id: string; name: string; email: string; role: string; status: string }[];
-  }>({ loading: false, farms: [], ponds: [], staff: [] });
+    feedInventory: { id: string; brand?: string; size?: string; bags_in_stock?: number; weight_per_bag?: number; total_kg?: number }[];
+    feedingRecords: { id: string; pond?: string; date?: string; total?: number; size?: string; morning?: number; evening?: number }[];
+    revenues: { id: string; category?: string; amount?: number; date?: string; customer?: string }[];
+    expenses: { id: string; category?: string; amount?: number; date?: string; description?: string }[];
+    invoices: { id: string; invoice_number?: string; customer_name?: string; grand_total?: number; status?: string; created_at?: string }[];
+    investors: { id: string; name?: string; email?: string; phone?: string; total_invested?: number }[];
+  }>({
+    loading: false,
+    farms: [],
+    ponds: [],
+    staff: [],
+    feedInventory: [],
+    feedingRecords: [],
+    revenues: [],
+    expenses: [],
+    invoices: [],
+    investors: [],
+  });
 
   useEffect(() => {
     if (!viewUser?.id) {
-      setUserExtra({ loading: false, farms: [], ponds: [], staff: [] });
+      setUserExtra({
+        loading: false,
+        farms: [],
+        ponds: [],
+        staff: [],
+        feedInventory: [],
+        feedingRecords: [],
+        revenues: [],
+        expenses: [],
+        invoices: [],
+        investors: [],
+      });
       return;
     }
     let isSubscribed = true;
     setUserExtra(prev => ({ ...prev, loading: true }));
     Promise.all([
-      supabase.from("farms").select("id, name, city, state").or(`user_id.eq.${viewUser.id}${viewUser.farmId ? `,id.eq.${viewUser.farmId}` : ""}`),
-      supabase.from("ponds").select("id, name, size_m2, farm_id").or(`user_id.eq.${viewUser.id}${viewUser.farmId ? `,farm_id.eq.${viewUser.farmId}` : ""}`),
-      supabase.from("staff_members").select("id, name, email, role, status").or(`user_id.eq.${viewUser.id}${viewUser.farmId ? `,farm_id.eq.${viewUser.farmId}` : ""}`),
-    ]).then(([farmsRes, pondsRes, staffRes]) => {
+      supabase.from("farms").select("id, name, city, state, country, created_at").eq("user_id", viewUser.id).order("created_at", { ascending: true }),
+      supabase.from("ponds").select("id, name, size_m2, farm_id, current_count, initial_stock, species, stocking_date").eq("user_id", viewUser.id).order("created_at", { ascending: false }),
+      supabase.from("staff_members").select("id, name, email, role, status").eq("user_id", viewUser.id).order("created_at", { ascending: false }),
+      supabase.from("feed_inventory").select("id, brand, size, bags_in_stock, weight_per_bag, total_kg").eq("user_id", viewUser.id),
+      supabase.from("feeding_records").select("id, pond, date, total, size, morning, evening").eq("user_id", viewUser.id).order("created_at", { ascending: false }).limit(30),
+      supabase.from("revenues").select("id, category, amount, date, customer").eq("user_id", viewUser.id).order("date", { ascending: false }).limit(30),
+      supabase.from("expenses").select("id, category, amount, date, description").eq("user_id", viewUser.id).order("date", { ascending: false }).limit(30),
+      supabase.from("invoices").select("id, invoice_number, customer_name, grand_total, status, created_at").eq("user_id", viewUser.id).order("created_at", { ascending: false }).limit(30),
+      supabase.from("investors").select("id, name, email, phone, total_invested").eq("user_id", viewUser.id),
+    ]).then(([farmsRes, pondsRes, staffRes, feedRes, feedingRes, revRes, expRes, invRes, investRes]) => {
       if (!isSubscribed) return;
       setUserExtra({
         loading: false,
         farms: farmsRes.data || [],
         ponds: pondsRes.data || [],
         staff: staffRes.data || [],
+        feedInventory: feedRes.data || [],
+        feedingRecords: feedingRes.data || [],
+        revenues: revRes.data || [],
+        expenses: expRes.data || [],
+        invoices: invRes.data || [],
+        investors: investRes.data || [],
       });
     }).catch(err => {
       if (!isSubscribed) return;
-      console.warn("Could not load user extra details:", err);
+      console.warn("Could not load full user records:", err);
       setUserExtra(prev => ({ ...prev, loading: false }));
     });
     return () => { isSubscribed = false; };
-  }, [viewUser?.id, viewUser?.farmId]);
+  }, [viewUser?.id]);
 
   useEffect(() => {
     const handleClose = () => setMenu(null);
@@ -685,226 +726,293 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
             <thead className="bg-slate-50 border-b border-slate-100">
               <tr>
                 {COLS.map((col, i) => (
-                  <th
-                    key={i}
-                    className="px-4 py-3 text-left text-[10px] uppercase tracking-wider text-slate-400 font-bold whitespace-nowrap"
+          {/* Desktop Table View */}
+          <div className="hidden md:block overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead className="bg-slate-50 border-b border-slate-200">
+                <tr>
+                  {COLS.map((col, i) => (
+                    <th
+                      key={i}
+                      className="px-4 py-3 text-left text-[10px] uppercase tracking-wider text-slate-400 font-bold whitespace-nowrap"
+                    >
+                      {col.key ? <SortBtn k={col.key} label={col.label} /> : col.label}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                {isRefreshing && users.length === 0 && (
+                  <tr>
+                    <td colSpan={9} className="text-center py-20 text-slate-400 text-xs">
+                      <div className="max-w-md mx-auto space-y-3">
+                        <RotateCw className="mx-auto text-emerald-500 animate-spin" size={32} />
+                        <p className="font-semibold text-slate-700">Connecting to Supabase Database…</p>
+                        <p className="text-[11px] text-slate-400">Retrieving live registered farm accounts.</p>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+                {!isRefreshing && paged.length === 0 && (
+                  <tr>
+                    <td colSpan={9} className="text-center py-16 text-slate-400 text-xs">
+                      <div className="max-w-md mx-auto space-y-2">
+                        <AlertCircle className="mx-auto text-slate-300" size={32} />
+                        <p className="font-semibold text-slate-600">
+                          {users.length === 0 ? "No registered users found in the database yet." : "No matching users found."}
+                        </p>
+                        <p className="text-[11px] text-slate-400">
+                          {users.length === 0
+                            ? "Users who sign up or create farm accounts in the app will automatically appear here."
+                            : "Try adjusting your search terms or filter criteria."}
+                        </p>
+                        {onRefresh && users.length === 0 && (
+                          <button
+                            onClick={onRefresh}
+                            disabled={isRefreshing}
+                            className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-colors shadow-xs"
+                          >
+                            <RotateCw size={12} className={isRefreshing ? "animate-spin" : ""} />
+                            {isRefreshing ? "Syncing…" : "Sync from Database"}
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                )}
+                {paged.map((u) => (
+                  <tr
+                    key={u.id}
+                    onClick={() => setViewUser(u)}
+                    className="hover:bg-emerald-50/40 transition-colors group cursor-pointer"
+                    title="Click to view full user details and reach out"
                   >
-                    {col.key ? <SortBtn k={col.key} label={col.label} /> : col.label}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-50">
-              {isRefreshing && users.length === 0 && (
-                <tr>
-                  <td colSpan={9} className="text-center py-20 text-slate-400 text-xs">
-                    <div className="max-w-md mx-auto space-y-3">
-                      <RotateCw className="mx-auto text-emerald-500 animate-spin" size={32} />
-                      <p className="font-semibold text-slate-700">Connecting to Supabase Database…</p>
-                      <p className="text-[11px] text-slate-400">Retrieving live registered farm accounts.</p>
-                    </div>
-                  </td>
-                </tr>
-              )}
-              {!isRefreshing && paged.length === 0 && (
-                <tr>
-                  <td colSpan={9} className="text-center py-16 text-slate-400 text-xs">
-                    <div className="max-w-md mx-auto space-y-2">
-                      <AlertCircle className="mx-auto text-slate-300" size={32} />
-                      <p className="font-semibold text-slate-600">
-                        {users.length === 0 ? "No registered users found in the database yet." : "No matching users found."}
-                      </p>
-                      <p className="text-[11px] text-slate-400">
-                        {users.length === 0
-                          ? "Users who sign up or create farm accounts in the app will automatically appear here."
-                          : "Try adjusting your search terms or filter criteria."}
-                      </p>
-                      {onRefresh && users.length === 0 && (
-                        <button
-                          onClick={onRefresh}
-                          disabled={isRefreshing}
-                          className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-colors shadow-xs"
-                        >
-                          <RotateCw size={12} className={isRefreshing ? "animate-spin" : ""} />
-                          {isRefreshing ? "Syncing…" : "Sync from Database"}
-                        </button>
+                    {/* 1. User / Contact */}
+                    <td className="px-4 py-3 max-w-[220px]">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-500 to-green-600 text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-xs">
+                          {u.name.charAt(0).toUpperCase()}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <p className="font-bold text-slate-800 truncate group-hover:text-emerald-700 transition-colors">
+                              {u.name}
+                            </p>
+                            {u.role === "admin" || u.role === "superadmin" ? (
+                              <span className="text-[9px] font-bold bg-purple-100 text-purple-800 px-1.5 py-0.2 rounded">
+                                Admin
+                              </span>
+                            ) : (
+                              <span className="text-[9px] font-bold bg-emerald-100 text-emerald-800 px-1.5 py-0.2 rounded">
+                                Farm Owner
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-slate-400 text-[11px] truncate">{u.email}</p>
+                          {u.phone ? (
+                            <p className="text-[10.5px] font-semibold text-emerald-700 flex items-center gap-1 mt-0.5 truncate">
+                              <Phone size={10} className="text-emerald-600 shrink-0" />
+                              {u.phone}
+                            </p>
+                          ) : (
+                            <p className="text-[10px] text-slate-300 italic mt-0.5">No phone</p>
+                          )}
+                        </div>
+                      </div>
+                    </td>
+
+                    {/* 2. Farm & Location */}
+                    <td className="px-4 py-3 max-w-[190px]">
+                      <div className="min-w-0">
+                        <p className="font-semibold text-slate-800 flex items-center gap-1 text-xs truncate">
+                          <Building size={11} className="text-emerald-600 shrink-0" />
+                          {u.farmName || "Primary Farm"}
+                        </p>
+                        <p className="text-[10.5px] text-slate-500 flex items-center gap-1 mt-0.5 truncate">
+                          <MapPin size={10} className="text-slate-400 shrink-0" />
+                          {[u.city, u.state, u.country].filter(Boolean).join(", ") || "Nigeria"}
+                        </p>
+                      </div>
+                    </td>
+
+                    {/* 3. Assets / Team */}
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      <div className="flex flex-col gap-1">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-[10px] bg-slate-100 text-slate-700 font-semibold px-1.5 py-0.5 rounded flex items-center gap-0.5" title="Farms count">
+                            🏡 {u.farmCount ?? 1} Farm{((u.farmCount ?? 1) !== 1) ? "s" : ""}
+                          </span>
+                          <span className="text-[10px] bg-blue-50 text-blue-700 font-semibold px-1.5 py-0.5 rounded flex items-center gap-0.5" title="Ponds count">
+                            <Droplets size={10} className="text-blue-500" /> {u.pondCount ?? 0} Ponds
+                          </span>
+                        </div>
+                        <span className="text-[10px] bg-emerald-50 text-emerald-800 font-semibold px-1.5 py-0.5 rounded w-fit flex items-center gap-0.5" title="Staff added">
+                          <UsersIcon size={10} className="text-emerald-600" /> {u.staffCount ?? 0} Staff Member{(u.staffCount !== 1) ? "s" : ""}
+                        </span>
+                      </div>
+                    </td>
+
+                    {/* 4. Active Plan */}
+                    <td className="px-4 py-3 text-slate-700 whitespace-nowrap font-medium">
+                      {u.activePlan ? (
+                        <div>
+                          <span className="bg-slate-100 text-slate-800 px-2 py-0.5 rounded-md font-semibold text-[11px]">
+                            {u.activePlan}
+                          </span>
+                          <span className="block text-[10px] text-slate-400 capitalize mt-0.5">
+                            {u.billingFrequency || "monthly"}
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="text-slate-300">—</span>
                       )}
-                    </div>
-                  </td>
-                </tr>
-              )}
-              {paged.map((u) => (
-                <tr
+                    </td>
+
+                    {/* 5. Sub Status */}
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      <div className="flex items-center gap-1.5">
+                        <Bdg label={u.subscriptionStatus} color={STATUS_COLOR[u.subscriptionStatus] || "gray"} />
+                        {u.subscriptionStatus === "Active" && (u.hasPaid || u.paystackReference) && !u.freeAccess && (
+                          <span className="text-[10px] bg-emerald-100 text-emerald-700 font-bold px-1.5 py-0.5 rounded">
+                            Paid
+                          </span>
+                        )}
+                        {u.freeAccess && (
+                          <span className="text-[10px] bg-green-100 text-green-700 font-bold px-1.5 py-0.5 rounded">
+                            Free ✦
+                          </span>
+                        )}
+                      </div>
+                    </td>
+
+                    {/* 6. Trial / Expiry */}
+                    <td className="px-4 py-3 text-slate-500 whitespace-nowrap">
+                      {u.subscriptionStatus === "Trial" ? (
+                        <span className="text-amber-600 font-bold flex items-center gap-1">
+                          <Clock size={11} className="text-amber-500" /> {trialDaysLeft(u.trialStartDate)}d left
+                        </span>
+                      ) : u.subscriptionExpiry ? (
+                        fmtDate(u.subscriptionExpiry)
+                      ) : (
+                        <span className="text-slate-300">—</span>
+                      )}
+                    </td>
+
+                    {/* 7. Account */}
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      <Bdg
+                        label={u.accountStatus}
+                        color={u.accountStatus === "Active" ? "green" : "gray"}
+                      />
+                    </td>
+
+                    {/* 8. Joined */}
+                    <td className="px-4 py-3 text-slate-400 whitespace-nowrap text-[11px]">
+                      {fmtDate(u.createdAt)}
+                    </td>
+
+                    {/* 9. Actions */}
+                    <td className="px-4 py-3 text-right whitespace-nowrap">
+                      <div className="flex items-center justify-end gap-1.5" onClick={e => e.stopPropagation()}>
+                        <button
+                          onClick={() => setViewUser(u)}
+                          className="px-2.5 py-1 text-xs font-semibold text-emerald-700 hover:text-emerald-900 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-colors flex items-center gap-1"
+                          title="View user details popup"
+                        >
+                          <Eye size={12} /> Details
+                        </button>
+                        <button
+                          onClick={e => {
+                            if (menu?.user.id === u.id) {
+                              setMenu(null);
+                              return;
+                            }
+                            const rect = e.currentTarget.getBoundingClientRect();
+                            const spaceBelow = window.innerHeight - rect.bottom;
+                            const isNearBottom = spaceBelow < 230;
+                            setMenu({
+                              user: u,
+                              top: isNearBottom ? undefined : rect.bottom + 4,
+                              bottom: isNearBottom ? window.innerHeight - rect.top + 4 : undefined,
+                              right: Math.max(16, window.innerWidth - rect.right),
+                            });
+                          }}
+                          className={`p-1.5 rounded-lg transition-colors ${
+                            menu?.user.id === u.id
+                              ? "bg-slate-200 text-slate-800 shadow-sm"
+                              : "hover:bg-slate-100 text-slate-400 hover:text-slate-700"
+                          }`}
+                          title="More actions"
+                        >
+                          <MoreVertical size={15} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Mobile Users Cards View (md:hidden) */}
+          <div className="md:hidden divide-y divide-slate-100">
+            {paged.length === 0 ? (
+              <div className="p-6 text-center text-slate-400 text-xs">
+                No matching farm accounts found.
+              </div>
+            ) : (
+              paged.map((u) => (
+                <div
                   key={u.id}
                   onClick={() => setViewUser(u)}
-                  className="hover:bg-emerald-50/40 transition-colors group cursor-pointer"
-                  title="Click to view full user details and reach out"
+                  className="p-3.5 space-y-2.5 hover:bg-slate-50 transition-colors cursor-pointer"
                 >
-                  {/* 1. User / Contact */}
-                  <td className="px-4 py-3 max-w-[220px]">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-500 to-green-600 text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-xs">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-500 to-green-600 text-white flex items-center justify-center font-bold text-xs shrink-0">
                         {u.name.charAt(0).toUpperCase()}
                       </div>
                       <div className="min-w-0">
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <p className="font-bold text-slate-800 truncate group-hover:text-emerald-700 transition-colors">
-                            {u.name}
-                          </p>
-                          {u.role === "admin" || u.role === "superadmin" ? (
-                            <span className="text-[9px] font-bold bg-purple-100 text-purple-800 px-1.5 py-0.2 rounded">
-                              Admin
-                            </span>
-                          ) : (
-                            <span className="text-[9px] font-bold bg-emerald-100 text-emerald-800 px-1.5 py-0.2 rounded">
-                              Farm Owner
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-slate-400 text-[11px] truncate">{u.email}</p>
-                        {u.phone ? (
-                          <p className="text-[10.5px] font-semibold text-emerald-700 flex items-center gap-1 mt-0.5 truncate">
-                            <Phone size={10} className="text-emerald-600 shrink-0" />
-                            {u.phone}
-                          </p>
-                        ) : (
-                          <p className="text-[10px] text-slate-300 italic mt-0.5">No phone</p>
-                        )}
+                        <p className="font-bold text-slate-900 text-sm truncate">{u.name}</p>
+                        <p className="text-[11px] text-slate-500 truncate">{u.email}</p>
                       </div>
                     </div>
-                  </td>
-
-                  {/* 2. Farm & Location */}
-                  <td className="px-4 py-3 max-w-[190px]">
-                    <div className="min-w-0">
-                      <p className="font-semibold text-slate-800 flex items-center gap-1 text-xs truncate">
-                        <Building size={11} className="text-emerald-600 shrink-0" />
-                        {u.farmName || "Primary Farm"}
-                      </p>
-                      <p className="text-[10.5px] text-slate-500 flex items-center gap-1 mt-0.5 truncate">
-                        <MapPin size={10} className="text-slate-400 shrink-0" />
-                        {[u.city, u.state, u.country].filter(Boolean).join(", ") || "Nigeria"}
-                      </p>
-                    </div>
-                  </td>
-
-                  {/* 3. Assets / Team */}
-                  <td className="px-4 py-3 whitespace-nowrap">
-                    <div className="flex flex-col gap-1">
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className="text-[10px] bg-slate-100 text-slate-700 font-semibold px-1.5 py-0.5 rounded flex items-center gap-0.5" title="Farms count">
-                          🏡 {u.farmCount ?? 1} Farm{((u.farmCount ?? 1) !== 1) ? "s" : ""}
-                        </span>
-                        <span className="text-[10px] bg-blue-50 text-blue-700 font-semibold px-1.5 py-0.5 rounded flex items-center gap-0.5" title="Ponds count">
-                          <Droplets size={10} className="text-blue-500" /> {u.pondCount ?? 0} Ponds
-                        </span>
-                      </div>
-                      <span className="text-[10px] bg-emerald-50 text-emerald-800 font-semibold px-1.5 py-0.5 rounded w-fit flex items-center gap-0.5" title="Staff added">
-                        <UsersIcon size={10} className="text-emerald-600" /> {u.staffCount ?? 0} Staff Member{(u.staffCount !== 1) ? "s" : ""}
-                      </span>
-                    </div>
-                  </td>
-
-                  {/* 4. Active Plan */}
-                  <td className="px-4 py-3 text-slate-700 whitespace-nowrap font-medium">
-                    {u.activePlan ? (
-                      <div>
-                        <span className="bg-slate-100 text-slate-800 px-2 py-0.5 rounded-md font-semibold text-[11px]">
-                          {u.activePlan}
-                        </span>
-                        <span className="block text-[10px] text-slate-400 capitalize mt-0.5">
-                          {u.billingFrequency || "monthly"}
-                        </span>
-                      </div>
-                    ) : (
-                      <span className="text-slate-300">—</span>
-                    )}
-                  </td>
-
-                  {/* 5. Sub Status */}
-                  <td className="px-4 py-3 whitespace-nowrap">
-                    <div className="flex items-center gap-1.5">
-                      <Bdg label={u.subscriptionStatus} color={STATUS_COLOR[u.subscriptionStatus] || "gray"} />
-                      {u.subscriptionStatus === "Active" && (u.hasPaid || u.paystackReference) && !u.freeAccess && (
-                        <span className="text-[10px] bg-emerald-100 text-emerald-700 font-bold px-1.5 py-0.5 rounded">
-                          Paid
-                        </span>
-                      )}
-                      {u.freeAccess && (
-                        <span className="text-[10px] bg-green-100 text-green-700 font-bold px-1.5 py-0.5 rounded">
-                          Free ✦
-                        </span>
-                      )}
-                    </div>
-                  </td>
-
-                  {/* 6. Trial / Expiry */}
-                  <td className="px-4 py-3 text-slate-500 whitespace-nowrap">
-                    {u.subscriptionStatus === "Trial" ? (
-                      <span className="text-amber-600 font-bold flex items-center gap-1">
-                        <Clock size={11} className="text-amber-500" /> {trialDaysLeft(u.trialStartDate)}d left
-                      </span>
-                    ) : u.subscriptionExpiry ? (
-                      fmtDate(u.subscriptionExpiry)
-                    ) : (
-                      <span className="text-slate-300">—</span>
-                    )}
-                  </td>
-
-                  {/* 7. Account */}
-                  <td className="px-4 py-3 whitespace-nowrap">
-                    <Bdg
-                      label={u.accountStatus}
-                      color={u.accountStatus === "Active" ? "green" : "gray"}
-                    />
-                  </td>
-
-                  {/* 8. Joined */}
-                  <td className="px-4 py-3 text-slate-400 whitespace-nowrap text-[11px]">
-                    {fmtDate(u.createdAt)}
-                  </td>
-
-                  {/* 9. Actions */}
-                  <td className="px-4 py-3 text-right whitespace-nowrap">
-                    <div className="flex items-center justify-end gap-1.5" onClick={e => e.stopPropagation()}>
+                    <div className="flex items-center gap-1.5 shrink-0" onClick={e => e.stopPropagation()}>
                       <button
                         onClick={() => setViewUser(u)}
-                        className="px-2.5 py-1 text-xs font-semibold text-emerald-700 hover:text-emerald-900 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-colors flex items-center gap-1"
-                        title="View user details popup"
+                        className="px-2.5 py-1 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg"
                       >
-                        <Eye size={12} /> Details
-                      </button>
-                      <button
-                        onClick={e => {
-                          if (menu?.user.id === u.id) {
-                            setMenu(null);
-                            return;
-                          }
-                          const rect = e.currentTarget.getBoundingClientRect();
-                          const spaceBelow = window.innerHeight - rect.bottom;
-                          const isNearBottom = spaceBelow < 230;
-                          setMenu({
-                            user: u,
-                            top: isNearBottom ? undefined : rect.bottom + 4,
-                            bottom: isNearBottom ? window.innerHeight - rect.top + 4 : undefined,
-                            right: Math.max(16, window.innerWidth - rect.right),
-                          });
-                        }}
-                        className={`p-1.5 rounded-lg transition-colors ${
-                          menu?.user.id === u.id
-                            ? "bg-slate-200 text-slate-800 shadow-sm"
-                            : "hover:bg-slate-100 text-slate-400 hover:text-slate-700"
-                        }`}
-                        title="More actions"
-                      >
-                        <MoreVertical size={15} />
+                        Details
                       </button>
                     </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                  </div>
+
+                  <div className="flex items-center justify-between text-xs text-slate-600 pt-1 border-t border-slate-100 flex-wrap gap-1">
+                    <span className="flex items-center gap-1 font-medium truncate">
+                      <Building size={12} className="text-emerald-600 shrink-0" />
+                      {u.farmName || "Primary Farm"}
+                    </span>
+                    <span className="text-[11px] text-slate-400">
+                      {[u.city, u.state].filter(Boolean).join(", ") || "Nigeria"}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center justify-between gap-1 flex-wrap text-[11px]">
+                    <div className="flex items-center gap-1.5">
+                      <span className="bg-slate-100 px-2 py-0.5 rounded font-semibold text-slate-700">
+                        {u.activePlan || "Starter"}
+                      </span>
+                      <Bdg label={u.subscriptionStatus} color={STATUS_COLOR[u.subscriptionStatus] || "gray"} />
+                    </div>
+                    <div className="flex items-center gap-2 text-slate-500">
+                      <span>🏡 {u.farmCount ?? 1} Farm{((u.farmCount ?? 1) !== 1) ? "s" : ""}</span>
+                      <span>💧 {u.pondCount ?? 0} Ponds</span>
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
         </div>
 
         <div className="px-4 py-3 border-t border-slate-100 bg-slate-50/50">
@@ -970,7 +1078,7 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
           className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-2 sm:p-4 overflow-y-auto"
           onClick={e => e.target === e.currentTarget && setViewUser(null)}
         >
-          <div className="bg-white rounded-2xl shadow-2xl w-full sm:max-w-2xl max-h-[92vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150 border border-slate-200">
+          <div className="bg-white rounded-2xl shadow-2xl w-full sm:max-w-3xl max-h-[92vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150 border border-slate-200">
             {/* Modal Header */}
             <div className="px-5 py-4 border-b border-slate-100 flex items-start justify-between gap-3 bg-gradient-to-r from-slate-50 to-emerald-50/40 shrink-0">
               <div className="flex items-center gap-3.5 min-w-0">
@@ -1005,7 +1113,7 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
             </div>
 
             {/* Direct Reach-Out Action Bar */}
-            <div className="px-5 py-3 bg-slate-50 border-b border-slate-200/80 flex flex-wrap items-center justify-between gap-2 shrink-0">
+            <div className="px-5 py-2.5 bg-slate-50 border-b border-slate-200/80 flex flex-wrap items-center justify-between gap-2 shrink-0">
               <div className="flex items-center gap-2 flex-wrap">
                 {viewUser.phone ? (
                   <a
@@ -1056,409 +1164,396 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
               </button>
             </div>
 
-            {/* Modal Body */}
-            <div className="px-5 py-4 space-y-4 overflow-y-auto flex-1 text-xs">
-              {/* 1. Contact & Location Details */}
-              <div>
-                <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                  <Building size={13} className="text-emerald-600" /> Account, Contact & Location Details
-                </h3>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-                  <div className="bg-slate-50/80 border border-slate-200/70 p-2.5 rounded-xl">
-                    <p className="text-[10px] uppercase font-bold text-slate-400">Full Name</p>
-                    <div className="flex items-center justify-between mt-0.5">
-                      <p className="font-bold text-slate-800 text-xs truncate">{viewUser.name || "—"}</p>
-                      <button onClick={() => copyToClipboard(viewUser.name || "", "Name")} className="text-slate-400 hover:text-slate-600 p-0.5" title="Copy name">
-                        <Copy size={11} />
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="bg-slate-50/80 border border-slate-200/70 p-2.5 rounded-xl">
-                    <p className="text-[10px] uppercase font-bold text-slate-400">Email Address</p>
-                    <div className="flex items-center justify-between mt-0.5">
-                      <p className="font-semibold text-slate-800 text-xs truncate" title={viewUser.email}>{viewUser.email || "—"}</p>
-                      <button onClick={() => copyToClipboard(viewUser.email || "", "Email")} className="text-slate-400 hover:text-slate-600 p-0.5" title="Copy email">
-                        <Copy size={11} />
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="bg-slate-50/80 border border-slate-200/70 p-2.5 rounded-xl">
-                    <p className="text-[10px] uppercase font-bold text-slate-400">Phone Number</p>
-                    <div className="flex items-center justify-between mt-0.5">
-                      <p className={`font-semibold text-xs truncate ${viewUser.phone ? "text-emerald-700 font-mono" : "text-slate-400 italic"}`}>
-                        {viewUser.phone || "Not provided"}
-                      </p>
-                      {viewUser.phone && (
-                        <button onClick={() => copyToClipboard(viewUser.phone!, "Phone")} className="text-slate-400 hover:text-slate-600 p-0.5" title="Copy phone">
-                          <Copy size={11} />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="bg-slate-50/80 border border-slate-200/70 p-2.5 rounded-xl">
-                    <p className="text-[10px] uppercase font-bold text-slate-400">User ID (Auth/DB)</p>
-                    <div className="flex items-center justify-between mt-0.5">
-                      <p className="font-mono text-[11px] text-slate-700 truncate" title={viewUser.id}>
-                        {viewUser.id.slice(0, 12)}…
-                      </p>
-                      <button onClick={() => copyToClipboard(viewUser.id, "User ID")} className="text-slate-400 hover:text-slate-600 p-0.5" title="Copy User ID">
-                        <Copy size={11} />
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="bg-slate-50/80 border border-slate-200/70 p-2.5 rounded-xl">
-                    <p className="text-[10px] uppercase font-bold text-slate-400">Farm Name & ID</p>
-                    <div className="flex items-center justify-between mt-0.5">
-                      <p className="font-bold text-slate-800 text-xs truncate" title={viewUser.farmName || "Primary Farm"}>
-                        {viewUser.farmName || "Primary Farm"}
-                      </p>
-                      {viewUser.farmId && (
-                        <button onClick={() => copyToClipboard(viewUser.farmId!, "Farm ID")} className="text-slate-400 hover:text-slate-600 p-0.5" title="Copy Farm ID">
-                          <Copy size={11} />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="bg-slate-50/80 border border-slate-200/70 p-2.5 rounded-xl">
-                    <p className="text-[10px] uppercase font-bold text-slate-400">Full Location</p>
-                    <p className="font-semibold text-slate-800 text-xs mt-0.5 flex items-center gap-1 truncate">
-                      <MapPin size={12} className="text-emerald-600 shrink-0" />
-                      {[viewUser.city, viewUser.state, viewUser.country].filter(Boolean).join(", ") || "Nigeria"}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {/* 2. Operations & Staff Added */}
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
-                    <UsersIcon size={13} className="text-emerald-600" /> Operational Assets & Staff Team
-                  </h3>
-                  {userExtra.loading && (
-                    <span className="text-[11px] text-slate-400 flex items-center gap-1">
-                      <RotateCw size={11} className="animate-spin text-green-600" /> Loading details…
+            {/* Navigation Tabs for Farmer Data */}
+            <div className="px-5 pt-3 border-b border-slate-200 flex items-center gap-1.5 overflow-x-auto bg-slate-50/50 shrink-0">
+              {[
+                { id: "summary", label: "📊 Overview", count: null },
+                { id: "ponds", label: "💧 Ponds & Fish", count: userExtra.ponds.length },
+                { id: "feed", label: "🌾 Feed & Stock", count: userExtra.feedInventory.length },
+                { id: "finance", label: "💰 Financials & Invoices", count: userExtra.invoices.length },
+                { id: "staff", label: "👥 Staff Team", count: userExtra.staff.length },
+                { id: "farms", label: "🏡 Farms", count: userExtra.farms.length },
+              ].map(t => (
+                <button
+                  key={t.id}
+                  onClick={() => setFarmerDataTab(t.id as any)}
+                  className={`px-3 py-1.5 text-xs font-bold rounded-t-lg transition-colors border-b-2 whitespace-nowrap flex items-center gap-1.5 ${
+                    farmerDataTab === t.id
+                      ? "border-emerald-600 text-emerald-700 bg-white shadow-2xs"
+                      : "border-transparent text-slate-500 hover:text-slate-800"
+                  }`}
+                >
+                  {t.label}
+                  {t.count !== null && (
+                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${
+                      farmerDataTab === t.id ? "bg-emerald-100 text-emerald-800" : "bg-slate-200 text-slate-600"
+                    }`}>
+                      {t.count}
                     </span>
                   )}
-                </div>
+                </button>
+              ))}
+            </div>
 
-                <div className="grid grid-cols-3 gap-3 mb-3">
-                  <div className="bg-slate-50 border border-slate-200 p-3 rounded-xl text-center">
-                    <p className="text-[10px] uppercase font-bold text-slate-400">Total Farms</p>
-                    <p className="text-xl font-extrabold text-slate-800 font-['Barlow_Condensed',sans-serif] mt-0.5">
-                      {userExtra.farms?.length || viewUser.farmCount || 1}
-                    </p>
+            {/* Modal Body with Tab Content */}
+            <div className="px-5 py-4 space-y-4 overflow-y-auto flex-1 text-xs">
+              {/* Tab 1: Summary & Operations Overview */}
+              {farmerDataTab === "summary" && (
+                <div className="space-y-4">
+                  {/* Account & Contact Summary */}
+                  <div>
+                    <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                      <Building size={13} className="text-emerald-600" /> Account, Contact & Location
+                    </h3>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                      <div className="bg-slate-50/80 border border-slate-200/70 p-2.5 rounded-xl">
+                        <p className="text-[10px] uppercase font-bold text-slate-400">Full Name</p>
+                        <div className="flex items-center justify-between mt-0.5">
+                          <p className="font-bold text-slate-800 text-xs truncate">{viewUser.name || "—"}</p>
+                          <button onClick={() => copyToClipboard(viewUser.name || "", "Name")} className="text-slate-400 hover:text-slate-600 p-0.5"><Copy size={11} /></button>
+                        </div>
+                      </div>
+                      <div className="bg-slate-50/80 border border-slate-200/70 p-2.5 rounded-xl">
+                        <p className="text-[10px] uppercase font-bold text-slate-400">Email Address</p>
+                        <div className="flex items-center justify-between mt-0.5">
+                          <p className="font-semibold text-slate-800 text-xs truncate" title={viewUser.email}>{viewUser.email || "—"}</p>
+                          <button onClick={() => copyToClipboard(viewUser.email || "", "Email")} className="text-slate-400 hover:text-slate-600 p-0.5"><Copy size={11} /></button>
+                        </div>
+                      </div>
+                      <div className="bg-slate-50/80 border border-slate-200/70 p-2.5 rounded-xl">
+                        <p className="text-[10px] uppercase font-bold text-slate-400">Phone Number</p>
+                        <p className={`font-semibold text-xs mt-0.5 truncate ${viewUser.phone ? "text-emerald-700 font-mono" : "text-slate-400 italic"}`}>
+                          {viewUser.phone || "Not provided"}
+                        </p>
+                      </div>
+                      <div className="bg-slate-50/80 border border-slate-200/70 p-2.5 rounded-xl">
+                        <p className="text-[10px] uppercase font-bold text-slate-400">Primary Farm</p>
+                        <p className="font-bold text-slate-800 text-xs mt-0.5 truncate">{viewUser.farmName || "Primary Farm"}</p>
+                      </div>
+                      <div className="bg-slate-50/80 border border-slate-200/70 p-2.5 rounded-xl">
+                        <p className="text-[10px] uppercase font-bold text-slate-400">Location</p>
+                        <p className="font-semibold text-slate-800 text-xs mt-0.5 truncate">
+                          {[viewUser.city, viewUser.state, viewUser.country].filter(Boolean).join(", ") || "Nigeria"}
+                        </p>
+                      </div>
+                      <div className="bg-slate-50/80 border border-slate-200/70 p-2.5 rounded-xl">
+                        <p className="text-[10px] uppercase font-bold text-slate-400">Registered Date</p>
+                        <p className="font-semibold text-slate-800 text-xs mt-0.5">{fmtDate(viewUser.createdAt)}</p>
+                      </div>
+                    </div>
                   </div>
-                  <div className="bg-blue-50/50 border border-blue-200/70 p-3 rounded-xl text-center">
-                    <p className="text-[10px] uppercase font-bold text-blue-500">Ponds Configured</p>
-                    <p className="text-xl font-extrabold text-blue-700 font-['Barlow_Condensed',sans-serif] mt-0.5">
-                      {userExtra.ponds?.length || viewUser.pondCount || 0}
-                    </p>
+
+                  {/* All Farmer Assets Overview Grid */}
+                  <div>
+                    <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                      <Layers size={13} className="text-emerald-600" /> Farm Records & Assets Summary
+                    </h3>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                      <div className="bg-slate-50 border border-slate-200 p-2.5 rounded-xl text-center">
+                        <p className="text-[10px] uppercase font-bold text-slate-400">Total Farms</p>
+                        <p className="text-lg font-extrabold text-slate-800 font-['Barlow_Condensed',sans-serif] mt-0.5">
+                          {userExtra.farms.length > 0 ? userExtra.farms.length : (viewUser.farmCount || 1)}
+                        </p>
+                      </div>
+                      <div className="bg-blue-50/50 border border-blue-200/70 p-2.5 rounded-xl text-center">
+                        <p className="text-[10px] uppercase font-bold text-blue-500">Ponds Active</p>
+                        <p className="text-lg font-extrabold text-blue-700 font-['Barlow_Condensed',sans-serif] mt-0.5">
+                          {userExtra.ponds.length}
+                        </p>
+                      </div>
+                      <div className="bg-cyan-50/50 border border-cyan-200/70 p-2.5 rounded-xl text-center">
+                        <p className="text-[10px] uppercase font-bold text-cyan-600">Fish Stocked</p>
+                        <p className="text-lg font-extrabold text-cyan-800 font-['Barlow_Condensed',sans-serif] mt-0.5">
+                          {userExtra.ponds.reduce((s, p) => s + (Number(p.current_count ?? p.initial_stock) || 0), 0).toLocaleString()}
+                        </p>
+                      </div>
+                      <div className="bg-emerald-50/50 border border-emerald-200/70 p-2.5 rounded-xl text-center">
+                        <p className="text-[10px] uppercase font-bold text-emerald-600">Feed in Stock</p>
+                        <p className="text-lg font-extrabold text-emerald-800 font-['Barlow_Condensed',sans-serif] mt-0.5">
+                          {userExtra.feedInventory.reduce((s, f) => s + (Number(f.bags_in_stock) || 0), 0)} Bags
+                        </p>
+                      </div>
+                      <div className="bg-amber-50/50 border border-amber-200/70 p-2.5 rounded-xl text-center">
+                        <p className="text-[10px] uppercase font-bold text-amber-700">Feed Consumed</p>
+                        <p className="text-lg font-extrabold text-amber-800 font-['Barlow_Condensed',sans-serif] mt-0.5">
+                          {userExtra.feedingRecords.reduce((s, r) => s + (Number(r.total) || 0), 0)} kg
+                        </p>
+                      </div>
+                      <div className="bg-emerald-50/50 border border-emerald-200/70 p-2.5 rounded-xl text-center">
+                        <p className="text-[10px] uppercase font-bold text-emerald-700">Total Revenue</p>
+                        <p className="text-lg font-extrabold text-emerald-900 font-['Barlow_Condensed',sans-serif] mt-0.5">
+                          ₦{userExtra.revenues.reduce((s, r) => s + (Number(r.amount) || 0), 0).toLocaleString()}
+                        </p>
+                      </div>
+                      <div className="bg-purple-50/50 border border-purple-200/70 p-2.5 rounded-xl text-center">
+                        <p className="text-[10px] uppercase font-bold text-purple-600">Sales Invoices</p>
+                        <p className="text-lg font-extrabold text-purple-800 font-['Barlow_Condensed',sans-serif] mt-0.5">
+                          {userExtra.invoices.length}
+                        </p>
+                      </div>
+                      <div className="bg-slate-50 border border-slate-200 p-2.5 rounded-xl text-center">
+                        <p className="text-[10px] uppercase font-bold text-slate-500">Staff Team</p>
+                        <p className="text-lg font-extrabold text-slate-800 font-['Barlow_Condensed',sans-serif] mt-0.5">
+                          {userExtra.staff.length}
+                        </p>
+                      </div>
+                    </div>
                   </div>
-                  <div className="bg-emerald-50/50 border border-emerald-200/70 p-3 rounded-xl text-center">
-                    <p className="text-[10px] uppercase font-bold text-emerald-600">Staff Members</p>
-                    <p className="text-xl font-extrabold text-emerald-800 font-['Barlow_Condensed',sans-serif] mt-0.5">
-                      {userExtra.staff?.length || viewUser.staffCount || 0}
-                    </p>
+
+                  {/* Subscription & Rate Override */}
+                  <div>
+                    <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                      <CreditCard size={13} className="text-emerald-600" /> Subscription, Plan & Rate Override
+                    </h3>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                      <div className="bg-white border border-slate-200 p-2.5 rounded-xl">
+                        <p className="text-[10px] uppercase font-bold text-slate-400">Current Plan</p>
+                        <p className="font-bold text-slate-900 text-xs mt-0.5">{viewUser.activePlan || "Starter"}</p>
+                      </div>
+                      <div className="bg-white border border-slate-200 p-2.5 rounded-xl">
+                        <p className="text-[10px] uppercase font-bold text-slate-400">Billing Frequency</p>
+                        <p className="font-semibold text-slate-800 text-xs mt-0.5 capitalize">{viewUser.billingFrequency || "monthly"}</p>
+                      </div>
+                      <div className="bg-white border border-slate-200 p-2.5 rounded-xl">
+                        <p className="text-[10px] uppercase font-bold text-slate-400">Custom Price Override</p>
+                        <p className={`font-bold text-xs mt-0.5 ${viewUser.subscriptionAmount !== null ? "text-emerald-700" : "text-slate-500"}`}>
+                          {viewUser.subscriptionAmount !== null ? `₦${viewUser.subscriptionAmount.toLocaleString()} (Custom)` : "Plan standard"}
+                        </p>
+                      </div>
+                      <div className="bg-white border border-slate-200 p-2.5 rounded-xl">
+                        <p className="text-[10px] uppercase font-bold text-slate-400">Trial Period</p>
+                        <p className="font-semibold text-xs mt-0.5 text-amber-700">
+                          {trialDaysLeft(viewUser.trialStartDate)} days left (started {fmtDate(viewUser.trialStartDate)})
+                        </p>
+                      </div>
+                      <div className="bg-white border border-slate-200 p-2.5 rounded-xl">
+                        <p className="text-[10px] uppercase font-bold text-slate-400">Payment Status</p>
+                        <p className="font-semibold text-xs mt-0.5">
+                          {viewUser.hasPaid || viewUser.paystackReference ? (
+                            <span className="text-emerald-600 font-bold">Paid & Verified</span>
+                          ) : (
+                            <span className="text-slate-500">Unpaid / Trial</span>
+                          )}
+                        </p>
+                      </div>
+                      <div className="bg-white border border-slate-200 p-2.5 rounded-xl">
+                        <p className="text-[10px] uppercase font-bold text-slate-400">Subscription Expiry</p>
+                        <p className="font-semibold text-slate-800 text-xs mt-0.5">{fmtDate(viewUser.subscriptionExpiry)}</p>
+                      </div>
+                    </div>
                   </div>
                 </div>
+              )}
 
-                {/* Staff Members List with Emails */}
-                <div className="border border-slate-200 rounded-xl overflow-hidden mb-2.5">
-                  <div className="bg-slate-100/70 px-3 py-2 border-b border-slate-200 flex items-center justify-between">
-                    <span className="font-bold text-slate-700 text-xs flex items-center gap-1.5">
-                      <UsersIcon size={12} className="text-slate-500" />
-                      Staff Accounts Added ({userExtra.staff?.length || 0})
+              {/* Tab 2: Ponds & Fish Batches */}
+              {farmerDataTab === "ponds" && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                      <Droplets size={14} className="text-blue-500" />
+                      All Registered Ponds ({userExtra.ponds.length})
+                    </h3>
+                    <span className="text-[11px] text-slate-500 font-medium">
+                      Total Fish: <strong className="text-blue-700">{userExtra.ponds.reduce((s, p) => s + (Number(p.current_count ?? p.initial_stock) || 0), 0).toLocaleString()}</strong>
                     </span>
-                    <span className="text-[10px] text-slate-400">Invited by this farmer</span>
                   </div>
 
-                  {!userExtra.staff || userExtra.staff.length === 0 ? (
-                    <div className="p-3.5 text-center text-slate-400">
-                      <p className="text-xs">No staff members added yet by this farmer.</p>
+                  {userExtra.ponds.length === 0 ? (
+                    <div className="p-6 text-center border border-slate-200 rounded-xl bg-slate-50 text-slate-400">
+                      No ponds created by this farmer yet.
                     </div>
                   ) : (
-                    <div className="divide-y divide-slate-100 max-h-40 overflow-y-auto">
-                      {userExtra.staff.map((st) => (
-                        <div key={st.id} className="p-2.5 flex items-center justify-between gap-2 hover:bg-slate-50 transition-colors">
+                    <div className="border border-slate-200 rounded-xl overflow-hidden shadow-2xs divide-y divide-slate-100">
+                      {userExtra.ponds.map((p, idx) => (
+                        <div key={p.id || idx} className="p-3 flex items-center justify-between gap-3 hover:bg-slate-50 transition-colors">
                           <div className="min-w-0">
-                            <p className="font-bold text-slate-800 text-xs truncate">{st?.name || "Staff Member"}</p>
-                            <p className="text-[11px] text-slate-500 font-mono truncate">{st?.email || ""}</p>
+                            <p className="font-bold text-slate-900 text-xs truncate">{p.name || `Pond #${idx + 1}`}</p>
+                            <p className="text-[11px] text-slate-500 mt-0.5">
+                              Species: <strong className="text-slate-700">{p.species || "Catfish"}</strong> • Stock Date: {fmtDate(p.stocking_date)}
+                            </p>
                           </div>
-                          <div className="flex items-center gap-1.5 shrink-0">
-                            <span className="text-[10px] bg-slate-100 text-slate-700 px-2 py-0.5 rounded font-medium">
-                              {st?.role || "Staff"}
-                            </span>
-                            <Bdg label={st?.status || "Active"} color={st?.status === "Pending" ? "amber" : "green"} />
-                            {st?.email && (
-                              <button
-                                onClick={() => copyToClipboard(st.email, `Staff email (${st.email})`)}
-                                className="p-1 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded transition-colors"
-                                title="Copy staff email"
-                              >
-                                <Copy size={11} />
-                              </button>
-                            )}
+                          <div className="text-right shrink-0">
+                            <p className="font-bold text-blue-700 text-sm font-['Barlow_Condensed',sans-serif]">
+                              {(p.current_count ?? p.initial_stock ?? 0).toLocaleString()} fish
+                            </p>
+                            <p className="text-[10px] text-slate-400">
+                              {p.size_m2 ? `${p.size_m2} m²` : "Configured"}
+                            </p>
                           </div>
                         </div>
                       ))}
                     </div>
                   )}
                 </div>
+              )}
 
-                {/* Farms & Ponds Lists */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                  {/* Farms */}
-                  <div className="border border-slate-200 rounded-xl overflow-hidden">
-                    <div className="bg-slate-100/70 px-3 py-2 border-b border-slate-200 flex items-center justify-between">
-                      <span className="font-bold text-slate-700 text-xs flex items-center gap-1.5">
-                        <Building size={12} className="text-slate-500" />
-                        Farms ({userExtra.farms?.length || 1})
-                      </span>
-                    </div>
-                    <div className="divide-y divide-slate-100 max-h-32 overflow-y-auto">
-                      {userExtra.farms?.length > 0 ? (
-                        userExtra.farms.map((f) => (
-                          <div key={f.id} className="p-2.5 flex items-center justify-between gap-2 text-xs">
-                            <span className="font-bold text-slate-800 truncate">{f?.name || "Farm"}</span>
-                            <span className="text-slate-500 text-[11px] shrink-0">
-                              {[f?.city, f?.state].filter(Boolean).join(", ") || "Nigeria"}
-                            </span>
-                          </div>
-                        ))
-                      ) : (
-                        <div className="p-2.5 text-xs text-slate-600 font-medium truncate">
-                          {viewUser.farmName || "Primary Farm"}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Ponds */}
-                  <div className="border border-slate-200 rounded-xl overflow-hidden">
-                    <div className="bg-slate-100/70 px-3 py-2 border-b border-slate-200 flex items-center justify-between">
-                      <span className="font-bold text-slate-700 text-xs flex items-center gap-1.5">
-                        <Droplets size={12} className="text-blue-500" />
-                        Ponds ({userExtra.ponds?.length || viewUser.pondCount || 0})
-                      </span>
-                    </div>
-                    <div className="divide-y divide-slate-100 max-h-32 overflow-y-auto">
-                      {userExtra.ponds?.length > 0 ? (
-                        userExtra.ponds.map((p, idx) => (
-                          <div key={p.id} className="p-2.5 flex items-center justify-between gap-2 text-xs">
-                            <span className="font-bold text-slate-800 truncate">{p?.name || `Pond #${idx + 1}`}</span>
-                            {p?.size_m2 ? (
-                              <span className="text-blue-600 text-[11px] shrink-0 font-mono font-semibold">
-                                {p.size_m2} m²
-                              </span>
-                            ) : (
-                              <span className="text-slate-400 text-[11px] shrink-0">Configured</span>
-                            )}
-                          </div>
-                        ))
-                      ) : (
-                        <div className="p-2.5 text-xs text-slate-400 italic">
-                          {viewUser.pondCount ? `${viewUser.pondCount} ponds registered` : "No ponds created yet"}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* 3. Subscription & Billing Overview */}
-              <div>
-                <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                  <CreditCard size={13} className="text-emerald-600" /> Subscription & Plan Details
-                </h3>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-                  <div className="bg-white border border-slate-200 p-2.5 rounded-xl">
-                    <p className="text-[10px] uppercase font-bold text-slate-400">Current Plan</p>
-                    <p className="font-bold text-slate-900 text-xs mt-0.5">{viewUser.activePlan || "Free / No Plan"}</p>
-                  </div>
-                  <div className="bg-white border border-slate-200 p-2.5 rounded-xl">
-                    <p className="text-[10px] uppercase font-bold text-slate-400">Billing Cycle</p>
-                    <p className="font-semibold text-slate-800 text-xs mt-0.5 capitalize">{viewUser.billingFrequency || "monthly"}</p>
-                  </div>
-                  <div className="bg-white border border-slate-200 p-2.5 rounded-xl">
-                    <p className="text-[10px] uppercase font-bold text-slate-400">Price Override</p>
-                    <p className="font-semibold text-slate-800 text-xs mt-0.5">{fmtMoney(viewUser.subscriptionAmount)}</p>
-                  </div>
-                  <div className="bg-white border border-slate-200 p-2.5 rounded-xl">
-                    <p className="text-[10px] uppercase font-bold text-slate-400">Trial Period</p>
-                    <p className="font-semibold text-xs mt-0.5 text-amber-700">
-                      {trialDaysLeft(viewUser.trialStartDate)} days left (started {fmtDate(viewUser.trialStartDate)})
-                    </p>
-                  </div>
-                  <div className="bg-white border border-slate-200 p-2.5 rounded-xl">
-                    <p className="text-[10px] uppercase font-bold text-slate-400">Subscription Expiry</p>
-                    <p className="font-semibold text-slate-800 text-xs mt-0.5">{fmtDate(viewUser.subscriptionExpiry)}</p>
-                  </div>
-                  <div className="bg-white border border-slate-200 p-2.5 rounded-xl">
-                    <p className="text-[10px] uppercase font-bold text-slate-400">Payment Status</p>
-                    <p className="font-semibold text-xs mt-0.5">
-                      {viewUser.hasPaid || viewUser.paystackReference ? (
-                        <span className="text-emerald-600 font-bold">Paid & Verified</span>
-                      ) : (
-                        <span className="text-slate-500">Unpaid / On Trial</span>
-                      )}
-                    </p>
-                  </div>
-                  {viewUser.paystackReference && (
-                    <div className="bg-white border border-slate-200 p-2.5 rounded-xl sm:col-span-2">
-                      <p className="text-[10px] uppercase font-bold text-slate-400">Paystack Reference</p>
-                      <div className="flex items-center justify-between mt-0.5">
-                        <p className="font-mono text-xs text-slate-700 truncate">{viewUser.paystackReference}</p>
-                        <button onClick={() => copyToClipboard(viewUser.paystackReference!, "Paystack Reference")} className="text-slate-400 hover:text-slate-600 p-0.5">
-                          <Copy size={11} />
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                  {viewUser.lastPaymentDate && (
-                    <div className="bg-white border border-slate-200 p-2.5 rounded-xl">
-                      <p className="text-[10px] uppercase font-bold text-slate-400">Last Payment Date</p>
-                      <p className="font-semibold text-slate-800 text-xs mt-0.5">{fmtDate(viewUser.lastPaymentDate)}</p>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* 4. Referral Program & Commissions */}
-              {(() => {
-                const userRefStats = getUserReferralStats(viewUser);
-                return (
+              {/* Tab 3: Feed Stock & Feeding Logs */}
+              {farmerDataTab === "feed" && (
+                <div className="space-y-4">
                   <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
-                        <Gift size={13} className="text-emerald-600" /> Referral Program & Commissions
-                      </h3>
-                      {userRefStats.availableEarnings > 0 && (
-                        <span className="text-[10px] font-extrabold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full">
-                          ₦{userRefStats.availableEarnings.toLocaleString()} Available for Payout
-                        </span>
-                      )}
-                    </div>
-
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mb-3">
-                      <div className="bg-slate-50 border border-slate-200 p-2.5 rounded-xl col-span-2 sm:col-span-1">
-                        <p className="text-[10px] uppercase font-bold text-slate-400">Referral Link</p>
-                        <div className="flex items-center justify-between mt-0.5">
-                          <p className="font-mono text-slate-700 text-xs truncate max-w-[120px]" title={userRefStats.referralLink}>{userRefStats.referralLink}</p>
-                          <button onClick={() => copyToClipboard(userRefStats.referralLink, "Referral Link")} className="text-slate-400 hover:text-emerald-600 p-0.5" title="Copy Referral Link">
-                            <Copy size={12} />
-                          </button>
-                        </div>
+                    <h3 className="text-xs font-bold text-slate-700 mb-2 flex items-center gap-1.5">
+                      <Package size={14} className="text-emerald-600" />
+                      Feed Inventory in Stock ({userExtra.feedInventory.length})
+                    </h3>
+                    {userExtra.feedInventory.length === 0 ? (
+                      <div className="p-4 text-center border border-slate-200 rounded-xl bg-slate-50 text-slate-400 text-xs">
+                        No feed items currently added to inventory.
                       </div>
-
-                      <div className="bg-slate-50 border border-slate-200 p-2.5 rounded-xl">
-                        <p className="text-[10px] uppercase font-bold text-slate-400">Total Referrals</p>
-                        <p className="font-extrabold text-slate-800 text-base mt-0.5">{userRefStats.totalReferralsCount}</p>
-                        <p className="text-[10px] text-slate-500">{userRefStats.paidReferralsCount} Paid • {userRefStats.trialReferralsCount} Trial</p>
-                      </div>
-
-                      <div className="bg-slate-50 border border-slate-200 p-2.5 rounded-xl">
-                        <p className="text-[10px] uppercase font-bold text-slate-400">Total Commission</p>
-                        <p className="font-extrabold text-slate-900 text-base mt-0.5">₦{userRefStats.totalEarnings.toLocaleString()}</p>
-                        <p className="text-[10px] text-slate-500">30% 1st / 10% rec.</p>
-                      </div>
-
-                      <div className="bg-emerald-50/80 border border-emerald-200 p-2.5 rounded-xl">
-                        <p className="text-[10px] uppercase font-bold text-emerald-800">Available to Pay</p>
-                        <p className="font-extrabold text-emerald-700 text-base mt-0.5">₦{userRefStats.availableEarnings.toLocaleString()}</p>
-                        <p className="text-[10px] text-emerald-600 font-semibold">Pending payout</p>
-                      </div>
-                    </div>
-
-                    {/* Action button if user calls to redeem */}
-                    {userRefStats.availableEarnings > 0 && (
-                      <div className="bg-emerald-50/80 border border-emerald-300 rounded-xl p-3 mb-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs">
-                        <div>
-                          <p className="font-bold text-emerald-900 text-xs flex items-center gap-1.5">
-                            <CheckCircle size={13} className="text-emerald-600" />
-                            Commission Payout Requested / Available Balance
-                          </p>
-                          <p className="text-[11px] text-emerald-700 mt-0.5 leading-relaxed">
-                            Balance to transfer: <strong className="font-mono text-emerald-900 text-xs">₦{userRefStats.availableEarnings.toLocaleString()}</strong>. Once you transfer the funds to this farmer's bank account, click below to record the payout.
-                          </p>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const count = markReferralRewardsPaid(viewUser.email || userRefStats.referralCode);
-                            toast.success(`Marked ${count} referral rewards as paid for ${viewUser.name || viewUser.email}!`);
-                            // Force update modal
-                            setViewUser({ ...viewUser });
-                          }}
-                          className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs transition-colors shrink-0 whitespace-nowrap"
-                        >
-                          Mark Payout as Paid
-                        </button>
+                    ) : (
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                        {userExtra.feedInventory.map((f, i) => (
+                          <div key={f.id || i} className="bg-slate-50 border border-slate-200 p-2.5 rounded-xl">
+                            <p className="font-bold text-slate-900 text-xs truncate">{f.brand || "Feed"}</p>
+                            <p className="text-[11px] text-slate-600 mt-0.5">{f.size || "Standard"} • {f.weight_per_bag || 15}kg/bag</p>
+                            <p className="text-emerald-700 font-bold text-xs mt-1">{f.bags_in_stock ?? 0} bags ({f.total_kg ?? 0} kg)</p>
+                          </div>
+                        ))}
                       </div>
                     )}
+                  </div>
 
-                    {/* Table of Referred Users */}
-                    <div className="border border-slate-200 rounded-xl overflow-hidden shadow-xs">
-                      <div className="bg-slate-100/80 px-3.5 py-2.5 border-b border-slate-200 flex items-center justify-between">
-                        <span className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
-                          <UsersIcon size={13} className="text-slate-500" />
-                          Referred Farmers List ({userRefStats.referredUsers.length})
-                        </span>
-                        <span className="text-[10px] text-slate-500 font-medium">30% 1st Payment • 10% Recurring Renewals</span>
+                  <div>
+                    <h3 className="text-xs font-bold text-slate-700 mb-2 flex items-center gap-1.5">
+                      <Clock size={14} className="text-amber-600" />
+                      Recent Feeding Logs ({userExtra.feedingRecords.length})
+                    </h3>
+                    {userExtra.feedingRecords.length === 0 ? (
+                      <div className="p-4 text-center border border-slate-200 rounded-xl bg-slate-50 text-slate-400 text-xs">
+                        No feeding records logged yet.
                       </div>
-
-                      {userRefStats.referredUsers.length === 0 ? (
-                        <div className="p-4 text-center text-slate-400">
-                          <p className="text-xs">No referrals registered by this user yet.</p>
-                        </div>
-                      ) : (
-                        <div className="divide-y divide-slate-100 max-h-56 overflow-y-auto">
-                          {userRefStats.referredUsers.map((r) => (
-                            <div key={r.id} className="p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 hover:bg-slate-50 transition-colors">
-                              <div className="min-w-0">
-                                <div className="flex items-center gap-2">
-                                  <p className="font-bold text-slate-900 text-xs truncate">{r.name}</p>
-                                  {r.hasPaid ? (
-                                    <span className="text-[9px] px-2 py-0.5 rounded font-bold bg-emerald-100 text-emerald-800 flex items-center gap-0.5">
-                                      <CheckCircle size={9} /> Subscribed ({r.activePlan})
-                                    </span>
-                                  ) : (
-                                    <span className="text-[9px] px-2 py-0.5 rounded font-bold bg-amber-100 text-amber-800 flex items-center gap-0.5">
-                                      <Sparkles size={9} /> {r.trialStatusText}
-                                    </span>
-                                  )}
-                                </div>
-                                <p className="text-[11px] text-slate-500 truncate mt-0.5">
-                                  {r.email} • {r.farmName || "Primary Farm"} • Reg: {r.createdAt}
-                                </p>
-                              </div>
-                              <div className="flex items-center justify-between sm:justify-end gap-3 shrink-0 pt-1 sm:pt-0 border-t sm:border-t-0 border-slate-100">
-                                <div className="text-left sm:text-right">
-                                  <p className="text-[10px] text-slate-400 uppercase font-bold">Paid</p>
-                                  <p className="font-mono text-xs text-slate-700 font-semibold">
-                                    {r.paymentAmount > 0 ? `₦${r.paymentAmount.toLocaleString()}` : "₦0"}
-                                  </p>
-                                </div>
-                                <div className="text-right">
-                                  <p className="text-[10px] text-slate-400 uppercase font-bold">Commission</p>
-                                  <p className="font-bold text-emerald-700 font-mono text-xs">
-                                    ₦{r.totalCommission.toLocaleString()}
-                                  </p>
-                                </div>
-                              </div>
+                    ) : (
+                      <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100 max-h-48 overflow-y-auto">
+                        {userExtra.feedingRecords.map((r, i) => (
+                          <div key={r.id || i} className="p-2.5 flex items-center justify-between gap-2 text-xs">
+                            <div>
+                              <span className="font-bold text-slate-800">{r.pond}</span>
+                              <span className="text-slate-400 text-[11px] ml-1.5">{r.date} ({r.size || "—"})</span>
                             </div>
-                          ))}
-                        </div>
-                      )}
+                            <span className="font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded">
+                              {r.total || ((r.morning || 0) + (r.evening || 0))} kg
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Tab 4: Financials & Invoices */}
+              {farmerDataTab === "finance" && (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="bg-emerald-50/70 border border-emerald-200 p-3 rounded-xl text-center">
+                      <p className="text-[10px] uppercase font-bold text-emerald-700">Recorded Revenue</p>
+                      <p className="text-xl font-bold text-emerald-900 font-['Barlow_Condensed',sans-serif] mt-0.5">
+                        ₦{userExtra.revenues.reduce((s, r) => s + (Number(r.amount) || 0), 0).toLocaleString()}
+                      </p>
+                    </div>
+                    <div className="bg-rose-50/70 border border-rose-200 p-3 rounded-xl text-center">
+                      <p className="text-[10px] uppercase font-bold text-rose-700">Recorded Expenses</p>
+                      <p className="text-xl font-bold text-rose-900 font-['Barlow_Condensed',sans-serif] mt-0.5">
+                        ₦{userExtra.expenses.reduce((s, e) => s + (Number(e.amount) || 0), 0).toLocaleString()}
+                      </p>
                     </div>
                   </div>
-                );
-              })()}
+
+                  <div>
+                    <h3 className="text-xs font-bold text-slate-700 mb-2 flex items-center gap-1.5">
+                      <FileText size={14} className="text-purple-600" />
+                      Sales Invoices ({userExtra.invoices.length})
+                    </h3>
+                    {userExtra.invoices.length === 0 ? (
+                      <div className="p-4 text-center border border-slate-200 rounded-xl bg-slate-50 text-slate-400 text-xs">
+                        No sales invoices created yet.
+                      </div>
+                    ) : (
+                      <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100 max-h-48 overflow-y-auto">
+                        {userExtra.invoices.map((inv, i) => (
+                          <div key={inv.id || i} className="p-2.5 flex items-center justify-between gap-2 text-xs hover:bg-slate-50">
+                            <div>
+                              <p className="font-bold text-slate-800">{inv.invoice_number || `Invoice #${i + 1}`} • {inv.customer_name || "Customer"}</p>
+                              <p className="text-[10px] text-slate-400">{fmtDate(inv.created_at)}</p>
+                            </div>
+                            <div className="text-right shrink-0">
+                              <p className="font-bold text-slate-900">₦{(Number(inv.grand_total) || 0).toLocaleString()}</p>
+                              <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded ${inv.status === "Paid" ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"}`}>
+                                {inv.status || "Pending"}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Tab 5: Staff Team */}
+              {farmerDataTab === "staff" && (
+                <div className="space-y-3">
+                  <h3 className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                    <UsersIcon size={14} className="text-emerald-600" />
+                    Staff Accounts Added by Farmer ({userExtra.staff.length})
+                  </h3>
+                  {userExtra.staff.length === 0 ? (
+                    <div className="p-6 text-center border border-slate-200 rounded-xl bg-slate-50 text-slate-400 text-xs">
+                      No staff members invited yet.
+                    </div>
+                  ) : (
+                    <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100">
+                      {userExtra.staff.map((st) => (
+                        <div key={st.id} className="p-3 flex items-center justify-between gap-2 hover:bg-slate-50 transition-colors">
+                          <div className="min-w-0">
+                            <p className="font-bold text-slate-800 text-xs truncate">{st.name || "Staff Member"}</p>
+                            <p className="text-[11px] text-slate-500 font-mono truncate">{st.email}</p>
+                          </div>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <span className="text-[10px] bg-slate-100 text-slate-700 px-2 py-0.5 rounded font-medium">
+                              {st.role || "Staff"}
+                            </span>
+                            <Bdg label={st.status || "Active"} color={st.status === "Pending" ? "amber" : "green"} />
+                            <button
+                              onClick={() => copyToClipboard(st.email, `Staff email (${st.email})`)}
+                              className="p-1 text-slate-400 hover:text-slate-700 rounded"
+                              title="Copy email"
+                            >
+                              <Copy size={11} />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Tab 6: Farms List */}
+              {farmerDataTab === "farms" && (
+                <div className="space-y-3">
+                  <h3 className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                    <Building size={14} className="text-emerald-600" />
+                    Farms Owned by Farmer ({userExtra.farms.length})
+                  </h3>
+                  {userExtra.farms.length === 0 ? (
+                    <div className="p-6 text-center border border-slate-200 rounded-xl bg-slate-50 text-slate-400 text-xs">
+                      Primary Farm: {viewUser.farmName || "Primary Farm"}
+                    </div>
+                  ) : (
+                    <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100">
+                      {userExtra.farms.map((f, idx) => (
+                        <div key={f.id || idx} className="p-3 flex items-center justify-between gap-2 hover:bg-slate-50">
+                          <div>
+                            <p className="font-bold text-slate-900 text-xs">{f.name}</p>
+                            <p className="text-[11px] text-slate-500">{[f.city, f.state, f.country].filter(Boolean).join(", ") || "Nigeria"}</p>
+                          </div>
+                          <span className="text-[10px] text-slate-400">{fmtDate(f.created_at)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Modal Footer / Direct Admin Controls */}
@@ -1531,6 +1626,60 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
             </div>
           </div>
         </div>
+      )}
+
+      {/* Add User Modal */}
+      {showAdd && (
+        <Modal
+          title="Add Farmer Account"
+          onClose={() => {
+            setShowAdd(false);
+            setForm({ ...BLANK });
+            setFErr({});
+          }}
+        >
+          <UserForm f={form} setF={setForm} err={fErr} planNames={planNames} />
+          <div className="flex justify-end gap-2 pt-4 border-t border-slate-100 mt-4">
+            <PBtn
+              outline
+              onClick={() => {
+                setShowAdd(false);
+                setForm({ ...BLANK });
+                setFErr({});
+              }}
+            >
+              Cancel
+            </PBtn>
+            <PBtn onClick={handleAdd}>Create Account</PBtn>
+          </div>
+        </Modal>
+      )}
+
+      {/* Edit User Modal */}
+      {editUser && (
+        <Modal
+          title={`Edit User: ${editUser.name || editUser.email}`}
+          onClose={() => {
+            setEditUser(null);
+            setForm({ ...BLANK });
+            setFErr({});
+          }}
+        >
+          <UserForm f={form} setF={setForm} err={fErr} planNames={planNames} />
+          <div className="flex justify-end gap-2 pt-4 border-t border-slate-100 mt-4">
+            <PBtn
+              outline
+              onClick={() => {
+                setEditUser(null);
+                setForm({ ...BLANK });
+                setFErr({});
+              }}
+            >
+              Cancel
+            </PBtn>
+            <PBtn onClick={handleEdit}>Save Changes</PBtn>
+          </div>
+        </Modal>
       )}
 
       {/* Delete User Modal */}

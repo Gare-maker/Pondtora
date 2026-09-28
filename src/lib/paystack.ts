@@ -22,12 +22,21 @@ let cachedConfig: PaystackConfig | null = null;
 export function loadPaystackConfig(): PaystackConfig {
   if (cachedConfig) return cachedConfig;
   try {
+    const explicitMode = localStorage.getItem("pondtora_paystack_mode") as "test" | "live" | null;
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
       delete (parsed as any).testSecretKey;
       delete (parsed as any).liveSecretKey;
-      cachedConfig = { ...DEFAULT_PAYSTACK_CONFIG, ...parsed };
+      cachedConfig = {
+        ...DEFAULT_PAYSTACK_CONFIG,
+        ...parsed,
+        mode: explicitMode || parsed.mode || DEFAULT_PAYSTACK_CONFIG.mode,
+      };
+      return cachedConfig;
+    }
+    if (explicitMode) {
+      cachedConfig = { ...DEFAULT_PAYSTACK_CONFIG, mode: explicitMode };
       return cachedConfig;
     }
   } catch {}
@@ -39,6 +48,7 @@ export function loadPaystackConfig(): PaystackConfig {
  * Fetch latest global Paystack configuration from Supabase platform_settings
  */
 export async function fetchRemotePaystackConfig(): Promise<PaystackConfig> {
+  const currentLocal = loadPaystackConfig();
   try {
     const { data, error } = await supabase
       .from("platform_settings")
@@ -49,19 +59,22 @@ export async function fetchRemotePaystackConfig(): Promise<PaystackConfig> {
     if (!error && data?.value && typeof data.value === "object") {
       const remote = data.value as Partial<PaystackConfig>;
       const merged: PaystackConfig = {
-        mode: remote.mode === "live" ? "live" : "test",
-        testPublicKey: remote.testPublicKey || DEFAULT_PAYSTACK_CONFIG.testPublicKey,
-        livePublicKey: remote.livePublicKey || DEFAULT_PAYSTACK_CONFIG.livePublicKey,
+        mode: remote.mode === "live" ? "live" : (remote.mode === "test" ? "test" : currentLocal.mode),
+        testPublicKey: remote.testPublicKey || currentLocal.testPublicKey || DEFAULT_PAYSTACK_CONFIG.testPublicKey,
+        livePublicKey: remote.livePublicKey || currentLocal.livePublicKey || DEFAULT_PAYSTACK_CONFIG.livePublicKey,
       };
       cachedConfig = merged;
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(merged));
+        localStorage.setItem("pondtora_paystack_mode", merged.mode);
+      } catch {}
       window.dispatchEvent(new CustomEvent("pondtora:paystack_config_updated", { detail: merged }));
       return merged;
     }
   } catch (err) {
     console.warn("fetchRemotePaystackConfig fallback to local:", err);
   }
-  return loadPaystackConfig();
+  return currentLocal;
 }
 
 // Automatically sync remote config in the background on startup
@@ -69,29 +82,37 @@ if (typeof window !== "undefined") {
   fetchRemotePaystackConfig().catch(() => {});
 }
 
-export function savePaystackConfig(cfg: PaystackConfig): void {
+export async function savePaystackConfig(cfg: PaystackConfig): Promise<boolean> {
   cachedConfig = cfg;
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(cfg));
+    localStorage.setItem("pondtora_paystack_mode", cfg.mode);
     window.dispatchEvent(new CustomEvent("pondtora:paystack_config_updated", { detail: cfg }));
   } catch {}
 
   // Persist to Supabase platform_settings table so it never reverts across browsers/devices
-  supabase
-    .from("platform_settings")
-    .upsert({
-      key: "paystack_config",
-      value: {
-        mode: cfg.mode,
-        testPublicKey: cfg.testPublicKey,
-        livePublicKey: cfg.livePublicKey,
-      },
-      updated_at: new Date().toISOString(),
-    }, { onConflict: "key" })
-    .then(({ error }) => {
-      if (error) console.warn("Could not persist paystack_config to Supabase:", error);
-    })
-    .catch(err => console.warn("Supabase paystack_config save error:", err));
+  try {
+    const { error } = await supabase
+      .from("platform_settings")
+      .upsert({
+        key: "paystack_config",
+        value: {
+          mode: cfg.mode,
+          testPublicKey: cfg.testPublicKey,
+          livePublicKey: cfg.livePublicKey,
+        },
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "key" });
+
+    if (error) {
+      console.warn("Could not persist paystack_config to Supabase:", error);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.warn("Supabase paystack_config save error:", err);
+    return false;
+  }
 }
 
 export function getActivePaystackPublicKey(): string {

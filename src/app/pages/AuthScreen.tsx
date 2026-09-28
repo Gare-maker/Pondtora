@@ -350,13 +350,16 @@ function AuthScreen({
           }
 
           if (!isStaff) {
-            await supabase.from("farms").insert({
-              user_id: user.id,
-              name: farmName,
-              city: meta.city || "Lagos",
-              state: meta.state || "Lagos",
-              country: meta.country || "Nigeria",
-            });
+            const { data: existingFarms } = await supabase.from("farms").select("id").eq("user_id", user.id).limit(1);
+            if (!existingFarms || existingFarms.length === 0) {
+              await supabase.from("farms").insert({
+                user_id: user.id,
+                name: farmName || "Primary Farm",
+                city: meta.city || "Lagos",
+                state: meta.state || "Lagos",
+                country: meta.country || "Nigeria",
+              });
+            }
           }
         } catch (healErr) {
           console.warn("Could not self-heal profile:", healErr);
@@ -589,13 +592,16 @@ function AuthScreen({
             referred_by: pendingRef || null,
             updated_at: new Date().toISOString(),
           });
-          await supabase.from("farms").insert({
-            user_id: createdUserId,
-            name: cFarm.trim(),
-            city: cCity.trim(),
-            state: cState.trim(),
-            country: cCountry,
-          });
+          const { data: existingFarms } = await supabase.from("farms").select("id").eq("user_id", createdUserId).limit(1);
+          if (!existingFarms || existingFarms.length === 0) {
+            await supabase.from("farms").insert({
+              user_id: createdUserId,
+              name: cFarm.trim() || "Primary Farm",
+              city: cCity.trim() || "Lagos",
+              state: cState.trim() || "Lagos",
+              country: cCountry,
+            });
+          }
         } catch {}
       }
 

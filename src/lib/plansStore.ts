@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import type { AdminPlan } from "../admin/types";
 import { DEFAULT_PLANS } from "../admin/types";
+import { supabase } from "./supabase";
 
 export interface FormattedPlan {
   id: string;
@@ -100,12 +101,59 @@ export function loadStoredPlans(): AdminPlan[] {
   return DEFAULT_PLANS;
 }
 
+/**
+ * Fetch latest global Plan configuration from Supabase platform_settings
+ */
+export async function fetchRemotePlans(): Promise<AdminPlan[]> {
+  try {
+    const { data, error } = await supabase
+      .from("platform_settings")
+      .select("value")
+      .eq("key", "admin_plans")
+      .maybeSingle();
+
+    if (!error && data?.value && Array.isArray(data.value) && data.value.length > 0) {
+      const remotePlans = data.value as AdminPlan[];
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(remotePlans));
+        localStorage.setItem("pondtora_custom_plans", JSON.stringify(remotePlans));
+      } catch {}
+      window.dispatchEvent(new CustomEvent("pondtora:plans_updated", { detail: remotePlans }));
+      return remotePlans;
+    }
+  } catch (err) {
+    console.warn("fetchRemotePlans fallback to local:", err);
+  }
+  return loadStoredPlans();
+}
+
+// Background initial fetch
+if (typeof window !== "undefined") {
+  fetchRemotePlans().catch(() => {});
+}
+
 export function saveStoredPlans(plans: AdminPlan[]) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(plans));
     localStorage.setItem("pondtora_custom_plans", JSON.stringify(plans));
     window.dispatchEvent(new CustomEvent("pondtora:plans_updated", { detail: plans }));
   } catch {}
+
+  // Persist to Supabase platform_settings table so it updates globally across the system
+  supabase
+    .from("platform_settings")
+    .upsert(
+      {
+        key: "admin_plans",
+        value: plans,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "key" }
+    )
+    .then(({ error }) => {
+      if (error) console.warn("Could not persist admin_plans to Supabase:", error);
+    })
+    .catch(err => console.warn("Supabase admin_plans save error:", err));
 }
 
 /**
@@ -116,6 +164,10 @@ export function useDynamicPlans() {
   const [plans, setPlans] = useState<AdminPlan[]>(loadStoredPlans);
 
   useEffect(() => {
+    fetchRemotePlans().then(p => {
+      if (p && p.length > 0) setPlans(p);
+    }).catch(() => {});
+
     const handleUpdate = (e: any) => {
       if (e.detail && Array.isArray(e.detail)) {
         setPlans(e.detail);

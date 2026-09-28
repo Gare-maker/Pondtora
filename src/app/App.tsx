@@ -2502,11 +2502,11 @@ function SubscriptionPage({
 
   const adminOverride = useMemo(() => {
     try {
-      return getUserAdminOverride(userProfile?.email);
+      return getUserAdminOverride(userProfile?.email, userProfile);
     } catch {
       return { isSuspended: false, hasFreeAccess: false, customAmount: null, activePlan: null };
     }
-  }, [userProfile?.email]);
+  }, [userProfile?.email, userProfile?.subscriptionAmount, userProfile?.freeAccess, userProfile]);
 
   const adminUsers = useMemo(() => {
     try {
@@ -4282,14 +4282,14 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   const [trialStartDate,setTrialStartDate_]=useState<string|null>(()=>localStorage.getItem("pondtora_trial_start"));
 
   // Check live admin override (suspension, free VIP access, custom rates)
-  const [adminOverride, setAdminOverride] = useState(() => getUserAdminOverride(userProfile?.email));
+  const [adminOverride, setAdminOverride] = useState(() => getUserAdminOverride(userProfile?.email, userProfile));
 
   useEffect(() => {
-    setAdminOverride(getUserAdminOverride(userProfile?.email));
-    const handleUsersUpdate = () => setAdminOverride(getUserAdminOverride(userProfile?.email));
+    setAdminOverride(getUserAdminOverride(userProfile?.email, userProfile));
+    const handleUsersUpdate = () => setAdminOverride(getUserAdminOverride(userProfile?.email, userProfile));
     window.addEventListener("pondtora:users_updated", handleUsersUpdate);
     return () => window.removeEventListener("pondtora:users_updated", handleUsersUpdate);
-  }, [userProfile?.email, isAuth]);
+  }, [userProfile?.email, userProfile?.subscriptionAmount, userProfile?.freeAccess, userProfile, isAuth]);
 
   // Synchronize user profile directly to Admin dashboard on any change
   useEffect(() => {
@@ -5681,13 +5681,16 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
               updated_at: new Date().toISOString(),
             });
             if (!isStaffUser) {
-              await supabase.from("farms").insert({
-                user_id: session.user.id,
-                name: meta.farm_name || "My Farm",
-                city: meta.city || "",
-                state: meta.state || "",
-                country: meta.country || "Nigeria",
-              });
+              const { data: existingFarms } = await supabase.from("farms").select("id").eq("user_id", session.user.id).limit(1);
+              if (!existingFarms || existingFarms.length === 0) {
+                await supabase.from("farms").insert({
+                  user_id: session.user.id,
+                  name: meta.farm_name || "My Farm",
+                  city: meta.city || "",
+                  state: meta.state || "",
+                  country: meta.country || "Nigeria",
+                });
+              }
             }
           } catch {}
         }

@@ -170,11 +170,15 @@ function FeedDocumentation({
   } | null>(null);
   const [reconExpanded, setReconExpanded] = useState<string | null>(null);
   const [feedMobileMenuOpen, setFeedMobileMenuOpen] = useState(false);
+  const [feedMenuPlacement, setFeedMenuPlacement] = useState<"left" | "right">("left");
   const feedMobileMenuRef = useRef<HTMLDivElement>(null);
   const [viewBagDetail, setViewBagDetail] = useState<MergedBagRow | null>(null);
   const [activeDailyMenuId, setActiveDailyMenuId] = useState<string | null>(null);
   const [activeBagMenuId, setActiveBagMenuId] = useState<string | null>(null);
   const [activeReconMenuId, setActiveReconMenuId] = useState<string | null>(null);
+
+  /* ── Feeding Status Filter: all | fed | not_fed ── */
+  const [feedStatusFilter, setFeedStatusFilter] = useState<"all" | "fed" | "not_fed">("all");
 
   /* ── helper to navigate from recon to bags tab with column highlight ── */
   const goToOpenedBags = (fishStock: string, size: string, brand?: string, col: "bags" | "remaining" | "all" = "all") => {
@@ -620,9 +624,15 @@ function FeedDocumentation({
   const dayRows = activePonds.map(pond => { const rec = dayRecords.find(r => r.pond === pond.name); return { pond, rec }; });
 
   const filteredDayRows = useMemo(() => {
-    if (!dailySearch.trim()) return dayRows;
+    let list = dayRows;
+    if (feedStatusFilter === "fed") {
+      list = list.filter(({ rec }) => !!rec);
+    } else if (feedStatusFilter === "not_fed") {
+      list = list.filter(({ rec }) => !rec);
+    }
+    if (!dailySearch.trim()) return list;
     const q = dailySearch.toLowerCase().trim();
-    return dayRows.filter(({ pond, rec }) => {
+    return list.filter(({ pond, rec }) => {
       const fs = pondToStock(pond.name);
       return (
         pond.name.toLowerCase().includes(q) ||
@@ -632,7 +642,7 @@ function FeedDocumentation({
         (rec?.recordedBy && rec.recordedBy.toLowerCase().includes(q))
       );
     });
-  }, [dayRows, dailySearch, ponds]);
+  }, [dayRows, dailySearch, feedStatusFilter, ponds]);
 
   /* ── edit feed record state ── */
   const [editRec, setEditRec] = useState<FeedingRecord | null>(null);
@@ -1530,14 +1540,27 @@ function FeedDocumentation({
           <div className="shrink-0 relative" ref={feedMobileMenuRef}>
             <button
               type="button"
-              onClick={() => setFeedMobileMenuOpen(p => !p)}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (!feedMobileMenuOpen && feedMobileMenuRef.current) {
+                  const rect = feedMobileMenuRef.current.getBoundingClientRect();
+                  const dropdownWidth = 160;
+                  const spaceOnRight = window.innerWidth - rect.left;
+                  if (spaceOnRight < dropdownWidth + 16) {
+                    setFeedMenuPlacement("right");
+                  } else {
+                    setFeedMenuPlacement("left");
+                  }
+                }
+                setFeedMobileMenuOpen(p => !p);
+              }}
               className="flex items-center justify-center p-2 rounded-xl border border-slate-200 bg-white text-slate-600 hover:border-green-400 hover:text-green-600 hover:bg-slate-50 transition-colors shadow-2xs"
               title="Export Options"
             >
               <MoreVertical size={15} />
             </button>
             {feedMobileMenuOpen && (
-              <div className="absolute left-0 top-full mt-1.5 bg-white border border-slate-200 rounded-xl shadow-xl z-50 overflow-hidden min-w-[150px] animate-in fade-in zoom-in-95 duration-100">
+              <div className={`absolute ${feedMenuPlacement === "right" ? "right-0" : "left-0"} top-full mt-1.5 bg-white border border-slate-200 rounded-xl shadow-xl z-50 overflow-hidden min-w-[150px] max-w-[calc(100vw-24px)] animate-in fade-in zoom-in-95 duration-100`}>
                 <button onClick={() => { downloadDayCSV(); setFeedMobileMenuOpen(false); }} className="w-full text-left px-3.5 py-2 text-xs font-medium text-slate-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-2 transition-colors"><Download size={13} /> Export CSV</button>
                 <button onClick={() => { downloadDayPDF(); setFeedMobileMenuOpen(false); }} className="w-full text-left px-3.5 py-2 text-xs font-medium text-slate-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-2 transition-colors"><FileText size={13} /> Export PDF</button>
               </div>
@@ -1545,22 +1568,6 @@ function FeedDocumentation({
           </div>
         </div>
       </div>
-
-      {/* Feeding Alert */}
-      {(() => {
-        const fedPonds = new Set((feedingRecords || []).filter(r => r && isSameDate(r.date, TODAY)).map(r => r.pond));
-        const unfed = activePonds.filter(p => !fedPonds.has(p.name));
-        if (unfed.length === 0) return null;
-        return (
-          <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
-            <div className="w-6 h-6 rounded-full bg-amber-200 flex items-center justify-center shrink-0 mt-0.5"><span className="text-amber-800 font-bold text-xs">!</span></div>
-            <div>
-              <p className="text-xs font-bold text-amber-800">Feeding Alert — {unfed.length} pond{unfed.length !== 1 ? "s" : ""} not yet fed today</p>
-              <p className="text-xs text-amber-700 mt-0.5">{unfed.map(p => p.name).join(", ")} have not been fed today.</p>
-            </div>
-          </div>
-        );
-      })()}
 
       {/* Stats */}
       {(() => {
@@ -1605,11 +1612,30 @@ function FeedDocumentation({
           {/* Desktop Table View */}
           <div className="hidden md:block">
             <Card className="overflow-hidden">
-              <div className="px-5 py-4 border-b border-slate-100 bg-slate-50 flex items-center justify-between gap-3">
+              <div className="px-5 py-4 border-b border-slate-100 bg-slate-50 flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <h2 className="text-base font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">{selDate}</h2>
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center gap-2.5">
+                  {/* Feeding Status Filter */}
+                  <div className="flex items-center gap-1 bg-slate-200/90 p-1 rounded-xl border border-slate-300/70">
+                    <span className="text-[10px] font-bold text-slate-500 uppercase px-1.5">Feeding Status:</span>
+                    {(["all", "fed", "not_fed"] as const).map(st => (
+                      <button
+                        key={st}
+                        type="button"
+                        onClick={() => setFeedStatusFilter(st)}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
+                          feedStatusFilter === st
+                            ? "bg-white text-green-700 shadow-xs border border-slate-200/80"
+                            : "text-slate-600 hover:text-slate-900"
+                        }`}
+                      >
+                        {st === "all" ? "All" : st === "fed" ? "Fed" : "Not Fed"}
+                      </button>
+                    ))}
+                  </div>
+
                   <div className="relative">
                     <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" />
                     <input value={dailySearch} onChange={e => setDailySearch(e.target.value)} placeholder="Search pond, stock, or size…" className={`${IC} pl-8 w-44 sm:w-52 text-xs py-1.5`} />
@@ -1704,15 +1730,36 @@ function FeedDocumentation({
 
           {/* Mobile Isolated Cards View */}
           <div className="md:hidden space-y-3">
-            {/* Search and Filter */}
-            <div className="relative">
-              <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" />
-              <input
-                value={dailySearch}
-                onChange={e => setDailySearch(e.target.value)}
-                placeholder="Search pond, stock, or size…"
-                className={`${IC} pl-8 w-full text-xs py-1.5`}
-              />
+            {/* Search and Feeding Status Filter */}
+            <div className="space-y-2">
+              <div className="relative">
+                <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" />
+                <input
+                  value={dailySearch}
+                  onChange={e => setDailySearch(e.target.value)}
+                  placeholder="Search pond, stock, or size…"
+                  className={`${IC} pl-8 w-full text-xs py-1.5`}
+                />
+              </div>
+              <div className="flex items-center justify-between gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200">
+                <span className="text-[11px] font-bold text-slate-500 uppercase px-1.5">Feeding Status:</span>
+                <div className="flex items-center gap-1">
+                  {(["all", "fed", "not_fed"] as const).map(st => (
+                    <button
+                      key={st}
+                      type="button"
+                      onClick={() => setFeedStatusFilter(st)}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
+                        feedStatusFilter === st
+                          ? "bg-white text-green-700 shadow-xs border border-slate-200"
+                          : "text-slate-600 hover:text-slate-900"
+                      }`}
+                    >
+                      {st === "all" ? "All" : st === "fed" ? "Fed" : "Not Fed"}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
 
             {filteredDayRows.length === 0 ? (

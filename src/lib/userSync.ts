@@ -148,6 +148,12 @@ export async function fetchLiveAdminUsers(): Promise<{
 
         const roleStr = (p.role || local?.role || "owner").toLowerCase().trim();
 
+        const subAmount = typeof p.subscription_amount === "number" && !isNaN(p.subscription_amount)
+          ? p.subscription_amount
+          : typeof p.raw_data?.subscription_amount === "number" && !isNaN(p.raw_data.subscription_amount)
+          ? p.raw_data.subscription_amount
+          : (typeof local?.subscriptionAmount === "number" ? local.subscriptionAmount : null);
+
         const u: AdminUser = {
           id: p.id,
           name: p.name || (p.email ? p.email.split("@")[0] : "Farmer"),
@@ -161,14 +167,14 @@ export async function fetchLiveAdminUsers(): Promise<{
           activePlan: p.active_plan || local?.activePlan || "Starter",
           trialStartDate: p.trial_start_date ? String(p.trial_start_date).slice(0, 10) : (local?.trialStartDate || (p.created_at ? String(p.created_at).slice(0, 10) : new Date().toISOString().slice(0, 10))),
           billingFrequency: local?.billingFrequency || "monthly",
-          subscriptionAmount: typeof local?.subscriptionAmount === "number" ? local.subscriptionAmount : null,
+          subscriptionAmount: subAmount,
           hasPaid: hasPaid,
           subscriptionStatus: "Trial",
           subscriptionStart: hasPaid ? (local?.subscriptionStart || null) : null,
           subscriptionExpiry: hasPaid ? (local?.subscriptionExpiry || null) : null,
           accountStatus: (p.status === "Suspended" || local?.accountStatus === "Suspended") ? "Suspended" : "Active",
-          freeAccess: Boolean(local?.freeAccess || p.free_access),
-          farmCount: Math.max(Number(p.farm_count) || 1, local?.farmCount || 1),
+          freeAccess: Boolean(p.free_access || p.raw_data?.free_access || local?.freeAccess),
+          farmCount: Number(p.farm_count) > 0 ? Number(p.farm_count) : (local?.farmCount || 1),
           pondCount: Number(p.pond_count) || local?.pondCount || 0,
           staffCount: Number(p.staff_count) || local?.staffCount || 0,
           paystackReference: local?.paystackReference || p.paystack_reference,
@@ -236,8 +242,16 @@ export async function fetchLiveAdminUsers(): Promise<{
           );
 
           const userFarms = rawFarms.filter((f: any) => f.user_id === p.id);
-          const farmCount = userFarms.length > 0 ? userFarms.length : (p.farm_name ? 1 : (local?.farmCount || 1));
-          const farmName = p.farm_name || userFarms[0]?.name || local?.farmName || "Primary Farm";
+          // De-duplicate duplicate farm rows by name
+          const uniqueFarmNames = new Set<string>();
+          const deduplicatedFarms = userFarms.filter((f: any) => {
+            const normName = (f.name || "Primary Farm").toLowerCase().trim();
+            if (uniqueFarmNames.has(normName)) return false;
+            uniqueFarmNames.add(normName);
+            return true;
+          });
+          const farmCount = deduplicatedFarms.length > 0 ? deduplicatedFarms.length : (p.farm_name ? 1 : (local?.farmCount || 1));
+          const farmName = p.farm_name || deduplicatedFarms[0]?.name || userFarms[0]?.name || local?.farmName || "Primary Farm";
 
           const userFarmIds = new Set(userFarms.map((f: any) => f.id));
           const userPonds = rawPonds.filter((pd: any) => pd.user_id === p.id || (pd.farm_id && userFarmIds.has(pd.farm_id)));
@@ -258,6 +272,12 @@ export async function fetchLiveAdminUsers(): Promise<{
             p.last_payment_date
           );
 
+          const subAmount = typeof p.subscription_amount === "number" && !isNaN(p.subscription_amount)
+            ? p.subscription_amount
+            : typeof p.raw_data?.subscription_amount === "number" && !isNaN(p.raw_data.subscription_amount)
+            ? p.raw_data.subscription_amount
+            : (typeof local?.subscriptionAmount === "number" ? local.subscriptionAmount : null);
+
           const u: AdminUser = {
             id: p.id,
             name: p.name || (p.email ? p.email.split("@")[0] : "Farmer"),
@@ -271,13 +291,13 @@ export async function fetchLiveAdminUsers(): Promise<{
             activePlan: p.active_plan || local?.activePlan || "Starter",
             trialStartDate: p.trial_start_date ? String(p.trial_start_date).slice(0, 10) : (local?.trialStartDate || (p.created_at ? String(p.created_at).slice(0, 10) : new Date().toISOString().slice(0, 10))),
             billingFrequency: local?.billingFrequency || "monthly",
-            subscriptionAmount: typeof local?.subscriptionAmount === "number" ? local.subscriptionAmount : null,
+            subscriptionAmount: subAmount,
             hasPaid: hasPaid,
             subscriptionStatus: "Trial",
             subscriptionStart: hasPaid ? (local?.subscriptionStart || null) : null,
             subscriptionExpiry: hasPaid ? (local?.subscriptionExpiry || null) : null,
             accountStatus: (p.status === "Suspended" || local?.accountStatus === "Suspended") ? "Suspended" : "Active",
-            freeAccess: Boolean(local?.freeAccess),
+            freeAccess: Boolean(p.free_access || p.raw_data?.free_access || local?.freeAccess),
             farmCount: farmCount,
             pondCount: pondCount,
             staffCount: staffCount,
@@ -484,8 +504,14 @@ export async function updateAdminUserInDb(u: AdminUser): Promise<boolean> {
       role: u.role || "owner",
       trial_start_date: u.trialStartDate,
       subscription_status: u.subscriptionStatus,
+      subscription_amount: typeof u.subscriptionAmount === "number" && !isNaN(u.subscriptionAmount) ? u.subscriptionAmount : null,
+      free_access: Boolean(u.freeAccess),
       paystack_reference: u.paystackReference || null,
       last_payment_date: u.lastPaymentDate || null,
+      raw_data: {
+        subscription_amount: typeof u.subscriptionAmount === "number" && !isNaN(u.subscriptionAmount) ? u.subscriptionAmount : null,
+        free_access: Boolean(u.freeAccess),
+      },
       updated_at: new Date().toISOString(),
     };
 
@@ -498,6 +524,16 @@ export async function updateAdminUserInDb(u: AdminUser): Promise<boolean> {
 
     if (!profError) {
       profSuccess = true;
+    } else {
+      // If subscription_amount or free_access columns do not exist yet in table schema, retry without them
+      const fallbackPayload = { ...profilePayload };
+      delete fallbackPayload.subscription_amount;
+      delete fallbackPayload.free_access;
+      const { error: fbErr } = await supabase
+        .from("user_profiles")
+        .update(fallbackPayload)
+        .eq("id", u.id);
+      if (!fbErr) profSuccess = true;
     }
 
     // 2. Try RPC admin_update_user_profile if present in schema
@@ -514,6 +550,7 @@ export async function updateAdminUserInDb(u: AdminUser): Promise<boolean> {
         new_active_plan: u.activePlan,
         new_status: u.accountStatus,
         new_subscription_status: u.subscriptionStatus,
+        new_subscription_amount: typeof u.subscriptionAmount === "number" && !isNaN(u.subscriptionAmount) ? u.subscriptionAmount : null,
         new_free_access: Boolean(u.freeAccess),
       });
       if (!rpcErr) profSuccess = true;
@@ -841,32 +878,55 @@ export function syncUserProfileToAdmin(
 /**
  * Check if the active user has special admin overrides
  */
-export function getUserAdminOverride(email: string | undefined | null): {
+export function getUserAdminOverride(
+  email: string | undefined | null,
+  profile?: any
+): {
   isSuspended: boolean;
   hasFreeAccess: boolean;
   customAmount: number | null;
   activePlan: string | null;
 } {
   const fallback = { isSuspended: false, hasFreeAccess: false, customAmount: null, activePlan: null };
+
+  // 1. Direct profile object inspection
+  const directCustomAmount =
+    profile && typeof profile.subscriptionAmount === "number" && !isNaN(profile.subscriptionAmount)
+      ? profile.subscriptionAmount
+      : profile && typeof profile.subscription_amount === "number" && !isNaN(profile.subscription_amount)
+      ? profile.subscription_amount
+      : null;
+
+  const directFreeAccess = Boolean(profile?.freeAccess || profile?.free_access);
+  const directSuspended = profile?.status === "Suspended" || profile?.accountStatus === "Suspended";
+  const directPlan = profile?.activePlan || profile?.active_plan || null;
+
   if (!email || typeof email !== "string") {
+    if (directCustomAmount !== null || directFreeAccess) {
+      return {
+        isSuspended: directSuspended,
+        hasFreeAccess: directFreeAccess,
+        customAmount: directCustomAmount,
+        activePlan: directPlan,
+      };
+    }
     return fallback;
   }
 
   const cleanEmail = email.trim().toLowerCase();
-  if (!cleanEmail) return fallback;
-
   const users = loadAllAdminUsers();
   const u = users.find(x => (x?.email || "").trim().toLowerCase() === cleanEmail);
 
-  if (!u) {
-    return fallback;
-  }
-
   return {
-    isSuspended: u.accountStatus === "Suspended",
-    hasFreeAccess: Boolean(u.freeAccess),
-    customAmount: typeof u.subscriptionAmount === "number" && !isNaN(u.subscriptionAmount) ? u.subscriptionAmount : null,
-    activePlan: u.activePlan || null,
+    isSuspended: directSuspended || (u ? u.accountStatus === "Suspended" : false),
+    hasFreeAccess: directFreeAccess || Boolean(u?.freeAccess),
+    customAmount:
+      directCustomAmount !== null
+        ? directCustomAmount
+        : typeof u?.subscriptionAmount === "number" && !isNaN(u.subscriptionAmount)
+        ? u.subscriptionAmount
+        : null,
+    activePlan: directPlan || u?.activePlan || null,
   };
 }
 
