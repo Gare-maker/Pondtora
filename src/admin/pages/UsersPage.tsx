@@ -720,18 +720,12 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
           </div>
         </div>
 
-        {/* Users Table */}
-        <div className="overflow-x-auto min-h-[300px]">
-          <table className="w-full text-xs min-w-[980px]">
-            <thead className="bg-slate-50 border-b border-slate-100">
+        {/* Desktop Table View */}
+        <div className="hidden md:block overflow-x-auto min-h-[300px]">
+          <table className="w-full text-xs">
+            <thead className="bg-slate-50 border-b border-slate-200">
               <tr>
                 {COLS.map((col, i) => (
-          {/* Desktop Table View */}
-          <div className="hidden md:block overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead className="bg-slate-50 border-b border-slate-200">
-                <tr>
-                  {COLS.map((col, i) => (
                     <th
                       key={i}
                       className="px-4 py-3 text-left text-[10px] uppercase tracking-wider text-slate-400 font-bold whitespace-nowrap"
@@ -1626,60 +1620,6 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
             </div>
           </div>
         </div>
-      )}
-
-      {/* Add User Modal */}
-      {showAdd && (
-        <Modal
-          title="Add Farmer Account"
-          onClose={() => {
-            setShowAdd(false);
-            setForm({ ...BLANK });
-            setFErr({});
-          }}
-        >
-          <UserForm f={form} setF={setForm} err={fErr} planNames={planNames} />
-          <div className="flex justify-end gap-2 pt-4 border-t border-slate-100 mt-4">
-            <PBtn
-              outline
-              onClick={() => {
-                setShowAdd(false);
-                setForm({ ...BLANK });
-                setFErr({});
-              }}
-            >
-              Cancel
-            </PBtn>
-            <PBtn onClick={handleAdd}>Create Account</PBtn>
-          </div>
-        </Modal>
-      )}
-
-      {/* Edit User Modal */}
-      {editUser && (
-        <Modal
-          title={`Edit User: ${editUser.name || editUser.email}`}
-          onClose={() => {
-            setEditUser(null);
-            setForm({ ...BLANK });
-            setFErr({});
-          }}
-        >
-          <UserForm f={form} setF={setForm} err={fErr} planNames={planNames} />
-          <div className="flex justify-end gap-2 pt-4 border-t border-slate-100 mt-4">
-            <PBtn
-              outline
-              onClick={() => {
-                setEditUser(null);
-                setForm({ ...BLANK });
-                setFErr({});
-              }}
-            >
-              Cancel
-            </PBtn>
-            <PBtn onClick={handleEdit}>Save Changes</PBtn>
-          </div>
-        </Modal>
       )}
 
       {/* Delete User Modal */}
