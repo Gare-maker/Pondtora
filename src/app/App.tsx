@@ -2906,11 +2906,11 @@ function SubscriptionPage({
       <div className="sticky top-0 z-10 bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 text-center">
         {adminOverride.hasFreeAccess ? (
           <div className="inline-flex items-center gap-2 bg-purple-50 border border-purple-200 rounded-full px-4 py-1.5 text-purple-800 text-xs font-semibold mb-3 shadow-xs">
-            <Crown size={14} className="text-purple-600" /> <strong>Complimentary Lifetime Access:</strong> Your farm account has full VIP access with zero billing required.
+            <Crown size={14} className="text-purple-600" /> <strong>Complimentary Lifetime Access:</strong> VIP access active
           </div>
         ) : isPaidActive && formattedExpiryDate ? (
           <div className="inline-flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-full px-4 py-1.5 text-emerald-800 text-xs font-semibold mb-3 shadow-xs">
-            <CheckCircle size={14} className="text-emerald-600" /> <strong>Active Paid Subscription:</strong> {activePlan || effectiveProfile?.activePlan} ({effectiveProfile?.billingFrequency || currentAdminUser?.billingFrequency || "monthly"}) — Active until <strong>{formattedExpiryDate}</strong> {effectiveProfile?.paystackReference || currentAdminUser?.paystackReference ? `· Ref: ${effectiveProfile?.paystackReference || currentAdminUser?.paystackReference}` : ""}. Plan changes / renewal pricing below will apply on your next cycle.
+            <CheckCircle size={14} className="text-emerald-600" /> <strong>Active Paid Subscription:</strong> {activePlan || effectiveProfile?.activePlan} · Expires on <strong>{formattedExpiryDate}</strong>
           </div>
         ) : trialExpiryDate ? (
           <div className="inline-flex items-center gap-2 bg-green-50 border border-green-200 rounded-full px-4 py-1.5 text-green-700 text-xs font-semibold mb-3 shadow-xs">
@@ -3052,8 +3052,13 @@ function SubscriptionPage({
                   </div>
 
                   {isPaidActive && isCurrent ? (
-                    <div className="w-full py-2.5 rounded-xl text-xs font-bold bg-emerald-100 text-emerald-800 mt-auto text-center flex items-center justify-center gap-1.5 border border-emerald-200">
-                      <CheckCircle size={14} className="text-emerald-600" /> Current Active Plan
+                    <div className="space-y-1.5 mt-auto">
+                      <div className="w-full py-2.5 rounded-xl text-xs font-bold bg-emerald-100 text-emerald-800 text-center flex items-center justify-center gap-1.5 border border-emerald-200">
+                        <CheckCircle size={14} className="text-emerald-600" /> Current Active Plan
+                      </div>
+                      <p className="text-[10px] text-center text-slate-500 font-medium leading-tight">
+                        Plan changes / renewal pricing below will apply on your next cycle.
+                      </p>
                     </div>
                   ) : (
                     <button
@@ -3165,8 +3170,13 @@ function SubscriptionPage({
                   </div>
 
                   {isPaidActive && isCurrent ? (
-                    <div className="w-full py-2.5 rounded-xl text-xs font-bold bg-emerald-100 text-emerald-800 mt-auto text-center flex items-center justify-center gap-1.5 border border-emerald-200">
-                      <CheckCircle size={14} className="text-emerald-600" /> Current Active Plan
+                    <div className="space-y-1.5 mt-auto">
+                      <div className="w-full py-2.5 rounded-xl text-xs font-bold bg-emerald-100 text-emerald-800 text-center flex items-center justify-center gap-1.5 border border-emerald-200">
+                        <CheckCircle size={14} className="text-emerald-600" /> Current Active Plan
+                      </div>
+                      <p className="text-[10px] text-center text-slate-500 font-medium leading-tight">
+                        Plan changes / renewal pricing below will apply on your next cycle.
+                      </p>
                     </div>
                   ) : (
                     <button
