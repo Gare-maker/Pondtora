@@ -382,84 +382,64 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
     let localInvoices: any[] = [];
     let localInvestors: any[] = [];
 
-    try {
-      const rawFarms = localStorage.getItem("pondtora_farms");
-      if (rawFarms) {
-        const parsed = JSON.parse(rawFarms);
-        if (Array.isArray(parsed)) {
-          localFarms = parsed.filter((f: any) => f && (f.user_id === u.id || f.owner_id === u.id));
-        }
+    const matchesUser = (item: any) => {
+      if (!item) return false;
+      return item.user_id === u.id || item.userId === u.id || item.owner_id === u.id ||
+             (u.email && (item.user_email === u.email || item.email === u.email));
+    };
+
+    const getItemsFromKeys = (keys: string[]) => {
+      let combined: any[] = [];
+      for (const k of keys) {
+        try {
+          const raw = localStorage.getItem(k);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) combined.push(...parsed);
+          }
+        } catch {}
       }
+      return combined;
+    };
+
+    try {
+      const farms = getItemsFromKeys(["pondtora_farms", `pondtora_${u.id}_farms`, ...(u.email ? [`pondtora_${u.email}_farms`] : [])]);
+      localFarms = farms.filter(matchesUser);
     } catch {}
 
     try {
-      const rawPonds = localStorage.getItem("pondtora_ponds");
-      if (rawPonds) {
-        const parsed = JSON.parse(rawPonds);
-        if (Array.isArray(parsed)) {
-          localPonds = parsed.filter((p: any) => p && (p.user_id === u.id || p.owner_id === u.id));
-        }
-      }
+      const ponds = getItemsFromKeys(["pondtora_ponds", `pondtora_${u.id}_ponds`, ...(u.email ? [`pondtora_${u.email}_ponds`] : [])]);
+      localPonds = ponds.filter(matchesUser);
     } catch {}
 
     try {
-      const rawStaff = localStorage.getItem("pondtora_staff");
-      if (rawStaff) {
-        const parsed = JSON.parse(rawStaff);
-        if (Array.isArray(parsed)) {
-          localStaff = parsed.filter((s: any) => s && (s.user_id === u.id || s.owner_id === u.id));
-        }
-      }
+      const staff = getItemsFromKeys(["pondtora_staff", `pondtora_${u.id}_staff`, ...(u.email ? [`pondtora_${u.email}_staff`] : [])]);
+      localStaff = staff.filter(matchesUser);
     } catch {}
 
     try {
-      const rawFeed = localStorage.getItem("pondtora_feed_inventory");
-      if (rawFeed) {
-        const parsed = JSON.parse(rawFeed);
-        if (Array.isArray(parsed)) {
-          localFeed = parsed.filter((f: any) => f && f.user_id === u.id);
-        }
-      }
+      const feed = getItemsFromKeys(["pondtora_feed_inventory", "pondtora_feeds", `pondtora_${u.id}_feed_inventory`, ...(u.email ? [`pondtora_${u.email}_feed_inventory`] : [])]);
+      localFeed = feed.filter(matchesUser);
     } catch {}
 
     try {
-      const rawFeeding = localStorage.getItem("pondtora_feeding_records");
-      if (rawFeeding) {
-        const parsed = JSON.parse(rawFeeding);
-        if (Array.isArray(parsed)) {
-          localFeeding = parsed.filter((r: any) => r && r.user_id === u.id);
-        }
-      }
+      const feeding = getItemsFromKeys(["pondtora_feeding_records", `pondtora_${u.id}_feeding_records`, ...(u.email ? [`pondtora_${u.email}_feeding_records`] : [])]);
+      localFeeding = feeding.filter(matchesUser);
     } catch {}
 
     try {
-      const rawInvoices = localStorage.getItem("pondtora_invoices");
-      if (rawInvoices) {
-        const parsed = JSON.parse(rawInvoices);
-        if (Array.isArray(parsed)) {
-          localInvoices = parsed.filter((inv: any) => inv && inv.user_id === u.id);
-        }
-      }
+      const invoices = getItemsFromKeys(["pondtora_invoices", `pondtora_${u.id}_invoices`, ...(u.email ? [`pondtora_${u.email}_invoices`] : [])]);
+      localInvoices = invoices.filter(matchesUser);
     } catch {}
 
     try {
-      const rawRevenues = localStorage.getItem("pondtora_revenues");
-      if (rawRevenues) {
-        const parsed = JSON.parse(rawRevenues);
-        if (Array.isArray(parsed)) {
-          localRevenues = parsed.filter((r: any) => r && r.user_id === u.id);
-        }
-      }
+      const revenues = getItemsFromKeys(["pondtora_revenues", `pondtora_${u.id}_revenues`, ...(u.email ? [`pondtora_${u.email}_revenues`] : [])]);
+      localRevenues = revenues.filter(matchesUser);
     } catch {}
 
     try {
-      const rawExpenses = localStorage.getItem("pondtora_expenses");
-      if (rawExpenses) {
-        const parsed = JSON.parse(rawExpenses);
-        if (Array.isArray(parsed)) {
-          localExpenses = parsed.filter((e: any) => e && e.user_id === u.id);
-        }
-      }
+      const expenses = getItemsFromKeys(["pondtora_expenses", `pondtora_${u.id}_expenses`, ...(u.email ? [`pondtora_${u.email}_expenses`] : [])]);
+      localExpenses = expenses.filter(matchesUser);
     } catch {}
 
     if (localFarms.length === 0 && (u.farmCount || u.farmName)) {
@@ -492,8 +472,40 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
 
     let isSubscribed = true;
 
-    // 2. Fetch live data in background with timeout safety and Promise.allSettled
+    // 2. Fetch live data in background with RPC priority and direct query fallback
     const fetchLiveData = async () => {
+      // First try the security definer RPC function which bypasses user RLS restrictions for admins
+      try {
+        const { data: rpcData, error: rpcErr } = await (supabase.rpc as any)("get_user_full_records_for_admin", {
+          target_user_id: viewUser.id,
+          target_email: viewUser.email || null,
+        });
+
+        if (!rpcErr && rpcData && typeof rpcData === "object" && isSubscribed) {
+          const updated = {
+            loading: false,
+            farms: Array.isArray(rpcData.farms) && rpcData.farms.length > 0 ? rpcData.farms : initialSync.farms,
+            ponds: Array.isArray(rpcData.ponds) && rpcData.ponds.length > 0 ? rpcData.ponds : initialSync.ponds,
+            staff: Array.isArray(rpcData.staff) && rpcData.staff.length > 0 ? rpcData.staff : initialSync.staff,
+            feedInventory: Array.isArray(rpcData.feedInventory) && rpcData.feedInventory.length > 0 ? rpcData.feedInventory : initialSync.feedInventory,
+            feedingRecords: Array.isArray(rpcData.feedingRecords) && rpcData.feedingRecords.length > 0 ? rpcData.feedingRecords : initialSync.feedingRecords,
+            revenues: Array.isArray(rpcData.revenues) && rpcData.revenues.length > 0 ? rpcData.revenues : initialSync.revenues,
+            expenses: Array.isArray(rpcData.expenses) && rpcData.expenses.length > 0 ? rpcData.expenses : initialSync.expenses,
+            invoices: Array.isArray(rpcData.invoices) && rpcData.invoices.length > 0 ? rpcData.invoices : initialSync.invoices,
+            investors: Array.isArray(rpcData.investors) && rpcData.investors.length > 0 ? rpcData.investors : initialSync.investors,
+          };
+
+          userExtraCacheRef.current.set(viewUser.id, updated);
+          if (viewUser.email) userExtraCacheRef.current.set(viewUser.email, updated);
+
+          setUserExtra(updated);
+          return;
+        }
+      } catch (e) {
+        console.warn("RPC fetch fallback to direct queries:", e);
+      }
+
+      // Fallback: direct table queries with timeout
       const timeoutPromise = new Promise<{ isTimeout: true }>(resolve =>
         setTimeout(() => resolve({ isTimeout: true }), 3000)
       );
@@ -504,8 +516,8 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
         supabase.from("staff_members").select("id, name, email, role, status").eq("user_id", viewUser.id).order("created_at", { ascending: false }),
         supabase.from("feed_inventory").select("id, brand, size, bags_in_stock, weight_per_bag, total_kg").eq("user_id", viewUser.id),
         supabase.from("feeding_records").select("id, pond, date, total, size, morning, evening").eq("user_id", viewUser.id).order("created_at", { ascending: false }).limit(40),
-        supabase.from("revenues").select("id, category, amount, date, customer").eq("user_id", viewUser.id).order("date", { ascending: false }).limit(40),
-        supabase.from("expenses").select("id, category, amount, date, description").eq("user_id", viewUser.id).order("date", { ascending: false }).limit(40),
+        supabase.from("revenues").select("id, category, amount, date, customer, description").eq("user_id", viewUser.id).order("date", { ascending: false }).limit(40),
+        supabase.from("expenses").select("id, category, amount, date, description, vendor").eq("user_id", viewUser.id).order("date", { ascending: false }).limit(40),
         supabase.from("invoices").select("id, invoice_number, customer_name, grand_total, status, created_at").eq("user_id", viewUser.id).order("created_at", { ascending: false }).limit(40),
         supabase.from("investors").select("id, name, email, phone, total_invested").eq("user_id", viewUser.id),
       ]);
@@ -1326,7 +1338,7 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                   { id: "summary", label: "📊 Overview", count: null },
                   { id: "ponds", label: "💧 Ponds & Fish", count: (userExtra?.ponds || []).length > 0 ? userExtra.ponds.length : (viewUser.pondCount ?? 0) },
                   { id: "feed", label: "🌾 Feed & Stock", count: (userExtra?.feedInventory || []).length },
-                  { id: "finance", label: "💰 Financials & Invoices", count: (userExtra?.invoices || []).length > 0 ? userExtra.invoices.length : (viewUser.invoicesCount ?? 0) },
+                  { id: "finance", label: "💰 Financials & Invoices", count: (userExtra?.revenues?.length || 0) + (userExtra?.expenses?.length || 0) + (userExtra?.invoices?.length || 0) },
                   { id: "staff", label: "👥 Staff Team", count: (userExtra?.staff || []).length > 0 ? userExtra.staff.length : (viewUser.staffCount ?? 0) },
                   { id: "farms", label: "🏡 Farms", count: (userExtra?.farms || []).length > 0 ? userExtra.farms.length : (viewUser.farmCount ?? 1) },
                 ].map(t => (
@@ -1608,40 +1620,130 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
               {/* Tab 4: Financials & Invoices */}
               {farmerDataTab === "finance" && (
                 <div className="space-y-4">
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="bg-emerald-50/70 border border-emerald-200 p-3 rounded-xl text-center">
+                  {/* Summary Metric Cards */}
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="bg-emerald-50/80 border border-emerald-200 p-3 rounded-xl text-center">
                       <p className="text-[10px] uppercase font-bold text-emerald-700">Recorded Revenue</p>
                       <p className="text-xl font-bold text-emerald-900 font-['Barlow_Condensed',sans-serif] mt-0.5">
                         ₦{(userExtra?.revenues || []).reduce((s, r) => s + (Number(r?.amount) || 0), 0).toLocaleString()}
                       </p>
+                      <p className="text-[10px] text-emerald-600 font-medium mt-0.5">{(userExtra?.revenues || []).length} Entries</p>
                     </div>
-                    <div className="bg-rose-50/70 border border-rose-200 p-3 rounded-xl text-center">
+                    <div className="bg-rose-50/80 border border-rose-200 p-3 rounded-xl text-center">
                       <p className="text-[10px] uppercase font-bold text-rose-700">Recorded Expenses</p>
                       <p className="text-xl font-bold text-rose-900 font-['Barlow_Condensed',sans-serif] mt-0.5">
                         ₦{(userExtra?.expenses || []).reduce((s, e) => s + (Number(e?.amount) || 0), 0).toLocaleString()}
                       </p>
+                      <p className="text-[10px] text-rose-600 font-medium mt-0.5">{(userExtra?.expenses || []).length} Entries</p>
                     </div>
+                    {(() => {
+                      const totalRev = (userExtra?.revenues || []).reduce((s, r) => s + (Number(r?.amount) || 0), 0);
+                      const totalExp = (userExtra?.expenses || []).reduce((s, e) => s + (Number(e?.amount) || 0), 0);
+                      const net = totalRev - totalExp;
+                      return (
+                        <div className={`p-3 rounded-xl text-center border ${net >= 0 ? "bg-blue-50/80 border-blue-200" : "bg-amber-50/80 border-amber-200"}`}>
+                          <p className={`text-[10px] uppercase font-bold ${net >= 0 ? "text-blue-700" : "text-amber-700"}`}>Net Profit</p>
+                          <p className={`text-xl font-bold font-['Barlow_Condensed',sans-serif] mt-0.5 ${net >= 0 ? "text-blue-900" : "text-amber-900"}`}>
+                            {net < 0 ? "-₦" + Math.abs(net).toLocaleString() : "₦" + net.toLocaleString()}
+                          </p>
+                          <p className={`text-[10px] font-medium mt-0.5 ${net >= 0 ? "text-blue-600" : "text-amber-600"}`}>
+                            {(userExtra?.invoices || []).length} Invoices
+                          </p>
+                        </div>
+                      );
+                    })()}
                   </div>
 
+                  {/* Section 1: Recent Revenues */}
+                  <div>
+                    <h3 className="text-xs font-bold text-slate-700 mb-2 flex items-center justify-between">
+                      <span className="flex items-center gap-1.5 text-emerald-700">
+                        <TrendingUp size={14} className="text-emerald-600" />
+                        Recorded Revenues ({(userExtra?.revenues || []).length})
+                      </span>
+                    </h3>
+                    {(userExtra?.revenues || []).length === 0 ? (
+                      <div className="p-3 text-center border border-slate-200 rounded-xl bg-slate-50 text-slate-400 text-xs">
+                        No revenue records logged yet.
+                      </div>
+                    ) : (
+                      <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100 max-h-48 overflow-y-auto">
+                        {(userExtra?.revenues || []).map((rev, i) => (
+                          <div key={rev.id || i} className="p-2.5 flex items-center justify-between gap-2 text-xs hover:bg-slate-50 transition-colors">
+                            <div className="min-w-0">
+                              <p className="font-bold text-slate-800 truncate">
+                                {rev.category || "Fish Sales"} {rev.customer ? `• ${rev.customer}` : ""}
+                              </p>
+                              <p className="text-[10px] text-slate-400 truncate">
+                                {fmtDate(rev.date || rev.created_at)} {rev.description ? `• ${rev.description}` : ""}
+                              </p>
+                            </div>
+                            <div className="text-right shrink-0">
+                              <p className="font-bold text-emerald-700 font-['Barlow_Condensed',sans-serif] text-sm">
+                                +₦{(Number(rev.amount) || 0).toLocaleString()}
+                              </p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Section 2: Recent Expenses */}
+                  <div>
+                    <h3 className="text-xs font-bold text-slate-700 mb-2 flex items-center justify-between">
+                      <span className="flex items-center gap-1.5 text-rose-700">
+                        <CreditCard size={14} className="text-rose-600" />
+                        Recorded Expenses ({(userExtra?.expenses || []).length})
+                      </span>
+                    </h3>
+                    {(userExtra?.expenses || []).length === 0 ? (
+                      <div className="p-3 text-center border border-slate-200 rounded-xl bg-slate-50 text-slate-400 text-xs">
+                        No expense records logged yet.
+                      </div>
+                    ) : (
+                      <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100 max-h-48 overflow-y-auto">
+                        {(userExtra?.expenses || []).map((exp, i) => (
+                          <div key={exp.id || i} className="p-2.5 flex items-center justify-between gap-2 text-xs hover:bg-slate-50 transition-colors">
+                            <div className="min-w-0">
+                              <p className="font-bold text-slate-800 truncate">
+                                {exp.category || "Operational"} {exp.vendor ? `• ${exp.vendor}` : ""}
+                              </p>
+                              <p className="text-[10px] text-slate-400 truncate">
+                                {fmtDate(exp.date || exp.created_at)} {exp.description ? `• ${exp.description}` : ""}
+                              </p>
+                            </div>
+                            <div className="text-right shrink-0">
+                              <p className="font-bold text-rose-700 font-['Barlow_Condensed',sans-serif] text-sm">
+                                -₦{(Number(exp.amount) || 0).toLocaleString()}
+                              </p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Section 3: Invoices */}
                   <div>
                     <h3 className="text-xs font-bold text-slate-700 mb-2 flex items-center gap-1.5">
                       <FileText size={14} className="text-purple-600" />
                       Sales Invoices ({(userExtra?.invoices || []).length})
                     </h3>
                     {(userExtra?.invoices || []).length === 0 ? (
-                      <div className="p-4 text-center border border-slate-200 rounded-xl bg-slate-50 text-slate-400 text-xs">
+                      <div className="p-3 text-center border border-slate-200 rounded-xl bg-slate-50 text-slate-400 text-xs">
                         No sales invoices created yet.
                       </div>
                     ) : (
                       <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100 max-h-48 overflow-y-auto">
                         {(userExtra?.invoices || []).map((inv, i) => (
-                          <div key={inv.id || i} className="p-2.5 flex items-center justify-between gap-2 text-xs hover:bg-slate-50">
+                          <div key={inv.id || i} className="p-2.5 flex items-center justify-between gap-2 text-xs hover:bg-slate-50 transition-colors">
                             <div>
                               <p className="font-bold text-slate-800">{inv.invoice_number || `Invoice #${i + 1}`} • {inv.customer_name || "Customer"}</p>
-                              <p className="text-[10px] text-slate-400">{fmtDate(inv.created_at)}</p>
+                              <p className="text-[10px] text-slate-400">{fmtDate(inv.created_at || inv.due_date)}</p>
                             </div>
                             <div className="text-right shrink-0">
-                              <p className="font-bold text-slate-900">₦{(Number(inv.grand_total) || 0).toLocaleString()}</p>
+                              <p className="font-bold text-slate-900">₦{(Number(inv.grand_total || inv.subtotal) || 0).toLocaleString()}</p>
                               <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded ${inv.status === "Paid" ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"}`}>
                                 {inv.status || "Pending"}
                               </span>

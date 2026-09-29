@@ -209,3 +209,84 @@ BEGIN
   END IF;
 END;
 $$;
+
+-- 6. Get user full operational & financial records for Admin (SECURITY DEFINER)
+DROP FUNCTION IF EXISTS get_user_full_records_for_admin(UUID, TEXT);
+CREATE OR REPLACE FUNCTION get_user_full_records_for_admin(
+  target_user_id UUID DEFAULT NULL,
+  target_email TEXT DEFAULT NULL
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  resolved_id UUID;
+  result JSONB;
+BEGIN
+  -- Resolve user ID
+  IF target_user_id IS NOT NULL THEN
+    resolved_id := target_user_id;
+  ELSIF target_email IS NOT NULL AND TRIM(target_email) <> '' THEN
+    SELECT id INTO resolved_id
+    FROM user_profiles
+    WHERE LOWER(email) = LOWER(TRIM(target_email))
+    LIMIT 1;
+  END IF;
+
+  IF resolved_id IS NULL THEN
+    RETURN jsonb_build_object(
+      'farms', '[]'::jsonb,
+      'ponds', '[]'::jsonb,
+      'staff', '[]'::jsonb,
+      'feedInventory', '[]'::jsonb,
+      'feedingRecords', '[]'::jsonb,
+      'revenues', '[]'::jsonb,
+      'expenses', '[]'::jsonb,
+      'invoices', '[]'::jsonb,
+      'investors', '[]'::jsonb
+    );
+  END IF;
+
+  SELECT jsonb_build_object(
+    'farms', COALESCE((
+      SELECT jsonb_agg(to_jsonb(f))
+      FROM (SELECT id, name, city, state, country, created_at FROM farms WHERE user_id = resolved_id ORDER BY created_at ASC) f
+    ), '[]'::jsonb),
+    'ponds', COALESCE((
+      SELECT jsonb_agg(to_jsonb(pd))
+      FROM (SELECT id, name, size_m2, farm_id, current_count, initial_stock, species, stocking_date FROM ponds WHERE user_id = resolved_id OR farm_id IN (SELECT id FROM farms WHERE user_id = resolved_id) ORDER BY created_at DESC) pd
+    ), '[]'::jsonb),
+    'staff', COALESCE((
+      SELECT jsonb_agg(to_jsonb(s))
+      FROM (SELECT id, name, email, role, status, phone FROM staff_members WHERE user_id = resolved_id ORDER BY created_at DESC) s
+    ), '[]'::jsonb),
+    'feedInventory', COALESCE((
+      SELECT jsonb_agg(to_jsonb(fd))
+      FROM (SELECT id, brand, size, bags_in_stock, weight_per_bag, total_kg, cost_per_bag FROM feed_inventory WHERE user_id = resolved_id) fd
+    ), '[]'::jsonb),
+    'feedingRecords', COALESCE((
+      SELECT jsonb_agg(to_jsonb(fr))
+      FROM (SELECT id, pond, date, total, size, morning, evening, notes FROM feeding_records WHERE user_id = resolved_id ORDER BY date DESC, created_at DESC LIMIT 100) fr
+    ), '[]'::jsonb),
+    'revenues', COALESCE((
+      SELECT jsonb_agg(to_jsonb(r))
+      FROM (SELECT id, category, amount, date, customer, notes, description FROM revenues WHERE user_id = resolved_id ORDER BY date DESC, created_at DESC LIMIT 100) r
+    ), '[]'::jsonb),
+    'expenses', COALESCE((
+      SELECT jsonb_agg(to_jsonb(e))
+      FROM (SELECT id, category, amount, date, description, notes, vendor FROM expenses WHERE user_id = resolved_id ORDER BY date DESC, created_at DESC LIMIT 100) e
+    ), '[]'::jsonb),
+    'invoices', COALESCE((
+      SELECT jsonb_agg(to_jsonb(i))
+      FROM (SELECT id, invoice_number, customer_name, grand_total, subtotal, status, created_at, due_date FROM invoices WHERE user_id = resolved_id ORDER BY created_at DESC LIMIT 100) i
+    ), '[]'::jsonb),
+    'investors', COALESCE((
+      SELECT jsonb_agg(to_jsonb(inv))
+      FROM (SELECT id, name, email, phone, total_invested, notes FROM investors WHERE user_id = resolved_id) inv
+    ), '[]'::jsonb)
+  ) INTO result;
+
+  RETURN result;
+END;
+$$;
