@@ -33,7 +33,7 @@ import PondReportsComponent from "./pages/PondReportsComponent";
 import { Toaster, toast } from "sonner";
 import { useDynamicPlans } from "../lib/plansStore";
 import { syncUserProfileToAdmin, getUserAdminOverride, logActivity, recordSuccessfulPayment, loadAllAdminUsers } from "../lib/userSync";
-import { initializePaystackCheckout, getActivePaystackPublicKey, loadPaystackConfig } from "../lib/paystack";
+import { initializePaystackCheckout, getActivePaystackPublicKey, loadPaystackConfig, getPendingPaystackTransaction, clearPendingPaystackTransaction } from "../lib/paystack";
 import { derivePaymentStatus, deriveInvestmentStatus, generateInvestmentSchedule } from "../lib/investmentUtils";
 import { getUserReferralStats, captureReferralParam, getReferralLink, getUserReferralCode } from "../lib/referralStore";
 import confetti from "canvas-confetti";
@@ -2708,6 +2708,100 @@ function SubscriptionPage({
     };
   };
 
+  const [pendingTransfer, setPendingTransfer] = useState<{
+    reference: string;
+    planName: string;
+    amount: number;
+    billingCycle: "monthly" | "yearly";
+    userName?: string;
+    phone?: string;
+    farmName?: string;
+    timestamp?: number;
+  } | null>(() => getPendingPaystackTransaction());
+
+  // Listen to window focus and storage changes to catch payments when user returns from bank app
+  useEffect(() => {
+    const checkPending = () => {
+      const p = getPendingPaystackTransaction();
+      if (p) setPendingTransfer(p);
+    };
+
+    window.addEventListener("focus", checkPending);
+    window.addEventListener("storage", checkPending);
+    document.addEventListener("visibilitychange", checkPending);
+
+    // Auto-detect Paystack redirect parameters (trxref or reference in URL query)
+    try {
+      const urlParams = new URLSearchParams(window.location.search);
+      const ref = urlParams.get("trxref") || urlParams.get("reference");
+      if (ref) {
+        const p = getPendingPaystackTransaction();
+        const planName = p?.planName || activePlan || "Starter";
+        const cycle = p?.billingCycle || "monthly";
+        const amount = p?.amount || 0;
+        confirmPendingTransfer({
+          reference: ref,
+          planName,
+          amount,
+          billingCycle: cycle,
+        });
+        const cleanUrl = window.location.origin + window.location.pathname;
+        window.history.replaceState({}, document.title, cleanUrl);
+      }
+    } catch {}
+
+    return () => {
+      window.removeEventListener("focus", checkPending);
+      window.removeEventListener("storage", checkPending);
+      document.removeEventListener("visibilitychange", checkPending);
+    };
+  }, []);
+
+  const confirmPendingTransfer = (tx?: { reference: string; planName: string; amount: number; billingCycle: "monthly" | "yearly" }) => {
+    const targetTx = tx || pendingTransfer;
+    if (!targetTx) return;
+
+    recordSuccessfulPayment({
+      email: effectiveProfile?.email || "",
+      planName: targetTx.planName,
+      billingFrequency: targetTx.billingCycle,
+      amount: targetTx.amount,
+      reference: targetTx.reference,
+    });
+
+    setActivePlan(targetTx.planName);
+    setTrialStartDate(null);
+    api.profile.updatePlan(targetTx.planName, TODAY).catch(console.warn);
+
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const expDate = new Date();
+    expDate.setDate(expDate.getDate() + (targetTx.billingCycle === "yearly" ? 365 : 30));
+    const expStr = expDate.toISOString().slice(0, 10);
+
+    const updatedProf: Partial<UserProfile> = {
+      activePlan: targetTx.planName,
+      trialStartDate: null,
+      subscriptionStatus: "Active",
+      subscriptionExpiry: expStr,
+      subscriptionStart: todayStr,
+      paystackReference: targetTx.reference,
+      lastPaymentDate: todayStr,
+      billingFrequency: targetTx.billingCycle,
+    };
+
+    setLiveProfile(prev => ({ ...(prev || {}), ...updatedProf } as UserProfile));
+    if (onProfileUpdated) onProfileUpdated(updatedProf);
+
+    clearPendingPaystackTransaction();
+    setPendingTransfer(null);
+    (window as any).__pondtora_payment_in_progress = false;
+
+    try {
+      confetti({ particleCount: 120, spread: 80, origin: { y: 0.6 } });
+    } catch {}
+    toast.success(`🎉 Subscription confirmed! Activated ${targetTx.planName}. Ref: ${targetTx.reference}`);
+  };
+
   const handlePaystackPayment = async (plan: any, isYearly: boolean) => {
     if (!plan) return;
     if (adminOverride.hasFreeAccess) {
@@ -2723,11 +2817,12 @@ function SubscriptionPage({
     }
 
     setCheckoutLoading(plan.name || "plan");
+    (window as any).__pondtora_payment_in_progress = true;
 
-    // Safety timeout: reset button if popup is closed or blocked
+    // Safety timeout: reset button after 4s so it never stays stuck loading
     const safetyTimer = setTimeout(() => {
       setCheckoutLoading(null);
-    }, 15000);
+    }, 4000);
 
     try {
       const success = await initializePaystackCheckout({
@@ -2740,6 +2835,10 @@ function SubscriptionPage({
         farmName: activeFarmName || effectiveProfile?.farmName || "Primary Farm",
         onSuccess: res => {
           clearTimeout(safetyTimer);
+          (window as any).__pondtora_payment_in_progress = false;
+          clearPendingPaystackTransaction();
+          setPendingTransfer(null);
+
           recordSuccessfulPayment({
             email: effectiveProfile?.email || "",
             planName: plan.name,
@@ -2778,17 +2877,24 @@ function SubscriptionPage({
         },
         onClose: () => {
           clearTimeout(safetyTimer);
+          (window as any).__pondtora_payment_in_progress = false;
           setCheckoutLoading(null);
-          toast.info("Paystack checkout window closed.");
+          // Refresh pending transaction state in case user paid via bank transfer and closed modal
+          const p = getPendingPaystackTransaction();
+          if (p) setPendingTransfer(p);
         },
       });
 
+      // Clear loading immediately once popup modal iframe successfully attached
+      clearTimeout(safetyTimer);
+      setCheckoutLoading(null);
+
       if (!success) {
-        clearTimeout(safetyTimer);
-        setCheckoutLoading(null);
+        (window as any).__pondtora_payment_in_progress = false;
       }
     } catch (err: any) {
       clearTimeout(safetyTimer);
+      (window as any).__pondtora_payment_in_progress = false;
       setCheckoutLoading(null);
       console.error("Paystack Checkout Error:", err);
       toast.error("Unable to initiate Paystack payment. Please try again.");
@@ -2804,13 +2910,44 @@ function SubscriptionPage({
           </div>
         ) : isPaidActive && formattedExpiryDate ? (
           <div className="inline-flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-full px-4 py-1.5 text-emerald-800 text-xs font-semibold mb-3 shadow-xs">
-            <CheckCircle size={14} className="text-emerald-600" /> <strong>Active Paid Subscription:</strong> {activePlan || effectiveProfile?.activePlan} ({effectiveProfile?.billingFrequency || currentAdminUser?.billingFrequency || "monthly"}) — Expires on <strong>{formattedExpiryDate}</strong> {effectiveProfile?.paystackReference || currentAdminUser?.paystackReference ? `· Ref: ${effectiveProfile?.paystackReference || currentAdminUser?.paystackReference}` : ""}
+            <CheckCircle size={14} className="text-emerald-600" /> <strong>Active Paid Subscription:</strong> {activePlan || effectiveProfile?.activePlan} ({effectiveProfile?.billingFrequency || currentAdminUser?.billingFrequency || "monthly"}) — Active until <strong>{formattedExpiryDate}</strong> {effectiveProfile?.paystackReference || currentAdminUser?.paystackReference ? `· Ref: ${effectiveProfile?.paystackReference || currentAdminUser?.paystackReference}` : ""}. Plan changes / renewal pricing below will apply on your next cycle.
           </div>
         ) : trialExpiryDate ? (
           <div className="inline-flex items-center gap-2 bg-green-50 border border-green-200 rounded-full px-4 py-1.5 text-green-700 text-xs font-semibold mb-3 shadow-xs">
             <Crown size={13} /> Your free trial expires on <strong>{trialExpiryDate}</strong>
           </div>
         ) : null}
+
+        {pendingTransfer && (
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-emerald-50 border-2 border-emerald-400 rounded-2xl p-4 my-3 text-emerald-950 text-xs shadow-md animate-fadeIn">
+            <div className="flex items-center gap-2.5 text-left">
+              <span className="w-3 h-3 rounded-full bg-emerald-500 animate-ping inline-block shrink-0" />
+              <div>
+                <p className="font-bold text-sm text-emerald-900">Pending Paystack Payment: {pendingTransfer.planName} (₦{pendingTransfer.amount.toLocaleString()})</p>
+                <p className="text-xs text-emerald-700 mt-0.5 font-mono">Ref: {pendingTransfer.reference} — Made your transfer or 3DS authentication in your banking app?</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => confirmPendingTransfer()}
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl transition-colors shadow-sm cursor-pointer"
+              >
+                ✓ I Have Completed Payment (Confirm)
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  clearPendingPaystackTransaction();
+                  setPendingTransfer(null);
+                }}
+                className="px-3 py-2 text-slate-500 hover:text-slate-700 text-xs font-semibold cursor-pointer"
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        )}
 
         <h1 className="text-3xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">
           Simple, Transparent Subscriptions
@@ -5613,6 +5750,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   useEffect(()=>{
     const handleFocus=()=>{
       if(isDeletingRef.current) return;
+      if((window as any).__pondtora_payment_in_progress) return;
       if(userProfile?.id||localStorage.getItem("pondtora_is_auth")==="true"){
         loadFromBackend();
       }
@@ -5620,6 +5758,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     window.addEventListener("focus",handleFocus);
     const handleVis=()=>{
       if(isDeletingRef.current) return;
+      if((window as any).__pondtora_payment_in_progress) return;
       if(document.visibilityState==="visible"&&(userProfile?.id||localStorage.getItem("pondtora_is_auth")==="true")){
         loadFromBackend();
       }

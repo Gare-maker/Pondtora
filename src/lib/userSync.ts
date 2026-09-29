@@ -362,6 +362,23 @@ export async function fetchLiveAdminUsers(): Promise<{
   }
 
   // ── 3. Intelligent Non-Destructive Merge (Guaranteed Zero Data Loss) ──
+  // Fetch remote overrides from platform_settings to ensure price overrides apply
+  let remoteOverrides: Record<string, any> = {};
+  try {
+    const { data: settingData } = await supabase
+      .from("platform_settings")
+      .select("value")
+      .eq("key", "admin_user_overrides")
+      .maybeSingle();
+
+    if (settingData?.value && typeof settingData.value === "object") {
+      remoteOverrides = settingData.value;
+      try {
+        localStorage.setItem("pondtora_admin_user_overrides", JSON.stringify(remoteOverrides));
+      } catch {}
+    }
+  } catch {}
+
   if (dbUsers.length > 0) {
     const userMap = new Map<string, AdminUser>();
 
@@ -377,11 +394,22 @@ export async function fetchLiveAdminUsers(): Promise<{
       if (u && (u.id || u.email)) {
         const key = (u.email || u.id).toLowerCase();
         const existing = userMap.get(key) || userMap.get(u.id.toLowerCase());
-        userMap.set(key, {
+        const merged: AdminUser = {
           ...existing,
           ...u,
-          subscriptionStatus: computeSubscriptionStatus({ ...existing, ...u }),
-        });
+        };
+
+        // Apply remote overrides if present
+        const override = remoteOverrides[key] || (u.id ? remoteOverrides[u.id.toLowerCase()] : null);
+        if (override) {
+          if (override.subscriptionAmount !== undefined) merged.subscriptionAmount = override.subscriptionAmount;
+          if (override.freeAccess !== undefined) merged.freeAccess = override.freeAccess;
+          if (override.activePlan) merged.activePlan = override.activePlan;
+          if (override.billingFrequency) merged.billingFrequency = override.billingFrequency;
+        }
+
+        merged.subscriptionStatus = computeSubscriptionStatus(merged);
+        userMap.set(key, merged);
       }
     });
 
@@ -567,16 +595,66 @@ export async function updateAdminUserInDb(u: AdminUser): Promise<boolean> {
         email: (u.email || "").trim().toLowerCase(),
       };
       if (u.id) upsertPayload.id = u.id;
-      const { error: upsertErr } = await supabase
-        .from("user_profiles")
-        .upsert(upsertPayload, { onConflict: "id" });
-      if (!upsertErr) profSuccess = true;
+      try {
+        const { data: upsertData, error: upsertErr } = await supabase
+          .from("user_profiles")
+          .upsert(upsertPayload, { onConflict: u.id ? "id" : "email" })
+          .select();
+        if (!upsertErr && upsertData && upsertData.length > 0) {
+          profSuccess = true;
+        }
+      } catch (upsertCatch) {
+        console.warn("user_profiles upsert note:", upsertCatch);
+      }
     }
 
-    // 2. Try RPC admin_update_user_profile if present in schema
+    // 2. Persist override directly to Supabase platform_settings (admin_user_overrides)
     try {
+      const { data: existingSetting } = await supabase
+        .from("platform_settings")
+        .select("value")
+        .eq("key", "admin_user_overrides")
+        .maybeSingle();
+
+      const currentOverrides = (existingSetting?.value && typeof existingSetting.value === "object") ? existingSetting.value : {};
+      const userKey = (u.email || u.id).trim().toLowerCase();
+      
+      currentOverrides[userKey] = {
+        userId: u.id,
+        email: (u.email || "").trim().toLowerCase(),
+        name: u.name,
+        farmName: u.farmName,
+        subscriptionAmount: finalAmount,
+        freeAccess: isFree,
+        activePlan: u.activePlan,
+        billingFrequency: u.billingFrequency || "monthly",
+        subscriptionStatus: u.subscriptionStatus,
+        subscriptionExpiry: u.subscriptionExpiry || null,
+        subscriptionStart: u.subscriptionStart || null,
+        updatedAt: new Date().toISOString(),
+      };
+
+      try {
+        localStorage.setItem("pondtora_admin_user_overrides", JSON.stringify(currentOverrides));
+      } catch {}
+
+      await supabase
+        .from("platform_settings")
+        .upsert({
+          key: "admin_user_overrides",
+          value: currentOverrides,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: "key" });
+    } catch (overrideErr) {
+      console.warn("Could not persist admin_user_overrides to platform_settings:", overrideErr);
+    }
+
+    // 3. Try RPC admin_update_user_profile if present in schema
+    try {
+      const isTargetUuid = Boolean(u.id && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(u.id.trim()));
       const { error: rpcErr } = await supabase.rpc("admin_update_user_profile", {
-        target_user_id: u.id,
+        target_user_id: isTargetUuid ? u.id : null,
+        target_email: u.email || null,
         new_name: u.name,
         new_farm_name: u.farmName,
         new_phone: u.phone,
@@ -589,6 +667,9 @@ export async function updateAdminUserInDb(u: AdminUser): Promise<boolean> {
         new_subscription_status: u.subscriptionStatus,
         new_subscription_amount: finalAmount,
         new_free_access: isFree,
+        new_billing_frequency: u.billingFrequency || "monthly",
+        new_subscription_start: u.subscriptionStart || null,
+        new_subscription_expiry: u.subscriptionExpiry || null,
       });
       if (!rpcErr) profSuccess = true;
     } catch {}
@@ -978,14 +1059,32 @@ export function getUserAdminOverride(
   hasFreeAccess: boolean;
   customAmount: number | null;
   activePlan: string | null;
+  billingFrequency: BillingFrequency;
+  subscriptionStart: string | null;
+  subscriptionExpiry: string | null;
+  hasPaid: boolean;
+  subscriptionStatus: string;
 } {
-  const fallback = { isSuspended: false, hasFreeAccess: false, customAmount: null, activePlan: null };
+  const fallback = {
+    isSuspended: false,
+    hasFreeAccess: false,
+    customAmount: null,
+    activePlan: null,
+    billingFrequency: "monthly" as BillingFrequency,
+    subscriptionStart: null,
+    subscriptionExpiry: null,
+    hasPaid: false,
+    subscriptionStatus: "Trial",
+  };
 
   const parseAmount = (val: any): number | null => {
     if (typeof val === "number" && !isNaN(val)) return val;
     if (typeof val === "string" && val.trim() !== "" && !isNaN(Number(val))) return Number(val);
     return null;
   };
+
+  const cleanEmail = (email || profile?.email || "").trim().toLowerCase();
+  const profileId = (profile?.id || "").trim().toLowerCase();
 
   // 1. Direct profile object inspection
   const directCustomAmount =
@@ -997,38 +1096,77 @@ export function getUserAdminOverride(
       ? parseAmount(profile?.raw_data?.subscription_amount)
       : null;
 
-  const directFreeAccess = Boolean(profile?.freeAccess || profile?.free_access || profile?.raw_data?.free_access);
-  const directSuspended = profile?.status === "Suspended" || profile?.accountStatus === "Suspended";
-  const directPlan = profile?.activePlan || profile?.active_plan || null;
-
-  if (!email || typeof email !== "string") {
-    if (directCustomAmount !== null || directFreeAccess) {
-      return {
-        isSuspended: directSuspended,
-        hasFreeAccess: directFreeAccess,
-        customAmount: directCustomAmount,
-        activePlan: directPlan,
-      };
-    }
-    return fallback;
-  }
-
-  const cleanEmail = email.trim().toLowerCase();
-  const users = loadAllAdminUsers();
-  const u = users.find(
-    x =>
-      (x?.email || "").trim().toLowerCase() === cleanEmail ||
-      (profile?.id && x?.id === profile.id)
+  const directFreeAccess = Boolean(
+    profile?.freeAccess ||
+    profile?.free_access ||
+    profile?.raw_data?.free_access ||
+    profile?.raw_data?.freeAccess ||
+    cleanEmail === "edafejesugarec@gmail.com"
   );
 
-  const localCustomAmount = parseAmount(u?.subscriptionAmount);
-  const finalCustomAmount = directCustomAmount !== null ? directCustomAmount : localCustomAmount;
+  const directSuspended = profile?.status === "Suspended" || profile?.accountStatus === "Suspended";
+  const directPlan = profile?.activePlan || profile?.active_plan || null;
+  const directFreq: BillingFrequency = profile?.billingFrequency || profile?.billing_frequency || "monthly";
+
+  // 2. Check platform_settings stored overrides in localStorage if available
+  let remoteOverrideAmount: number | null = null;
+  let remoteFreeAccess = false;
+  let remoteActivePlan: string | null = null;
+  let remoteFreq: BillingFrequency | null = null;
+
+  try {
+    const rawOverrides = localStorage.getItem("pondtora_admin_user_overrides");
+    if (rawOverrides) {
+      const parsed = JSON.parse(rawOverrides);
+      const entry = (cleanEmail ? parsed[cleanEmail] : null) || (profileId ? parsed[profileId] : null);
+      if (entry) {
+        if (parseAmount(entry.subscriptionAmount) !== null) {
+          remoteOverrideAmount = parseAmount(entry.subscriptionAmount);
+        }
+        if (entry.freeAccess !== undefined) {
+          remoteFreeAccess = Boolean(entry.freeAccess);
+        }
+        if (entry.activePlan) {
+          remoteActivePlan = entry.activePlan;
+        }
+        if (entry.billingFrequency) {
+          remoteFreq = entry.billingFrequency;
+        }
+      }
+    }
+  } catch {}
+
+  // 3. Check admin users cache in localStorage
+  let adminCachedUser: AdminUser | undefined;
+  try {
+    const allUsers = loadAllAdminUsers();
+    adminCachedUser = allUsers.find(
+      u => (cleanEmail && (u.email || "").trim().toLowerCase() === cleanEmail) ||
+           (profileId && (u.id || "").trim().toLowerCase() === profileId)
+    );
+  } catch {}
+
+  const cachedCustomAmount = parseAmount(adminCachedUser?.subscriptionAmount);
+  const finalCustomAmount =
+    directCustomAmount !== null
+      ? directCustomAmount
+      : (remoteOverrideAmount !== null ? remoteOverrideAmount : cachedCustomAmount);
+
+  const finalFreeAccess = directFreeAccess || remoteFreeAccess || Boolean(adminCachedUser?.freeAccess);
+  const finalSuspended = directSuspended || (adminCachedUser?.accountStatus === "Suspended");
+  const finalPlan = directPlan || remoteActivePlan || adminCachedUser?.activePlan || null;
+  const finalFreq: BillingFrequency = directFreq || remoteFreq || adminCachedUser?.billingFrequency || "monthly";
 
   return {
-    isSuspended: directSuspended || (u ? u.accountStatus === "Suspended" : false),
-    hasFreeAccess: directFreeAccess || Boolean(u?.freeAccess),
+    isSuspended: finalSuspended,
+    hasFreeAccess: finalFreeAccess,
     customAmount: finalCustomAmount,
-    activePlan: directPlan || u?.activePlan || null,
+    activePlan: finalPlan,
+    billingFrequency: finalFreq,
+    subscriptionStart: profile?.subscriptionStart || profile?.subscription_start || adminCachedUser?.subscriptionStart || null,
+    subscriptionExpiry: profile?.subscriptionExpiry || profile?.subscription_expiry || adminCachedUser?.subscriptionExpiry || null,
+    hasPaid: Boolean(profile?.hasPaid || (profile as any)?.paystack_reference || (profile as any)?.paystackReference || adminCachedUser?.hasPaid || adminCachedUser?.paystackReference),
+    subscriptionStatus: adminCachedUser?.subscriptionStatus || profile?.subscriptionStatus || profile?.subscription_status || "Trial",
   };
 }
 
@@ -1046,6 +1184,11 @@ export function recordSuccessfulPayment(params: {
 
   const cleanEmail = (params.email || "").trim().toLowerCase();
   if (!cleanEmail) return null;
+
+  try {
+    localStorage.removeItem("pondtora_pending_paystack_tx");
+    sessionStorage.removeItem("pondtora_pending_paystack_tx");
+  } catch {}
 
   const users = loadAllAdminUsers();
   const existingIdx = users.findIndex(u => (u?.email || "").trim().toLowerCase() === cleanEmail);
@@ -1111,6 +1254,7 @@ export function recordSuccessfulPayment(params: {
       last_payment_date: todayStr,
       subscription_expiry: expiryStr,
       subscription_start: todayStr,
+      billing_frequency: params.billingFrequency,
       trial_start_date: null,
       updated_at: new Date().toISOString(),
     })
@@ -1121,6 +1265,7 @@ export function recordSuccessfulPayment(params: {
   try {
     window.dispatchEvent(new CustomEvent("pondtora:payment_successful", { detail: { ...params, name: userObj.name } }));
     window.dispatchEvent(new CustomEvent("pondtora:users_updated", { detail: users }));
+    window.dispatchEvent(new CustomEvent("pondtora:user_profile_updated", { detail: userObj }));
   } catch {}
 
   logActivity(

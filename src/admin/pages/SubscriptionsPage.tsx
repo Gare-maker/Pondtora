@@ -88,14 +88,14 @@ export default function SubscriptionsPage({ users, plans, onUpdate }: Props) {
 
   function handleSave() {
     if (!editing) return;
-    const hasPaid = Boolean(editing.hasPaid || form.subscriptionStart || form.subscriptionExpiry || form.freeAccess);
+    const hasPaid = form.freeAccess ? true : Boolean(editing.hasPaid || form.subscriptionStart || form.subscriptionExpiry);
     const updated: AdminUser = {
       ...editing,
       activePlan: form.activePlan || null,
       billingFrequency: form.billingFrequency as "monthly" | "yearly",
       subscriptionAmount: !form.freeAccess && form.subscriptionAmount ? Number(form.subscriptionAmount) : null,
-      subscriptionStart: form.subscriptionStart || null,
-      subscriptionExpiry: form.subscriptionExpiry || null,
+      subscriptionStart: form.subscriptionStart || editing.subscriptionStart || null,
+      subscriptionExpiry: form.subscriptionExpiry || editing.subscriptionExpiry || null,
       freeAccess: form.freeAccess,
       hasPaid: hasPaid,
     };
@@ -271,6 +271,19 @@ export default function SubscriptionsPage({ users, plans, onUpdate }: Props) {
               <span className="font-bold text-slate-900">{editing.name}</span> · <span>{editing.email}</span>
             </div>
 
+            {/* Active Subscription Status Banner */}
+            {editing.subscriptionExpiry && (
+              <div className="bg-emerald-50/80 border border-emerald-200 rounded-xl p-3 text-xs text-emerald-900 flex items-start gap-2">
+                <CheckCircle size={15} className="text-emerald-600 shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-bold">Active Subscription Cycle</p>
+                  <p className="text-[11px] text-emerald-700 mt-0.5">
+                    This user has an active paid subscription until <strong>{editing.subscriptionExpiry}</strong>. Updating their custom price or assigned plan now will apply on their next renewal / billing cycle without disrupting their current paid access.
+                  </p>
+                </div>
+              </div>
+            )}
+
             {/* Free Access Switch */}
             <div
               className={`rounded-2xl border p-4 flex items-center justify-between transition-colors ${
@@ -341,7 +354,7 @@ export default function SubscriptionsPage({ users, plans, onUpdate }: Props) {
                     placeholder="Leave blank to use default plan rate"
                   />
                   <p className="text-[11px] text-slate-400 mt-1">
-                    Entering an amount here overrides standard pricing for this user.
+                    Entering an amount here overrides standard pricing for this user on their next billing cycle.
                   </p>
                 </F>
 

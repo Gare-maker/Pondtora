@@ -120,73 +120,100 @@ export function getActivePaystackPublicKey(): string {
   return cfg.mode === "live" ? cfg.livePublicKey : cfg.testPublicKey;
 }
 
-let scriptPromise: Promise<boolean> | null = null;
-
 export function loadPaystackScript(): Promise<boolean> {
-  if (typeof window !== "undefined" && (window as any).PaystackPop) {
+  if (typeof window === "undefined") {
+    return Promise.resolve(false);
+  }
+  if ((window as any).PaystackPop) {
     return Promise.resolve(true);
   }
-  if (scriptPromise) return scriptPromise;
 
-  scriptPromise = new Promise((resolve) => {
-    if (typeof window === "undefined") {
-      resolve(false);
-      return;
-    }
-
+  return new Promise((resolve) => {
     if ((window as any).PaystackPop) {
       resolve(true);
       return;
     }
 
-    // Safety timeout: never hang forever if network is slow or script fails
-    const timeoutId = setTimeout(() => {
-      if ((window as any).PaystackPop) {
-        resolve(true);
-      } else {
-        console.warn("Paystack script load timeout reached (6s)");
-        scriptPromise = null; // allow fresh retry
-        resolve(false);
+    let resolved = false;
+    const finish = (ok: boolean) => {
+      if (!resolved) {
+        resolved = true;
+        resolve(ok);
       }
-    }, 6000);
+    };
+
+    // Fast interval check for PaystackPop
+    const interval = setInterval(() => {
+      if ((window as any).PaystackPop) {
+        clearInterval(interval);
+        finish(true);
+      }
+    }, 100);
+
+    // 5-second maximum timeout
+    setTimeout(() => {
+      clearInterval(interval);
+      finish(Boolean((window as any).PaystackPop));
+    }, 5000);
 
     const existing = document.getElementById("paystack-inline-js") as HTMLScriptElement | null;
     if (existing) {
-      if ((window as any).PaystackPop) {
-        clearTimeout(timeoutId);
-        resolve(true);
-        return;
-      }
-      existing.addEventListener("load", () => {
-        clearTimeout(timeoutId);
-        resolve(true);
-      });
-      existing.addEventListener("error", () => {
-        clearTimeout(timeoutId);
-        scriptPromise = null;
-        resolve(false);
-      });
-      return;
+      existing.addEventListener("load", () => finish(true), { once: true });
+      existing.addEventListener("error", () => finish(false), { once: true });
+    } else {
+      const script = document.createElement("script");
+      script.id = "paystack-inline-js";
+      script.src = "https://js.paystack.co/v1/inline.js";
+      script.async = true;
+      script.onload = () => finish(true);
+      script.onerror = () => finish(false);
+      document.head.appendChild(script);
     }
-
-    const script = document.createElement("script");
-    script.id = "paystack-inline-js";
-    script.src = "https://js.paystack.co/v1/inline.js";
-    script.async = true;
-    script.onload = () => {
-      clearTimeout(timeoutId);
-      resolve(true);
-    };
-    script.onerror = () => {
-      clearTimeout(timeoutId);
-      scriptPromise = null;
-      console.error("Failed to load Paystack Inline JS script.");
-      resolve(false);
-    };
-    document.body.appendChild(script);
   });
+}
 
-  return scriptPromise;
+export interface PendingTransaction {
+  reference: string;
+  email: string;
+  planName: string;
+  amount: number;
+  billingCycle: "monthly" | "yearly";
+  userName?: string;
+  phone?: string;
+  farmName?: string;
+  timestamp: number;
+}
+
+const PENDING_TX_KEY = "pondtora_pending_paystack_tx";
+
+export function getPendingPaystackTransaction(): PendingTransaction | null {
+  try {
+    const raw = localStorage.getItem(PENDING_TX_KEY) || sessionStorage.getItem(PENDING_TX_KEY);
+    if (!raw) return null;
+    const parsed: PendingTransaction = JSON.parse(raw);
+    // Discard if older than 3 hours
+    if (Date.now() - (parsed.timestamp || 0) > 3 * 60 * 60 * 1000) {
+      clearPendingPaystackTransaction();
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+export function savePendingPaystackTransaction(tx: PendingTransaction) {
+  try {
+    localStorage.setItem(PENDING_TX_KEY, JSON.stringify(tx));
+    sessionStorage.setItem(PENDING_TX_KEY, JSON.stringify(tx));
+  } catch {}
+}
+
+export function clearPendingPaystackTransaction() {
+  try {
+    localStorage.removeItem(PENDING_TX_KEY);
+    sessionStorage.removeItem(PENDING_TX_KEY);
+  } catch {}
 }
 
 export interface PaystackCheckoutOptions {
@@ -240,6 +267,20 @@ export async function initializePaystackCheckout(options: PaystackCheckoutOption
   const amountInKobo = Math.round(validAmount * 100);
   const reference = `PND_${Date.now()}_${Math.random().toString(36).substring(2, 7).toUpperCase()}`;
 
+  // Persist transaction prior to launching popup so background app switching won't lose it
+  const pendingTx: PendingTransaction = {
+    reference,
+    email: cleanEmail,
+    planName,
+    amount: validAmount,
+    billingCycle,
+    userName,
+    phone,
+    farmName,
+    timestamp: Date.now(),
+  };
+  savePendingPaystackTransaction(pendingTx);
+
   try {
     const handler = (window as any).PaystackPop.setup({
       key: publicKey,
@@ -247,6 +288,7 @@ export async function initializePaystackCheckout(options: PaystackCheckoutOption
       amount: amountInKobo,
       currency: "NGN",
       ref: reference,
+      channels: ["card", "bank", "ussd", "qr", "mobile_money", "bank_transfer"],
       metadata: {
         custom_fields: [
           {
@@ -273,12 +315,14 @@ export async function initializePaystackCheckout(options: PaystackCheckoutOption
       },
       callback: (response: any) => {
         try {
+          clearPendingPaystackTransaction();
           onSuccess(response);
         } catch (callbackErr) {
           console.error("Paystack success callback error:", callbackErr);
         }
       },
       onClose: () => {
+        // Keep pending transaction saved in case user completed bank transfer in another app and modal closed
         if (onClose) {
           try {
             onClose();

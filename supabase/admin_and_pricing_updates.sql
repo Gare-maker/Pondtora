@@ -150,21 +150,27 @@ $$;
 
 -- 5. Update admin_update_user_profile RPC function
 DROP FUNCTION IF EXISTS admin_update_user_profile(UUID, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, NUMERIC, BOOLEAN);
+DROP FUNCTION IF EXISTS admin_update_user_profile(UUID, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, NUMERIC, BOOLEAN, TEXT, TEXT, TEXT, TEXT);
 DROP FUNCTION IF EXISTS admin_update_user_profile;
+
 CREATE OR REPLACE FUNCTION admin_update_user_profile(
-  target_user_id UUID,
-  new_name TEXT,
-  new_farm_name TEXT,
-  new_phone TEXT,
-  new_city TEXT,
-  new_state TEXT,
-  new_country TEXT,
-  new_role TEXT,
-  new_active_plan TEXT,
-  new_status TEXT,
-  new_subscription_status TEXT,
+  target_user_id UUID DEFAULT NULL,
+  new_name TEXT DEFAULT NULL,
+  new_farm_name TEXT DEFAULT NULL,
+  new_phone TEXT DEFAULT NULL,
+  new_city TEXT DEFAULT NULL,
+  new_state TEXT DEFAULT NULL,
+  new_country TEXT DEFAULT NULL,
+  new_role TEXT DEFAULT NULL,
+  new_active_plan TEXT DEFAULT NULL,
+  new_status TEXT DEFAULT NULL,
+  new_subscription_status TEXT DEFAULT NULL,
   new_subscription_amount NUMERIC DEFAULT NULL,
-  new_free_access BOOLEAN DEFAULT FALSE
+  new_free_access BOOLEAN DEFAULT FALSE,
+  target_email TEXT DEFAULT NULL,
+  new_billing_frequency TEXT DEFAULT 'monthly',
+  new_subscription_start TEXT DEFAULT NULL,
+  new_subscription_expiry TEXT DEFAULT NULL
 )
 RETURNS VOID
 LANGUAGE plpgsql
@@ -185,14 +191,21 @@ BEGIN
     subscription_status = COALESCE(new_subscription_status, subscription_status),
     subscription_amount = new_subscription_amount,
     free_access = new_free_access,
+    billing_frequency = COALESCE(new_billing_frequency, billing_frequency, 'monthly'),
+    subscription_start = COALESCE(new_subscription_start, subscription_start),
+    subscription_expiry = COALESCE(new_subscription_expiry, subscription_expiry),
     updated_at = NOW()
-  WHERE id = target_user_id;
+  WHERE (target_user_id IS NOT NULL AND id = target_user_id)
+     OR (target_email IS NOT NULL AND TRIM(target_email) <> '' AND LOWER(email) = LOWER(TRIM(target_email)));
 
   -- Also update farm name in farms table if primary
   IF new_farm_name IS NOT NULL AND TRIM(new_farm_name) <> '' THEN
     UPDATE farms
     SET name = new_farm_name, updated_at = NOW()
-    WHERE user_id = target_user_id;
+    WHERE (target_user_id IS NOT NULL AND user_id = target_user_id)
+       OR (target_email IS NOT NULL AND TRIM(target_email) <> '' AND user_id IN (
+         SELECT id FROM user_profiles WHERE LOWER(email) = LOWER(TRIM(target_email))
+       ));
   END IF;
 END;
 $$;
