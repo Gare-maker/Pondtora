@@ -92,7 +92,11 @@ export function computeSubscriptionStatus(
       try {
         const exp = new Date(u.subscriptionExpiry);
         if (!isNaN(exp.getTime())) {
-          return exp < new Date() ? "Expired" : "Active";
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          const expDay = new Date(exp);
+          expDay.setHours(23, 59, 59, 999);
+          return expDay < today ? "Expired" : "Active";
         }
       } catch {}
     }
@@ -106,7 +110,10 @@ export function computeSubscriptionStatus(
       const end = new Date(trialStart);
       if (!isNaN(end.getTime())) {
         end.setDate(end.getDate() + 30);
-        return end > new Date() ? "Trial" : "Expired";
+        end.setHours(23, 59, 59, 999);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        return end < today ? "Expired" : "Trial";
       }
     } catch {}
   }

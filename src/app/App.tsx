@@ -10,7 +10,7 @@ import {
   Layers, Droplets, Trash2, Menu, ChevronDown,
   ChevronUp, ChevronsLeft, ChevronsRight, ChevronLeft, ChevronRight, ChevronRight as ChevronRightIcon, Eye, Search,
   Download, FileText, BadgeCheck, Pencil, Users, Mail, Phone, ArrowRightLeft, History, Filter, Crown, Receipt, MoreVertical, AlertCircle, Bell, LogOut, ClipboardList, Lock, Loader2, Copy, Link, Database, ExternalLink, Settings, EyeOff,
-  Sparkles, CreditCard, Landmark, Gift, Share2, PhoneCall, MessageCircle, Check
+  Sparkles, CreditCard, Landmark, Gift, Share2, PhoneCall, MessageCircle, Check, ShieldAlert
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -32,7 +32,7 @@ import InvestorsPage from "./pages/InvestorsPage";
 import PondReportsComponent from "./pages/PondReportsComponent";
 import { Toaster, toast } from "sonner";
 import { useDynamicPlans } from "../lib/plansStore";
-import { syncUserProfileToAdmin, getUserAdminOverride, logActivity, recordSuccessfulPayment, loadAllAdminUsers } from "../lib/userSync";
+import { syncUserProfileToAdmin, getUserAdminOverride, logActivity, recordSuccessfulPayment, loadAllAdminUsers, getFarmSubscriptionDetails, FarmSubscriptionDetails } from "../lib/userSync";
 import { initializePaystackCheckout, getActivePaystackPublicKey, loadPaystackConfig, getPendingPaystackTransaction, clearPendingPaystackTransaction } from "../lib/paystack";
 import { derivePaymentStatus, deriveInvestmentStatus, generateInvestmentSchedule } from "../lib/investmentUtils";
 import { getUserReferralStats, captureReferralParam, getReferralLink, getUserReferralCode } from "../lib/referralStore";
@@ -2771,7 +2771,7 @@ function SubscriptionPage({
 
     setActivePlan(targetTx.planName);
     setTrialStartDate(null);
-    api.profile.updatePlan(targetTx.planName, TODAY).catch(console.warn);
+    api.profile.updatePlan(targetTx.planName, null).catch(console.warn);
 
     const todayStr = new Date().toISOString().slice(0, 10);
     const expDate = new Date();
@@ -2848,7 +2848,7 @@ function SubscriptionPage({
           });
           setActivePlan(plan.name);
           setTrialStartDate(null);
-          api.profile.updatePlan(plan.name, TODAY).catch(console.warn);
+          api.profile.updatePlan(plan.name, null).catch(console.warn);
 
           const todayStr = new Date().toISOString().slice(0, 10);
           const expDate = new Date();
@@ -2901,37 +2901,66 @@ function SubscriptionPage({
     }
   };
 
+  const currentFarmSub = getFarmSubscriptionDetails(effectiveProfile, adminUsers);
+
   return (
     <div className="p-4 sm:p-6 space-y-6 max-w-5xl mx-auto">
-      <div className="sticky top-0 z-10 bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 text-center">
-        {adminOverride.hasFreeAccess ? (
-          <div className="inline-flex items-center gap-2 bg-purple-50 border border-purple-200 rounded-full px-4 py-1.5 text-purple-800 text-xs font-semibold mb-3 shadow-xs">
-            <Crown size={14} className="text-purple-600" /> <strong>Complimentary Lifetime Access:</strong> VIP access active
+      {/* ── Top Header: Exclusively Displays Subscription Expiring Date ── */}
+      <div className="bg-white border border-slate-200/90 rounded-2xl p-5 sm:p-6 shadow-xs text-center -mt-2">
+        <div className="flex items-center justify-center gap-2 mb-2">
+          <Clock size={16} className={currentFarmSub.isExpired ? "text-red-500" : "text-emerald-600"} />
+          <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Subscription Expiration</span>
+        </div>
+
+        {currentFarmSub.hasFreeAccess ? (
+          <div>
+            <h1 className="text-2xl sm:text-3xl font-bold text-purple-900 font-['Barlow_Condensed',sans-serif]">
+              Lifetime Complimentary Access
+            </h1>
+            <p className="text-xs text-purple-700 font-semibold mt-1">VIP Farm Account · No expiration date</p>
           </div>
-        ) : isPaidActive && formattedExpiryDate ? (
-          <div className="inline-flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-full px-4 py-1.5 text-emerald-800 text-xs font-semibold mb-3 shadow-xs">
-            <CheckCircle size={14} className="text-emerald-600" /> <strong>Active Paid Subscription:</strong> {activePlan || effectiveProfile?.activePlan} · Expires on <strong>{formattedExpiryDate}</strong>
+        ) : currentFarmSub.isExpired ? (
+          <div>
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-red-100 text-red-700 text-xs font-bold mb-2">
+              <AlertTriangle size={13} /> Subscription Expired
+            </div>
+            <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">
+              Expired on: <span className="text-red-600">{currentFarmSub.formattedExpiryDate || "Recently"}</span>
+            </h1>
+            <p className="text-xs text-slate-500 mt-1">Select a plan below to renew and reactivate full editing access.</p>
           </div>
-        ) : trialExpiryDate ? (
-          <div className="inline-flex items-center gap-2 bg-green-50 border border-green-200 rounded-full px-4 py-1.5 text-green-700 text-xs font-semibold mb-3 shadow-xs">
-            <Crown size={13} /> Your free trial expires on <strong>{trialExpiryDate}</strong>
+        ) : (
+          <div>
+            <h1 className="text-2xl sm:text-3xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">
+              Expiring Date: <span className="text-emerald-600">{currentFarmSub.formattedExpiryDate || "Active"}</span>
+            </h1>
+            {currentFarmSub.isTrial && (
+              <p className="text-xs text-emerald-700 font-semibold mt-1">
+                {currentFarmSub.trialDaysLeft} day{currentFarmSub.trialDaysLeft === 1 ? "" : "s"} left on your 30-Day Free Trial
+              </p>
+            )}
+            {currentFarmSub.isPaidActive && (
+              <p className="text-xs text-emerald-700 font-semibold mt-1">
+                Active Plan: <strong className="text-slate-800">{activePlan || effectiveProfile?.activePlan || currentFarmSub.activePlan}</strong>
+              </p>
+            )}
           </div>
-        ) : null}
+        )}
 
         {pendingTransfer && (
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-emerald-50 border-2 border-emerald-400 rounded-2xl p-4 my-3 text-emerald-950 text-xs shadow-md animate-fadeIn">
-            <div className="flex items-center gap-2.5 text-left">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-emerald-50 border-2 border-emerald-400 rounded-2xl p-4 mt-4 text-emerald-950 text-xs shadow-md animate-fadeIn text-left">
+            <div className="flex items-center gap-2.5">
               <span className="w-3 h-3 rounded-full bg-emerald-500 animate-ping inline-block shrink-0" />
               <div>
                 <p className="font-bold text-sm text-emerald-900">Pending Paystack Payment: {pendingTransfer.planName} (₦{pendingTransfer.amount.toLocaleString()})</p>
-                <p className="text-xs text-emerald-700 mt-0.5 font-mono">Ref: {pendingTransfer.reference} — Made your transfer or 3DS authentication in your banking app?</p>
+                <p className="text-xs text-emerald-700 mt-0.5 font-mono">Ref: {pendingTransfer.reference} — Paid via transfer or banking app?</p>
               </div>
             </div>
             <div className="flex items-center gap-2 shrink-0">
               <button
                 type="button"
                 onClick={() => confirmPendingTransfer()}
-                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl transition-colors shadow-sm cursor-pointer"
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl transition-colors shadow-sm cursor-pointer text-xs"
               >
                 ✓ I Have Completed Payment (Confirm)
               </button>
@@ -2948,11 +2977,6 @@ function SubscriptionPage({
             </div>
           </div>
         )}
-
-        <h1 className="text-3xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">
-          Simple, Transparent Subscriptions
-        </h1>
-        <p className="text-slate-400 text-sm mt-1">Pay securely with Paystack. Instant activation. Cancel anytime.</p>
       </div>
 
       {/* Tab switcher */}
@@ -4593,16 +4617,43 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   /* ── Subscription state (global so limits apply everywhere) ── */
   const [activePlan,setActivePlan_]=useState<string|null>(()=>localStorage.getItem("pondtora_plan"));
   const [trialStartDate,setTrialStartDate_]=useState<string|null>(()=>localStorage.getItem("pondtora_trial_start"));
+  const [adminUsers, setAdminUsers] = useState<AdminUser[]>(() => loadAllAdminUsers() || []);
+  const [showExpiredModal, setShowExpiredModal] = useState(false);
 
   // Check live admin override (suspension, free VIP access, custom rates)
   const [adminOverride, setAdminOverride] = useState(() => getUserAdminOverride(userProfile?.email, userProfile));
 
   useEffect(() => {
     setAdminOverride(getUserAdminOverride(userProfile?.email, userProfile));
-    const handleUsersUpdate = () => setAdminOverride(getUserAdminOverride(userProfile?.email, userProfile));
+    setAdminUsers(loadAllAdminUsers());
+    const handleUsersUpdate = () => {
+      setAdminOverride(getUserAdminOverride(userProfile?.email, userProfile));
+      setAdminUsers(loadAllAdminUsers());
+    };
     window.addEventListener("pondtora:users_updated", handleUsersUpdate);
-    return () => window.removeEventListener("pondtora:users_updated", handleUsersUpdate);
+    window.addEventListener("pondtora:payment_successful", handleUsersUpdate);
+    window.addEventListener("pondtora:user_profile_updated", handleUsersUpdate);
+    return () => {
+      window.removeEventListener("pondtora:users_updated", handleUsersUpdate);
+      window.removeEventListener("pondtora:payment_successful", handleUsersUpdate);
+      window.removeEventListener("pondtora:user_profile_updated", handleUsersUpdate);
+    };
   }, [userProfile?.email, userProfile?.subscriptionAmount, userProfile?.freeAccess, userProfile, isAuth]);
+
+  // Unified farm subscription info (governs both owner and all staff on the farm)
+  const farmSubInfo = useMemo(() => {
+    return getFarmSubscriptionDetails(userProfile, adminUsers);
+  }, [userProfile, adminUsers, activePlan, trialStartDate]);
+
+  // Guard action: returns false and triggers expired alert if subscription or trial is expired
+  const checkSubscriptionActive = useCallback((): boolean => {
+    if (farmSubInfo.isExpired) {
+      setShowExpiredModal(true);
+      toast.error("Subscription has expired. Renew subscription.");
+      return false;
+    }
+    return true;
+  }, [farmSubInfo.isExpired]);
 
   // Synchronize user profile directly to Admin dashboard on any change
   useEffect(() => {
@@ -4646,6 +4697,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     api.farms.syncActiveFarm(fid);
   },[userProfile?.id]);
   const handleAddFarm=()=>{
+    if (!checkSubscriptionActive()) return;
     if(!addFarmF.name)return;
     if(farms.length>=farmLimit){setUpgradeModalMsg(farmLimit===1?`Your current plan supports 1 farm. Upgrade to a multi-farm plan to add more farms.`:`You've reached the limit of ${farmLimit} farms on your plan. Upgrade to add more farms.`);setShowUpgradeModal(true);setShowAddFarm(false);return;}
     const newFarm:Farm={id:crypto.randomUUID(),name:addFarmF.name.trim(),city:addFarmF.city,state:addFarmF.state,country:addFarmF.country};
@@ -4657,11 +4709,13 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     api.farms.create(newFarm).catch(e=>{console.warn("Farm save failed",e);toast.error("Farm saved locally — sync when online");});
   };
   const handleEditFarm=(f:Farm)=>{
+    if (!checkSubscriptionActive()) return;
     setFarms(prev=>prev.map(x=>x.id===f.id?f:x));
     toast.success("Farm updated");
     api.farms.update(f).catch(console.warn);
   };
   const handleDeleteFarm=async(id:string)=>{
+    if (!checkSubscriptionActive()) return;
     const previous=farms;
     setFarms(prev=>prev.filter(f=>f.id!==id));
     markDeletedId(id);
@@ -4680,6 +4734,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   };
   /* Create a farm directly from the Settings page (takes plain data object) */
   const handleAddFarmDirect=(d:{name:string;city:string;state:string;country:string})=>{
+    if (!checkSubscriptionActive()) return;
     if(!d.name.trim())return;
     if(farms.length>=farmLimit){setUpgradeModalMsg(farmLimit===1?`Your current plan supports 1 farm. Upgrade to a multi-farm plan to add more farms.`:`You've reached the limit of ${farmLimit} farms on your plan. Upgrade to add more farms.`);setShowUpgradeModal(true);return;}
     const newFarm:Farm={id:crypto.randomUUID(),name:d.name.trim(),city:d.city,state:d.state,country:d.country};
@@ -4693,6 +4748,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     api.profile.update({name:u.name,phone:u.phone}).catch(console.warn);
   };
   const addTreatment=async(t:TreatmentRecord)=>{
+    if (!checkSubscriptionActive()) return;
     const fid=t.farmId||activeFarmId||farms[0]?.id||"";
     const farmTr:TreatmentRecord={...t,id:isUuid(t.id)?t.id:crypto.randomUUID(),farmId:fid};
     setTreatments(prev=>[farmTr,...prev]);
@@ -4700,6 +4756,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     api.treatments.create(farmTr).catch(console.warn);
   };
   const addPond=async(p:Pond)=>{
+    if (!checkSubscriptionActive()) return;
     if (!canCreate("Pond Management")) {
       toast.error("You do not have permission to create ponds.");
       return;
@@ -4747,6 +4804,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     }
   };
   const handleEditPond=async(id:string,updates:Partial<Pond>)=>{
+    if (!checkSubscriptionActive()) return;
     if (!canEdit("Pond Management")) {
       toast.error("You do not have permission to edit ponds.");
       return;
@@ -4806,6 +4864,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     }
   };
   const closePond=async(id:string)=>{
+    if (!checkSubscriptionActive()) return;
     const p=ponds.find(x=>x.id===id);
     if(!p)return;
     const fid=p.farmId||activeFarmId||farms[0]?.id||"";
@@ -4831,6 +4890,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     }
   };
   const restockPond=async(id:string,data:{species:string;initialStock:number;stockingDate:string;supplier?:string;fishStock?:string})=>{
+    if (!checkSubscriptionActive()) return;
     const p=ponds.find(x=>x.id===id);
     if(!p)return;
     const fid=p.farmId||activeFarmId||farms[0]?.id||"";
@@ -4850,6 +4910,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     }
   };
   const addExp=async(e:Expense)=>{
+    if (!checkSubscriptionActive()) return;
     if (!canCreate("Financial Dashboard") && !canCreate("Expenses & Financial Records")) {
       toast.error("You do not have permission to add expenses.");
       return;
@@ -4869,6 +4930,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     }
   };
   const editExp=async(e:Expense)=>{
+    if (!checkSubscriptionActive()) return;
     if (!canEdit("Financial Dashboard") && !canEdit("Expenses & Financial Records")) {
       toast.error("You do not have permission to edit expenses.");
       return;
@@ -4883,6 +4945,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     }
   };
   const addRev=async(r:Revenue)=>{
+    if (!checkSubscriptionActive()) return;
     if (!canCreate("Financial Dashboard") && !canCreate("Revenue & Sales Records")) {
       toast.error("You do not have permission to add revenues.");
       return;
@@ -4902,6 +4965,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     }
   };
   const editRev=async(r:Revenue)=>{
+    if (!checkSubscriptionActive()) return;
     if (!canEdit("Financial Dashboard") && !canEdit("Revenue & Sales Records")) {
       toast.error("You do not have permission to edit revenues.");
       return;
@@ -4916,6 +4980,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     }
   };
   const deleteExp=async(id:string)=>{
+    if (!checkSubscriptionActive()) return;
     if (!canDelete("Financial Dashboard") && !canDelete("Expenses & Financial Records")) {
       toast.error("You do not have permission to delete expenses.");
       return;
@@ -4936,6 +5001,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     }
   };
   const deleteRev=async(id:string)=>{
+    if (!checkSubscriptionActive()) return;
     if (!canDelete("Financial Dashboard") && !canDelete("Revenue & Sales Records")) {
       toast.error("You do not have permission to delete revenues.");
       return;
@@ -4956,6 +5022,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     }
   };
   const setPondMaxKg=async(pondId:string,size:string,maxKg:number)=>{
+    if (!checkSubscriptionActive()) return;
     const target=ponds.find(p=>p.id===pondId);
     if(!target)return;
     const updatedMax={...(target.maxKgByPallet||{})};
@@ -4975,6 +5042,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     }
   };
   const addFeed=async(r:FeedingRecord)=>{
+    if (!checkSubscriptionActive()) return;
     if (!canCreate("Feeding Records")) {
       toast.error("You do not have permission to log feeding.");
       return;
@@ -5026,6 +5094,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     });
   };
   const editFeedRecord=async(r:FeedingRecord)=>{
+    if (!checkSubscriptionActive()) return;
     if (!canEdit("Feeding Records")) {
       toast.error("You do not have permission to edit feeding records.");
       return;
@@ -5057,6 +5126,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     });
   };
   const deleteFeedRecord=async(id:string)=>{
+    if (!checkSubscriptionActive()) return;
     if (!canDelete("Feeding Records")) {
       toast.error("You do not have permission to delete feeding records.");
       return;
@@ -5077,6 +5147,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     }
   };
   const addBagLog=async(b:BagOpenLog)=>{
+    if (!checkSubscriptionActive()) return;
     const fid=b.farmId||activeFarmId||farms[0]?.id||"";
     const farmBag:BagOpenLog={...b,id:isUuid(b.id)?b.id:crypto.randomUUID(),farmId:fid};
     const existing=bagLogs.find(x=>x.id===farmBag.id || (isSameDate(x.date,farmBag.date)&&x.brand===farmBag.brand&&x.size===farmBag.size&&(x.fishStock||"")===(farmBag.fishStock||"")&&(!x.farmId||x.farmId===farmBag.farmId)));
@@ -5090,11 +5161,13 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     }
   };
   const editBagLog=async(b:BagOpenLog)=>{
+    if (!checkSubscriptionActive()) return;
     const farmBag:BagOpenLog={...b,farmId:b.farmId||activeFarmId||farms[0]?.id||""};
     setBagLogs(prev=>prev.map(x=>x.id===farmBag.id?farmBag:x));
     api.bagLogs.update(farmBag).catch(console.warn);
   };
   const addRemainLog=async(r:FeedRemainingLog)=>{
+    if (!checkSubscriptionActive()) return;
     const fid=r.farmId||activeFarmId||farms[0]?.id||"";
     const farmRemain:FeedRemainingLog={...r,id:isUuid(r.id)?r.id:crypto.randomUUID(),farmId:fid};
     const existing=remainLogs.find(x=>isSameDate(x.date,farmRemain.date)&&x.brand===farmRemain.brand&&x.size===farmRemain.size&&(x.fishStock||"")===(farmRemain.fishStock||"")&&(!x.farmId||x.farmId===farmRemain.farmId));
@@ -5108,11 +5181,13 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     }
   };
   const editRemainLog=(r:FeedRemainingLog)=>{
+    if (!checkSubscriptionActive()) return;
     const farmRemain:FeedRemainingLog={...r,farmId:r.farmId||activeFarmId||farms[0]?.id||""};
     setRemainLogs(prev=>prev.map(x=>x.id===farmRemain.id?farmRemain:x));
     api.remainLogs.update(farmRemain).catch(console.warn);
   };
   const addInv=async(f:FeedItem)=>{
+    if (!checkSubscriptionActive()) return;
     if (!canCreate("Feed Stock")) {
       toast.error("You do not have permission to add feed inventory.");
       return;
@@ -5124,6 +5199,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     api.inventory.create(fWithFarm).catch(console.warn);
   };
   const delInv=async(id:string)=>{
+    if (!checkSubscriptionActive()) return;
     if (!canDelete("Feed Stock")) {
       toast.error("You do not have permission to delete feed inventory.");
       return;
@@ -5144,6 +5220,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     }
   };
   const editInv=(f:FeedItem)=>{
+    if (!checkSubscriptionActive()) return;
     if (!canEdit("Feed Stock")) {
       toast.error("You do not have permission to edit feed inventory.");
       return;
@@ -5154,6 +5231,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   };
   const pendingFishUpdatesRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const editFish = (id: string, u: { species: string; currentCount: number; stockingDate: string; fishStock?: string }) => {
+    if (!checkSubscriptionActive()) return;
     if (!canEdit("Pond Management")) {
       toast.error("You do not have permission to edit pond fish.");
       return;
@@ -5191,6 +5269,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     pendingFishUpdatesRef.current.set(id, timer);
   };
   const deletePond=async(id:string)=>{
+    if (!checkSubscriptionActive()) return;
     if (!canDelete("Pond Management")) {
       toast.error("You do not have permission to delete ponds.");
       return;
@@ -5211,6 +5290,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     }
   };
   const addMort=async(m:MortalityEntry,pondId:string)=>{
+    if (!checkSubscriptionActive()) return;
     const fid=m.farmId||activeFarmId||farms[0]?.id||"";
     const farmMort:MortalityEntry={...m,id:isUuid(m.id)?m.id:crypto.randomUUID(),pondId,farmId:fid};
     toast.success("Mortality recorded");
@@ -5221,6 +5301,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     if(updPond)api.ponds.update({...updPond,currentCount:Math.max(0,updPond.currentCount-farmMort.count)}).catch(console.warn);
   };
   const transferStock=(fromId:string,toId:string,date:string)=>{
+    if (!checkSubscriptionActive()) return;
     const fromPond=ponds.find(p=>p.id===fromId);
     const toPond=ponds.find(p=>p.id===toId);
     if(!fromPond||!toPond)return;
@@ -5270,6 +5351,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     toast.success("Stock transferred");
   };
   const nurseryTransfer=(fromId:string,toId:string,count:number,pct:number,date:string)=>{
+    if (!checkSubscriptionActive()) return;
     const fromPond=ponds.find(p=>p.id===fromId);
     const toPond=ponds.find(p=>p.id===toId);
     if(!fromPond||!toPond)return;
@@ -5919,14 +6001,35 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
             session.user.email?.toLowerCase().trim() === "edafejesugarec@gmail.com"
           );
 
-          const resolvedPlan = prof?.active_plan || (prof as any)?.activePlan || meta.active_plan || meta.activePlan || "Starter";
-          const resolvedTrialStart = prof?.trial_start_date || (prof as any)?.trialStartDate || meta.trial_start_date || meta.trialStartDate || null;
-          const resolvedSubStatus = prof?.subscription_status || (prof as any)?.subscriptionStatus || meta.subscription_status || meta.subscriptionStatus || "Trial";
-          const resolvedSubExpiry = prof?.subscription_expiry || (prof as any)?.subscriptionExpiry || meta.subscription_expiry || meta.subscriptionExpiry || null;
-          const resolvedSubStart = prof?.subscription_start || (prof as any)?.subscriptionStart || meta.subscription_start || meta.subscriptionStart || null;
-          const resolvedBillingFreq = prof?.billing_frequency || (prof as any)?.billingFrequency || meta.billing_frequency || meta.billingFrequency || "monthly";
-          const resolvedPaystackRef = prof?.paystack_reference || (prof as any)?.paystackReference || meta.paystack_reference || meta.paystackReference || null;
-          const resolvedLastPayment = prof?.last_payment_date || (prof as any)?.lastPaymentDate || meta.last_payment_date || meta.lastPaymentDate || null;
+          let resolvedPlan = prof?.active_plan || (prof as any)?.activePlan || meta.active_plan || meta.activePlan || "Starter";
+          let resolvedTrialStart = prof?.trial_start_date || (prof as any)?.trialStartDate || meta.trial_start_date || meta.trialStartDate || null;
+          let resolvedSubStatus = prof?.subscription_status || (prof as any)?.subscriptionStatus || meta.subscription_status || meta.subscriptionStatus || "Trial";
+          let resolvedSubExpiry = prof?.subscription_expiry || (prof as any)?.subscriptionExpiry || meta.subscription_expiry || meta.subscriptionExpiry || null;
+          let resolvedSubStart = prof?.subscription_start || (prof as any)?.subscriptionStart || meta.subscription_start || meta.subscriptionStart || null;
+          let resolvedBillingFreq = prof?.billing_frequency || (prof as any)?.billingFrequency || meta.billing_frequency || meta.billingFrequency || "monthly";
+          let resolvedPaystackRef = prof?.paystack_reference || (prof as any)?.paystackReference || meta.paystack_reference || meta.paystackReference || null;
+          let resolvedLastPayment = prof?.last_payment_date || (prof as any)?.lastPaymentDate || meta.last_payment_date || meta.lastPaymentDate || null;
+          let resolvedFreeAccess = hasFreeAccess;
+
+          // If current user is staff, inherit the Farm Owner's active subscription status
+          if (staffOwnerId && staffOwnerId !== session.user.id) {
+            try {
+              const { data: ownerProf } = await supabase.from("user_profiles").select("*").eq("id", staffOwnerId).maybeSingle();
+              if (ownerProf) {
+                if (ownerProf.active_plan) resolvedPlan = ownerProf.active_plan;
+                if (ownerProf.trial_start_date !== undefined) resolvedTrialStart = ownerProf.trial_start_date;
+                if (ownerProf.subscription_status) resolvedSubStatus = ownerProf.subscription_status;
+                if (ownerProf.subscription_expiry !== undefined) resolvedSubExpiry = ownerProf.subscription_expiry;
+                if (ownerProf.subscription_start !== undefined) resolvedSubStart = ownerProf.subscription_start;
+                if (ownerProf.billing_frequency) resolvedBillingFreq = ownerProf.billing_frequency;
+                if (ownerProf.paystack_reference !== undefined) resolvedPaystackRef = ownerProf.paystack_reference;
+                if (ownerProf.last_payment_date !== undefined) resolvedLastPayment = ownerProf.last_payment_date;
+                if (ownerProf.free_access) resolvedFreeAccess = true;
+              }
+            } catch (err) {
+              console.warn("Could not fetch owner profile for staff subscription:", err);
+            }
+          }
 
           if (resolvedPlan) setActivePlan(resolvedPlan);
           if (resolvedTrialStart) setTrialStartDate(resolvedTrialStart);
@@ -6130,14 +6233,35 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
           session.user.email?.toLowerCase().trim() === "edafejesugarec@gmail.com"
         );
 
-        const activePlanStr = prof?.active_plan || (prof as any)?.activePlan || meta.active_plan || meta.activePlan || "Starter";
-        const trialStartStr = prof?.trial_start_date || (prof as any)?.trialStartDate || meta.trial_start_date || meta.trialStartDate || new Date().toISOString();
-        const subStatusStr = prof?.subscription_status || (prof as any)?.subscriptionStatus || meta.subscription_status || meta.subscriptionStatus || "Trial";
-        const subExpiryStr = prof?.subscription_expiry || (prof as any)?.subscriptionExpiry || meta.subscription_expiry || meta.subscriptionExpiry || null;
-        const subStartStr = prof?.subscription_start || (prof as any)?.subscriptionStart || meta.subscription_start || meta.subscriptionStart || null;
-        const billingFreqStr = prof?.billing_frequency || (prof as any)?.billingFrequency || meta.billing_frequency || meta.billingFrequency || "monthly";
-        const paystackRefStr = prof?.paystack_reference || (prof as any)?.paystackReference || meta.paystack_reference || meta.paystackReference || null;
-        const lastPaymentStr = prof?.last_payment_date || (prof as any)?.lastPaymentDate || meta.last_payment_date || meta.lastPaymentDate || null;
+        let activePlanStr = prof?.active_plan || (prof as any)?.activePlan || meta.active_plan || meta.activePlan || "Starter";
+        let trialStartStr = prof?.trial_start_date || (prof as any)?.trialStartDate || meta.trial_start_date || meta.trialStartDate || new Date().toISOString();
+        let subStatusStr = prof?.subscription_status || (prof as any)?.subscriptionStatus || meta.subscription_status || meta.subscriptionStatus || "Trial";
+        let subExpiryStr = prof?.subscription_expiry || (prof as any)?.subscriptionExpiry || meta.subscription_expiry || meta.subscriptionExpiry || null;
+        let subStartStr = prof?.subscription_start || (prof as any)?.subscriptionStart || meta.subscription_start || meta.subscriptionStart || null;
+        let billingFreqStr = prof?.billing_frequency || (prof as any)?.billingFrequency || meta.billing_frequency || meta.billingFrequency || "monthly";
+        let paystackRefStr = prof?.paystack_reference || (prof as any)?.paystackReference || meta.paystack_reference || meta.paystackReference || null;
+        let lastPaymentStr = prof?.last_payment_date || (prof as any)?.lastPaymentDate || meta.last_payment_date || meta.lastPaymentDate || null;
+        let resolvedFreeAccess2 = hasFreeAccess;
+
+        // If current user is staff, inherit the Farm Owner's active subscription status
+        if (staffOwnerId && staffOwnerId !== session.user.id) {
+          try {
+            const { data: ownerProf } = await supabase.from("user_profiles").select("*").eq("id", staffOwnerId).maybeSingle();
+            if (ownerProf) {
+              if (ownerProf.active_plan) activePlanStr = ownerProf.active_plan;
+              if (ownerProf.trial_start_date !== undefined) trialStartStr = ownerProf.trial_start_date;
+              if (ownerProf.subscription_status) subStatusStr = ownerProf.subscription_status;
+              if (ownerProf.subscription_expiry !== undefined) subExpiryStr = ownerProf.subscription_expiry;
+              if (ownerProf.subscription_start !== undefined) subStartStr = ownerProf.subscription_start;
+              if (ownerProf.billing_frequency) billingFreqStr = ownerProf.billing_frequency;
+              if (ownerProf.paystack_reference !== undefined) paystackRefStr = ownerProf.paystack_reference;
+              if (ownerProf.last_payment_date !== undefined) lastPaymentStr = ownerProf.last_payment_date;
+              if (ownerProf.free_access) resolvedFreeAccess2 = true;
+            }
+          } catch (err) {
+            console.warn("Could not fetch owner profile for staff subscription in onAuthStateChange:", err);
+          }
+        }
 
         if (activePlanStr) setActivePlan(activePlanStr);
         if (trialStartStr) setTrialStartDate(trialStartStr);
@@ -6256,6 +6380,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     setShowChoosePlan(true);
   };
   const addReport=async(r:Report)=>{
+    if (!checkSubscriptionActive()) return;
     if (!isOwner && !canCreate("Reports") && !hasPerm("Reports")) {
       toast.error("You do not have permission to submit reports.");
       return;
@@ -6281,6 +6406,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     setExtraNotifs(prev=>[...prev.filter(n=>n.id!==nid),{id:nid,type:"report" as const,farmId:rr.farmId||activeFarmId,farmName:farm?.name||"",date:TODAY,read:false,reportId:rr.id,reportTitle:rr.title,reportAuthor:rr.author,reportStatus:"submitted"}]);
   };
   const editReportFn=(r:Report)=>{
+    if (!checkSubscriptionActive()) return;
     const isStaffReport = Boolean(r.isStaffSubmission || r.authorRole === "staff" || r.createdByRole === "staff");
     if (isStaffReport) {
       if (isOwner) {
@@ -6312,6 +6438,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     api.reports.update(r).catch(console.warn);
   };
   const addStaff=(s:StaffMember, password?: string)=>{
+    if (!checkSubscriptionActive()) return;
     const staffId=isUuid(s.id)?s.id:crypto.randomUUID();
     const cleanStaff={...s,id:staffId};
     const currentFarm = farms.find(f => f.id === activeFarmId) || farms[0];
@@ -6365,6 +6492,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     });
   };
   const editStaff=(s:StaffMember, password?: string)=>{
+    if (!checkSubscriptionActive()) return;
     setStaff(prev=>{
       const next=prev.map(x=>x.id===s.id?s:x);
       if(userProfile?.id){
@@ -6379,6 +6507,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     toast.success("Staff member updated");
   };
   const delStaff = async (id: string) => {
+    if (!checkSubscriptionActive()) return;
     const targetMember = staff.find(s => s.id === id);
     if (!targetMember) return;
 
@@ -6455,9 +6584,10 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   const cQuestions=cQuestionsState;
   const kResults=kResultsState;
   const cResults=cResultsState;
-  const addKResult=(r:any)=>{const nr={...r,id:isUuid(r.id)?r.id:crypto.randomUUID()};setKResults_(prev=>[...prev,nr]);api.kResults.create(nr).catch(console.warn);};
-  const addCResult=(r:any)=>{const nr={...r,id:isUuid(r.id)?r.id:crypto.randomUUID()};setCResults_(prev=>[...prev,nr]);api.cResults.create(nr).catch(console.warn);};
+  const addKResult=(r:any)=>{if(!checkSubscriptionActive())return;const nr={...r,id:isUuid(r.id)?r.id:crypto.randomUUID()};setKResults_(prev=>[...prev,nr]);api.kResults.create(nr).catch(console.warn);};
+  const addCResult=(r:any)=>{if(!checkSubscriptionActive())return;const nr={...r,id:isUuid(r.id)?r.id:crypto.randomUUID()};setCResults_(prev=>[...prev,nr]);api.cResults.create(nr).catch(console.warn);};
   const saveKQuestions=(qs:any[])=>{
+    if(!checkSubscriptionActive())return;
     qs.forEach(q=>{
       if(kQuestionsState.find((x:any)=>x.id===q.id))api.kQuestions.update(q).catch(console.warn);
       else api.kQuestions.create(q).catch(console.warn);
@@ -6467,6 +6597,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     setKQuestions_(qs);
   };
   const saveCQuestions=(qs:any[])=>{
+    if(!checkSubscriptionActive())return;
     qs.forEach(q=>{
       if(cQuestionsState.find((x:any)=>x.id===q.id))api.cQuestions.update(q).catch(console.warn);
       else api.cQuestions.create(q).catch(console.warn);
@@ -6476,6 +6607,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     setCQuestions_(qs);
   };
   const addInvoice=async(inv:Invoice)=>{
+    if (!checkSubscriptionActive()) return;
     if (!canCreate("Invoices")) {
       toast.error("You do not have permission to create invoices.");
       return;
@@ -6495,6 +6627,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     }
   };
   const editInvoice=async(inv:Invoice)=>{
+    if (!checkSubscriptionActive()) return;
     if (!canEdit("Invoices")) {
       toast.error("You do not have permission to edit invoices.");
       return;
@@ -6519,6 +6652,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     }
   };
   const deleteInvoice=async(id:string)=>{
+    if (!checkSubscriptionActive()) return;
     if (!canDelete("Invoices")) {
       toast.error("You do not have permission to delete invoices.");
       return;
@@ -6538,10 +6672,11 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       toast.error(err?.message || "Failed to delete invoice. Kept visible.");
     }
   };
-  const addCustomer=(c:Customer)=>{const fid=c.farmId||activeFarmId||farms[0]?.id||"";const nc={...c,id:isUuid(c.id)?c.id:crypto.randomUUID(),farmId:fid};setCustomers(prev=>[...prev,nc]);api.customers.create(nc).catch(console.warn);};
-  const addPriceGroup=(g:PriceGroup)=>{const fid=g.farmId||activeFarmId||farms[0]?.id||"";const ng={...g,id:isUuid(g.id)?g.id:crypto.randomUUID(),farmId:fid};setPriceGroups(prev=>[...prev,ng]);api.priceGroups.create(ng).catch(console.warn);};
-  const editPriceGroup=(g:PriceGroup)=>{setPriceGroups(prev=>prev.map(x=>x.id===g.id?g:x));api.priceGroups.update(g).catch(console.warn);};
+  const addCustomer=(c:Customer)=>{if(!checkSubscriptionActive())return;const fid=c.farmId||activeFarmId||farms[0]?.id||"";const nc={...c,id:isUuid(c.id)?c.id:crypto.randomUUID(),farmId:fid};setCustomers(prev=>[...prev,nc]);api.customers.create(nc).catch(console.warn);};
+  const addPriceGroup=(g:PriceGroup)=>{if(!checkSubscriptionActive())return;const fid=g.farmId||activeFarmId||farms[0]?.id||"";const ng={...g,id:isUuid(g.id)?g.id:crypto.randomUUID(),farmId:fid};setPriceGroups(prev=>[...prev,ng]);api.priceGroups.create(ng).catch(console.warn);};
+  const editPriceGroup=(g:PriceGroup)=>{if(!checkSubscriptionActive())return;setPriceGroups(prev=>prev.map(x=>x.id===g.id?g:x));api.priceGroups.update(g).catch(console.warn);};
   const delPriceGroup=async(id:string)=>{
+    if (!checkSubscriptionActive()) return;
     const previous=priceGroups;
     setPriceGroups(prev=>prev.filter(g=>g.id!==id));
     markDeletedId(id);
@@ -6637,6 +6772,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   const farmPondReports=pondReports.filter(r=>matchesFarm(r.farmId));
 
   const handleAddInvestor = async (inv: Investor, investment: Investment, payments: InvestmentPayment[]) => {
+    if (!checkSubscriptionActive()) return;
     if (!canCreate("Investors")) {
       toast.error("You do not have permission to add investors.");
       return;
@@ -6717,6 +6853,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   };
 
   const handleEditInvestor = async (inv: Investor) => {
+    if (!checkSubscriptionActive()) return;
     if (!canEdit("Investors")) {
       toast.error("You do not have permission to edit investors.");
       return;
@@ -6740,6 +6877,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   };
 
   const handleEditInvestment = async (inv: Investment, newPayments?: InvestmentPayment[]) => {
+    if (!checkSubscriptionActive()) return;
     if (!canEdit("Investors")) {
       toast.error("You do not have permission to edit investments.");
       return;
@@ -6792,6 +6930,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   };
 
   const handleDeleteInvestor = async (id: string) => {
+    if (!checkSubscriptionActive()) return;
     if (!canDelete("Investors")) {
       toast.error("You do not have permission to delete investors.");
       return;
@@ -6852,6 +6991,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   };
 
   const deletePondReport = async (id: string) => {
+    if (!checkSubscriptionActive()) return;
     if (!canDelete("Pond Management")) {
       toast.error("You do not have permission to delete pond reports.");
       return;
@@ -6877,6 +7017,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   };
 
   const deleteReport = async (id: string) => {
+    if (!checkSubscriptionActive()) return;
     const rep = reports.find(r => r.id === id);
     if (rep && (rep.isStaffSubmission || rep.authorRole === "staff" || rep.createdByRole === "staff")) {
       toast.error("Submitted staff reports are official records and cannot be deleted.");
@@ -6903,6 +7044,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   };
 
   const handleRecordPayment = async (payment: InvestmentPayment) => {
+    if (!checkSubscriptionActive()) return;
     if (!canCreate("Investors") && !canEdit("Investors")) {
       toast.error("You do not have permission to record investor payments.");
       return;
@@ -6969,6 +7111,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   };
 
   const handleMarkPaymentPaid = async (paymentId: string) => {
+    if (!checkSubscriptionActive()) return;
     if (!canEdit("Investors")) {
       toast.error("You do not have permission to update payments.");
       return;
@@ -7022,6 +7165,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   };
 
   const handleAddPondReport = async (r: PondReport) => {
+    if (!checkSubscriptionActive()) return;
     if (!isOwner && !canCreate("Reports") && !canCreate("Pond Management") && !hasPerm("Reports") && !hasPerm("Pond Management")) {
       toast.error("You do not have permission to submit pond reports.");
       return;
@@ -7370,6 +7514,27 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
             )}
           </div>
         </div>
+        {/* Farm Subscription Expiration Read-Only Banner */}
+        {farmSubInfo.isExpired && (
+          <div className="bg-gradient-to-r from-rose-600 via-rose-500 to-rose-600 text-white px-4 py-2.5 flex items-center justify-between text-xs font-medium shrink-0 shadow-sm z-30 border-b border-rose-700/50">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-6 h-6 rounded-full bg-white/20 flex items-center justify-center shrink-0">
+                <ShieldAlert size={14} className="text-white" />
+              </div>
+              <span className="truncate">
+                <strong className="font-bold">Subscription Expired:</strong> {isOwner ? "Your farm subscription has expired. The app is in read-only mode — renew subscription to add, edit, or delete records." : "Your farm's subscription has expired. The app is in read-only mode — please contact your Farm Owner to renew."}
+              </span>
+            </div>
+            {isOwner && (
+              <button
+                onClick={() => nav("pricing")}
+                className="ml-3 bg-white text-rose-600 font-bold px-3 py-1.5 rounded-lg hover:bg-rose-50 active:scale-95 transition-all text-xs shrink-0 shadow-xs flex items-center gap-1.5"
+              >
+                <CreditCard size={13} /> Renew Subscription
+              </button>
+            )}
+          </div>
+        )}
         <main ref={mainRef} className="flex-1 overflow-y-auto bg-[#f5f7fa]">
           {isDataLoading ? (
             <div className="flex flex-col items-center justify-center min-h-[60vh] gap-3 p-6">
@@ -7435,6 +7600,62 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
             <div className="px-6 pb-5 flex gap-2">
               <PBtn onClick={()=>{setShowUpgradeModal(false);nav("pricing");}}>Upgrade Plan</PBtn>
               <button onClick={()=>setShowUpgradeModal(false)} className="px-4 py-2 text-sm text-slate-400">Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Subscription / Free Trial Expired Modal */}
+      {showExpiredModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-4" onClick={e=>e.target===e.currentTarget&&setShowExpiredModal(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden border border-rose-100 animate-in fade-in zoom-in-95 duration-150">
+            <div className="bg-gradient-to-r from-rose-500 to-rose-600 px-6 py-4 flex items-center justify-between text-white">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-full bg-white/20 flex items-center justify-center shrink-0">
+                  <ShieldAlert size={20} className="text-white" />
+                </div>
+                <div>
+                  <h2 className="text-base font-bold font-['Barlow_Condensed',sans-serif] tracking-wide">Subscription Expired</h2>
+                  <p className="text-xs text-rose-100">Action Locked</p>
+                </div>
+              </div>
+              <button onClick={()=>setShowExpiredModal(false)} className="text-white/80 hover:text-white p-1 rounded-lg hover:bg-white/10 transition-colors">
+                <X size={18} />
+              </button>
+            </div>
+            <div className="px-6 py-5 space-y-3">
+              <div className="p-3.5 bg-rose-50 border border-rose-200/80 rounded-xl">
+                <p className="text-sm font-bold text-rose-900 mb-1">
+                  Subscription has expired, renew subscription
+                </p>
+                <p className="text-xs text-rose-700 leading-relaxed">
+                  {isOwner 
+                    ? "Your farm's subscription or free trial period has ended. Adding, editing, creating, and deleting records are disabled until the subscription is renewed."
+                    : "Your farm's subscription or free trial period has ended. Adding, editing, creating, and deleting records are currently disabled for this farm. Please ask your Farm Owner to renew the subscription."}
+                </p>
+              </div>
+              {farmSubInfo.expiryDate && (
+                <div className="flex items-center justify-between px-3.5 py-2 bg-slate-50 border border-slate-200/70 rounded-xl text-xs text-slate-700">
+                  <span className="font-medium text-slate-500">Expiring / Ended Date:</span>
+                  <span className="font-bold text-slate-900">{farmSubInfo.expiryDate}</span>
+                </div>
+              )}
+            </div>
+            <div className="px-6 pb-5 flex gap-2 justify-end bg-slate-50/70 border-t border-slate-100 pt-3">
+              <button onClick={()=>setShowExpiredModal(false)} className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-800 rounded-lg hover:bg-slate-200/60 transition-colors">
+                Close
+              </button>
+              {isOwner ? (
+                <PBtn onClick={()=>{setShowExpiredModal(false);nav("pricing");}}>
+                  <CreditCard size={14} /> Renew Subscription
+                </PBtn>
+              ) : (
+                <button
+                  onClick={() => setShowExpiredModal(false)}
+                  className="px-4 py-2 text-xs font-bold text-white bg-slate-800 hover:bg-slate-900 rounded-xl transition-colors"
+                >
+                  Understood
+                </button>
+              )}
             </div>
           </div>
         </div>

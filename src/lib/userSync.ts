@@ -1170,6 +1170,201 @@ export function getUserAdminOverride(
   };
 }
 
+export interface FarmSubscriptionDetails {
+  status: "Active" | "Trial" | "Expired" | "Suspended";
+  isExpired: boolean;
+  isTrial: boolean;
+  isPaidActive: boolean;
+  hasFreeAccess: boolean;
+  trialDaysLeft: number;
+  expiryDate: string | null;
+  formattedExpiryDate: string | null;
+  activePlan: string;
+  isStaff: boolean;
+  ownerName?: string;
+  ownerEmail?: string;
+}
+
+/**
+ * Computes the unified, farm-based subscription details for either an Admin/Owner or Staff member.
+ * If the user is staff, subscription status is strictly governed by the farm owner's account.
+ */
+export function getFarmSubscriptionDetails(
+  userProfile?: UserProfile | Partial<AdminUser> | null,
+  allUsers?: AdminUser[]
+): FarmSubscriptionDetails {
+  const users = allUsers && allUsers.length > 0 ? allUsers : loadAllAdminUsers();
+
+  const isStaff = Boolean(
+    (userProfile as any)?.role === "staff" ||
+    ((userProfile as any)?.ownerId && (userProfile as any)?.ownerId !== userProfile?.id)
+  );
+
+  let targetUser: any = userProfile;
+  if (isStaff && (userProfile as any)?.ownerId) {
+    const ownerId = (userProfile as any).ownerId;
+    const foundOwner = users.find(
+      u => (u?.id && u.id === ownerId) ||
+           (u?.email && (userProfile as any).ownerEmail && u.email.toLowerCase() === (userProfile as any).ownerEmail.toLowerCase())
+    );
+    if (foundOwner) {
+      targetUser = foundOwner;
+    } else {
+      try {
+        const raw = localStorage.getItem(`pondtora_${ownerId}_user_profile`);
+        if (raw) targetUser = JSON.parse(raw);
+      } catch {}
+    }
+  }
+
+  const email = targetUser?.email || "";
+  const override = getUserAdminOverride(email, targetUser);
+
+  if (override.hasFreeAccess) {
+    return {
+      status: "Active",
+      isExpired: false,
+      isTrial: false,
+      isPaidActive: true,
+      hasFreeAccess: true,
+      trialDaysLeft: 999,
+      expiryDate: null,
+      formattedExpiryDate: "Lifetime Access",
+      activePlan: override.activePlan || targetUser?.activePlan || "Commercial",
+      isStaff,
+      ownerName: targetUser?.name,
+      ownerEmail: targetUser?.email,
+    };
+  }
+
+  if (override.isSuspended) {
+    return {
+      status: "Suspended",
+      isExpired: true,
+      isTrial: false,
+      isPaidActive: false,
+      hasFreeAccess: false,
+      trialDaysLeft: 0,
+      expiryDate: null,
+      formattedExpiryDate: "Account Suspended",
+      activePlan: override.activePlan || targetUser?.activePlan || "Starter",
+      isStaff,
+      ownerName: targetUser?.name,
+      ownerEmail: targetUser?.email,
+    };
+  }
+
+  // Real payment check: has the owner/user completed payment
+  const hasPaid = Boolean(
+    override.hasPaid ||
+    targetUser?.hasPaid ||
+    targetUser?.paystackReference ||
+    targetUser?.paystack_reference ||
+    targetUser?.lastPaymentDate ||
+    targetUser?.last_payment_date
+  );
+
+  const expiryRaw =
+    targetUser?.subscriptionExpiry ||
+    targetUser?.subscription_expiry ||
+    override.subscriptionExpiry ||
+    null;
+
+  if (hasPaid) {
+    if (expiryRaw) {
+      try {
+        const exp = new Date(expiryRaw);
+        if (!isNaN(exp.getTime())) {
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          const expDay = new Date(exp);
+          expDay.setHours(23, 59, 59, 999);
+
+          const isExp = expDay.getTime() < today.getTime();
+          const formatted = exp.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+
+          return {
+            status: isExp ? "Expired" : "Active",
+            isExpired: isExp,
+            isTrial: false,
+            isPaidActive: !isExp,
+            hasFreeAccess: false,
+            trialDaysLeft: 0,
+            expiryDate: expiryRaw,
+            formattedExpiryDate: formatted,
+            activePlan: override.activePlan || targetUser?.activePlan || "Starter",
+            isStaff,
+            ownerName: targetUser?.name,
+            ownerEmail: targetUser?.email,
+          };
+        }
+      } catch {}
+    }
+
+    return {
+      status: "Active",
+      isExpired: false,
+      isTrial: false,
+      isPaidActive: true,
+      hasFreeAccess: false,
+      trialDaysLeft: 0,
+      expiryDate: null,
+      formattedExpiryDate: null,
+      activePlan: override.activePlan || targetUser?.activePlan || "Starter",
+      isStaff,
+      ownerName: targetUser?.name,
+      ownerEmail: targetUser?.email,
+    };
+  }
+
+  // User is on 30-Day Free Trial
+  const trialStart =
+    targetUser?.trialStartDate ||
+    targetUser?.trial_start_date ||
+    targetUser?.createdAt ||
+    null;
+
+  let daysRemaining = 30;
+  let trialExpiryStr: string | null = null;
+  let formattedTrialExp: string | null = null;
+
+  if (trialStart) {
+    try {
+      const start = new Date(trialStart);
+      if (!isNaN(start.getTime())) {
+        const exp = new Date(start);
+        exp.setDate(exp.getDate() + 30);
+        trialExpiryStr = exp.toISOString().slice(0, 10);
+        formattedTrialExp = exp.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+        const now = Date.now();
+        daysRemaining = Math.max(0, Math.ceil((exp.getTime() - now) / 86400000));
+      }
+    } catch {}
+  } else {
+    const exp = new Date();
+    exp.setDate(exp.getDate() + 30);
+    trialExpiryStr = exp.toISOString().slice(0, 10);
+    formattedTrialExp = exp.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+  }
+
+  const isTrialExpired = daysRemaining <= 0;
+
+  return {
+    status: isTrialExpired ? "Expired" : "Trial",
+    isExpired: isTrialExpired,
+    isTrial: true,
+    isPaidActive: false,
+    hasFreeAccess: false,
+    trialDaysLeft: daysRemaining,
+    expiryDate: trialExpiryStr,
+    formattedExpiryDate: formattedTrialExp,
+    activePlan: override.activePlan || targetUser?.activePlan || "Starter",
+    isStaff,
+    ownerName: targetUser?.name,
+    ownerEmail: targetUser?.email,
+  };
+}
+
 /**
  * Records a successful Paystack payment
  */

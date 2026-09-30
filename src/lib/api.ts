@@ -1450,11 +1450,11 @@ export const api = {
       const { data } = await supabase.from("user_profiles").update(snake).eq("id", userId).select().single();
       return data ? objToCamel<UserProfile>(data) : (p as UserProfile);
     },
-    updatePlan: async (plan: string, trialStartDate?: string) => {
+    updatePlan: async (plan: string, trialStartDate?: string | null) => {
       const userId = await getUserId();
       if (!userId) return {} as UserProfile;
       const payload: any = { active_plan: plan };
-      if (trialStartDate) payload.trial_start_date = trialStartDate;
+      if (trialStartDate !== undefined) payload.trial_start_date = trialStartDate;
       const { data } = await supabase.from("user_profiles").update(payload).eq("id", userId).select().single();
       return data ? objToCamel<UserProfile>(data) : ({} as UserProfile);
     },
