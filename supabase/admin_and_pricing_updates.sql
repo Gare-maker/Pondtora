@@ -267,35 +267,35 @@ BEGIN
     ), '[]'::jsonb),
     'ponds', COALESCE((
       SELECT jsonb_agg(to_jsonb(pd))
-      FROM (SELECT id, name, size_m2, farm_id, current_count, initial_stock, species, stocking_date FROM ponds WHERE user_id = resolved_id OR farm_id IN (SELECT id FROM farms WHERE user_id = resolved_id) ORDER BY created_at DESC) pd
+      FROM (SELECT id, name, size_m2, farm_id, current_count, initial_stock, species, stocking_date, created_at FROM ponds WHERE user_id = resolved_id OR farm_id IN (SELECT id FROM farms WHERE user_id = resolved_id) ORDER BY created_at DESC) pd
     ), '[]'::jsonb),
     'staff', COALESCE((
       SELECT jsonb_agg(to_jsonb(s))
-      FROM (SELECT id, name, email, role, status, phone FROM staff_members WHERE user_id = resolved_id ORDER BY created_at DESC) s
+      FROM (SELECT id, name, email, role, status, phone, created_at FROM staff_members WHERE user_id = resolved_id OR farm_id IN (SELECT id FROM farms WHERE user_id = resolved_id) ORDER BY created_at DESC) s
     ), '[]'::jsonb),
     'feedInventory', COALESCE((
       SELECT jsonb_agg(to_jsonb(fd))
-      FROM (SELECT id, brand, size, bags_in_stock, weight_per_bag, total_kg, cost_per_bag FROM feed_inventory WHERE user_id = resolved_id) fd
+      FROM (SELECT id, brand, size, bags, weight_per_bag, total_kg, cost_per_bag, purchase_date FROM feed_inventory WHERE user_id = resolved_id OR farm_id IN (SELECT id FROM farms WHERE user_id = resolved_id)) fd
     ), '[]'::jsonb),
     'feedingRecords', COALESCE((
       SELECT jsonb_agg(to_jsonb(fr))
-      FROM (SELECT id, pond, date, total, size, morning, evening, notes FROM feeding_records WHERE user_id = resolved_id ORDER BY date DESC, created_at DESC LIMIT 100) fr
+      FROM (SELECT id, pond, date, total, size, morning, evening, notes, created_at FROM feeding_records WHERE user_id = resolved_id OR farm_id IN (SELECT id FROM farms WHERE user_id = resolved_id) ORDER BY date DESC, created_at DESC LIMIT 100) fr
     ), '[]'::jsonb),
     'revenues', COALESCE((
       SELECT jsonb_agg(to_jsonb(r))
-      FROM (SELECT id, category, amount, date, customer, notes, description FROM revenues WHERE user_id = resolved_id ORDER BY date DESC, created_at DESC LIMIT 100) r
+      FROM (SELECT id, source, amount, date, notes, pond, fish_stock, created_at FROM revenues WHERE user_id = resolved_id OR farm_id IN (SELECT id FROM farms WHERE user_id = resolved_id) ORDER BY date DESC, created_at DESC LIMIT 100) r
     ), '[]'::jsonb),
     'expenses', COALESCE((
       SELECT jsonb_agg(to_jsonb(e))
-      FROM (SELECT id, category, amount, date, description, notes, vendor FROM expenses WHERE user_id = resolved_id ORDER BY date DESC, created_at DESC LIMIT 100) e
+      FROM (SELECT id, category, amount, date, description, notes, pond, fish_stock, created_at FROM expenses WHERE user_id = resolved_id OR farm_id IN (SELECT id FROM farms WHERE user_id = resolved_id) ORDER BY date DESC, created_at DESC LIMIT 100) e
     ), '[]'::jsonb),
     'invoices', COALESCE((
       SELECT jsonb_agg(to_jsonb(i))
-      FROM (SELECT id, invoice_number, customer_name, grand_total, subtotal, status, created_at, due_date FROM invoices WHERE user_id = resolved_id ORDER BY created_at DESC LIMIT 100) i
+      FROM (SELECT id, inv_number, customer, grand_total, subtotal, status, invoice_date, due_date, created_at FROM invoices WHERE user_id = resolved_id OR farm_id IN (SELECT id FROM farms WHERE user_id = resolved_id) ORDER BY created_at DESC LIMIT 100) i
     ), '[]'::jsonb),
     'investors', COALESCE((
       SELECT jsonb_agg(to_jsonb(inv))
-      FROM (SELECT id, name, email, phone, total_invested, notes FROM investors WHERE user_id = resolved_id) inv
+      FROM (SELECT id, name, email, phone, notes, created_at FROM investors WHERE user_id = resolved_id OR farm_id IN (SELECT id FROM farms WHERE user_id = resolved_id)) inv
     ), '[]'::jsonb)
   ) INTO result;
 

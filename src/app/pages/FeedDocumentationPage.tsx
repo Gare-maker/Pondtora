@@ -828,6 +828,35 @@ function FeedDocumentation({
     if (!size || !targetDate) {
       return { hasFed: false, totalFed: 0, carryover: 0, bagWeight: 15, expectedBags: 0, expectedRemaining: 0 };
     }
+
+    // When calculating for current selected date, use reconRows directly as the single source of truth
+    if (isSameDate(targetDate, selDate) && Array.isArray(reconRows)) {
+      const match = reconRows.find(r =>
+        isStockMatch(r.fishStock, fishStock) &&
+        (size === "—" || (r.size || "").toLowerCase().trim() === size.toLowerCase().trim()) &&
+        (!brand || brand === "—" || !r.brand || r.brand === "—" || r.brand.toLowerCase().trim() === brand.toLowerCase().trim())
+      ) || reconRows.find(r =>
+        isStockMatch(r.fishStock, fishStock) &&
+        (size === "—" || (r.size || "").toLowerCase().trim() === size.toLowerCase().trim())
+      );
+
+      if (match) {
+        let expectedRem = match.expectedRemaining;
+        if (bagsOpenedOverride !== undefined && bagsOpenedOverride !== match.recordedBags) {
+          const customAvailable = match.carryover + (bagsOpenedOverride * match.bagWeight);
+          expectedRem = Math.max(0, customAvailable - match.totalFed);
+        }
+        return {
+          hasFed: match.totalFed > 0,
+          totalFed: match.totalFed,
+          carryover: match.carryover,
+          bagWeight: match.bagWeight,
+          expectedBags: match.expectedBags,
+          expectedRemaining: expectedRem
+        };
+      }
+    }
+
     const normStock = (fishStock && fishStock !== "—") ? normalizeFishStock(fishStock) : "";
     const dateLabel = toDateLabel(targetDate);
     const mIdx = MIDX_GLOBAL[toMon(targetDate)] ?? MIDX_GLOBAL[dateLabel.split(" ")[0]] ?? viewMonth;
@@ -856,7 +885,7 @@ function FeedDocumentation({
     });
     const totalFed = fedRecords.reduce((s, r) => s + (Number(r.total) || ((Number(r.morning) || 0) + (Number(r.evening) || 0))), 0);
 
-    const carryover = (remainLogs || []).filter(r => {
+    const carryoverLogs = (remainLogs || []).filter(r => {
       if (!r) return false;
       const dateMatch = isSameDate(r.date, prevDateLabel) || isSameDate(r.date, `${MON_NAMES[prevDt.getMonth()]} ${prevDt.getDate()}`);
       if (!dateMatch) return false;
@@ -865,7 +894,8 @@ function FeedDocumentation({
         return isStockMatch(normStock, r.fishStock);
       }
       return true;
-    }).reduce((s, r) => s + (Number(r.remainingKg) || 0), 0);
+    });
+    const carryover = carryoverLogs.length > 0 ? (Number(carryoverLogs[carryoverLogs.length - 1].remainingKg) || 0) : 0;
 
     const invItem = (inventory || []).find(f => f && (brand && brand !== "—" ? f.brand.toLowerCase().trim() === brand.toLowerCase().trim() : true) && f.size.toLowerCase().trim() === size.toLowerCase().trim()) || (inventory || []).find(f => f && f.size.toLowerCase().trim() === size.toLowerCase().trim());
     const bagWeight = invItem?.weightPerBag || 15;

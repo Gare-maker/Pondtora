@@ -3272,8 +3272,20 @@ function SettingsPage({farms,onAddFarm,onEditFarm,onDeleteFarm,userProfile,onUpd
   /* ── Referral State ── */
   const [refStats, setRefStats] = useState(() => getUserReferralStats(userProfile));
   const [copiedLink, setCopiedLink] = useState(false);
+  const [copiedCode, setCopiedCode] = useState(false);
   const [showRedeemModal, setShowRedeemModal] = useState(false);
   const [isRefreshingRef, setIsRefreshingRef] = useState(false);
+
+  const handleCopyCode = () => {
+    try {
+      navigator.clipboard.writeText(refStats.referralCode);
+      setCopiedCode(true);
+      toast.success(`Referral code ${refStats.referralCode} copied!`);
+      setTimeout(() => setCopiedCode(false), 2000);
+    } catch {
+      toast.error("Could not copy referral code");
+    }
+  };
 
   const refreshLiveReferrals = async () => {
     setIsRefreshingRef(true);
@@ -3602,47 +3614,88 @@ function SettingsPage({farms,onAddFarm,onEditFarm,onDeleteFarm,userProfile,onUpd
             </div>
           </div>
 
-          {/* Share Referral Link Box (Link Only - Clean & Direct) */}
-          <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-xs space-y-3">
-            <div className="flex items-center gap-2">
-              <Share2 size={17} className="text-emerald-600 shrink-0" />
-              <h3 className="text-sm sm:text-base font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">
-                Your Custom Referral Link
-              </h3>
-            </div>
-            <p className="text-xs text-slate-500 leading-relaxed">
-              Send this link to fellow fish farmers. When they register using your link, they are automatically linked to your account. You will immediately see them in your registered referrals list below.
-            </p>
-
-            <div className="flex flex-col sm:flex-row items-stretch gap-2.5 pt-1">
-              <div className="relative flex-1 min-w-0">
-                <input
-                  type="text"
-                  readOnly
-                  value={refStats.referralLink}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 font-mono focus:outline-none select-all truncate"
-                />
+          {/* Share Referral Code & Link Boxes */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Box 1: Your Unique Referral Code */}
+            <div className="bg-gradient-to-br from-emerald-50/90 via-white to-slate-50 border border-emerald-200/90 rounded-2xl p-4 sm:p-6 shadow-xs space-y-3 flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <Gift size={18} className="text-emerald-700 shrink-0" />
+                    <h3 className="text-sm sm:text-base font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">
+                      Your Referral Code
+                    </h3>
+                  </div>
+                  <span className="text-[10px] font-extrabold bg-emerald-600 text-white px-2 py-0.5 rounded-full uppercase tracking-wider">
+                    30% Commission
+                  </span>
+                </div>
+                <p className="text-xs text-slate-600 mt-2 leading-relaxed">
+                  Tell other farmers to enter this code in the <strong>Referral Code</strong> field when creating their account.
+                </p>
               </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <button
-                  type="button"
-                  onClick={handleCopyLink}
-                  className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl transition-colors shadow-xs"
-                >
-                  {copiedLink ? <Check size={14} /> : <Copy size={14} />}
-                  <span>{copiedLink ? "Copied Link!" : "Copy Link"}</span>
-                </button>
 
-                <a
-                  href={whatsappShareUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 px-4 py-2.5 bg-[#25D366] hover:bg-[#20bd5a] text-white text-xs font-bold rounded-xl transition-colors shadow-xs"
-                  title="Share on WhatsApp"
-                >
-                  <MessageCircle size={14} />
-                  <span>Share on WhatsApp</span>
-                </a>
+              <div className="pt-2">
+                <div className="flex items-center justify-between bg-white border border-emerald-300 rounded-xl px-4 py-2.5 shadow-2xs">
+                  <span className="font-mono font-black text-base sm:text-lg text-emerald-800 tracking-wider">
+                    {refStats.referralCode}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleCopyCode}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold rounded-lg transition-colors shadow-2xs"
+                  >
+                    {copiedCode ? <Check size={13} /> : <Copy size={13} />}
+                    <span>{copiedCode ? "Copied!" : "Copy Code"}</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Box 2: Your Custom Referral Link */}
+            <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-6 shadow-xs space-y-3 flex flex-col justify-between">
+              <div>
+                <div className="flex items-center gap-2">
+                  <Share2 size={17} className="text-emerald-600 shrink-0" />
+                  <h3 className="text-sm sm:text-base font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">
+                    Your Custom Referral Link
+                  </h3>
+                </div>
+                <p className="text-xs text-slate-500 mt-2 leading-relaxed">
+                  Or share this link. Anyone who registers via your link will be automatically linked to your account.
+                </p>
+              </div>
+
+              <div className="flex flex-col sm:flex-row items-stretch gap-2 pt-1">
+                <div className="relative flex-1 min-w-0">
+                  <input
+                    type="text"
+                    readOnly
+                    value={refStats.referralLink}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 font-mono focus:outline-none select-all truncate"
+                  />
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={handleCopyLink}
+                    className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl transition-colors shadow-xs"
+                  >
+                    {copiedLink ? <Check size={13} /> : <Copy size={13} />}
+                    <span>{copiedLink ? "Copied!" : "Copy Link"}</span>
+                  </button>
+
+                  <a
+                    href={whatsappShareUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1 px-3 py-2 bg-[#25D366] hover:bg-[#20bd5a] text-white text-xs font-bold rounded-xl transition-colors shadow-xs"
+                    title="Share on WhatsApp"
+                  >
+                    <MessageCircle size={13} />
+                    <span>WhatsApp</span>
+                  </a>
+                </div>
               </div>
             </div>
           </div>

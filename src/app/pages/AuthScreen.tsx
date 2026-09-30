@@ -264,6 +264,7 @@ function AuthScreen({
   const [cCountry, setCCountry] = useState("Nigeria");
   const [cState, setCState] = useState("");
   const [cCity, setCCity] = useState("");
+  const [cReferralCode, setCReferralCode] = useState(() => getPendingReferrerCode() || "");
   const [cErr, setCErr] = useState("");
   const [cLoading, setCLoading] = useState(false);
   const [checkingEmail, setCheckingEmail] = useState(false);
@@ -501,7 +502,7 @@ function AuthScreen({
     const cleanEmail = cEmail.trim().toLowerCase();
     try {
       const phoneStr = `${DIAL_CODES[cDialC] ?? ""} ${cPhone.trim()}`.trim();
-      const pendingRef = getPendingReferrerCode();
+      const pendingRef = (cReferralCode.trim() || getPendingReferrerCode() || "").toUpperCase();
 
       const performSignUp = () => auth.signUp({
         email: cleanEmail,
@@ -952,6 +953,25 @@ function AuthScreen({
               <div className="grid grid-cols-2 gap-3">
                 <div><label className={LBL}>State / Region</label><input className={AIC} placeholder="e.g. Lagos" value={cState} onChange={e => setCState(e.target.value)} /></div>
                 <div><label className={LBL}>City</label><input className={AIC} placeholder="e.g. Ikeja" value={cCity} onChange={e => setCCity(e.target.value)} /></div>
+              </div>
+              <div>
+                <div className="flex items-center justify-between">
+                  <label className={LBL}>Referral Code (Optional)</label>
+                  {cReferralCode.trim() && (
+                    <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.2 rounded flex items-center gap-0.5">
+                      <Check size={10} /> Applied
+                    </span>
+                  )}
+                </div>
+                <input
+                  className={`${AIC} uppercase font-mono tracking-wide`}
+                  placeholder="e.g. FARM-1001"
+                  value={cReferralCode}
+                  onChange={e => setCReferralCode(e.target.value.toUpperCase())}
+                />
+                <p className="text-[10px] text-slate-400 mt-1">
+                  Referred by another fish farmer? Enter their referral code above.
+                </p>
               </div>
               <label className="flex items-start gap-2.5 cursor-pointer">
                 <input type="checkbox" checked={cAgreed} onChange={e => setCAgreed(e.target.checked)} className="mt-0.5 w-4 h-4 appearance-none border border-slate-300 rounded bg-white checked:bg-green-600 checked:border-green-600 transition-colors cursor-pointer shrink-0" />

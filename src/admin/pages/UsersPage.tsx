@@ -553,15 +553,15 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
       );
 
       const queriesPromise = Promise.allSettled([
-        supabase.from("farms").select("id, name, city, state, country, created_at").eq("user_id", viewUser.id).order("created_at", { ascending: true }),
-        supabase.from("ponds").select("id, name, size_m2, farm_id, current_count, initial_stock, species, stocking_date").eq("user_id", viewUser.id).order("created_at", { ascending: false }),
-        supabase.from("staff_members").select("id, name, email, role, status").eq("user_id", viewUser.id).order("created_at", { ascending: false }),
-        supabase.from("feed_inventory").select("id, brand, size, bags_in_stock, weight_per_bag, total_kg").eq("user_id", viewUser.id),
-        supabase.from("feeding_records").select("id, pond, date, total, size, morning, evening").eq("user_id", viewUser.id).order("created_at", { ascending: false }).limit(40),
-        supabase.from("revenues").select("id, category, amount, date, customer, description").eq("user_id", viewUser.id).order("date", { ascending: false }).limit(40),
-        supabase.from("expenses").select("id, category, amount, date, description, vendor").eq("user_id", viewUser.id).order("date", { ascending: false }).limit(40),
-        supabase.from("invoices").select("id, invoice_number, customer_name, grand_total, status, created_at").eq("user_id", viewUser.id).order("created_at", { ascending: false }).limit(40),
-        supabase.from("investors").select("id, name, email, phone, total_invested").eq("user_id", viewUser.id),
+        supabase.from("farms").select("*").eq("user_id", viewUser.id).order("created_at", { ascending: true }),
+        supabase.from("ponds").select("*").eq("user_id", viewUser.id).order("created_at", { ascending: false }),
+        supabase.from("staff_members").select("*").eq("user_id", viewUser.id).order("created_at", { ascending: false }),
+        supabase.from("feed_inventory").select("*").eq("user_id", viewUser.id),
+        supabase.from("feeding_records").select("*").eq("user_id", viewUser.id).order("created_at", { ascending: false }).limit(60),
+        supabase.from("revenues").select("*").eq("user_id", viewUser.id).order("date", { ascending: false }).limit(60),
+        supabase.from("expenses").select("*").eq("user_id", viewUser.id).order("date", { ascending: false }).limit(60),
+        supabase.from("invoices").select("*").eq("user_id", viewUser.id).order("created_at", { ascending: false }).limit(60),
+        supabase.from("investors").select("*").eq("user_id", viewUser.id),
       ]);
 
       const result = await Promise.race([queriesPromise, timeoutPromise]);
@@ -1735,10 +1735,10 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                           <div key={rev.id || i} className="p-2.5 flex items-center justify-between gap-2 text-xs hover:bg-slate-50 transition-colors">
                             <div className="min-w-0">
                               <p className="font-bold text-slate-800 truncate">
-                                {rev.category || "Fish Sales"} {rev.customer ? `• ${rev.customer}` : ""}
+                                {rev.source || rev.category || "Fish Sales"} {rev.pond ? `• Pond: ${rev.pond}` : (rev.customer ? `• ${rev.customer}` : "")}
                               </p>
                               <p className="text-[10px] text-slate-400 truncate">
-                                {fmtDate(rev.date || rev.created_at)} {rev.description ? `• ${rev.description}` : ""}
+                                {fmtDate(rev.date || rev.created_at)} {rev.notes || rev.description ? `• ${rev.notes || rev.description}` : ""}
                               </p>
                             </div>
                             <div className="text-right shrink-0">
@@ -1770,10 +1770,10 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                           <div key={exp.id || i} className="p-2.5 flex items-center justify-between gap-2 text-xs hover:bg-slate-50 transition-colors">
                             <div className="min-w-0">
                               <p className="font-bold text-slate-800 truncate">
-                                {exp.category || "Operational"} {exp.vendor ? `• ${exp.vendor}` : ""}
+                                {exp.category || "Operational"} {exp.pond ? `• Pond: ${exp.pond}` : (exp.vendor ? `• ${exp.vendor}` : "")}
                               </p>
                               <p className="text-[10px] text-slate-400 truncate">
-                                {fmtDate(exp.date || exp.created_at)} {exp.description ? `• ${exp.description}` : ""}
+                                {fmtDate(exp.date || exp.created_at)} {exp.desc || exp.description || exp.notes ? `• ${exp.desc || exp.description || exp.notes}` : ""}
                               </p>
                             </div>
                             <div className="text-right shrink-0">
@@ -1799,20 +1799,23 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                       </div>
                     ) : (
                       <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100 max-h-48 overflow-y-auto">
-                        {(userExtra?.invoices || []).map((inv, i) => (
-                          <div key={inv.id || i} className="p-2.5 flex items-center justify-between gap-2 text-xs hover:bg-slate-50 transition-colors">
-                            <div>
-                              <p className="font-bold text-slate-800">{inv.invoice_number || `Invoice #${i + 1}`} • {inv.customer_name || "Customer"}</p>
-                              <p className="text-[10px] text-slate-400">{fmtDate(inv.created_at || inv.due_date)}</p>
+                        {(userExtra?.invoices || []).map((inv, i) => {
+                          const custName = (typeof inv.customer === "object" ? inv.customer?.name : inv.customer) || inv.customer_name || "Customer";
+                          return (
+                            <div key={inv.id || i} className="p-2.5 flex items-center justify-between gap-2 text-xs hover:bg-slate-50 transition-colors">
+                              <div>
+                                <p className="font-bold text-slate-800">{inv.inv_number || inv.invoice_number || `Invoice #${i + 1}`} • {custName}</p>
+                                <p className="text-[10px] text-slate-400">{fmtDate(inv.created_at || inv.invoice_date || inv.due_date)}</p>
+                              </div>
+                              <div className="text-right shrink-0">
+                                <p className="font-bold text-slate-900">₦{(Number(inv.grand_total || inv.subtotal) || 0).toLocaleString()}</p>
+                                <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded ${inv.status === "Paid" ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"}`}>
+                                  {inv.status || "Pending"}
+                                </span>
+                              </div>
                             </div>
-                            <div className="text-right shrink-0">
-                              <p className="font-bold text-slate-900">₦{(Number(inv.grand_total || inv.subtotal) || 0).toLocaleString()}</p>
-                              <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded ${inv.status === "Paid" ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"}`}>
-                                {inv.status || "Pending"}
-                              </span>
-                            </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     )}
                   </div>
