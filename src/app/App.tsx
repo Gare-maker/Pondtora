@@ -2771,17 +2771,26 @@ function SubscriptionPage({
 
     setActivePlan(targetTx.planName);
     setTrialStartDate(null);
-    api.profile.updatePlan(targetTx.planName, null).catch(console.warn);
 
     const todayStr = new Date().toISOString().slice(0, 10);
     const expDate = new Date();
     expDate.setDate(expDate.getDate() + (targetTx.billingCycle === "yearly" ? 365 : 30));
     const expStr = expDate.toISOString().slice(0, 10);
 
+    api.profile.recordPayment({
+      plan: targetTx.planName,
+      amount: targetTx.amount,
+      billingFrequency: targetTx.billingCycle,
+      reference: targetTx.reference,
+      subscriptionStart: todayStr,
+      subscriptionExpiry: expStr,
+    }).catch(console.warn);
+
     const updatedProf: Partial<UserProfile> = {
       activePlan: targetTx.planName,
       trialStartDate: null,
       subscriptionStatus: "Active",
+      subscriptionAmount: targetTx.amount,
       subscriptionExpiry: expStr,
       subscriptionStart: todayStr,
       paystackReference: targetTx.reference,
@@ -2839,6 +2848,11 @@ function SubscriptionPage({
           clearPendingPaystackTransaction();
           setPendingTransfer(null);
 
+          const todayStr = new Date().toISOString().slice(0, 10);
+          const expDate = new Date();
+          expDate.setDate(expDate.getDate() + (isYearly ? 365 : 30));
+          const expStr = expDate.toISOString().slice(0, 10);
+
           recordSuccessfulPayment({
             email: effectiveProfile?.email || "",
             planName: plan.name,
@@ -2848,17 +2862,21 @@ function SubscriptionPage({
           });
           setActivePlan(plan.name);
           setTrialStartDate(null);
-          api.profile.updatePlan(plan.name, null).catch(console.warn);
 
-          const todayStr = new Date().toISOString().slice(0, 10);
-          const expDate = new Date();
-          expDate.setDate(expDate.getDate() + (isYearly ? 365 : 30));
-          const expStr = expDate.toISOString().slice(0, 10);
+          api.profile.recordPayment({
+            plan: plan.name,
+            amount: calculatedPrice,
+            billingFrequency: isYearly ? "yearly" : "monthly",
+            reference: res.reference,
+            subscriptionStart: todayStr,
+            subscriptionExpiry: expStr,
+          }).catch(console.warn);
 
           const updatedProf: Partial<UserProfile> = {
             activePlan: plan.name,
             trialStartDate: null,
             subscriptionStatus: "Active",
+            subscriptionAmount: calculatedPrice,
             subscriptionExpiry: expStr,
             subscriptionStart: todayStr,
             paystackReference: res.reference,

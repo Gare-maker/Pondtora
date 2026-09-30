@@ -126,6 +126,26 @@ export async function fetchLiveAdminUsers(): Promise<{
   let fetchedStats: PlatformOperationalStats | null = null;
   let isLive = false;
 
+  // Fetch global admin user overrides from platform_settings
+  let globalOverrides: Record<string, any> = {};
+  try {
+    const { data: setRow } = await supabase
+      .from("platform_settings")
+      .select("value")
+      .eq("key", "admin_user_overrides")
+      .maybeSingle();
+    if (setRow?.value && typeof setRow.value === "object") {
+      globalOverrides = setRow.value;
+    }
+  } catch {}
+
+  // Helper to parse numeric subscription amount
+  const parseAmount = (val: any): number | null => {
+    if (typeof val === "number" && !isNaN(val) && val > 0) return val;
+    if (typeof val === "string" && val.trim() !== "" && !isNaN(Number(val)) && Number(val) > 0) return Number(val);
+    return null;
+  };
+
   // ── 1. Priority 1: Postgres RPC get_all_users_for_admin ──
   try {
     const { data: rpcUsers, error: rpcErr } = await supabase.rpc("get_all_users_for_admin");
@@ -137,51 +157,84 @@ export async function fetchLiveAdminUsers(): Promise<{
         const local = existingLocal.find(
           x => x.id === p.id || (x.email && x.email.toLowerCase().trim() === pEmail)
         );
+        const override = globalOverrides[pEmail] || (p.id ? globalOverrides[p.id] : null);
 
+        const rawStatus = (p.subscription_status || override?.subscriptionStatus || local?.subscriptionStatus || "").trim();
         const hasPaid = Boolean(
           local?.hasPaid ||
           local?.paystackReference ||
           local?.lastPaymentDate ||
           p.paystack_reference ||
-          p.last_payment_date
+          p.last_payment_date ||
+          override?.paystackReference ||
+          override?.hasPaid ||
+          rawStatus === "Active" ||
+          rawStatus === "Paid" ||
+          p.subscription_expiry ||
+          override?.subscriptionExpiry ||
+          (parseAmount(p.subscription_amount) !== null) ||
+          (parseAmount(override?.subscriptionAmount) !== null)
         );
 
-        const roleStr = (p.role || local?.role || "owner").toLowerCase().trim();
+        const roleStr = (p.role || override?.role || local?.role || "owner").toLowerCase().trim();
+        const activePlan = override?.activePlan || p.active_plan || local?.activePlan || "Starter";
+        const billingFreq = (override?.billingFrequency || p.billing_frequency || local?.billingFrequency || "monthly") as BillingFrequency;
 
-        const subAmount = typeof p.subscription_amount === "number" && !isNaN(p.subscription_amount)
-          ? p.subscription_amount
-          : typeof p.raw_data?.subscription_amount === "number" && !isNaN(p.raw_data.subscription_amount)
-          ? p.raw_data.subscription_amount
-          : (typeof local?.subscriptionAmount === "number" ? local.subscriptionAmount : null);
+        let subAmount = parseAmount(override?.subscriptionAmount) ??
+          parseAmount(p.subscription_amount) ??
+          parseAmount(p.raw_data?.subscription_amount) ??
+          parseAmount(local?.subscriptionAmount);
+
+        // If user is paid but amount not explicitly in DB, resolve from plan price
+        if (hasPaid && (!subAmount || subAmount <= 0)) {
+          const planTarget = activePlan.toLowerCase().trim();
+          const matchedPlan = DEFAULT_PLANS.find(dp => dp.name.toLowerCase().trim() === planTarget) || DEFAULT_PLANS[0];
+          subAmount = billingFreq === "yearly" ? matchedPlan.yearlyPrice : matchedPlan.monthlyPrice;
+        }
+
+        const todayStr = new Date().toISOString().slice(0, 10);
+        const subStart = p.subscription_start ? String(p.subscription_start).slice(0, 10) :
+          (override?.subscriptionStart || local?.subscriptionStart || (hasPaid ? (p.last_payment_date || String(p.created_at || "").slice(0, 10) || todayStr) : null));
+
+        let subExpiry = p.subscription_expiry ? String(p.subscription_expiry).slice(0, 10) :
+          (override?.subscriptionExpiry || local?.subscriptionExpiry || null);
+
+        if (hasPaid && !subExpiry && subStart) {
+          const d = new Date(subStart);
+          if (!isNaN(d.getTime())) {
+            d.setDate(d.getDate() + (billingFreq === "yearly" ? 365 : 30));
+            subExpiry = d.toISOString().slice(0, 10);
+          }
+        }
 
         const u: AdminUser = {
           id: p.id,
-          name: p.name || (p.email ? p.email.split("@")[0] : "Farmer"),
+          name: p.name || override?.name || (p.email ? p.email.split("@")[0] : "Farmer"),
           email: p.email || "",
-          farmName: p.farm_name || local?.farmName || "Primary Farm",
-          phone: p.phone || local?.phone || "",
+          farmName: p.farm_name || override?.farmName || local?.farmName || "Primary Farm",
+          phone: p.phone || override?.phone || local?.phone || "",
           city: p.city || local?.city || "Lagos",
           state: p.state || local?.state || "Lagos",
           country: p.country || local?.country || "Nigeria",
           role: roleStr,
-          activePlan: p.active_plan || local?.activePlan || "Starter",
-          trialStartDate: p.trial_start_date ? String(p.trial_start_date).slice(0, 10) : (local?.trialStartDate || (p.created_at ? String(p.created_at).slice(0, 10) : new Date().toISOString().slice(0, 10))),
-          billingFrequency: local?.billingFrequency || "monthly",
+          activePlan: activePlan,
+          trialStartDate: hasPaid ? null : (p.trial_start_date ? String(p.trial_start_date).slice(0, 10) : (local?.trialStartDate || (p.created_at ? String(p.created_at).slice(0, 10) : todayStr))),
+          billingFrequency: billingFreq,
           subscriptionAmount: subAmount,
           hasPaid: hasPaid,
           subscriptionStatus: "Trial",
-          subscriptionStart: hasPaid ? (local?.subscriptionStart || null) : null,
-          subscriptionExpiry: hasPaid ? (local?.subscriptionExpiry || null) : null,
+          subscriptionStart: subStart,
+          subscriptionExpiry: subExpiry,
           accountStatus: (p.status === "Suspended" || local?.accountStatus === "Suspended") ? "Suspended" : "Active",
-          freeAccess: Boolean(p.free_access || p.raw_data?.free_access || local?.freeAccess),
+          freeAccess: Boolean(p.free_access || p.raw_data?.free_access || override?.freeAccess || local?.freeAccess),
           farmCount: Number(p.farm_count) > 0 ? Number(p.farm_count) : (local?.farmCount || 1),
           pondCount: Number(p.pond_count) || local?.pondCount || 0,
           staffCount: Number(p.staff_count) || local?.staffCount || 0,
-          paystackReference: local?.paystackReference || p.paystack_reference,
-          lastPaymentDate: local?.lastPaymentDate || p.last_payment_date,
+          paystackReference: local?.paystackReference || p.paystack_reference || override?.paystackReference,
+          lastPaymentDate: local?.lastPaymentDate || p.last_payment_date || override?.lastPaymentDate,
           referralCode: p.referral_code || p.referralCode || local?.referralCode,
           referredBy: p.referred_by || p.referredBy || local?.referredBy || (p.raw_user_meta_data?.referred_by),
-          createdAt: p.created_at ? String(p.created_at).slice(0, 10) : (local?.createdAt || new Date().toISOString().slice(0, 10)),
+          createdAt: p.created_at ? String(p.created_at).slice(0, 10) : (local?.createdAt || todayStr),
         };
         u.subscriptionStatus = computeSubscriptionStatus(u);
         return u;
@@ -240,6 +293,7 @@ export async function fetchLiveAdminUsers(): Promise<{
           const local = existingLocal.find(
             x => x.id === p.id || (x.email && x.email.toLowerCase().trim() === pEmail)
           );
+          const override = globalOverrides[pEmail] || (p.id ? globalOverrides[p.id] : null);
 
           const userFarms = rawFarms.filter((f: any) => f.user_id === p.id);
           // De-duplicate duplicate farm rows by name
@@ -264,50 +318,82 @@ export async function fetchLiveAdminUsers(): Promise<{
           const userInvoices = rawInvoices.filter((inv: any) => inv.user_id === p.id);
           const invoicesCount = userInvoices.length || local?.invoicesCount || 0;
 
+          const rawStatus = (p.subscription_status || override?.subscriptionStatus || local?.subscriptionStatus || "").trim();
           const hasPaid = Boolean(
             local?.hasPaid ||
             local?.paystackReference ||
             local?.lastPaymentDate ||
             p.paystack_reference ||
-            p.last_payment_date
+            p.last_payment_date ||
+            override?.paystackReference ||
+            override?.hasPaid ||
+            rawStatus === "Active" ||
+            rawStatus === "Paid" ||
+            p.subscription_expiry ||
+            override?.subscriptionExpiry ||
+            (parseAmount(p.subscription_amount) !== null) ||
+            (parseAmount(override?.subscriptionAmount) !== null)
           );
 
-          const subAmount = typeof p.subscription_amount === "number" && !isNaN(p.subscription_amount)
-            ? p.subscription_amount
-            : typeof p.raw_data?.subscription_amount === "number" && !isNaN(p.raw_data.subscription_amount)
-            ? p.raw_data.subscription_amount
-            : (typeof local?.subscriptionAmount === "number" ? local.subscriptionAmount : null);
+          const activePlan = override?.activePlan || p.active_plan || local?.activePlan || "Starter";
+          const billingFreq = (override?.billingFrequency || p.billing_frequency || local?.billingFrequency || "monthly") as BillingFrequency;
+
+          let subAmount = parseAmount(override?.subscriptionAmount) ??
+            parseAmount(p.subscription_amount) ??
+            parseAmount(p.raw_data?.subscription_amount) ??
+            parseAmount(local?.subscriptionAmount);
+
+          if (hasPaid && (!subAmount || subAmount <= 0)) {
+            const planTarget = activePlan.toLowerCase().trim();
+            const matchedPlan = DEFAULT_PLANS.find(dp => dp.name.toLowerCase().trim() === planTarget) || DEFAULT_PLANS[0];
+            subAmount = billingFreq === "yearly" ? matchedPlan.yearlyPrice : matchedPlan.monthlyPrice;
+          }
+
+          const todayStr = new Date().toISOString().slice(0, 10);
+          const subStart = p.subscription_start ? String(p.subscription_start).slice(0, 10) :
+            (override?.subscriptionStart || local?.subscriptionStart || (hasPaid ? (p.last_payment_date || String(p.created_at || "").slice(0, 10) || todayStr) : null));
+
+          let subExpiry = p.subscription_expiry ? String(p.subscription_expiry).slice(0, 10) :
+            (override?.subscriptionExpiry || local?.subscriptionExpiry || null);
+
+          if (hasPaid && !subExpiry && subStart) {
+            const d = new Date(subStart);
+            if (!isNaN(d.getTime())) {
+              d.setDate(d.getDate() + (billingFreq === "yearly" ? 365 : 30));
+              subExpiry = d.toISOString().slice(0, 10);
+            }
+          }
 
           const u: AdminUser = {
             id: p.id,
-            name: p.name || (p.email ? p.email.split("@")[0] : "Farmer"),
+            name: p.name || override?.name || (p.email ? p.email.split("@")[0] : "Farmer"),
             email: p.email || "",
             farmName: farmName,
-            phone: p.phone || local?.phone || "",
+            phone: p.phone || override?.phone || local?.phone || "",
             city: p.city || local?.city || "Lagos",
             state: p.state || local?.state || "Lagos",
             country: p.country || local?.country || "Nigeria",
             role: pRole,
-            activePlan: p.active_plan || local?.activePlan || "Starter",
-            trialStartDate: p.trial_start_date ? String(p.trial_start_date).slice(0, 10) : (local?.trialStartDate || (p.created_at ? String(p.created_at).slice(0, 10) : new Date().toISOString().slice(0, 10))),
-            billingFrequency: local?.billingFrequency || "monthly",
+            activePlan: activePlan,
+            trialStartDate: hasPaid ? null : (p.trial_start_date ? String(p.trial_start_date).slice(0, 10) : (local?.trialStartDate || (p.created_at ? String(p.created_at).slice(0, 10) : todayStr))),
+            billingFrequency: billingFreq,
             subscriptionAmount: subAmount,
             hasPaid: hasPaid,
             subscriptionStatus: "Trial",
-            subscriptionStart: hasPaid ? (local?.subscriptionStart || null) : null,
-            subscriptionExpiry: hasPaid ? (local?.subscriptionExpiry || null) : null,
+            subscriptionStart: subStart,
+            subscriptionExpiry: subExpiry,
             accountStatus: (p.status === "Suspended" || local?.accountStatus === "Suspended") ? "Suspended" : "Active",
-            freeAccess: Boolean(p.free_access || p.raw_data?.free_access || local?.freeAccess),
+            freeAccess: Boolean(p.free_access || p.raw_data?.free_access || override?.freeAccess || local?.freeAccess),
             farmCount: farmCount,
             pondCount: pondCount,
             staffCount: staffCount,
             invoicesCount: invoicesCount,
             totalFishStocked: userPonds.reduce((s: number, pd: any) => s + (Number(pd.current_count ?? pd.initial_stock) || 0), 0),
-            paystackReference: local?.paystackReference || p.paystack_reference,
-            lastPaymentDate: local?.lastPaymentDate || p.last_payment_date,
+            paystackReference: local?.paystackReference || p.paystack_reference || override?.paystackReference,
+            lastPaymentDate: local?.lastPaymentDate || p.last_payment_date || override?.lastPaymentDate,
             referralCode: p.referral_code || p.referralCode || local?.referralCode,
             referredBy: p.referred_by || p.referredBy || local?.referredBy || (p.raw_user_meta_data?.referred_by),
-            createdAt: p.created_at ? String(p.created_at).slice(0, 10) : (local?.createdAt || new Date().toISOString().slice(0, 10)),
+            createdAt: p.created_at ? String(p.created_at).slice(0, 10) : (local?.createdAt || todayStr),
           };
           u.subscriptionStatus = computeSubscriptionStatus(u);
           dbUsers.push(u);
@@ -951,9 +1037,44 @@ export function syncUserProfileToAdmin(
 
   if (existingIdx >= 0) {
     const current = users[existingIdx];
-    const hasPaid = Boolean(current.hasPaid || current.paystackReference || current.lastPaymentDate);
-    const resolvedCustomAmount = profileCustomAmount !== null ? profileCustomAmount : (typeof current.subscriptionAmount === "number" ? current.subscriptionAmount : null);
+    const hasPaid = Boolean(
+      current.hasPaid ||
+      current.paystackReference ||
+      current.lastPaymentDate ||
+      (profile as any).hasPaid ||
+      profile.paystackReference ||
+      (profile as any).paystack_reference ||
+      profile.lastPaymentDate ||
+      (profile as any).last_payment_date ||
+      profile.subscriptionExpiry ||
+      (profile as any).subscription_expiry ||
+      profile.subscriptionStatus === "Active" ||
+      profile.subscriptionStatus === "Paid" ||
+      (profile as any).subscription_status === "Active" ||
+      (profile as any).subscription_status === "Paid" ||
+      (typeof profileCustomAmount === "number" && profileCustomAmount > 0)
+    );
+
+    let resolvedCustomAmount = profileCustomAmount !== null ? profileCustomAmount : (typeof current.subscriptionAmount === "number" ? current.subscriptionAmount : null);
     const resolvedFreeAccess = profileFreeAccess || Boolean(current.freeAccess);
+    const resolvedPlan = activePlan || profile.activePlan || current.activePlan || "Starter";
+    const resolvedFreq = (profile.billingFrequency || (profile as any).billing_frequency || current.billingFrequency || "monthly") as BillingFrequency;
+
+    if (hasPaid && (!resolvedCustomAmount || resolvedCustomAmount <= 0) && !resolvedFreeAccess) {
+      const planTarget = resolvedPlan.toLowerCase().trim();
+      const matchedPlan = DEFAULT_PLANS.find(dp => dp.name.toLowerCase().trim() === planTarget) || DEFAULT_PLANS[0];
+      resolvedCustomAmount = resolvedFreq === "yearly" ? matchedPlan.yearlyPrice : matchedPlan.monthlyPrice;
+    }
+
+    const subStart = hasPaid ? (profile.subscriptionStart || (profile as any).subscription_start || current.subscriptionStart || new Date().toISOString().slice(0, 10)) : null;
+    let subExpiry = hasPaid ? (profile.subscriptionExpiry || (profile as any).subscription_expiry || current.subscriptionExpiry || null) : null;
+    if (hasPaid && !subExpiry && subStart) {
+      const d = new Date(subStart);
+      if (!isNaN(d.getTime())) {
+        d.setDate(d.getDate() + (resolvedFreq === "yearly" ? 365 : 30));
+        subExpiry = d.toISOString().slice(0, 10);
+      }
+    }
 
     userObj = {
       ...current,
@@ -964,20 +1085,58 @@ export function syncUserProfileToAdmin(
       state: profile.state || current.state || "Lagos",
       country: profile.country || current.country || "Nigeria",
       role: profile.role || current.role || "owner",
-      activePlan: activePlan || profile.activePlan || current.activePlan || "Starter",
+      activePlan: resolvedPlan,
+      billingFrequency: resolvedFreq,
       subscriptionAmount: resolvedCustomAmount,
       freeAccess: resolvedFreeAccess,
       hasPaid: hasPaid,
       trialStartDate: hasPaid ? null : (profile.trialStartDate || current.trialStartDate || new Date().toISOString().slice(0, 10)),
       farmCount: Math.max(farmCount || 1, current.farmCount || 1),
-      subscriptionStart: hasPaid ? current.subscriptionStart : null,
-      subscriptionExpiry: hasPaid ? current.subscriptionExpiry : null,
+      subscriptionStart: subStart,
+      subscriptionExpiry: subExpiry,
+      paystackReference: current.paystackReference || profile.paystackReference || (profile as any).paystack_reference,
+      lastPaymentDate: current.lastPaymentDate || profile.lastPaymentDate || (profile as any).last_payment_date,
       referralCode: profile.referralCode || current.referralCode || (profile as any).referral_code,
       referredBy: profile.referredBy || current.referredBy || (profile as any).referred_by,
     };
     userObj.subscriptionStatus = computeSubscriptionStatus(userObj);
     users[existingIdx] = userObj;
   } else {
+    const hasPaid = Boolean(
+      (profile as any).hasPaid ||
+      profile.paystackReference ||
+      (profile as any).paystack_reference ||
+      profile.lastPaymentDate ||
+      (profile as any).last_payment_date ||
+      profile.subscriptionExpiry ||
+      (profile as any).subscription_expiry ||
+      profile.subscriptionStatus === "Active" ||
+      profile.subscriptionStatus === "Paid" ||
+      (profile as any).subscription_status === "Active" ||
+      (profile as any).subscription_status === "Paid" ||
+      (typeof profileCustomAmount === "number" && profileCustomAmount > 0)
+    );
+
+    const resolvedPlan = activePlan || profile.activePlan || "Starter";
+    const resolvedFreq = (profile.billingFrequency || (profile as any).billing_frequency || "monthly") as BillingFrequency;
+    let resolvedAmount = profileCustomAmount;
+
+    if (hasPaid && (!resolvedAmount || resolvedAmount <= 0) && !profileFreeAccess) {
+      const planTarget = resolvedPlan.toLowerCase().trim();
+      const matchedPlan = DEFAULT_PLANS.find(dp => dp.name.toLowerCase().trim() === planTarget) || DEFAULT_PLANS[0];
+      resolvedAmount = resolvedFreq === "yearly" ? matchedPlan.yearlyPrice : matchedPlan.monthlyPrice;
+    }
+
+    const subStart = hasPaid ? (profile.subscriptionStart || (profile as any).subscription_start || new Date().toISOString().slice(0, 10)) : null;
+    let subExpiry = hasPaid ? (profile.subscriptionExpiry || (profile as any).subscription_expiry || null) : null;
+    if (hasPaid && !subExpiry && subStart) {
+      const d = new Date(subStart);
+      if (!isNaN(d.getTime())) {
+        d.setDate(d.getDate() + (resolvedFreq === "yearly" ? 365 : 30));
+        subExpiry = d.toISOString().slice(0, 10);
+      }
+    }
+
     userObj = {
       id: profile.id || Math.random().toString(36).slice(2, 10),
       name: profile.name || targetEmail.split("@")[0],
@@ -988,19 +1147,21 @@ export function syncUserProfileToAdmin(
       state: profile.state || "Lagos",
       country: profile.country || "Nigeria",
       role: profile.role || "owner",
-      activePlan: activePlan || profile.activePlan || "Starter",
-      trialStartDate: profile.trialStartDate || new Date().toISOString().slice(0, 10),
-      billingFrequency: "monthly",
-      subscriptionAmount: profileCustomAmount,
-      hasPaid: false,
+      activePlan: resolvedPlan,
+      trialStartDate: hasPaid ? null : (profile.trialStartDate || new Date().toISOString().slice(0, 10)),
+      billingFrequency: resolvedFreq,
+      subscriptionAmount: resolvedAmount,
+      hasPaid: hasPaid,
       subscriptionStatus: "Trial",
-      subscriptionStart: null,
-      subscriptionExpiry: null,
+      subscriptionStart: subStart,
+      subscriptionExpiry: subExpiry,
       accountStatus: "Active",
       freeAccess: profileFreeAccess,
       farmCount: farmCount || 1,
       pondCount: 0,
       staffCount: 0,
+      paystackReference: profile.paystackReference || (profile as any).paystack_reference,
+      lastPaymentDate: profile.lastPaymentDate || (profile as any).last_payment_date,
       referralCode: profile.referralCode || (profile as any).referral_code,
       referredBy: profile.referredBy || (profile as any).referred_by,
       createdAt: new Date().toISOString().slice(0, 10),
@@ -1438,24 +1599,119 @@ export function recordSuccessfulPayment(params: {
 
   saveAllAdminUsers(users);
 
-  // Directly update Supabase user_profiles table for persistence
-  supabase
-    .from("user_profiles")
-    .update({
-      active_plan: params.planName,
+  const payload: Record<string, any> = {
+    active_plan: params.planName,
+    subscription_status: "Active",
+    subscription_amount: params.amount,
+    paystack_reference: params.reference,
+    last_payment_date: todayStr,
+    subscription_expiry: expiryStr,
+    subscription_start: todayStr,
+    billing_frequency: params.billingFrequency,
+    trial_start_date: null,
+    status: "Active",
+    raw_data: {
       subscription_status: "Active",
       subscription_amount: params.amount,
+      subscriptionAmount: params.amount,
+      active_plan: params.planName,
+      billing_frequency: params.billingFrequency,
       paystack_reference: params.reference,
       last_payment_date: todayStr,
-      subscription_expiry: expiryStr,
       subscription_start: todayStr,
-      billing_frequency: params.billingFrequency,
-      trial_start_date: null,
-      updated_at: new Date().toISOString(),
-    })
-    .or(`email.ilike.${cleanEmail},id.eq.${userObj.id}`)
+      subscription_expiry: expiryStr,
+    },
+    updated_at: new Date().toISOString(),
+  };
+
+  // 1. Update Supabase user_profiles table safely by email
+  supabase
+    .from("user_profiles")
+    .update(payload)
+    .ilike("email", cleanEmail)
     .then(() => {})
     .catch(console.warn);
+
+  // 2. Also update by id if id is a valid UUID
+  const isUuid = Boolean(userObj.id && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(userObj.id));
+  if (isUuid) {
+    supabase
+      .from("user_profiles")
+      .update(payload)
+      .eq("id", userObj.id)
+      .then(() => {})
+      .catch(console.warn);
+  }
+
+  // 3. Persist to platform_settings admin_user_overrides so all admin dashboards immediately reflect payment
+  (async () => {
+    try {
+      const { data: existingSetting } = await supabase
+        .from("platform_settings")
+        .select("value")
+        .eq("key", "admin_user_overrides")
+        .maybeSingle();
+
+      const currentOverrides = (existingSetting?.value && typeof existingSetting.value === "object") ? existingSetting.value : {};
+      currentOverrides[cleanEmail] = {
+        userId: userObj.id,
+        email: cleanEmail,
+        name: userObj.name,
+        farmName: userObj.farmName,
+        subscriptionAmount: params.amount,
+        hasPaid: true,
+        freeAccess: false,
+        activePlan: params.planName,
+        billingFrequency: params.billingFrequency,
+        subscriptionStatus: "Active",
+        paystackReference: params.reference,
+        lastPaymentDate: todayStr,
+        subscriptionStart: todayStr,
+        subscriptionExpiry: expiryStr,
+        trialStartDate: null,
+        updatedAt: new Date().toISOString(),
+      };
+
+      if (isUuid) {
+        currentOverrides[userObj.id] = currentOverrides[cleanEmail];
+      }
+
+      await supabase
+        .from("platform_settings")
+        .upsert({
+          key: "admin_user_overrides",
+          value: currentOverrides,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: "key" });
+    } catch (overrideErr) {
+      console.warn("Could not save payment to platform_settings:", overrideErr);
+    }
+  })();
+
+  // 4. Update scoped user profile in localStorage if present on this device
+  const localKeys = [
+    `pondtora_${cleanEmail}_user_profile`,
+    userObj.id ? `pondtora_${userObj.id}_user_profile` : null,
+  ].filter(Boolean) as string[];
+
+  for (const lk of localKeys) {
+    try {
+      const raw = localStorage.getItem(lk);
+      const parsed = raw ? JSON.parse(raw) : {};
+      localStorage.setItem(lk, JSON.stringify({
+        ...parsed,
+        activePlan: params.planName,
+        trialStartDate: null,
+        subscriptionStatus: "Active",
+        subscriptionAmount: params.amount,
+        subscriptionExpiry: expiryStr,
+        subscriptionStart: todayStr,
+        paystackReference: params.reference,
+        lastPaymentDate: todayStr,
+        billingFrequency: params.billingFrequency,
+      }));
+    } catch {}
+  }
 
   try {
     window.dispatchEvent(new CustomEvent("pondtora:payment_successful", { detail: { ...params, name: userObj.name } }));

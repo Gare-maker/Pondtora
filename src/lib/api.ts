@@ -1458,6 +1458,37 @@ export const api = {
       const { data } = await supabase.from("user_profiles").update(payload).eq("id", userId).select().single();
       return data ? objToCamel<UserProfile>(data) : ({} as UserProfile);
     },
+    recordPayment: async (p: {
+      plan: string;
+      amount: number;
+      billingFrequency: "monthly" | "yearly";
+      reference: string;
+      subscriptionStart?: string;
+      subscriptionExpiry?: string;
+    }) => {
+      const userId = await getUserId();
+      if (!userId) return {} as UserProfile;
+      const todayStr = p.subscriptionStart || new Date().toISOString().slice(0, 10);
+      const expStr = p.subscriptionExpiry || (() => {
+        const d = new Date();
+        d.setDate(d.getDate() + (p.billingFrequency === "yearly" ? 365 : 30));
+        return d.toISOString().slice(0, 10);
+      })();
+      const payload: any = {
+        active_plan: p.plan,
+        trial_start_date: null,
+        subscription_status: "Active",
+        subscription_amount: p.amount,
+        paystack_reference: p.reference,
+        last_payment_date: todayStr,
+        subscription_start: todayStr,
+        subscription_expiry: expStr,
+        billing_frequency: p.billingFrequency,
+        updated_at: new Date().toISOString(),
+      };
+      const { data } = await supabase.from("user_profiles").update(payload).eq("id", userId).select().single();
+      return data ? objToCamel<UserProfile>(data) : ({} as UserProfile);
+    },
   },
 
   // ── Farms ──────────────────────────────────────────────────────────────────

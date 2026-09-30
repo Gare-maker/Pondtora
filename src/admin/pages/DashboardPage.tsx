@@ -120,7 +120,7 @@ export default function DashboardPage({
   const stats = useMemo(() => {
     const total = ownerUsers.length;
     const trial = ownerUsers.filter(u => u.subscriptionStatus === "Trial").length;
-    const paid = ownerUsers.filter(u => u.subscriptionStatus === "Active" && !u.freeAccess && Boolean(u.hasPaid || u.paystackReference || u.lastPaymentDate)).length;
+    const paid = ownerUsers.filter(u => (u.subscriptionStatus === "Active" || u.hasPaid) && !u.freeAccess && Boolean(u.hasPaid || u.paystackReference || u.lastPaymentDate || (typeof u.subscriptionAmount === "number" && u.subscriptionAmount > 0) || u.subscriptionExpiry)).length;
     const active = ownerUsers.filter(u => u.subscriptionStatus === "Active").length;
     const expired = ownerUsers.filter(u => u.subscriptionStatus === "Expired").length;
     const suspended = ownerUsers.filter(u => u.subscriptionStatus === "Suspended").length;
@@ -129,9 +129,9 @@ export default function DashboardPage({
     // Calculate Monthly Recurring Revenue (MRR)
     let mrr = 0;
     ownerUsers.forEach(u => {
-      if (u.subscriptionStatus === "Active" && !u.freeAccess && (u.hasPaid || u.paystackReference || u.lastPaymentDate)) {
+      if ((u.subscriptionStatus === "Active" || u.hasPaid) && !u.freeAccess) {
         const ep = effectivePrice(u, plans);
-        if (typeof ep === "number") {
+        if (typeof ep === "number" && ep > 0) {
           if (u.billingFrequency === "yearly") {
             mrr += Math.round(ep / 12);
           } else {
@@ -674,21 +674,25 @@ export default function DashboardPage({
                         <div className="flex items-center gap-1.5 flex-wrap">
                           <span className="font-bold text-slate-800">{u.activePlan || "Starter"}</span>
                           <Bdg label={u.subscriptionStatus} color={SC[u.subscriptionStatus] || "gray"} />
+                          {Boolean(u.hasPaid || u.paystackReference || u.lastPaymentDate || u.subscriptionStatus === "Active") && !u.freeAccess && (
+                            <span className="text-emerald-700 font-bold bg-emerald-100 text-[10px] px-1.5 py-0.5 rounded">
+                              Paid ✓
+                            </span>
+                          )}
                         </div>
-                        <div className="mt-1 flex items-center gap-1 text-[10px]">
-                          {u.freeAccess && (
-                            <span className="text-emerald-700 bg-emerald-100 font-bold px-1.5 py-0.2 rounded">
+                        <div className="mt-1 flex items-center gap-1.5 text-[11px] flex-wrap">
+                          {u.freeAccess ? (
+                            <span className="text-emerald-700 bg-emerald-100 font-bold px-1.5 py-0.2 rounded text-[10px]">
                               VIP ✦
+                            </span>
+                          ) : (
+                            <span className="font-semibold text-slate-700">
+                              {effectivePrice(u, plans) !== null ? `${fmtMoney(effectivePrice(u, plans) as number)} / ${u.billingFrequency === "yearly" ? "yr" : "mo"}` : ""}
                             </span>
                           )}
                           {u.subscriptionStatus === "Trial" && (
-                            <span className="text-amber-600 font-semibold">
-                              {trialDaysLeft(u.trialStartDate)}d trial left
-                            </span>
-                          )}
-                          {Boolean(u.hasPaid || u.paystackReference || u.lastPaymentDate) && (
-                            <span className="text-emerald-700 font-bold bg-emerald-50 px-1 py-0.2 rounded">
-                              Paid ✓
+                            <span className="text-amber-600 font-semibold text-[10px]">
+                              ({trialDaysLeft(u.trialStartDate)}d trial left)
                             </span>
                           )}
                         </div>

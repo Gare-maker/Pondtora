@@ -47,11 +47,16 @@ export interface AdminActivityLog {
 }
 
 /** Effective price for a user — respects priority: freeAccess > custom amount > plan default */
-export function effectivePrice(u: AdminUser, plans: { name: string; monthlyPrice: number; yearlyPrice: number }[]): number | "free" | null {
+export function effectivePrice(u: Partial<AdminUser>, plans?: { name: string; monthlyPrice: number; yearlyPrice: number }[]): number | "free" | null {
+  if (!u) return null;
   if (u.freeAccess) return "free";
-  if (u.subscriptionAmount !== null) return u.subscriptionAmount;
+  if (typeof u.subscriptionAmount === "number" && !isNaN(u.subscriptionAmount) && u.subscriptionAmount > 0) {
+    return u.subscriptionAmount;
+  }
+  const planList = plans && plans.length > 0 ? plans : DEFAULT_PLANS;
   if (u.activePlan) {
-    const p = plans.find(x => x.name === u.activePlan);
+    const targetPlanName = u.activePlan.toLowerCase().trim();
+    const p = planList.find(x => x.name.toLowerCase().trim() === targetPlanName);
     if (p) return u.billingFrequency === "yearly" ? p.yearlyPrice : p.monthlyPrice;
   }
   return null;
@@ -69,9 +74,9 @@ export interface AdminPlan {
 }
 
 export const DEFAULT_PLANS: AdminPlan[] = [
-  { id: "starter",    name: "Starter",        monthlyPrice: 3000,  yearlyPrice: 28800,  description: "Up to 5 ponds, 1 farm",       status: "Active", farmLimit: 1,    pondLimit: 5    },
-  { id: "growth",     name: "Growth",          monthlyPrice: 5000,  yearlyPrice: 48000,  description: "Up to 15 ponds, 1 farm",      status: "Active", farmLimit: 1,    pondLimit: 15   },
-  { id: "commercial", name: "Commercial",      monthlyPrice: 10000, yearlyPrice: 96000,  description: "Unlimited ponds, 1 farm",     status: "Active", farmLimit: 1,    pondLimit: null },
+  { id: "starter",    name: "Starter",        monthlyPrice: 5000,  yearlyPrice: 48000,  description: "Up to 5 ponds, 1 farm",       status: "Active", farmLimit: 1,    pondLimit: 5    },
+  { id: "growth",     name: "Growth",          monthlyPrice: 15000, yearlyPrice: 144000, description: "Up to 15 ponds, 1 farm",      status: "Active", farmLimit: 1,    pondLimit: 15   },
+  { id: "commercial", name: "Commercial",      monthlyPrice: 50000, yearlyPrice: 480000, description: "Unlimited ponds, 1 farm",     status: "Active", farmLimit: 1,    pondLimit: null },
   { id: "3farm",      name: "3-Farm Plan",     monthlyPrice: 24000, yearlyPrice: 230400, description: "Unlimited ponds, 3 farms",    status: "Active", farmLimit: 3,    pondLimit: null },
   { id: "5farm",      name: "5-Farm Plan",     monthlyPrice: 40000, yearlyPrice: 384000, description: "Unlimited ponds, 5 farms",    status: "Active", farmLimit: 5,    pondLimit: null },
   { id: "unlimited",  name: "Unlimited Farms", monthlyPrice: 70000, yearlyPrice: 672000, description: "Unlimited ponds & farms",     status: "Active", farmLimit: null, pondLimit: null },
@@ -84,13 +89,28 @@ export function computeSubscriptionStatus(
   if (u.accountStatus === "Suspended") return "Suspended";
   if (u.freeAccess) return "Active";
 
-  // Real payment check: has the user completed a real payment (Paystack reference, payment date, or explicit hasPaid flag)
-  const hasCompletedPayment = Boolean(u.hasPaid || u.paystackReference || u.lastPaymentDate);
+  // Check explicit database subscription_status
+  const rawStatus = (u.subscriptionStatus || (u as any).subscription_status || "").trim();
+  if (rawStatus === "Suspended") return "Suspended";
+
+  // Real payment check: has the user completed a real payment (Paystack reference, payment date, explicit hasPaid flag, subscription_status, or custom subscription amount)
+  const hasCompletedPayment = Boolean(
+    u.hasPaid ||
+    u.paystackReference ||
+    (u as any).paystack_reference ||
+    u.lastPaymentDate ||
+    (u as any).last_payment_date ||
+    rawStatus === "Active" ||
+    rawStatus === "Paid" ||
+    (typeof u.subscriptionAmount === "number" && u.subscriptionAmount > 0) ||
+    (typeof (u as any).subscription_amount === "number" && (u as any).subscription_amount > 0)
+  );
 
   if (hasCompletedPayment) {
-    if (u.subscriptionExpiry) {
+    const expiry = u.subscriptionExpiry || (u as any).subscription_expiry;
+    if (expiry) {
       try {
-        const exp = new Date(u.subscriptionExpiry);
+        const exp = new Date(expiry);
         if (!isNaN(exp.getTime())) {
           const today = new Date();
           today.setHours(0, 0, 0, 0);
@@ -104,7 +124,7 @@ export function computeSubscriptionStatus(
   }
 
   // Not paid: user is on 30-day trial
-  const trialStart = u.trialStartDate || u.createdAt;
+  const trialStart = u.trialStartDate || (u as any).trial_start_date || u.createdAt;
   if (trialStart) {
     try {
       const end = new Date(trialStart);

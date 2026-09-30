@@ -1020,13 +1020,22 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                       </div>
                     </td>
 
-                    {/* 4. Active Plan */}
+                    {/* 4. Active Plan & Amount */}
                     <td className="px-4 py-3 text-slate-700 whitespace-nowrap font-medium">
                       {u.activePlan ? (
                         <div>
-                          <span className="bg-slate-100 text-slate-800 px-2 py-0.5 rounded-md font-semibold text-[11px]">
-                            {u.activePlan}
-                          </span>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="bg-slate-100 text-slate-800 px-2 py-0.5 rounded-md font-bold text-[11px]">
+                              {u.activePlan}
+                            </span>
+                            {u.freeAccess ? (
+                              <span className="text-green-600 font-bold text-[11px]">Free ✦</span>
+                            ) : (
+                              <span className="text-slate-900 font-extrabold text-[12px]">
+                                {effectivePrice(u, plans) !== null ? fmtMoney(effectivePrice(u, plans) as number) : "—"}
+                              </span>
+                            )}
+                          </div>
                           <span className="block text-[10px] text-slate-400 capitalize mt-0.5">
                             {u.billingFrequency || "monthly"}
                           </span>
@@ -1040,9 +1049,9 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                     <td className="px-4 py-3 whitespace-nowrap">
                       <div className="flex items-center gap-1.5">
                         <Bdg label={u.subscriptionStatus} color={STATUS_COLOR[u.subscriptionStatus] || "gray"} />
-                        {u.subscriptionStatus === "Active" && (u.hasPaid || u.paystackReference) && !u.freeAccess && (
+                        {Boolean(u.hasPaid || u.paystackReference || u.lastPaymentDate || u.subscriptionStatus === "Active") && !u.freeAccess && (
                           <span className="text-[10px] bg-emerald-100 text-emerald-700 font-bold px-1.5 py-0.5 rounded">
-                            Paid
+                            Paid ✓
                           </span>
                         )}
                         {u.freeAccess && (
