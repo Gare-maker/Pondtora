@@ -8,7 +8,7 @@ import {
 } from "lucide-react";
 import { Card, Bdg, PBtn, Pagination, PER_PAGE, Modal, F, IC, SC } from "../../app/shared";
 import type { AdminUser, AdminPlan, AccountStatus } from "../types";
-import { fmtDate, trialDaysLeft, fmtMoney, computeSubscriptionStatus } from "../types";
+import { fmtDate, trialDaysLeft, fmtMoney, computeSubscriptionStatus, effectivePrice } from "../types";
 import { supabase } from "../../lib/supabase";
 import { isStaffUser } from "../../lib/userSync";
 import { getUserReferralStats, markReferralRewardsPaid } from "../../lib/referralStore";

@@ -553,17 +553,19 @@ function FeedDocumentation({
       // If multiple duplicate bag logs exist for the same stock, brand, and pallet on this day, use the single session amount
       const recordedBags = matchingBagLogs.length > 0 ? (Number(matchingBagLogs[matchingBagLogs.length - 1].bagsOpened) || 0) : 0;
 
-      const carryover = (remainLogs || []).filter(r =>
+      const carryoverLogs = (remainLogs || []).filter(r =>
         r && isSameDate(r.date, prevDate) &&
         (size === "—" || (r.size || "").toLowerCase().trim() === size.toLowerCase().trim()) &&
         isStockMatch(r.fishStock, fishStock)
-      ).reduce((s, r) => s + (Number(r.remainingKg) || 0), 0);
+      );
+      const carryover = carryoverLogs.length > 0 ? (Number(carryoverLogs[carryoverLogs.length - 1].remainingKg) || 0) : 0;
 
-      const recordedRemaining = (remainLogs || []).filter(r =>
+      const matchingRemainLogs = (remainLogs || []).filter(r =>
         r && isSameDate(r.date, selDate) &&
         (size === "—" || (r.size || "").toLowerCase().trim() === size.toLowerCase().trim()) &&
         isStockMatch(r.fishStock, fishStock)
-      ).reduce((s, r) => s + (Number(r.remainingKg) || 0), 0);
+      );
+      const recordedRemaining = matchingRemainLogs.length > 0 ? (Number(matchingRemainLogs[matchingRemainLogs.length - 1].remainingKg) || 0) : 0;
 
       // If neither feed nor bags nor remaining was logged, skip
       if (totalFed === 0 && recordedBags === 0 && recordedRemaining === 0) continue;
@@ -754,27 +756,67 @@ function FeedDocumentation({
 
   const handleSaveEditDocBag = () => {
     if (!editDocBag) return;
-    const existingBag = (bagLogs || []).find(b => b.id === editDocBag.id || (isSameDate(b.date, editDocBag.date) && b.brand === editDocBag.brand && b.size === editDocBag.size && normalizeFishStock(b.fishStock) === normalizeFishStock(editDocBag.fishStock)));
+    const fs = normalizeFishStock(editDocBag.fishStock) || "";
+    const brand = editDocBag.brand || "";
+    const size = editDocBag.size || "";
+    const bagsDate = editDocBag.date;
+
+    const existingBag = (bagLogs || []).find(b => 
+      b.id === editDocBag.id || 
+      (isSameDate(b.date, bagsDate) && 
+       (size === "—" || (b.size || "").toLowerCase().trim() === size.toLowerCase().trim()) && 
+       (brand === "—" || !b.brand || !brand || b.brand.toLowerCase().trim() === brand.toLowerCase().trim()) && 
+       (isStockMatch(b.fishStock, editDocBag.fishStock) || normalizeFishStock(b.fishStock) === fs))
+    );
 
     if (existingBag) {
-      onEditBagLog && onEditBagLog({ ...existingBag, bagsOpened: editDocBag.bagsOpened, kgPerBag: editDocBag.kgPerBag, totalKg: editDocBag.bagsOpened * editDocBag.kgPerBag });
+      onEditBagLog && onEditBagLog({
+        ...existingBag,
+        brand: editDocBag.brand,
+        size: editDocBag.size,
+        fishStock: fs || existingBag.fishStock,
+        bagsOpened: editDocBag.bagsOpened,
+        kgPerBag: editDocBag.kgPerBag,
+        totalKg: editDocBag.bagsOpened * editDocBag.kgPerBag
+      });
     } else if (editDocBag.bagsOpened > 0) {
       onAddBagLog && onAddBagLog({
         ...editDocBag,
         id: editDocBag.id || uid(),
+        fishStock: fs || editDocBag.fishStock,
         totalKg: editDocBag.bagsOpened * editDocBag.kgPerBag
       });
     }
 
     const remKg = Number(editBagRemainKg);
-    const fs = normalizeFishStock(editDocBag.fishStock) || "";
     if (fs) {
-      const existing = (remainLogs || []).find(r => r.brand === editDocBag.brand && r.size === editDocBag.size && normalizeFishStock(r.fishStock) === fs && isSameDate(r.date, editDocBag.date));
-      if (!isNaN(remKg) && remKg > 0) {
-        if (existing) { onEditRemainLog({ ...existing, remainingKg: remKg }); }
-        else { onAddRemainLog({ id: uid(), brand: editDocBag.brand, size: editDocBag.size, fishStock: fs, remainingKg: remKg, date: editDocBag.date }); }
-      } else if (existing && remKg === 0) {
-        onEditRemainLog({ ...existing, remainingKg: 0 });
+      const existingRemain = (remainLogs || []).find(r => 
+        isSameDate(r.date, bagsDate) &&
+        (size === "—" || (r.size || "").toLowerCase().trim() === size.toLowerCase().trim()) &&
+        (brand === "—" || !r.brand || !brand || r.brand.toLowerCase().trim() === brand.toLowerCase().trim()) &&
+        (isStockMatch(r.fishStock, editDocBag.fishStock) || normalizeFishStock(r.fishStock) === fs)
+      );
+
+      if (!isNaN(remKg) && remKg >= 0) {
+        if (existingRemain) {
+          onEditRemainLog && onEditRemainLog({
+            ...existingRemain,
+            brand: editDocBag.brand,
+            size: editDocBag.size,
+            fishStock: fs,
+            remainingKg: remKg,
+            date: bagsDate
+          });
+        } else {
+          onAddRemainLog && onAddRemainLog({
+            id: uid(),
+            brand: editDocBag.brand,
+            size: editDocBag.size,
+            fishStock: fs,
+            remainingKg: remKg,
+            date: bagsDate
+          });
+        }
       }
     }
     setEditDocBag(null);
@@ -1209,7 +1251,7 @@ function FeedDocumentation({
         : (fs && /^\d{4}-\d{2}-\d{2}/.test(fs) ? formatFishStockDate(fs) : (fs !== "—" && fs !== "General Stock" ? formatFishStock(fs) : "—"));
 
       if (existing) {
-        existing.remainingKg += (Number(r.remainingKg) || 0);
+        existing.remainingKg = (Number(r.remainingKg) || 0);
       } else {
         map.set(k, {
           brand,

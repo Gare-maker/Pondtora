@@ -5186,9 +5186,9 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     if (!checkSubscriptionActive()) return;
     const fid=b.farmId||activeFarmId||farms[0]?.id||"";
     const farmBag:BagOpenLog={...b,id:isUuid(b.id)?b.id:crypto.randomUUID(),farmId:fid};
-    const existing=bagLogs.find(x=>x.id===farmBag.id || (isSameDate(x.date,farmBag.date)&&x.brand===farmBag.brand&&x.size===farmBag.size&&(x.fishStock||"")===(farmBag.fishStock||"")&&(!x.farmId||x.farmId===farmBag.farmId)));
+    const existing=bagLogs.find(x=>x.id===farmBag.id || (isSameDate(x.date,farmBag.date)&&(x.size||"").toLowerCase().trim()===(farmBag.size||"").toLowerCase().trim()&&isStockMatch(x.fishStock, farmBag.fishStock)&&(!x.farmId||x.farmId===farmBag.farmId)));
     if(existing){
-      const updated={...existing,bagsOpened:farmBag.bagsOpened,totalKg:farmBag.totalKg,kgPerBag:farmBag.kgPerBag,farmId:farmBag.farmId};
+      const updated: BagOpenLog={...existing,bagsOpened:farmBag.bagsOpened,totalKg:farmBag.totalKg,kgPerBag:farmBag.kgPerBag,farmId:farmBag.farmId,brand:farmBag.brand,size:farmBag.size,fishStock:farmBag.fishStock};
       setBagLogs(prev=>prev.map(x=>x.id===existing.id?updated:x));
       api.bagLogs.update(updated).catch(console.warn);
     } else {
@@ -5198,17 +5198,30 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   };
   const editBagLog=async(b:BagOpenLog)=>{
     if (!checkSubscriptionActive()) return;
-    const farmBag:BagOpenLog={...b,farmId:b.farmId||activeFarmId||farms[0]?.id||""};
-    setBagLogs(prev=>prev.map(x=>x.id===farmBag.id?farmBag:x));
-    api.bagLogs.update(farmBag).catch(console.warn);
+    const fid=b.farmId||activeFarmId||farms[0]?.id||"";
+    const farmBag:BagOpenLog={...b,farmId:fid};
+    setBagLogs(prev=>{
+      const exists = prev.some(x=>x.id===farmBag.id);
+      if (exists) {
+        return prev.map(x=>x.id===farmBag.id?farmBag:x);
+      }
+      const matchIdx = prev.findIndex(x=>isSameDate(x.date, farmBag.date)&&(x.size||"").toLowerCase().trim()===(farmBag.size||"").toLowerCase().trim()&&isStockMatch(x.fishStock, farmBag.fishStock));
+      if (matchIdx >= 0) {
+        return prev.map((x, idx) => idx === matchIdx ? { ...x, ...farmBag } : x);
+      }
+      return [farmBag, ...prev];
+    });
+    api.bagLogs.update(farmBag).catch(() => {
+      api.bagLogs.create(farmBag).catch(console.warn);
+    });
   };
   const addRemainLog=async(r:FeedRemainingLog)=>{
     if (!checkSubscriptionActive()) return;
     const fid=r.farmId||activeFarmId||farms[0]?.id||"";
     const farmRemain:FeedRemainingLog={...r,id:isUuid(r.id)?r.id:crypto.randomUUID(),farmId:fid};
-    const existing=remainLogs.find(x=>isSameDate(x.date,farmRemain.date)&&x.brand===farmRemain.brand&&x.size===farmRemain.size&&(x.fishStock||"")===(farmRemain.fishStock||"")&&(!x.farmId||x.farmId===farmRemain.farmId));
+    const existing=remainLogs.find(x=>x.id===farmRemain.id || (isSameDate(x.date,farmRemain.date)&&(x.size||"").toLowerCase().trim()===(farmRemain.size||"").toLowerCase().trim()&&isStockMatch(x.fishStock, farmRemain.fishStock)&&(!x.farmId||x.farmId===farmRemain.farmId)));
     if(existing){
-      const updated={...existing,remainingKg:farmRemain.remainingKg,farmId:farmRemain.farmId};
+      const updated: FeedRemainingLog={...existing,remainingKg:farmRemain.remainingKg,farmId:farmRemain.farmId,brand:farmRemain.brand,size:farmRemain.size,fishStock:farmRemain.fishStock};
       setRemainLogs(prev=>prev.map(x=>x.id===existing.id?updated:x));
       api.remainLogs.update(updated).catch(console.warn);
     } else {
@@ -5218,9 +5231,22 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   };
   const editRemainLog=(r:FeedRemainingLog)=>{
     if (!checkSubscriptionActive()) return;
-    const farmRemain:FeedRemainingLog={...r,farmId:r.farmId||activeFarmId||farms[0]?.id||""};
-    setRemainLogs(prev=>prev.map(x=>x.id===farmRemain.id?farmRemain:x));
-    api.remainLogs.update(farmRemain).catch(console.warn);
+    const fid=r.farmId||activeFarmId||farms[0]?.id||"";
+    const farmRemain:FeedRemainingLog={...r,farmId:fid};
+    setRemainLogs(prev=>{
+      const exists = prev.some(x=>x.id===farmRemain.id);
+      if (exists) {
+        return prev.map(x=>x.id===farmRemain.id?farmRemain:x);
+      }
+      const matchIdx = prev.findIndex(x=>isSameDate(x.date, farmRemain.date)&&(x.size||"").toLowerCase().trim()===(farmRemain.size||"").toLowerCase().trim()&&isStockMatch(x.fishStock, farmRemain.fishStock));
+      if (matchIdx >= 0) {
+        return prev.map((x, idx) => idx === matchIdx ? { ...x, ...farmRemain } : x);
+      }
+      return [farmRemain, ...prev];
+    });
+    api.remainLogs.update(farmRemain).catch(() => {
+      api.remainLogs.create(farmRemain).catch(console.warn);
+    });
   };
   const addInv=async(f:FeedItem)=>{
     if (!checkSubscriptionActive()) return;
