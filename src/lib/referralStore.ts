@@ -89,6 +89,14 @@ export function getUserReferralCode(user: { id?: string; name?: string; email?: 
     (found as any).referralCode = generated;
     saveAllAdminUsers(allUsers);
   }
+
+  // Ensure code is synced to Supabase user_profiles if user.id is available
+  if (user?.id) {
+    try {
+      supabase.from("user_profiles").update({ referral_code: generated }).eq("id", user.id).then(() => {}).catch(() => {});
+    } catch {}
+  }
+
   return generated;
 }
 
@@ -283,6 +291,24 @@ export function processReferralCommission(params: {
   allRewards.unshift(reward);
   saveAllReferralRewards(allRewards);
 
+  // Asynchronously persist reward to Supabase referral_rewards table
+  try {
+    supabase.from("referral_rewards").insert({
+      referrer_code: cleanRefCode,
+      referrer_email: reward.referrerEmail,
+      referred_user_id: reward.referredUserId || null,
+      referred_user_email: cleanPayerEmail,
+      referred_user_name: reward.referredUserName,
+      payment_reference: params.reference,
+      plan_name: params.planName,
+      payment_amount: params.amount,
+      payment_type: isFirstPayment ? "first" : "recurring",
+      commission_rate: commissionRate,
+      commission_amount: commissionAmount,
+      status: "Available",
+    }).then(() => {}).catch(() => {});
+  } catch {}
+
   logActivity(
     "Referral Commission Earned",
     "subscription",
@@ -294,7 +320,7 @@ export function processReferralCommission(params: {
 }
 
 /**
- * Calculates user's referral summary & list of referred farmers
+ * Calculates user's referral summary & list of referred farmers (synchronously from cache)
  */
 export function getUserReferralStats(user: { id?: string; name?: string; email?: string; referralCode?: string } | null): ReferralStats {
   const code = getUserReferralCode(user);
@@ -345,7 +371,7 @@ export function getUserReferralStats(user: { id?: string; name?: string; email?:
       u.paystackReference ||
       u.lastPaymentDate ||
       userRewards.length > 0 ||
-      (u.subscriptionStatus && u.subscriptionStatus.toLowerCase() === "active" && !u.freeAccess)
+      (u.subscriptionStatus && (u.subscriptionStatus.toLowerCase() === "active" || u.subscriptionStatus.toLowerCase() === "paid") && (u.paystackReference || u.lastPaymentDate || u.subscriptionExpiry || userRewards.length > 0))
     );
 
     // Calculate trial days left (30-day free trial window)
@@ -376,7 +402,7 @@ export function getUserReferralStats(user: { id?: string; name?: string; email?:
     if (userRewards.length > 0) {
       paymentAmount = userRewards.reduce((sum, r) => sum + (r.paymentAmount || 0), 0);
     } else if (hasPaid) {
-      paymentAmount = u.subscriptionAmount || getStandardPlanPrice(u.activePlan || "Starter");
+      paymentAmount = (typeof u.subscriptionAmount === "number" && u.subscriptionAmount > 0) ? u.subscriptionAmount : getStandardPlanPrice(u.activePlan || "Starter");
     }
 
     // Breakdown text
@@ -408,7 +434,7 @@ export function getUserReferralStats(user: { id?: string; name?: string; email?:
       paymentAmount,
       trialDaysLeft,
       trialStatusText,
-      totalCommission: commTotal,
+      totalCommission: commTotal || (hasPaid ? Math.round(paymentAmount * 0.30) : 0),
       paymentCount: userRewards.length || (hasPaid ? 1 : 0),
       commissionBreakdown,
     };
@@ -429,6 +455,178 @@ export function getUserReferralStats(user: { id?: string; name?: string; email?:
     referredUsers,
     rewards: myRewards,
   };
+}
+
+/**
+ * Asynchronously queries Supabase for live referred users and rewards, updating local cache
+ */
+export async function fetchLiveUserReferralStats(user: { id?: string; name?: string; email?: string; referralCode?: string } | null): Promise<ReferralStats> {
+  const code = getUserReferralCode(user);
+  const cleanCode = code.toUpperCase();
+  const cleanEmail = (user?.email || "").toLowerCase().trim();
+  const userId = (user?.id || "").toLowerCase();
+
+  try {
+    // 1. Fetch rewards directly from Supabase referral_rewards
+    const { data: dbRewards } = await supabase
+      .from("referral_rewards")
+      .select("*")
+      .or(`referrer_code.ilike.${cleanCode},referrer_email.ilike.${cleanEmail}`);
+
+    if (Array.isArray(dbRewards) && dbRewards.length > 0) {
+      const localRewards = loadAllReferralRewards();
+      const mergedRewards: ReferralReward[] = [...localRewards];
+
+      dbRewards.forEach(r => {
+        const matchIdx = mergedRewards.findIndex(lr => lr.id === r.id || (lr.paymentReference && lr.paymentReference === r.payment_reference));
+        const formatted: ReferralReward = {
+          id: r.id,
+          referrerCode: r.referrer_code,
+          referrerEmail: r.referrer_email,
+          referredUserId: r.referred_user_id,
+          referredUserEmail: r.referred_user_email,
+          referredUserName: r.referred_user_name || r.referred_user_email?.split("@")[0] || "Farmer",
+          paymentReference: r.payment_reference,
+          planName: r.plan_name || "Starter",
+          paymentAmount: Number(r.payment_amount) || 0,
+          paymentType: r.payment_type || "first",
+          commissionRate: Number(r.commission_rate) || 0.30,
+          commissionAmount: Number(r.commission_amount) || 0,
+          status: (r.status === "Paid" ? "Paid" : "Available"),
+          paidDate: r.paid_date,
+          createdAt: r.created_at ? String(r.created_at).slice(0, 10) : new Date().toISOString().slice(0, 10),
+        };
+
+        if (matchIdx >= 0) {
+          mergedRewards[matchIdx] = formatted;
+        } else {
+          mergedRewards.unshift(formatted);
+        }
+      });
+
+      saveAllReferralRewards(mergedRewards);
+    }
+
+    // 2. Fetch all user profiles from Supabase where referred_by matches this user
+    const { data: dbReferredProfiles } = await supabase
+      .from("user_profiles")
+      .select("*")
+      .or(`referred_by.ilike.${cleanCode},referred_by.ilike.${cleanEmail}${userId ? `,referred_by.eq.${userId}` : ""}`);
+
+    if (Array.isArray(dbReferredProfiles) && dbReferredProfiles.length > 0) {
+      const allLocalUsers = loadAllAdminUsers();
+      let hasChanges = false;
+
+      dbReferredProfiles.forEach(p => {
+        const pEmail = (p.email || "").toLowerCase().trim();
+        const existingIdx = allLocalUsers.findIndex(u => (u.email || "").toLowerCase().trim() === pEmail || (p.id && u.id === p.id));
+        
+        const hasPaid = Boolean(
+          p.paystack_reference ||
+          p.last_payment_date ||
+          p.subscription_status === "Paid" ||
+          (p.subscription_status === "Active" && Boolean(p.subscription_expiry || p.paystack_reference))
+        );
+
+        if (existingIdx >= 0) {
+          allLocalUsers[existingIdx] = {
+            ...allLocalUsers[existingIdx],
+            referredBy: cleanCode,
+            name: p.name || allLocalUsers[existingIdx].name,
+            farmName: p.farm_name || allLocalUsers[existingIdx].farmName,
+            activePlan: p.active_plan || allLocalUsers[existingIdx].activePlan,
+            hasPaid: hasPaid || allLocalUsers[existingIdx].hasPaid,
+            paystackReference: p.paystack_reference || allLocalUsers[existingIdx].paystackReference,
+            lastPaymentDate: p.last_payment_date || allLocalUsers[existingIdx].lastPaymentDate,
+          };
+          hasChanges = true;
+        } else {
+          allLocalUsers.push({
+            id: p.id || "usr-" + Math.random().toString(36).slice(2, 8),
+            name: p.name || pEmail.split("@")[0] || "Farmer",
+            email: pEmail,
+            farmName: p.farm_name || "Primary Farm",
+            phone: p.phone || "",
+            city: p.city || "Lagos",
+            state: p.state || "Lagos",
+            country: p.country || "Nigeria",
+            role: p.role || "owner",
+            activePlan: p.active_plan || "Starter",
+            billingFrequency: p.billing_frequency || "monthly",
+            subscriptionAmount: p.subscription_amount || null,
+            hasPaid,
+            subscriptionStatus: hasPaid ? "Active" : "Trial",
+            trialStartDate: p.trial_start_date ? String(p.trial_start_date).slice(0, 10) : String(p.created_at || "").slice(0, 10),
+            paystackReference: p.paystack_reference,
+            lastPaymentDate: p.last_payment_date,
+            referredBy: cleanCode,
+            createdAt: p.created_at ? String(p.created_at).slice(0, 10) : new Date().toISOString().slice(0, 10),
+          });
+          hasChanges = true;
+        }
+
+        // If the referred user has paid, ensure commission record exists in rewards
+        if (hasPaid) {
+          const currentRewards = loadAllReferralRewards();
+          const alreadyRecorded = currentRewards.some(
+            r => (r.referredUserEmail || "").toLowerCase().trim() === pEmail
+          );
+
+          if (!alreadyRecorded) {
+            const planPrice = Number(p.subscription_amount) || getStandardPlanPrice(p.active_plan || "Starter");
+            const commRate = 0.30; // 30% first payment
+            const commAmt = Math.round(planPrice * commRate);
+
+            const newReward: ReferralReward = {
+              id: "ref-rew-" + Math.random().toString(36).slice(2, 10),
+              referrerCode: cleanCode,
+              referrerEmail: user?.email || cleanCode,
+              referredUserId: p.id,
+              referredUserEmail: pEmail,
+              referredUserName: p.name || pEmail.split("@")[0],
+              paymentReference: p.paystack_reference || "LIVE-PAYMENT",
+              planName: p.active_plan || "Starter Plan",
+              paymentAmount: planPrice,
+              paymentType: "first",
+              commissionRate: commRate,
+              commissionAmount: commAmt,
+              status: "Available",
+              createdAt: p.last_payment_date || new Date().toISOString().slice(0, 10),
+            };
+
+            currentRewards.unshift(newReward);
+            saveAllReferralRewards(currentRewards);
+
+            // Persist to Supabase
+            try {
+              supabase.from("referral_rewards").insert({
+                referrer_code: cleanCode,
+                referrer_email: user?.email || cleanCode,
+                referred_user_id: p.id || null,
+                referred_user_email: pEmail,
+                referred_user_name: p.name || pEmail.split("@")[0],
+                payment_reference: p.paystack_reference || "LIVE-PAYMENT",
+                plan_name: p.active_plan || "Starter Plan",
+                payment_amount: planPrice,
+                payment_type: "first",
+                commission_rate: commRate,
+                commission_amount: commAmt,
+                status: "Available",
+              }).then(() => {}).catch(() => {});
+            } catch {}
+          }
+        }
+      });
+
+      if (hasChanges) {
+        saveAllAdminUsers(allLocalUsers);
+      }
+    }
+  } catch (err) {
+    console.warn("Live referral fetch from Supabase:", err);
+  }
+
+  return getUserReferralStats(user);
 }
 
 /**
@@ -459,6 +657,18 @@ export function markReferralRewardsPaid(referrerCodeOrEmail: string): number {
 
   if (count > 0) {
     saveAllReferralRewards(updated);
+    
+    // Also update Supabase referral_rewards table
+    try {
+      supabase
+        .from("referral_rewards")
+        .update({ status: "Paid", paid_date: new Date().toISOString() })
+        .or(`referrer_code.ilike.${clean},referrer_email.ilike.${cleanEmail}`)
+        .eq("status", "Available")
+        .then(() => {})
+        .catch(() => {});
+    } catch {}
+
     logActivity(
       "Referral Payout Completed",
       "system",

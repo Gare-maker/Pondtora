@@ -176,7 +176,9 @@ CREATE OR REPLACE FUNCTION admin_update_user_profile(
   target_email TEXT DEFAULT NULL,
   new_billing_frequency TEXT DEFAULT 'monthly',
   new_subscription_start TEXT DEFAULT NULL,
-  new_subscription_expiry TEXT DEFAULT NULL
+  new_subscription_expiry TEXT DEFAULT NULL,
+  new_paystack_reference TEXT DEFAULT NULL,
+  new_last_payment_date TEXT DEFAULT NULL
 )
 RETURNS VOID
 LANGUAGE plpgsql
@@ -200,6 +202,8 @@ BEGIN
     billing_frequency = COALESCE(new_billing_frequency, billing_frequency, 'monthly'),
     subscription_start = COALESCE(new_subscription_start, subscription_start),
     subscription_expiry = COALESCE(new_subscription_expiry, subscription_expiry),
+    paystack_reference = COALESCE(new_paystack_reference, paystack_reference),
+    last_payment_date = COALESCE(new_last_payment_date, last_payment_date),
     updated_at = NOW()
   WHERE (target_user_id IS NOT NULL AND id = target_user_id)
      OR (target_email IS NOT NULL AND TRIM(target_email) <> '' AND LOWER(email) = LOWER(TRIM(target_email)));

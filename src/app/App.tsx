@@ -34,9 +34,7 @@ import { Toaster, toast } from "sonner";
 import { useDynamicPlans } from "../lib/plansStore";
 import { syncUserProfileToAdmin, getUserAdminOverride, logActivity, recordSuccessfulPayment, loadAllAdminUsers, getFarmSubscriptionDetails, FarmSubscriptionDetails } from "../lib/userSync";
 import { initializePaystackCheckout, getActivePaystackPublicKey, loadPaystackConfig, getPendingPaystackTransaction, clearPendingPaystackTransaction } from "../lib/paystack";
-import { derivePaymentStatus, deriveInvestmentStatus, generateInvestmentSchedule } from "../lib/investmentUtils";
-import { getUserReferralStats, captureReferralParam, getReferralLink, getUserReferralCode } from "../lib/referralStore";
-import confetti from "canvas-confetti";
+import { getUserReferralStats, fetchLiveUserReferralStats, captureReferralParam, getReferralLink, getUserReferralCode } from "../lib/referralStore";
 
 /* ─── Sidebar ───────────────────────────────────────────────── */
 const NAV:{id:View;icon:React.ElementType;label:string}[]=[
@@ -3275,9 +3273,23 @@ function SettingsPage({farms,onAddFarm,onEditFarm,onDeleteFarm,userProfile,onUpd
   const [refStats, setRefStats] = useState(() => getUserReferralStats(userProfile));
   const [copiedLink, setCopiedLink] = useState(false);
   const [showRedeemModal, setShowRedeemModal] = useState(false);
+  const [isRefreshingRef, setIsRefreshingRef] = useState(false);
+
+  const refreshLiveReferrals = async () => {
+    setIsRefreshingRef(true);
+    try {
+      const stats = await fetchLiveUserReferralStats(userProfile);
+      setRefStats(stats);
+    } catch {
+      setRefStats(getUserReferralStats(userProfile));
+    } finally {
+      setIsRefreshingRef(false);
+    }
+  };
 
   useEffect(() => {
     setRefStats(getUserReferralStats(userProfile));
+    refreshLiveReferrals();
     const handleUpdate = () => {
       setRefStats(getUserReferralStats(userProfile));
     };
@@ -3288,6 +3300,12 @@ function SettingsPage({farms,onAddFarm,onEditFarm,onDeleteFarm,userProfile,onUpd
       window.removeEventListener("pondtora:users_updated", handleUpdate);
     };
   }, [userProfile]);
+
+  useEffect(() => {
+    if (tab === "referrals") {
+      refreshLiveReferrals();
+    }
+  }, [tab]);
 
   const handleCopyLink = () => {
     try {

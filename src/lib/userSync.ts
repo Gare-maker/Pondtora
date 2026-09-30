@@ -167,13 +167,10 @@ export async function fetchLiveAdminUsers(): Promise<{
           p.paystack_reference ||
           p.last_payment_date ||
           override?.paystackReference ||
+          override?.lastPaymentDate ||
           override?.hasPaid ||
-          rawStatus === "Active" ||
           rawStatus === "Paid" ||
-          p.subscription_expiry ||
-          override?.subscriptionExpiry ||
-          (parseAmount(p.subscription_amount) !== null) ||
-          (parseAmount(override?.subscriptionAmount) !== null)
+          (rawStatus === "Active" && Boolean(p.subscription_expiry || override?.subscriptionExpiry || p.paystack_reference || local?.paystackReference || override?.paystackReference))
         );
 
         const roleStr = (p.role || override?.role || local?.role || "owner").toLowerCase().trim();
@@ -326,13 +323,10 @@ export async function fetchLiveAdminUsers(): Promise<{
             p.paystack_reference ||
             p.last_payment_date ||
             override?.paystackReference ||
+            override?.lastPaymentDate ||
             override?.hasPaid ||
-            rawStatus === "Active" ||
             rawStatus === "Paid" ||
-            p.subscription_expiry ||
-            override?.subscriptionExpiry ||
-            (parseAmount(p.subscription_amount) !== null) ||
-            (parseAmount(override?.subscriptionAmount) !== null)
+            (rawStatus === "Active" && Boolean(p.subscription_expiry || override?.subscriptionExpiry || p.paystack_reference || local?.paystackReference || override?.paystackReference))
           );
 
           const activePlan = override?.activePlan || p.active_plan || local?.activePlan || "Starter";
@@ -756,6 +750,8 @@ export async function updateAdminUserInDb(u: AdminUser): Promise<boolean> {
         new_billing_frequency: u.billingFrequency || "monthly",
         new_subscription_start: u.subscriptionStart || null,
         new_subscription_expiry: u.subscriptionExpiry || null,
+        new_paystack_reference: u.paystackReference || null,
+        new_last_payment_date: u.lastPaymentDate || null,
       });
       if (!rpcErr) profSuccess = true;
     } catch {}
@@ -1046,13 +1042,9 @@ export function syncUserProfileToAdmin(
       (profile as any).paystack_reference ||
       profile.lastPaymentDate ||
       (profile as any).last_payment_date ||
-      profile.subscriptionExpiry ||
-      (profile as any).subscription_expiry ||
-      profile.subscriptionStatus === "Active" ||
-      profile.subscriptionStatus === "Paid" ||
-      (profile as any).subscription_status === "Active" ||
-      (profile as any).subscription_status === "Paid" ||
-      (typeof profileCustomAmount === "number" && profileCustomAmount > 0)
+      (profile.subscriptionStatus === "Paid") ||
+      ((profile as any).subscription_status === "Paid") ||
+      ((profile.subscriptionStatus === "Active" || (profile as any).subscription_status === "Active") && Boolean(profile.subscriptionExpiry || (profile as any).subscription_expiry || profile.paystackReference || (profile as any).paystack_reference))
     );
 
     let resolvedCustomAmount = profileCustomAmount !== null ? profileCustomAmount : (typeof current.subscriptionAmount === "number" ? current.subscriptionAmount : null);
@@ -1108,13 +1100,9 @@ export function syncUserProfileToAdmin(
       (profile as any).paystack_reference ||
       profile.lastPaymentDate ||
       (profile as any).last_payment_date ||
-      profile.subscriptionExpiry ||
-      (profile as any).subscription_expiry ||
-      profile.subscriptionStatus === "Active" ||
-      profile.subscriptionStatus === "Paid" ||
-      (profile as any).subscription_status === "Active" ||
-      (profile as any).subscription_status === "Paid" ||
-      (typeof profileCustomAmount === "number" && profileCustomAmount > 0)
+      (profile.subscriptionStatus === "Paid") ||
+      ((profile as any).subscription_status === "Paid") ||
+      ((profile.subscriptionStatus === "Active" || (profile as any).subscription_status === "Active") && Boolean(profile.subscriptionExpiry || (profile as any).subscription_expiry || profile.paystackReference || (profile as any).paystack_reference))
     );
 
     const resolvedPlan = activePlan || profile.activePlan || "Starter";

@@ -93,17 +93,17 @@ export function computeSubscriptionStatus(
   const rawStatus = (u.subscriptionStatus || (u as any).subscription_status || "").trim();
   if (rawStatus === "Suspended") return "Suspended";
 
-  // Real payment check: has the user completed a real payment (Paystack reference, payment date, explicit hasPaid flag, subscription_status, or custom subscription amount)
+  // Real payment check: has the user completed a verified payment (Paystack reference, payment date, explicit hasPaid flag, or explicit Paid status)
   const hasCompletedPayment = Boolean(
-    u.hasPaid ||
-    u.paystackReference ||
-    (u as any).paystack_reference ||
-    u.lastPaymentDate ||
-    (u as any).last_payment_date ||
-    rawStatus === "Active" ||
-    rawStatus === "Paid" ||
-    (typeof u.subscriptionAmount === "number" && u.subscriptionAmount > 0) ||
-    (typeof (u as any).subscription_amount === "number" && (u as any).subscription_amount > 0)
+    !u.freeAccess &&
+    (
+      u.hasPaid === true ||
+      Boolean(u.paystackReference && u.paystackReference.trim() !== "") ||
+      Boolean((u as any).paystack_reference && String((u as any).paystack_reference).trim() !== "") ||
+      Boolean(u.lastPaymentDate && u.lastPaymentDate.trim() !== "") ||
+      Boolean((u as any).last_payment_date && String((u as any).last_payment_date).trim() !== "") ||
+      rawStatus === "Paid"
+    )
   );
 
   if (hasCompletedPayment) {

@@ -246,7 +246,7 @@ function UserForm({
       </div>
 
       <div className="grid grid-cols-2 gap-3">
-        <F label="Custom Price (₦ Override)">
+        <F label="Special / Personal Price (₦ Override)">
           <input
             type="number"
             value={f.subscriptionAmount ?? ""}
@@ -263,6 +263,48 @@ function UserForm({
             className={IC}
           />
         </F>
+      </div>
+
+      {/* Paystack Payment & Reference */}
+      <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-2.5">
+        <p className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+          <CreditCard size={13} className="text-emerald-600" /> Paystack Transaction &amp; Verification
+        </p>
+        <div className="grid grid-cols-2 gap-3">
+          <F label="Paystack Reference">
+            <input
+              type="text"
+              value={f.paystackReference || ""}
+              onChange={e => setF({ ...f, paystackReference: e.target.value || null })}
+              className={IC}
+              placeholder="e.g. PND_1727720934"
+            />
+          </F>
+          <F label="Last Payment Date">
+            <input
+              type="date"
+              value={f.lastPaymentDate || ""}
+              onChange={e => setF({ ...f, lastPaymentDate: e.target.value || null })}
+              className={IC}
+            />
+          </F>
+        </div>
+        <div className="flex items-center justify-between pt-1">
+          <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={Boolean(f.hasPaid)}
+              onChange={e => setF({ ...f, hasPaid: e.target.checked })}
+              className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 w-4 h-4"
+            />
+            <span>Mark as Verified Paid</span>
+          </label>
+          {f.hasPaid && (
+            <span className="text-[10px] text-emerald-700 bg-emerald-100 font-bold px-2 py-0.5 rounded">
+              Active Paid
+            </span>
+          )}
+        </div>
       </div>
 
       <div className="grid grid-cols-2 gap-3">
@@ -691,7 +733,12 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
     setFErr(e);
     if (Object.keys(e).length) return;
 
-    const updated = { ...editUser, ...form } as AdminUser;
+    const isExplicitlyPaid = Boolean(!form.freeAccess && (form.hasPaid || form.paystackReference?.trim() || form.lastPaymentDate?.trim()));
+    const updated = {
+      ...editUser,
+      ...form,
+      hasPaid: isExplicitlyPaid,
+    } as AdminUser;
     updated.subscriptionStatus = computeSubscriptionStatus(updated);
     onUpdate(updated);
     setEditUser(null);
@@ -1047,16 +1094,23 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
 
                     {/* 5. Sub Status */}
                     <td className="px-4 py-3 whitespace-nowrap">
-                      <div className="flex items-center gap-1.5">
-                        <Bdg label={u.subscriptionStatus} color={STATUS_COLOR[u.subscriptionStatus] || "gray"} />
-                        {Boolean(u.hasPaid || u.paystackReference || u.lastPaymentDate || u.subscriptionStatus === "Active") && !u.freeAccess && (
-                          <span className="text-[10px] bg-emerald-100 text-emerald-700 font-bold px-1.5 py-0.5 rounded">
-                            Paid ✓
-                          </span>
-                        )}
-                        {u.freeAccess && (
-                          <span className="text-[10px] bg-green-100 text-green-700 font-bold px-1.5 py-0.5 rounded">
-                            Free ✦
+                      <div className="flex flex-col gap-0.5">
+                        <div className="flex items-center gap-1.5">
+                          <Bdg label={u.subscriptionStatus} color={STATUS_COLOR[u.subscriptionStatus] || "gray"} />
+                          {Boolean(u.hasPaid || u.paystackReference || u.lastPaymentDate) && !u.freeAccess && (
+                            <span className="text-[10px] bg-emerald-100 text-emerald-700 font-bold px-1.5 py-0.5 rounded">
+                              Paid ✓
+                            </span>
+                          )}
+                          {u.freeAccess && (
+                            <span className="text-[10px] bg-green-100 text-green-700 font-bold px-1.5 py-0.5 rounded">
+                              Free ✦
+                            </span>
+                          )}
+                        </div>
+                        {u.paystackReference && (
+                          <span className="inline-block font-mono text-[9px] bg-slate-100 text-slate-600 px-1 py-0.2 rounded border border-slate-200 mt-0.5 max-w-[130px] truncate" title={`Paystack Ref: ${u.paystackReference}`}>
+                            Ref: {u.paystackReference}
                           </span>
                         )}
                       </div>

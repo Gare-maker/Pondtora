@@ -1934,21 +1934,33 @@ function FeedDocumentation({
                     </div>
 
                     {hasFeed ? (
-                      <div className="mt-3 pt-2.5 border-t border-slate-100 grid grid-cols-3 gap-2 text-xs">
-                        <div className="bg-slate-50 rounded-lg p-2">
-                          <span className="text-[10px] text-slate-400 block mb-0.5">Pellet Size</span>
-                          <div className="flex items-center gap-1">
+                      <div className="mt-3 pt-2.5 border-t border-slate-100 grid grid-cols-3 gap-2">
+                        <div className="bg-slate-50/90 border border-slate-100 rounded-xl p-2 sm:p-2.5 flex flex-col justify-between">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-0.5">Pellet Size</span>
+                          <div className="flex items-center gap-1 mt-0.5">
                             <Bdg label={rec.size} color={atMax ? "red" : "blue"} />
                             {atMax && <span className="text-[10px] font-bold text-red-500">⚠ Limit</span>}
                           </div>
                         </div>
-                        <div className="bg-slate-50 rounded-lg p-2">
-                          <span className="text-[10px] text-slate-400 block mb-0.5">Morning</span>
-                          <span className="font-semibold text-slate-800">{rec.morning} kg</span>
+                        <div className="bg-amber-50/60 border border-amber-100/90 rounded-xl p-2 sm:p-2.5 flex flex-col justify-between">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-amber-900">Morning</span>
+                            {rec.morningTime && <span className="text-[9px] text-slate-400 font-mono">{rec.morningTime}</span>}
+                          </div>
+                          <div className="mt-0.5">
+                            <span className="text-base sm:text-lg font-extrabold text-slate-900 font-['Barlow_Condensed',sans-serif] tracking-tight">{rec.morning}</span>
+                            <span className="text-xs font-bold text-slate-500 ml-1">kg</span>
+                          </div>
                         </div>
-                        <div className="bg-slate-50 rounded-lg p-2">
-                          <span className="text-[10px] text-slate-400 block mb-0.5">Evening</span>
-                          <span className="font-semibold text-slate-800">{rec.evening} kg</span>
+                        <div className="bg-blue-50/60 border border-blue-100/90 rounded-xl p-2 sm:p-2.5 flex flex-col justify-between">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-blue-900">Evening</span>
+                            {rec.eveningTime && <span className="text-[9px] text-slate-400 font-mono">{rec.eveningTime}</span>}
+                          </div>
+                          <div className="mt-0.5">
+                            <span className="text-base sm:text-lg font-extrabold text-slate-900 font-['Barlow_Condensed',sans-serif] tracking-tight">{rec.evening}</span>
+                            <span className="text-xs font-bold text-slate-500 ml-1">kg</span>
+                          </div>
                         </div>
                       </div>
                     ) : (

@@ -118,18 +118,28 @@ export default function DashboardPage({
 
   // Compute Key Financial and User Statistics (strictly customer/owner accounts)
   const stats = useMemo(() => {
-    const total = ownerUsers.length;
-    const trial = ownerUsers.filter(u => u.subscriptionStatus === "Trial").length;
-    const paid = ownerUsers.filter(u => (u.subscriptionStatus === "Active" || u.hasPaid) && !u.freeAccess && Boolean(u.hasPaid || u.paystackReference || u.lastPaymentDate || (typeof u.subscriptionAmount === "number" && u.subscriptionAmount > 0) || u.subscriptionExpiry)).length;
+    const paidUsers = ownerUsers.filter(u => Boolean(u.hasPaid || u.paystackReference || u.lastPaymentDate) && !u.freeAccess);
+    const paid = paidUsers.length;
     const active = ownerUsers.filter(u => u.subscriptionStatus === "Active").length;
     const expired = ownerUsers.filter(u => u.subscriptionStatus === "Expired").length;
     const suspended = ownerUsers.filter(u => u.subscriptionStatus === "Suspended").length;
     const free = ownerUsers.filter(u => u.freeAccess).length;
+    const trial = ownerUsers.filter(u => u.subscriptionStatus === "Trial" && !u.freeAccess).length;
+    const total = ownerUsers.length;
+
+    // Calculate total verified Paystack Subscriptions Collected (₦)
+    let totalPaystackRevenue = 0;
+    paidUsers.forEach(u => {
+      const amt = typeof u.subscriptionAmount === "number" && u.subscriptionAmount > 0
+        ? u.subscriptionAmount
+        : (effectivePrice(u, plans) || 0);
+      totalPaystackRevenue += Number(amt) || 0;
+    });
 
     // Calculate Monthly Recurring Revenue (MRR)
     let mrr = 0;
     ownerUsers.forEach(u => {
-      if ((u.subscriptionStatus === "Active" || u.hasPaid) && !u.freeAccess) {
+      if ((u.subscriptionStatus === "Active" || u.hasPaid || u.paystackReference) && !u.freeAccess) {
         const ep = effectivePrice(u, plans);
         if (typeof ep === "number" && ep > 0) {
           if (u.billingFrequency === "yearly") {
@@ -143,7 +153,7 @@ export default function DashboardPage({
 
     const arr = mrr * 12;
 
-    return { total, trial, paid, active, expired, suspended, free, mrr, arr };
+    return { total, trial, paid, active, expired, suspended, free, mrr, arr, totalPaystackRevenue };
   }, [ownerUsers, plans]);
 
   // Operational metrics computed from user profiles + platformStats
@@ -505,22 +515,31 @@ export default function DashboardPage({
         <div className="space-y-6">
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
             <StatBox
+              label="Paystack Revenue Collected"
+              value={fmtMoney(stats.totalPaystackRevenue)}
+              subtitle={`From ${stats.paid} paying accounts`}
+              icon={TrendingUp}
+              bg="bg-emerald-50"
+              ic="text-emerald-600"
+              badge={{ text: "Verified Revenue", color: "green" }}
+            />
+            <StatBox
               label="Estimated Monthly MRR"
               value={fmtMoney(stats.mrr)}
               subtitle={`Annual Run Rate: ${fmtMoney(stats.arr)}`}
               icon={DollarSign}
-              bg="bg-emerald-50"
-              ic="text-emerald-600"
-              badge={{ text: "Active Subscriptions", color: "green" }}
+              bg="bg-blue-50"
+              ic="text-blue-600"
+              badge={{ text: "Active Subscriptions", color: "blue" }}
             />
             <StatBox
               label="Paying Accounts"
               value={stats.paid}
               subtitle={`${stats.free} VIP Free Access`}
-              icon={TrendingUp}
+              icon={CreditCard}
               bg="bg-green-50"
               ic="text-green-600"
-              badge={{ text: "Verified Revenue", color: "green" }}
+              badge={{ text: "Subscribers", color: "green" }}
             />
             <StatBox
               label="Active 30-Day Trials"
@@ -530,16 +549,6 @@ export default function DashboardPage({
               bg="bg-amber-50"
               ic="text-amber-600"
               badge={{ text: "Trialing Farmers", color: "amber" }}
-            />
-            <StatBox
-              label="Active Pricing Plans"
-              value={plans.length}
-              subtitle="Single & Multi-Farm Plans"
-              icon={Package}
-              bg="bg-purple-50"
-              ic="text-purple-600"
-              badge={{ text: "Regulated Pricing", color: "purple" }}
-              onClick={() => onNavigate?.("plans")}
             />
           </div>
 
@@ -674,12 +683,17 @@ export default function DashboardPage({
                         <div className="flex items-center gap-1.5 flex-wrap">
                           <span className="font-bold text-slate-800">{u.activePlan || "Starter"}</span>
                           <Bdg label={u.subscriptionStatus} color={SC[u.subscriptionStatus] || "gray"} />
-                          {Boolean(u.hasPaid || u.paystackReference || u.lastPaymentDate || u.subscriptionStatus === "Active") && !u.freeAccess && (
+                          {Boolean(u.hasPaid || u.paystackReference || u.lastPaymentDate) && !u.freeAccess && (
                             <span className="text-emerald-700 font-bold bg-emerald-100 text-[10px] px-1.5 py-0.5 rounded">
                               Paid ✓
                             </span>
                           )}
                         </div>
+                        {u.paystackReference && (
+                          <p className="font-mono text-[9px] text-slate-500 bg-slate-100 px-1 py-0.2 rounded border border-slate-200 mt-0.5 max-w-[130px] truncate" title={`Paystack Ref: ${u.paystackReference}`}>
+                            Ref: {u.paystackReference}
+                          </p>
+                        )}
                         <div className="mt-1 flex items-center gap-1.5 text-[11px] flex-wrap">
                           {u.freeAccess ? (
                             <span className="text-emerald-700 bg-emerald-100 font-bold px-1.5 py-0.2 rounded text-[10px]">
