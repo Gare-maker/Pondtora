@@ -450,13 +450,13 @@ function PondDetail({
           </div>
         </Card>
       ):(
-      <Card className="p-5 bg-[#0f2744] border border-[#1b3e6b] shadow-md rounded-xl text-white">
+      <div className="p-5 rounded-xl border border-[#1b3e6b] shadow-md text-white" style={{ backgroundColor: "#0f2744" }}>
         <div className="flex items-center justify-between mb-4">
-          <p className="text-[10px] font-bold uppercase tracking-wider text-blue-200">Fish Information</p>
-          {canEdit&&pond.status==="Active"&&<button onClick={()=>{setEditFishF({species:pond.species==="—"?"Catfish":pond.species,count:String(pond.currentCount),stockingDate:pond.stockingDate});setShowEditFish(true);}} className="flex items-center gap-1 text-xs text-blue-100 hover:text-white bg-white/10 hover:bg-white/20 border border-white/20 rounded-lg px-2.5 py-1 transition-colors"><Pencil size={11}/> Edit</button>}
+          <p className="text-xs font-bold uppercase tracking-wider text-blue-200">Fish Information</p>
+          {canEdit&&pond.status==="Active"&&<button onClick={()=>{setEditFishF({species:pond.species==="—"?"Catfish":pond.species,count:String(pond.currentCount),stockingDate:pond.stockingDate});setShowEditFish(true);}} className="flex items-center gap-1.5 text-xs font-semibold text-white hover:text-white bg-white/15 hover:bg-white/25 border border-white/25 rounded-lg px-3 py-1.5 transition-colors"><Pencil size={12}/> Edit</button>}
         </div>
         {pond.transferNote&&(
-          <div className="mb-4 flex items-center gap-2 px-3 py-2 rounded-lg bg-white/10 border border-white/15 text-xs text-blue-100">
+          <div className="mb-4 flex items-center gap-2 px-3 py-2 rounded-lg bg-white/10 border border-white/20 text-xs text-blue-100">
             <ArrowRightLeft size={12} className="shrink-0"/><span>{pond.transferNote}</span>
           </div>
         )}
@@ -488,16 +488,16 @@ function PondDetail({
           return(
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
               {[{l:"Initial Stock",v:pond.initialStock.toLocaleString()},{l:"Current Count",v:pond.currentCount.toLocaleString(),hi:true},{l:"Stocking Date",v:fmtStockingDate(pond.stockingDate)},{l:"Total Dead",v:String(dead),clickable:true},{l:"Mortality Rate",v:`${mRate}%`}].map(item=>(
-                <div key={item.l} className={(item as any).clickable?"cursor-pointer group":""} onClick={(item as any).clickable?()=>setShowMortHistory(true):undefined}>
-                  <p className="text-[10px] text-blue-200/80 uppercase tracking-wider font-medium">{item.l}</p>
-                  <p className={`text-xl font-bold mt-0.5 font-['Barlow_Condensed',sans-serif] ${(item as any).hi?"text-emerald-300":(item as any).clickable?"text-rose-300 group-hover:underline":"text-white"}`}>{item.v}</p>
+                <div key={item.l} className={`p-2.5 rounded-lg bg-white/5 border border-white/10 ${(item as any).clickable?"cursor-pointer hover:bg-white/10 transition-colors group":""}`} onClick={(item as any).clickable?()=>setShowMortHistory(true):undefined}>
+                  <p className="text-[11px] text-blue-200 font-medium uppercase tracking-wider">{item.l}</p>
+                  <p className={`text-xl font-bold mt-1 font-['Barlow_Condensed',sans-serif] ${(item as any).hi?"text-emerald-300":(item as any).clickable?"text-rose-300 group-hover:underline":"text-white"}`}>{item.v}</p>
                 </div>
               ))}
-              {pondAge&&<div className="col-span-2 sm:col-span-3 lg:col-span-5 mt-1 w-full flex items-center gap-2 bg-white/10 border border-white/15 rounded-xl px-4 py-2.5"><span className="text-[10px] text-blue-200 font-bold uppercase tracking-wider">Pond Age</span><span className="text-sm font-bold text-white">{pondAge}</span></div>}
+              {pondAge&&<div className="col-span-2 sm:col-span-3 lg:col-span-5 mt-1 w-full flex items-center gap-2 bg-white/10 border border-white/20 rounded-xl px-4 py-2.5"><span className="text-xs text-blue-200 font-bold uppercase tracking-wider">Pond Age</span><span className="text-sm font-bold text-white">{pondAge}</span></div>}
             </div>
           );
         })()}
-      </Card>
+      </div>
       )}
       <Card className="p-5">
         <div className="flex items-center justify-between mb-4">

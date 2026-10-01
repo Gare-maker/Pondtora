@@ -1750,22 +1750,35 @@ function FeedDocumentation({
                 </div>
                 <div className="flex flex-wrap items-center gap-2.5">
                   {/* Feeding Status Filter */}
-                  <div className="flex items-center gap-1 bg-slate-200/90 p-1 rounded-xl border border-slate-300/70">
-                    <span className="text-[10px] font-bold text-slate-500 uppercase px-1.5">Feeding Status:</span>
-                    {(["all", "fed", "not_fed"] as const).map(st => (
-                      <button
-                        key={st}
-                        type="button"
-                        onClick={() => setFeedStatusFilter(st)}
-                        className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
-                          feedStatusFilter === st
-                            ? "bg-white text-green-700 shadow-xs border border-slate-200/80"
-                            : "text-slate-600 hover:text-slate-900"
-                        }`}
-                      >
-                        {st === "all" ? "All" : st === "fed" ? "Fed" : "Not Fed"}
-                      </button>
-                    ))}
+                  <div className="flex items-center gap-1 bg-slate-200/80 p-1 rounded-xl border border-slate-300/70">
+                    {(["all", "fed", "not_fed"] as const).map(st => {
+                      const count = st === "all" ? totalPonds : st === "fed" ? pondsFedToday : pondsRemaining;
+                      const name = st === "all" ? "All" : st === "fed" ? "Fed" : "Remaining";
+                      const isSelected = feedStatusFilter === st;
+                      return (
+                        <button
+                          key={st}
+                          type="button"
+                          onClick={() => setFeedStatusFilter(st)}
+                          className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs transition-all ${
+                            isSelected
+                              ? "bg-white text-slate-900 font-bold shadow-xs border border-slate-200/80"
+                              : "text-slate-600 hover:text-slate-900 font-medium"
+                          }`}
+                        >
+                          <span>{name}</span>
+                          <span
+                            className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none ${
+                              isSelected
+                                ? st === "fed" ? "bg-emerald-100 text-emerald-800" : st === "not_fed" ? "bg-amber-100 text-amber-800" : "bg-slate-100 text-slate-700"
+                                : "bg-slate-300/60 text-slate-600"
+                            }`}
+                          >
+                            {count}
+                          </span>
+                        </button>
+                      );
+                    })}
                   </div>
 
                   <div className="relative">
@@ -1862,24 +1875,33 @@ function FeedDocumentation({
 
           {/* Mobile Isolated Cards View */}
           <div className="md:hidden space-y-3">
-            {/* Feeding Status Filter with Embedded Stats (No search bar, clean non-filled style) */}
-            <div className="flex items-center gap-2 overflow-x-auto pb-0.5">
+            {/* Feeding Status Filter */}
+            <div className="flex items-center gap-1 bg-slate-100/90 border border-slate-200/80 p-1 rounded-xl w-fit">
               {(["all", "fed", "not_fed"] as const).map(st => {
                 const count = st === "all" ? totalPonds : st === "fed" ? pondsFedToday : pondsRemaining;
-                const label = st === "all" ? `All (${count})` : st === "fed" ? `Fed (${count})` : `Remaining (${count})`;
+                const name = st === "all" ? "All" : st === "fed" ? "Fed" : "Remaining";
                 const isSelected = feedStatusFilter === st;
                 return (
                   <button
                     key={st}
                     type="button"
                     onClick={() => setFeedStatusFilter(st)}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all whitespace-nowrap ${
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs transition-all ${
                       isSelected
-                        ? "border-2 border-green-600 text-green-700 font-bold bg-transparent shadow-2xs"
-                        : "border border-slate-200 text-slate-600 hover:text-slate-900 hover:border-slate-300 bg-transparent"
+                        ? "bg-white text-slate-900 font-bold shadow-xs border border-slate-200/80"
+                        : "text-slate-500 hover:text-slate-800 font-medium"
                     }`}
                   >
-                    {label}
+                    <span>{name}</span>
+                    <span
+                      className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none ${
+                        isSelected
+                          ? st === "fed" ? "bg-emerald-100 text-emerald-800" : st === "not_fed" ? "bg-amber-100 text-amber-800" : "bg-slate-100 text-slate-700"
+                          : "bg-slate-200/60 text-slate-500"
+                      }`}
+                    >
+                      {count}
+                    </span>
                   </button>
                 );
               })}
