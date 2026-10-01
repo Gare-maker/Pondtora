@@ -6,9 +6,7 @@ import { COUNTRIES } from "./data";
 
 /* ─── Shared UI ─────────────────────────────────────────────── */
 export function Card({children,className="",onClick}:{children:ReactNode;className?:string;onClick?:()=>void}){
-  const hasBg = className.includes("bg-") || className.includes("bg-[");
-  const hasBorder = className.includes("border-") || className.includes("border-[");
-  return <div onClick={onClick} className={`${hasBg ? "" : "bg-white"} ${hasBorder ? "" : "border border-slate-200/60"} rounded-xl ${className}`}>{children}</div>;
+  return <div onClick={onClick} className={`bg-white border border-slate-200/60 rounded-xl ${className}`}>{children}</div>;
 }
 export function Bdg({label,color}:{label:string;color:"green"|"red"|"amber"|"blue"|"gray"|"teal"|"purple"}){
   const m={green:"bg-green-50 text-green-700 border-green-200",teal:"bg-green-100 text-green-800 border-green-300",red:"bg-red-50 text-red-700 border-red-200",amber:"bg-amber-50 text-amber-700 border-amber-200",blue:"bg-blue-50 text-blue-700 border-blue-200",gray:"bg-slate-50 text-slate-600 border-slate-200",purple:"bg-purple-50 text-purple-700 border-purple-200"};
