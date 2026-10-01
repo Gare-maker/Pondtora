@@ -1948,7 +1948,7 @@ function FeedDocumentation({
 
                       <div className="flex items-center gap-1.5 shrink-0" onClick={e => e.stopPropagation()}>
                         {hasFeed && (
-                          <span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-green-100 text-green-800 font-bold text-sm font-['Barlow_Condensed',sans-serif]">
+                          <span className="font-bold text-green-700 font-['Barlow_Condensed',sans-serif] text-base">
                             {rec.total} kg
                           </span>
                         )}
