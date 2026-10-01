@@ -1290,7 +1290,7 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
   );
 
   return(
-    <div className="p-4 sm:p-6 space-y-5 w-full">
+    <div className="p-4 sm:p-6 space-y-5 w-full pb-20 sm:pb-8">
       <div className="sticky top-0 z-10 bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Pond Management</h1>
@@ -1332,7 +1332,7 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
             className={`${IC} pl-8 w-full sm:w-56 text-xs py-1.5`}
           />
         </div>
-        <div className="flex items-center gap-1.5">
+        <div className="hidden md:flex items-center gap-1.5">
           <span className="text-xs text-slate-400">Status:</span>
           <select value={fStatus} onChange={e=>setFStatus(e.target.value)} className={`${SC} py-1.5 text-xs w-auto`}>
             {["All","Active","Empty"].map(o=><option key={o}>{o}</option>)}

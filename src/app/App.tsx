@@ -7535,7 +7535,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   const userCountry=userProfile?.country??"Nigeria";
   const cvt=(n:number)=>convertNGN(n,userCountry);
   return(
-    <div className="flex h-screen bg-white text-slate-900 overflow-hidden" style={{fontFamily:"'Barlow',sans-serif"}}>
+    <div className="flex h-screen h-[100dvh] bg-white text-slate-900 overflow-hidden" style={{fontFamily:"'Barlow',sans-serif"}}>
       <Toaster position="top-right" richColors duration={2500} visibleToasts={1} closeButton/>
       {/* ── Database Setup Wizard ── */}
       {showSetup&&(setupSql||setupRunning)&&(
@@ -7650,7 +7650,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
             )}
           </div>
         )}
-        <main ref={mainRef} className="flex-1 overflow-y-auto bg-[#f5f7fa]">
+        <main ref={mainRef} className="flex-1 overflow-y-auto overscroll-contain bg-[#f5f7fa] pb-20 sm:pb-8">
           {isDataLoading ? (
             <div className="flex flex-col items-center justify-center min-h-[60vh] gap-3 p-6">
               <Loader2 size={36} className="text-green-600 animate-spin" />

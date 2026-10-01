@@ -259,7 +259,7 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
   const dayTotalStocksCount = new Set(filteredDailyRows.map(r => r.fishStock)).size;
 
   return(
-    <div className="p-4 sm:p-6 space-y-5 w-full">
+    <div className="p-4 sm:p-6 space-y-5 w-full pb-20 sm:pb-8">
       <div className="sticky top-0 z-10 bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Feed Stock</h1>
@@ -403,27 +403,27 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
             <StatCard label="Fish Stocks Active" value={String(dayTotalStocksCount)} sub="Stocks recorded" icon={Fish}/>
           </div>
 
-          {/* Search and Filters */}
-          <div className="flex flex-wrap gap-2 items-center">
-            <div className="relative w-full md:w-auto">
+          {/* Search and Filters (Desktop Only) */}
+          <div className="hidden md:flex flex-wrap gap-2 items-center">
+            <div className="relative">
               <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300"/>
-              <input value={dailySearch} onChange={e=>{setDailySearch(e.target.value);setDailyPage(1);}} placeholder="Search stock, date, brand…" className={`${IC} pl-8 w-full md:w-52 text-xs`}/>
+              <input value={dailySearch} onChange={e=>{setDailySearch(e.target.value);setDailyPage(1);}} placeholder="Search stock, date, brand…" className={`${IC} pl-8 w-52 text-xs`}/>
             </div>
-            <div className="hidden md:flex items-center gap-1.5">
+            <div className="flex items-center gap-1.5">
               <span className="text-xs text-slate-400">Stock:</span>
               <select value={fDailyStock} onChange={e=>{setFDailyStock(e.target.value);setDailyPage(1);}} className={`${SC} py-1.5 text-xs w-auto`}>
                 <option value="All">All Stocks</option>
                 {allDailyStocks.map(s=><option key={s} value={s}>{s}</option>)}
               </select>
             </div>
-            <div className="hidden md:flex items-center gap-1.5">
+            <div className="flex items-center gap-1.5">
               <span className="text-xs text-slate-400">Brand:</span>
               <select value={fDailyBrand} onChange={e=>{setFDailyBrand(e.target.value);setDailyPage(1);}} className={`${SC} py-1.5 text-xs w-auto`}>
                 <option value="All">All Brands</option>
                 {allDailyBrands.map(b=><option key={b} value={b}>{b}</option>)}
               </select>
             </div>
-            <div className="hidden md:flex items-center gap-1.5">
+            <div className="flex items-center gap-1.5">
               <span className="text-xs text-slate-400">Pellet:</span>
               <select value={fDailySize} onChange={e=>{setFDailySize(e.target.value);setDailyPage(1);}} className={`${SC} py-1.5 text-xs w-auto`}>
                 <option value="All">All Sizes</option>

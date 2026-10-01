@@ -1628,7 +1628,7 @@ function FeedDocumentation({
   const TS = "w-full px-2 py-1.5 text-sm border border-slate-200 rounded-lg bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-green-300";
 
   return (
-    <div className="p-4 sm:p-6 space-y-5 w-full">
+    <div className="p-4 sm:p-6 space-y-5 w-full pb-20 sm:pb-8">
       {/* ── Header ── */}
       <div className="sticky top-0 z-10 bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 space-y-2.5">
         {/* Top Row: Title + Date Picker */}
