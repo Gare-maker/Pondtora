@@ -450,13 +450,13 @@ function PondDetail({
           </div>
         </Card>
       ):(
-      <Card className="p-5 bg-[#edf7f2] border border-[#c6e7d6] shadow-sm rounded-xl">
+      <Card className="p-5 bg-[#0f2744] border border-[#1b3e6b] shadow-md rounded-xl text-white">
         <div className="flex items-center justify-between mb-4">
-          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Fish Information</p>
-          {canEdit&&pond.status==="Active"&&<button onClick={()=>{setEditFishF({species:pond.species==="—"?"Catfish":pond.species,count:String(pond.currentCount),stockingDate:pond.stockingDate});setShowEditFish(true);}} className="flex items-center gap-1 text-xs text-slate-400 hover:text-green-600 border border-slate-200 hover:border-green-300 rounded-lg px-2 py-1 transition-colors"><Pencil size={11}/> Edit</button>}
+          <p className="text-[10px] font-bold uppercase tracking-wider text-blue-200">Fish Information</p>
+          {canEdit&&pond.status==="Active"&&<button onClick={()=>{setEditFishF({species:pond.species==="—"?"Catfish":pond.species,count:String(pond.currentCount),stockingDate:pond.stockingDate});setShowEditFish(true);}} className="flex items-center gap-1 text-xs text-blue-100 hover:text-white bg-white/10 hover:bg-white/20 border border-white/20 rounded-lg px-2.5 py-1 transition-colors"><Pencil size={11}/> Edit</button>}
         </div>
         {pond.transferNote&&(
-          <div className="mb-4 flex items-center gap-2 px-3 py-2 rounded-lg bg-blue-50 border border-blue-200 text-xs text-blue-700">
+          <div className="mb-4 flex items-center gap-2 px-3 py-2 rounded-lg bg-white/10 border border-white/15 text-xs text-blue-100">
             <ArrowRightLeft size={12} className="shrink-0"/><span>{pond.transferNote}</span>
           </div>
         )}
@@ -488,9 +488,12 @@ function PondDetail({
           return(
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
               {[{l:"Initial Stock",v:pond.initialStock.toLocaleString()},{l:"Current Count",v:pond.currentCount.toLocaleString(),hi:true},{l:"Stocking Date",v:fmtStockingDate(pond.stockingDate)},{l:"Total Dead",v:String(dead),clickable:true},{l:"Mortality Rate",v:`${mRate}%`}].map(item=>(
-                <div key={item.l} className={(item as any).clickable?"cursor-pointer group":""} onClick={(item as any).clickable?()=>setShowMortHistory(true):undefined}><p className="text-[10px] text-slate-400 uppercase tracking-wider">{item.l}</p><p className={`text-xl font-bold mt-0.5 font-['Barlow_Condensed',sans-serif] ${(item as any).hi?"text-green-700":(item as any).clickable?"text-red-700 group-hover:underline":"text-slate-900"}`}>{item.v}</p></div>
+                <div key={item.l} className={(item as any).clickable?"cursor-pointer group":""} onClick={(item as any).clickable?()=>setShowMortHistory(true):undefined}>
+                  <p className="text-[10px] text-blue-200/80 uppercase tracking-wider font-medium">{item.l}</p>
+                  <p className={`text-xl font-bold mt-0.5 font-['Barlow_Condensed',sans-serif] ${(item as any).hi?"text-emerald-300":(item as any).clickable?"text-rose-300 group-hover:underline":"text-white"}`}>{item.v}</p>
+                </div>
               ))}
-              {pondAge&&<div className="col-span-2 sm:col-span-3 lg:col-span-5 mt-1 w-full flex items-center gap-2 bg-green-50 border border-green-100 rounded-xl px-4 py-2.5"><span className="text-[10px] text-green-500 font-bold uppercase tracking-wider">Pond Age</span><span className="text-sm font-bold text-green-800">{pondAge}</span></div>}
+              {pondAge&&<div className="col-span-2 sm:col-span-3 lg:col-span-5 mt-1 w-full flex items-center gap-2 bg-white/10 border border-white/15 rounded-xl px-4 py-2.5"><span className="text-[10px] text-blue-200 font-bold uppercase tracking-wider">Pond Age</span><span className="text-sm font-bold text-white">{pondAge}</span></div>}
             </div>
           );
         })()}
@@ -1323,13 +1326,13 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
 
       {/* Search and Filter */}
       <div className="flex flex-wrap gap-2.5 items-center px-1 mt-3">
-        <div className="relative flex-1 sm:flex-none">
+        <div className="relative w-full md:w-56">
           <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300"/>
           <input
             value={search}
             onChange={e=>setSearch(e.target.value)}
             placeholder="Search ponds…"
-            className={`${IC} pl-8 w-full sm:w-56 text-xs py-1.5`}
+            className={`${IC} pl-8 w-full text-xs py-1.5`}
           />
         </div>
         <div className="hidden md:flex items-center gap-1.5">

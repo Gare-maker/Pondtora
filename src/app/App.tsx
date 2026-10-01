@@ -7650,7 +7650,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
             )}
           </div>
         )}
-        <main ref={mainRef} className="flex-1 overflow-y-auto overscroll-contain bg-[#f5f7fa] pb-20 sm:pb-8">
+        <main ref={mainRef} className="flex-1 overflow-y-auto bg-[#f5f7fa] pb-24 sm:pb-8 touch-pan-y" style={{ WebkitOverflowScrolling: "touch" }}>
           {isDataLoading ? (
             <div className="flex flex-col items-center justify-center min-h-[60vh] gap-3 p-6">
               <Loader2 size={36} className="text-green-600 animate-spin" />

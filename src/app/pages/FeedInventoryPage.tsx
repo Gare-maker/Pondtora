@@ -96,7 +96,6 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
   const [fDailyStock, setFDailyStock] = useState("All");
   const [fDailyBrand, setFDailyBrand] = useState("All");
   const [fDailySize, setFDailySize] = useState("All");
-  const [dailySearch, setDailySearch] = useState("");
   const [dailyPage, setDailyPage] = useState(1);
 
   const shiftDailyDate = (days: number) => {
@@ -241,15 +240,6 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
     if (fDailyStock !== "All" && r.fishStock !== fDailyStock) return false;
     if (fDailyBrand !== "All" && r.brand !== fDailyBrand) return false;
     if (fDailySize !== "All" && r.size !== fDailySize) return false;
-    if (dailySearch) {
-      const q = dailySearch.toLowerCase().trim();
-      const matchStock = (r.fishStock && r.fishStock.toLowerCase().includes(q)) || (r.stockDate && r.stockDate.toLowerCase().includes(q));
-      const matchBrand = r.brand && r.brand.toLowerCase().includes(q);
-      const matchSize = r.size && r.size.toLowerCase().includes(q);
-      const matchDate = (r.date && r.date.toLowerCase().includes(q)) || (r.dateFormatted && r.dateFormatted.toLowerCase().includes(q));
-      const matchPonds = r.ponds && r.ponds.some(p => p && p.toLowerCase().includes(q));
-      if (!matchStock && !matchBrand && !matchSize && !matchDate && !matchPonds) return false;
-    }
     return true;
   });
 
@@ -403,12 +393,8 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
             <StatCard label="Fish Stocks Active" value={String(dayTotalStocksCount)} sub="Stocks recorded" icon={Fish}/>
           </div>
 
-          {/* Search and Filters (Desktop Only) */}
+          {/* Filters (Desktop Only) */}
           <div className="hidden md:flex flex-wrap gap-2 items-center">
-            <div className="relative">
-              <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300"/>
-              <input value={dailySearch} onChange={e=>{setDailySearch(e.target.value);setDailyPage(1);}} placeholder="Search stock, date, brand…" className={`${IC} pl-8 w-52 text-xs`}/>
-            </div>
             <div className="flex items-center gap-1.5">
               <span className="text-xs text-slate-400">Stock:</span>
               <select value={fDailyStock} onChange={e=>{setFDailyStock(e.target.value);setDailyPage(1);}} className={`${SC} py-1.5 text-xs w-auto`}>
