@@ -299,7 +299,7 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
           : "Complete record of all feed purchases."}
       </p>
       {tab==="stock"&&(
-        <><div className="flex flex-wrap gap-2 items-center">
+        <><div className="hidden md:flex flex-wrap gap-2 items-center">
           {([["Brand",fBrand,setFBrand,["All",...brands]],["Size",fSize,setFSize,["All",...sizes]]] as any[]).map(([label,val,set,opts]:any)=>(
             <div key={label} className="flex items-center gap-1.5"><span className="text-xs text-slate-400">{label}:</span><select value={val} onChange={e=>set(e.target.value)} className={`${SC} py-1.5 text-xs w-auto`}>{opts.map((o:string)=><option key={o}>{o}</option>)}</select></div>
           ))}
@@ -405,25 +405,25 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
 
           {/* Search and Filters */}
           <div className="flex flex-wrap gap-2 items-center">
-            <div className="relative">
+            <div className="relative w-full md:w-auto">
               <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300"/>
-              <input value={dailySearch} onChange={e=>{setDailySearch(e.target.value);setDailyPage(1);}} placeholder="Search stock, date, brand…" className={`${IC} pl-8 w-52 text-xs`}/>
+              <input value={dailySearch} onChange={e=>{setDailySearch(e.target.value);setDailyPage(1);}} placeholder="Search stock, date, brand…" className={`${IC} pl-8 w-full md:w-52 text-xs`}/>
             </div>
-            <div className="flex items-center gap-1.5">
+            <div className="hidden md:flex items-center gap-1.5">
               <span className="text-xs text-slate-400">Stock:</span>
               <select value={fDailyStock} onChange={e=>{setFDailyStock(e.target.value);setDailyPage(1);}} className={`${SC} py-1.5 text-xs w-auto`}>
                 <option value="All">All Stocks</option>
                 {allDailyStocks.map(s=><option key={s} value={s}>{s}</option>)}
               </select>
             </div>
-            <div className="flex items-center gap-1.5">
+            <div className="hidden md:flex items-center gap-1.5">
               <span className="text-xs text-slate-400">Brand:</span>
               <select value={fDailyBrand} onChange={e=>{setFDailyBrand(e.target.value);setDailyPage(1);}} className={`${SC} py-1.5 text-xs w-auto`}>
                 <option value="All">All Brands</option>
                 {allDailyBrands.map(b=><option key={b} value={b}>{b}</option>)}
               </select>
             </div>
-            <div className="flex items-center gap-1.5">
+            <div className="hidden md:flex items-center gap-1.5">
               <span className="text-xs text-slate-400">Pellet:</span>
               <select value={fDailySize} onChange={e=>{setFDailySize(e.target.value);setDailyPage(1);}} className={`${SC} py-1.5 text-xs w-auto`}>
                 <option value="All">All Sizes</option>
@@ -504,29 +504,57 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
             </div>
           </Card>
 
-          {/* Mobile Card List */}
-          <div className="md:hidden space-y-2.5">
+          {/* Mobile Card List (Matches visual structure of Bags Opened cards on Feeding Record page) */}
+          <div className="md:hidden space-y-3">
             {filteredDailyRows.length===0?(
-              <div className="bg-white border border-slate-200 rounded-xl p-6 text-center text-xs text-slate-400">
+              <div className="bg-white border border-slate-200/80 rounded-2xl p-6 text-center text-xs text-slate-400 shadow-xs">
                 No feed stock history recorded.
               </div>
             ):filteredDailyRows.map((r,i)=>(
-              <div key={i} className="bg-white border border-slate-200 rounded-xl p-4 space-y-2.5 shadow-xs">
+              <div key={i} className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-xs transition-all">
                 <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{r.date}</span>
-                    <p className="text-sm font-bold text-slate-900 leading-tight">{r.fishStock}</p>
+                  <div className="min-w-0 flex-1">
+                    <h3 className="font-bold text-slate-900 text-sm sm:text-base truncate">
+                      {r.fishStock}
+                    </h3>
                     {r.stockDate && r.stockDate !== "—" && (
                       <p className="text-xs text-slate-500 font-normal leading-tight mt-0.5">{r.stockDate}</p>
                     )}
+                    {r.ponds && r.ponds.length > 0 && (
+                      <p className="text-[10px] text-slate-400 mt-0.5 truncate">Ponds: {r.ponds.join(", ")}</p>
+                    )}
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className="text-xs font-semibold text-slate-600">{r.brand}</span>
+                      <Bdg label={r.size} color="blue" />
+                    </div>
                   </div>
-                  <Bdg label={r.size} color="blue"/>
                 </div>
-                <div className="grid grid-cols-2 gap-2 text-xs border-t border-slate-100 pt-2">
-                  <div><span className="text-slate-400">Brand: </span><strong className="text-slate-700">{r.brand}</strong></div>
-                  <div><span className="text-slate-400">Bags Opened: </span><strong className="text-slate-900">{r.bagsOpened} bags</strong></div>
-                  <div><span className="text-slate-400">KG Deducted: </span><strong className="text-green-700 font-bold">{r.totalKgOpened}kg</strong></div>
-                  <div><span className="text-slate-400">Remaining: </span><strong className="text-amber-800 font-bold">{r.remainingKg}kg</strong></div>
+
+                {/* Card Metrics Grid */}
+                <div className="mt-3 pt-2.5 border-t border-slate-100 grid grid-cols-3 gap-2 text-xs">
+                  {/* Bags Opened */}
+                  <div className="bg-slate-50 rounded-lg p-2">
+                    <span className="text-[10px] text-slate-400 block mb-0.5">Bags Opened</span>
+                    <span className="font-bold text-slate-900 text-xs">
+                      {r.bagsOpened > 0 ? `${r.bagsOpened} bag${r.bagsOpened !== 1 ? "s" : ""}` : "—"}
+                    </span>
+                  </div>
+
+                  {/* KG Deducted */}
+                  <div className="bg-slate-50 rounded-lg p-2">
+                    <span className="text-[10px] text-slate-400 block mb-0.5">KG Deducted</span>
+                    <span className="font-bold text-green-700 font-['Barlow_Condensed',sans-serif] text-sm">
+                      {r.totalKgOpened > 0 ? `${r.totalKgOpened} kg` : "—"}
+                    </span>
+                  </div>
+
+                  {/* Remaining in Stock */}
+                  <div className="bg-slate-50 rounded-lg p-2">
+                    <span className="text-[10px] text-slate-400 block mb-0.5">Remaining KG</span>
+                    <span className="font-semibold text-slate-800 text-xs">
+                      {r.remainingKg > 0 ? `${r.remainingKg} kg` : "—"}
+                    </span>
+                  </div>
                 </div>
               </div>
             ))}

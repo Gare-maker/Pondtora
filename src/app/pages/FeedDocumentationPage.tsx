@@ -662,6 +662,10 @@ function FeedDocumentation({
   const dayRecords = (feedingRecords || []).filter(r => r && isSameDate(r.date, selDate));
   const dayGrand = dayRecords.reduce((s, r) => s + (Number(r.total) || 0), 0);
   const dayRows = activePonds.map(pond => { const rec = dayRecords.find(r => r.pond === pond.name); return { pond, rec }; });
+  const totalPonds = activePonds.length;
+  const pondsFedToday = [...new Set(dayRecords.map(r => r.pond))].length;
+  const pondsRemaining = Math.max(0, totalPonds - pondsFedToday);
+  const bagsOpenedToday = (bagLogs || []).filter(b => b && isSameDate(b.date, selDate)).reduce((s, b) => s + (Number(b.bagsOpened) || 0), 0);
 
   const filteredDayRows = useMemo(() => {
     let list = dayRows;
@@ -1715,31 +1719,13 @@ function FeedDocumentation({
         </div>
       </div>
 
-      {/* Stats */}
-      {(() => {
-        const totalPonds = activePonds.length;
-        const pondsFedToday = [...new Set((feedingRecords || []).filter(r => r && isSameDate(r.date, selDate)).map(r => r.pond))].length;
-        const pondsRemaining = Math.max(0, totalPonds - pondsFedToday);
-        const bagsOpenedToday = (bagLogs || []).filter(b => b && isSameDate(b.date, selDate)).reduce((s, b) => s + (Number(b.bagsOpened) || 0), 0);
-        return (
-          <>
-            {/* Desktop Stats (4 cards) */}
-            <div className="hidden sm:grid sm:grid-cols-4 gap-3">
-              <StatCard label="Total Ponds" value={String(totalPonds)} sub="active" icon={Layers} />
-              <StatCard label="Ponds Fed" value={String(pondsFedToday)} sub={selDate} icon={CheckCircle} hi />
-              <StatCard label="Ponds Remaining" value={String(pondsRemaining)} sub="not yet fed" icon={BookOpen} />
-              <StatCard label="Bags Opened" value={String(bagsOpenedToday)} sub={selDate} icon={Package} />
-            </div>
-
-            {/* Mobile Stats (Only 3 cards: Total Ponds, Ponds Fed, Remaining in 1 compact row) */}
-            <div className="grid sm:hidden grid-cols-3 gap-2">
-              <StatCard label="Total Ponds" value={String(totalPonds)} icon={Layers} />
-              <StatCard label="Ponds Fed" value={String(pondsFedToday)} icon={CheckCircle} hi />
-              <StatCard label="Remaining" value={String(pondsRemaining)} icon={BookOpen} />
-            </div>
-          </>
-        );
-      })()}
+      {/* Stats - Desktop Only */}
+      <div className="hidden md:grid md:grid-cols-4 gap-3">
+        <StatCard label="Total Ponds" value={String(totalPonds)} sub="active" icon={Layers} />
+        <StatCard label="Ponds Fed" value={String(pondsFedToday)} sub={selDate} icon={CheckCircle} hi />
+        <StatCard label="Ponds Remaining" value={String(pondsRemaining)} sub="not yet fed" icon={BookOpen} />
+        <StatCard label="Bags Opened" value={String(bagsOpenedToday)} sub={selDate} icon={Package} />
+      </div>
 
       {/* ── Tab bar ── */}
       <div className="flex gap-1 bg-slate-200/90 border border-slate-300/70 p-1 rounded-xl w-fit shadow-2xs">
@@ -1876,36 +1862,27 @@ function FeedDocumentation({
 
           {/* Mobile Isolated Cards View */}
           <div className="md:hidden space-y-3">
-            {/* Search and Feeding Status Filter */}
-            <div className="space-y-2">
-              <div className="relative">
-                <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" />
-                <input
-                  value={dailySearch}
-                  onChange={e => setDailySearch(e.target.value)}
-                  placeholder="Search pond, stock, or size…"
-                  className={`${IC} pl-8 w-full text-xs py-1.5`}
-                />
-              </div>
-              <div className="flex items-center justify-between gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200">
-                <span className="text-[11px] font-bold text-slate-500 uppercase px-1.5">Feeding Status:</span>
-                <div className="flex items-center gap-1">
-                  {(["all", "fed", "not_fed"] as const).map(st => (
-                    <button
-                      key={st}
-                      type="button"
-                      onClick={() => setFeedStatusFilter(st)}
-                      className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
-                        feedStatusFilter === st
-                          ? "bg-white text-green-700 shadow-xs border border-slate-200"
-                          : "text-slate-600 hover:text-slate-900"
-                      }`}
-                    >
-                      {st === "all" ? "All" : st === "fed" ? "Fed" : "Not Fed"}
-                    </button>
-                  ))}
-                </div>
-              </div>
+            {/* Feeding Status Filter with Embedded Stats (No search bar, clean non-filled style) */}
+            <div className="flex items-center gap-2 overflow-x-auto pb-0.5">
+              {(["all", "fed", "not_fed"] as const).map(st => {
+                const count = st === "all" ? totalPonds : st === "fed" ? pondsFedToday : pondsRemaining;
+                const label = st === "all" ? `All (${count})` : st === "fed" ? `Fed (${count})` : `Remaining (${count})`;
+                const isSelected = feedStatusFilter === st;
+                return (
+                  <button
+                    key={st}
+                    type="button"
+                    onClick={() => setFeedStatusFilter(st)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all whitespace-nowrap ${
+                      isSelected
+                        ? "border-2 border-green-600 text-green-700 font-bold bg-transparent shadow-2xs"
+                        : "border border-slate-200 text-slate-600 hover:text-slate-900 hover:border-slate-300 bg-transparent"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
             </div>
 
             {filteredDayRows.length === 0 ? (
@@ -2211,20 +2188,6 @@ function FeedDocumentation({
 
           {/* Mobile Isolated Cards View */}
           <div className="md:hidden space-y-3">
-            {/* Search and Filter */}
-            <div className="flex items-center gap-2">
-              <div className="relative flex-1">
-                <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" />
-                <input
-                  value={bagsSearch}
-                  onChange={e => setBagsSearch(e.target.value)}
-                  placeholder="Search stock, brand, or size…"
-                  className={`${IC} pl-8 w-full text-xs py-1.5`}
-                />
-              </div>
-              <span className="text-xs text-slate-500 font-medium shrink-0">({filteredMergedBagRows.length})</span>
-            </div>
-
             {/* Dismissible Highlighting Banner if navigated from reconciliation */}
             {bagsHighlight && (
               <div className="px-3.5 py-2.5 bg-orange-50 border border-orange-200 rounded-2xl flex items-center justify-between text-xs text-orange-950 shadow-xs">
@@ -2528,27 +2491,19 @@ function FeedDocumentation({
 
             {/* Mobile Isolated Cards View */}
             <div className="md:hidden space-y-3">
-              {/* Search and Filter */}
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="relative flex-1 min-w-[150px]">
-                  <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" />
-                  <input
-                    value={reconSearch}
-                    onChange={e => setReconSearch(e.target.value)}
-                    placeholder="Search stock, brand, or pond…"
-                    className={`${IC} pl-8 w-full text-xs py-1.5`}
-                  />
-                </div>
-                {issues > 0 ? (
-                  <span className="px-2.5 py-1 rounded-full bg-red-50 border border-red-200/80 text-red-600 text-xs font-semibold shrink-0">
+              {issues > 0 ? (
+                <div className="flex items-center justify-between">
+                  <span className="px-2.5 py-1 rounded-full bg-red-50 border border-red-200/80 text-red-600 text-xs font-semibold">
                     {issues} discrepancy
                   </span>
-                ) : (
-                  <span className="px-2.5 py-1 rounded-full bg-emerald-50 border border-emerald-200/80 text-emerald-700 text-xs font-semibold shrink-0">
+                </div>
+              ) : (
+                <div className="flex items-center justify-between">
+                  <span className="px-2.5 py-1 rounded-full bg-emerald-50 border border-emerald-200/80 text-emerald-700 text-xs font-semibold">
                     All Balanced
                   </span>
-                )}
-              </div>
+                </div>
+              )}
 
               {filteredReconRows.length === 0 ? (
                 <div className="px-5 py-10 text-center bg-white border border-slate-200/80 rounded-2xl shadow-xs">
