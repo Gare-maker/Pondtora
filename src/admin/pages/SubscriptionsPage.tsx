@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from "react";
-import { Search, Edit2, Gift, CreditCard, Sparkles, CheckCircle, Clock, DollarSign, Calendar, TrendingUp, ShieldCheck, Check, RotateCcw } from "lucide-react";
-import { Card, Bdg, PBtn, Pagination, PER_PAGE, Modal, F, IC, SC } from "../../app/shared";
+import { Search, Edit2, Gift, CreditCard, Sparkles, CheckCircle, Clock, DollarSign, Calendar, TrendingUp, ShieldCheck, Check, RotateCcw, CalendarDays, RefreshCw } from "lucide-react";
+import { Card, Bdg, PBtn, Pagination, PER_PAGE, Modal, F, IC, SC, DateInput, ToggleCard, ToggleSwitch, toDateInputValue, getTodayDateStr, addDurationToDate } from "../../app/shared";
 import type { AdminUser, AdminPlan } from "../types";
 import { fmtDate, trialDaysLeft, fmtMoney, computeSubscriptionStatus, effectivePrice } from "../types";
 import { isStaffUser } from "../../lib/userSync";
@@ -117,10 +117,10 @@ export default function SubscriptionsPage({ users, plans, onUpdate }: Props) {
       activePlan: u.activePlan || "",
       billingFrequency: u.billingFrequency || "monthly",
       subscriptionAmount: u.subscriptionAmount !== null && u.subscriptionAmount !== undefined ? String(u.subscriptionAmount) : "",
-      subscriptionStart: u.subscriptionStart || "",
-      subscriptionExpiry: u.subscriptionExpiry || "",
+      subscriptionStart: toDateInputValue(u.subscriptionStart),
+      subscriptionExpiry: toDateInputValue(u.subscriptionExpiry),
       paystackReference: u.paystackReference || "",
-      lastPaymentDate: u.lastPaymentDate || "",
+      lastPaymentDate: toDateInputValue(u.lastPaymentDate),
       hasPaid: Boolean(u.hasPaid || u.paystackReference || u.lastPaymentDate),
       freeAccess: Boolean(u.freeAccess),
     });
@@ -139,10 +139,10 @@ export default function SubscriptionsPage({ users, plans, onUpdate }: Props) {
       activePlan: form.activePlan || null,
       billingFrequency: form.billingFrequency as "monthly" | "yearly",
       subscriptionAmount: customAmt,
-      subscriptionStart: form.subscriptionStart || editing.subscriptionStart || null,
-      subscriptionExpiry: form.subscriptionExpiry || editing.subscriptionExpiry || null,
+      subscriptionStart: toDateInputValue(form.subscriptionStart) || editing.subscriptionStart || null,
+      subscriptionExpiry: toDateInputValue(form.subscriptionExpiry) || editing.subscriptionExpiry || null,
       paystackReference: form.paystackReference.trim() || editing.paystackReference || null,
-      lastPaymentDate: form.lastPaymentDate.trim() || editing.lastPaymentDate || (isExplicitlyPaid ? new Date().toISOString().slice(0, 10) : null),
+      lastPaymentDate: toDateInputValue(form.lastPaymentDate) || editing.lastPaymentDate || (isExplicitlyPaid ? getTodayDateStr() : null),
       freeAccess: form.freeAccess,
       hasPaid: isExplicitlyPaid,
     };
@@ -169,6 +169,15 @@ export default function SubscriptionsPage({ users, plans, onUpdate }: Props) {
     if (ep === "free") return <span className="text-emerald-700 font-bold">Free ✦</span>;
     return <span className="font-semibold text-slate-800">{fmtMoney(ep)}</span>;
   }
+
+  const syncExpiryWithCadence = () => {
+    const base = form.subscriptionStart || getTodayDateStr();
+    const duration = form.billingFrequency === "yearly" ? "1year" : "1month";
+    setForm(f => ({
+      ...f,
+      subscriptionExpiry: addDurationToDate(base, duration),
+    }));
+  };
 
   return (
     <div className="space-y-4">
@@ -394,6 +403,7 @@ export default function SubscriptionsPage({ users, plans, onUpdate }: Props) {
       {editing && (
         <Modal title={`Regulate Pricing & Subscription — ${editing.name}`} onClose={() => setEditing(null)} wide>
           <div className="space-y-4">
+            {/* User Details Banner */}
             <div className="bg-slate-50 rounded-xl p-3 text-xs text-slate-600 border border-slate-200/80 flex items-center justify-between">
               <div>
                 <span className="font-bold text-slate-900">{editing.name}</span> · <span>{editing.email}</span>
@@ -405,39 +415,24 @@ export default function SubscriptionsPage({ users, plans, onUpdate }: Props) {
               </div>
             </div>
 
-            {/* Free Access Switch */}
-            <div
-              className={`rounded-2xl border p-4 flex items-center justify-between transition-colors ${
-                form.freeAccess ? "bg-emerald-50 border-emerald-300" : "bg-slate-50 border-slate-200"
-              }`}
-            >
-              <div>
-                <p className={`text-sm font-bold ${form.freeAccess ? "text-emerald-900" : "text-slate-800"}`}>
-                  {form.freeAccess ? "✦ Complimentary VIP / 100% Free Access" : "Complimentary Access"}
-                </p>
-                <p className={`text-xs mt-0.5 ${form.freeAccess ? "text-emerald-700" : "text-slate-500"}`}>
-                  {form.freeAccess
-                    ? "Billing is fully bypassed. Account is treated as permanently active."
-                    : "Toggle ON to grant this subscriber full VIP access without requiring payments."}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setForm(f => ({ ...f, freeAccess: !f.freeAccess }))}
-                className={`w-12 h-6 rounded-full transition-colors relative shrink-0 ${
-                  form.freeAccess ? "bg-emerald-600" : "bg-slate-300"
-                }`}
-              >
-                <span
-                  className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow-md transition-transform ${
-                    form.freeAccess ? "translate-x-6" : "translate-x-0.5"
-                  }`}
-                />
-              </button>
-            </div>
+            {/* Complimentary VIP Access Toggle */}
+            <ToggleCard
+              checked={form.freeAccess}
+              onChange={val => setForm(f => ({ ...f, freeAccess: val }))}
+              title="✦ Complimentary VIP / 100% Free Access"
+              description={
+                form.freeAccess
+                  ? "Billing is fully bypassed. Account is treated as permanently active with full platform features."
+                  : "Toggle ON to grant this subscriber full VIP access without requiring Paystack payments."
+              }
+              activeBadge="VIP Bypass Active"
+              inactiveBadge="Standard Billing"
+              icon={<Sparkles size={16} />}
+              activeColor="emerald"
+            />
 
             {!form.freeAccess && (
-              <div className="space-y-3 pt-1">
+              <div className="space-y-3.5 pt-1">
                 <div className="grid grid-cols-2 gap-3">
                   <F label="Assigned Plan">
                     <select
@@ -480,12 +475,19 @@ export default function SubscriptionsPage({ users, plans, onUpdate }: Props) {
                 </F>
 
                 {/* Paystack Payment Details */}
-                <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-2.5">
-                  <p className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
-                    <CreditCard size={13} className="text-emerald-600" /> Paystack Payment &amp; Verification
-                  </p>
+                <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                      <CreditCard size={13} className="text-emerald-600" /> Paystack Payment &amp; Verification
+                    </p>
+                    {form.hasPaid && (
+                      <span className="text-[10px] text-emerald-800 bg-emerald-100 border border-emerald-200 font-bold px-2 py-0.5 rounded-full">
+                        Active Paid Status ✓
+                      </span>
+                    )}
+                  </div>
                   
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <F label="Paystack Reference">
                       <input
                         type="text"
@@ -496,51 +498,93 @@ export default function SubscriptionsPage({ users, plans, onUpdate }: Props) {
                       />
                     </F>
                     <F label="Payment Date">
-                      <input
-                        type="date"
+                      <DateInput
                         value={form.lastPaymentDate}
-                        onChange={e => setForm({ ...form, lastPaymentDate: e.target.value })}
-                        className={IC}
+                        onChange={val => setForm({ ...form, lastPaymentDate: val })}
+                        placeholder="Select payment date"
+                        presets={[
+                          { label: "Today", onClick: () => setForm(f => ({ ...f, lastPaymentDate: getTodayDateStr() })) },
+                          { label: "Clear", onClick: () => setForm(f => ({ ...f, lastPaymentDate: "" })) },
+                        ]}
                       />
                     </F>
                   </div>
 
-                  <div className="flex items-center justify-between pt-1">
-                    <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={form.hasPaid}
-                        onChange={e => setForm({ ...form, hasPaid: e.target.checked })}
-                        className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 w-4 h-4"
-                      />
-                      <span>Mark this account as Verified Paid</span>
-                    </label>
-
-                    {form.hasPaid && (
-                      <span className="text-[10px] text-emerald-700 bg-emerald-100 font-bold px-2 py-0.5 rounded">
-                        Active Paid Status
-                      </span>
-                    )}
+                  {/* Verified Paid Toggle Switch */}
+                  <div
+                    onClick={() => setForm(f => ({ ...f, hasPaid: !f.hasPaid }))}
+                    className={`p-3 rounded-xl border flex items-center justify-between gap-3 cursor-pointer transition-colors ${
+                      form.hasPaid
+                        ? "bg-emerald-50/70 border-emerald-300"
+                        : "bg-white border-slate-200 hover:bg-slate-50"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <div className={`p-1.5 rounded-lg ${form.hasPaid ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>
+                        <ShieldCheck size={14} />
+                      </div>
+                      <div>
+                        <p className={`text-xs font-bold ${form.hasPaid ? "text-emerald-950" : "text-slate-700"}`}>
+                          Mark Account as Verified Paid
+                        </p>
+                        <p className={`text-[11px] ${form.hasPaid ? "text-emerald-700" : "text-slate-400"}`}>
+                          {form.hasPaid
+                            ? "Account is marked as actively paid and verified."
+                            : "Toggle to activate verified paid status without manual hook."}
+                        </p>
+                      </div>
+                    </div>
+                    <ToggleSwitch
+                      checked={form.hasPaid}
+                      onChange={val => setForm(f => ({ ...f, hasPaid: val }))}
+                      size="sm"
+                    />
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
-                  <F label="Subscription Start Date">
-                    <input
-                      type="date"
-                      value={form.subscriptionStart}
-                      onChange={e => setForm({ ...form, subscriptionStart: e.target.value })}
-                      className={IC}
-                    />
-                  </F>
-                  <F label="Subscription Expiry Date">
-                    <input
-                      type="date"
-                      value={form.subscriptionExpiry}
-                      onChange={e => setForm({ ...form, subscriptionExpiry: e.target.value })}
-                      className={IC}
-                    />
-                  </F>
+                {/* Subscription Period Dates */}
+                <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                      <CalendarDays size={13} className="text-emerald-600" /> Subscription Period
+                    </p>
+                    <button
+                      type="button"
+                      onClick={syncExpiryWithCadence}
+                      className="text-[10px] font-bold text-emerald-700 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-2 py-0.5 rounded-md flex items-center gap-1 transition-colors cursor-pointer"
+                      title="Calculate expiry based on cadence from start date"
+                    >
+                      <RefreshCw size={10} /> Auto-Sync Expiry ({form.billingFrequency === "yearly" ? "+1 Year" : "+1 Month"})
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <F label="Subscription Start Date">
+                      <DateInput
+                        value={form.subscriptionStart}
+                        onChange={val => setForm({ ...form, subscriptionStart: val })}
+                        placeholder="Select start date"
+                        presets={[
+                          { label: "Today", onClick: () => setForm(f => ({ ...f, subscriptionStart: getTodayDateStr() })) },
+                          { label: "Clear", onClick: () => setForm(f => ({ ...f, subscriptionStart: "" })) },
+                        ]}
+                      />
+                    </F>
+
+                    <F label="Subscription Expiry Date">
+                      <DateInput
+                        value={form.subscriptionExpiry}
+                        onChange={val => setForm({ ...form, subscriptionExpiry: val })}
+                        placeholder="Select expiry date"
+                        presets={[
+                          { label: "+1 Month", onClick: () => setForm(f => ({ ...f, subscriptionExpiry: addDurationToDate(f.subscriptionStart || getTodayDateStr(), "1month") })) },
+                          { label: "+1 Year", onClick: () => setForm(f => ({ ...f, subscriptionExpiry: addDurationToDate(f.subscriptionStart || getTodayDateStr(), "1year") })) },
+                          { label: "+30 Days", onClick: () => setForm(f => ({ ...f, subscriptionExpiry: addDurationToDate(f.subscriptionStart || getTodayDateStr(), "30days") })) },
+                          { label: "Clear", onClick: () => setForm(f => ({ ...f, subscriptionExpiry: "" })) },
+                        ]}
+                      />
+                    </F>
+                  </div>
                 </div>
               </div>
             )}

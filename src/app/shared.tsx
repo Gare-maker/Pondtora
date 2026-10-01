@@ -438,35 +438,105 @@ export function NumInput({
   );
 }
 
-/* ── DateInput — shows formatted date, opens native picker on click ── */
+/* ─── Date Formatting & Helpers ─────────────────────────────── */
+export function toDateInputValue(val: string | null | undefined): string {
+  if (!val) return "";
+  const s = String(val).trim();
+  if (!s) return "";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  try {
+    const d = new Date(s);
+    if (!isNaN(d.getTime())) {
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, "0");
+      const day = String(d.getDate()).padStart(2, "0");
+      return `${year}-${month}-${day}`;
+    }
+  } catch {}
+  return "";
+}
+
+export function getTodayDateStr(): string {
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+export function addDurationToDate(
+  baseDateStr: string | null | undefined,
+  duration: "1month" | "1year" | "30days" | "3months" | "6months"
+): string {
+  const clean = toDateInputValue(baseDateStr) || getTodayDateStr();
+  const [y, m, d] = clean.split("-").map(Number);
+  const dateObj = new Date(y, m - 1, d);
+  if (isNaN(dateObj.getTime())) return getTodayDateStr();
+
+  if (duration === "30days") {
+    dateObj.setDate(dateObj.getDate() + 30);
+  } else if (duration === "1month") {
+    dateObj.setMonth(dateObj.getMonth() + 1);
+  } else if (duration === "3months") {
+    dateObj.setMonth(dateObj.getMonth() + 3);
+  } else if (duration === "6months") {
+    dateObj.setMonth(dateObj.getMonth() + 6);
+  } else if (duration === "1year") {
+    dateObj.setFullYear(dateObj.getFullYear() + 1);
+  }
+
+  const year = dateObj.getFullYear();
+  const month = String(dateObj.getMonth() + 1).padStart(2, "0");
+  const day = String(dateObj.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+/* ── DateInput — shows formatted date, opens native picker on click, supports presets ── */
 export function DateInput({
   value,
   onChange,
-  className,
+  placeholder = "Select date",
+  className = "",
+  min,
+  max,
+  clearable = true,
+  disabled = false,
+  presets,
 }: {
-  value: string;
+  value: string | null | undefined;
   onChange: (v: string) => void;
+  placeholder?: string;
   className?: string;
+  min?: string;
+  max?: string;
+  clearable?: boolean;
+  disabled?: boolean;
+  presets?: { label: string; onClick: () => void }[];
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
-  const formatted = value
+  const cleanVal = toDateInputValue(value);
+
+  const formatted = cleanVal
     ? (() => {
         try {
-          const d = new Date(value + "T00:00:00");
-          return isNaN(d.getTime())
-            ? value
-            : d.toLocaleDateString("en-GB", {
+          const [y, m, d] = cleanVal.split("-").map(Number);
+          const dateObj = new Date(y, m - 1, d);
+          return isNaN(dateObj.getTime())
+            ? cleanVal
+            : dateObj.toLocaleDateString("en-GB", {
                 day: "numeric",
                 month: "short",
                 year: "numeric",
               });
         } catch {
-          return value;
+          return cleanVal;
         }
       })()
-    : "Select date";
+    : placeholder;
 
   const openPicker = () => {
+    if (disabled) return;
     if (inputRef.current) {
       try {
         if (typeof inputRef.current.showPicker === "function") {
@@ -479,49 +549,223 @@ export function DateInput({
   };
 
   return (
-    <div
-      onClick={openPicker}
-      className={`relative flex items-center justify-between cursor-pointer select-none ${className || IC}`}
-    >
-      <div className="flex items-center gap-2 min-w-0 pointer-events-none">
-        <Calendar size={14} className="text-slate-400 shrink-0" />
-        <span
-          className={
-            value
-              ? "text-slate-900 text-sm font-medium truncate"
-              : "text-slate-400 text-sm"
-          }
-        >
-          {formatted}
-        </span>
-      </div>
-      <button
-        type="button"
-        tabIndex={-1}
-        onClick={(e) => {
-          e.stopPropagation();
-          openPicker();
-        }}
-        className="text-slate-400 hover:text-slate-600 p-0.5 rounded transition-colors"
+    <div className="space-y-1.5 w-full">
+      <div
+        onClick={openPicker}
+        className={`relative flex items-center justify-between cursor-pointer select-none border border-slate-200 rounded-lg px-3 py-2 bg-white hover:border-slate-300 transition-colors ${
+          disabled ? "opacity-60 cursor-not-allowed bg-slate-50" : ""
+        } ${className || ""}`}
       >
-        <Calendar size={14} />
-      </button>
-      <input
-        ref={inputRef}
-        type="date"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        onClick={(e) => {
-          e.stopPropagation();
-          try {
-            if (typeof e.currentTarget.showPicker === "function") {
-              e.currentTarget.showPicker();
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          <Calendar size={14} className="text-emerald-600 shrink-0" />
+          <span
+            className={
+              cleanVal
+                ? "text-slate-900 text-sm font-semibold truncate"
+                : "text-slate-400 text-sm"
             }
-          } catch {}
-        }}
-        className="absolute inset-0 opacity-0 w-full h-full cursor-pointer"
-        style={{ colorScheme: "light" }}
-      />
+          >
+            {formatted}
+          </span>
+        </div>
+
+        <div className="flex items-center gap-1 shrink-0 z-20">
+          {clearable && cleanVal && !disabled && (
+            <button
+              type="button"
+              tabIndex={-1}
+              onClick={(e) => {
+                e.stopPropagation();
+                onChange("");
+              }}
+              className="text-slate-300 hover:text-slate-600 p-1 rounded-full hover:bg-slate-100 transition-colors"
+              title="Clear date"
+            >
+              <X size={12} />
+            </button>
+          )}
+          <button
+            type="button"
+            tabIndex={-1}
+            onClick={(e) => {
+              e.stopPropagation();
+              openPicker();
+            }}
+            className="text-slate-400 hover:text-emerald-600 p-1 rounded transition-colors"
+          >
+            <Calendar size={13} />
+          </button>
+        </div>
+
+        <input
+          ref={inputRef}
+          type="date"
+          value={cleanVal}
+          min={min}
+          max={max}
+          disabled={disabled}
+          onChange={(e) => onChange(e.target.value)}
+          onClick={(e) => {
+            e.stopPropagation();
+            try {
+              if (typeof e.currentTarget.showPicker === "function") {
+                e.currentTarget.showPicker();
+              }
+            } catch {}
+          }}
+          className="absolute inset-0 opacity-0 w-full h-full cursor-pointer z-10"
+          style={{ colorScheme: "light" }}
+        />
+      </div>
+
+      {presets && presets.length > 0 && (
+        <div className="flex items-center gap-1 flex-wrap pt-0.5">
+          {presets.map((p, idx) => (
+            <button
+              key={idx}
+              type="button"
+              onClick={p.onClick}
+              className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-slate-100 hover:bg-emerald-100 text-slate-600 hover:text-emerald-800 transition-colors cursor-pointer"
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
+
+/* ─── ToggleSwitch & ToggleCard ─────────────────────────────── */
+export function ToggleSwitch({
+  checked,
+  onChange,
+  disabled = false,
+  size = "md",
+  color = "emerald",
+  ariaLabel,
+}: {
+  checked: boolean;
+  onChange: (val: boolean) => void;
+  disabled?: boolean;
+  size?: "sm" | "md" | "lg";
+  color?: "emerald" | "green" | "blue" | "purple";
+  ariaLabel?: string;
+}) {
+  const colorMap = {
+    emerald: "bg-emerald-600 shadow-emerald-500/20",
+    green: "bg-green-600 shadow-green-500/20",
+    blue: "bg-blue-600 shadow-blue-500/20",
+    purple: "bg-purple-600 shadow-purple-500/20",
+  };
+
+  const dimMap = {
+    sm: { track: "w-8 h-4.5", thumb: "w-3.5 h-3.5", translate: "translate-x-3.5", offset: "translate-x-0.5" },
+    md: { track: "w-11 h-6", thumb: "w-5 h-5", translate: "translate-x-5.5", offset: "translate-x-0.5" },
+    lg: { track: "w-14 h-7.5", thumb: "w-6.5 h-6.5", translate: "translate-x-7", offset: "translate-x-0.5" },
+  };
+
+  const d = dimMap[size] || dimMap.md;
+
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={ariaLabel}
+      disabled={disabled}
+      onClick={(e) => {
+        e.stopPropagation();
+        if (!disabled) onChange(!checked);
+      }}
+      className={`${d.track} rounded-full transition-all duration-200 ease-in-out relative shrink-0 focus:outline-none focus:ring-2 focus:ring-emerald-400/50 focus:ring-offset-1 select-none ${
+        disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"
+      } ${checked ? colorMap[color] || colorMap.emerald : "bg-slate-300 hover:bg-slate-350"}`}
+    >
+      <span
+        className={`absolute top-0.5 ${d.thumb} rounded-full bg-white shadow-md transition-all duration-200 ease-in-out flex items-center justify-center ${
+          checked ? d.translate : d.offset
+        }`}
+      >
+        {checked && size !== "sm" && (
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-600" />
+        )}
+      </span>
+    </button>
+  );
+}
+
+export function ToggleCard({
+  checked,
+  onChange,
+  title,
+  description,
+  activeBadge,
+  inactiveBadge,
+  icon,
+  activeColor = "emerald",
+  disabled = false,
+  className = "",
+}: {
+  checked: boolean;
+  onChange: (val: boolean) => void;
+  title: React.ReactNode;
+  description?: React.ReactNode;
+  activeBadge?: React.ReactNode;
+  inactiveBadge?: React.ReactNode;
+  icon?: React.ReactNode;
+  activeColor?: "emerald" | "green" | "blue" | "purple";
+  disabled?: boolean;
+  className?: string;
+}) {
+  return (
+    <div
+      onClick={() => {
+        if (!disabled) onChange(!checked);
+      }}
+      className={`rounded-2xl border p-3.5 sm:p-4 flex items-center justify-between gap-3 transition-all duration-200 cursor-pointer select-none ${
+        checked
+          ? "bg-emerald-50/80 border-emerald-300/90 shadow-sm shadow-emerald-500/5"
+          : "bg-slate-50/90 border-slate-200/90 hover:bg-slate-100/70 hover:border-slate-300"
+      } ${disabled ? "opacity-60 cursor-not-allowed" : ""} ${className}`}
+    >
+      <div className="flex items-start gap-3 min-w-0 flex-1">
+        {icon && (
+          <div
+            className={`p-2 rounded-xl mt-0.5 shrink-0 transition-colors ${
+              checked ? "bg-emerald-100 text-emerald-700" : "bg-slate-200/70 text-slate-500"
+            }`}
+          >
+            {icon}
+          </div>
+        )}
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className={`text-sm font-bold ${checked ? "text-emerald-950" : "text-slate-800"}`}>
+              {title}
+            </p>
+            {checked && activeBadge && (
+              <span className="inline-flex items-center text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
+                {activeBadge}
+              </span>
+            )}
+            {!checked && inactiveBadge && (
+              <span className="inline-flex items-center text-[10px] font-medium px-2 py-0.5 rounded-full bg-slate-200 text-slate-600">
+                {inactiveBadge}
+              </span>
+            )}
+          </div>
+          {description && (
+            <p className={`text-xs mt-0.5 leading-relaxed ${checked ? "text-emerald-800/90" : "text-slate-500"}`}>
+              {description}
+            </p>
+          )}
+        </div>
+      </div>
+      <div className="shrink-0 pl-1">
+        <ToggleSwitch checked={checked} onChange={onChange} disabled={disabled} color={activeColor} />
+      </div>
+    </div>
+  );
+}
+

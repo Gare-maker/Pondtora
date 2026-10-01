@@ -6,7 +6,7 @@ import {
   Building, Droplets, Users as UsersIcon, X, Check, ArrowRight, UserCheck, AlertCircle,
   CreditCard, Gift, Tag, DollarSign, TrendingUp, Package, FileText, Layers, Fish, Activity
 } from "lucide-react";
-import { Card, Bdg, PBtn, Pagination, PER_PAGE, Modal, F, IC, SC } from "../../app/shared";
+import { Card, Bdg, PBtn, Pagination, PER_PAGE, Modal, F, IC, SC, DateInput, ToggleCard, ToggleSwitch, toDateInputValue, getTodayDateStr, addDurationToDate } from "../../app/shared";
 import type { AdminUser, AdminPlan, AccountStatus } from "../types";
 import { fmtDate, trialDaysLeft, fmtMoney, computeSubscriptionStatus, effectivePrice } from "../types";
 import { supabase } from "../../lib/supabase";
@@ -225,25 +225,16 @@ function UserForm({
       </div>
 
       {/* Free access toggle */}
-      <div className={`p-3 rounded-xl border flex items-center justify-between transition-colors ${
-        f.freeAccess ? "bg-green-50 border-green-200" : "bg-slate-50 border-slate-200"
-      }`}>
-        <div>
-          <p className="text-xs font-bold text-slate-800">Complimentary / Free Access</p>
-          <p className="text-[11px] text-slate-500">Exempt user from all billing while keeping active status.</p>
-        </div>
-        <button
-          type="button"
-          onClick={() => setF({ ...f, freeAccess: !f.freeAccess })}
-          className={`w-10 h-5 rounded-full relative transition-colors ${
-            f.freeAccess ? "bg-green-600" : "bg-slate-300"
-          }`}
-        >
-          <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
-            f.freeAccess ? "translate-x-5" : "translate-x-0.5"
-          }`} />
-        </button>
-      </div>
+      <ToggleCard
+        checked={Boolean(f.freeAccess)}
+        onChange={val => setF({ ...f, freeAccess: val })}
+        title="Complimentary VIP / Free Access"
+        description="Exempt user from all billing while keeping active status permanently."
+        activeBadge="VIP Active"
+        inactiveBadge="Standard"
+        icon={<Sparkles size={15} />}
+        activeColor="emerald"
+      />
 
       <div className="grid grid-cols-2 gap-3">
         <F label="Special / Personal Price (₦ Override)">
@@ -256,17 +247,19 @@ function UserForm({
           />
         </F>
         <F label="Trial Start Date">
-          <input
-            type="date"
-            value={f.trialStartDate || ""}
-            onChange={e => setF({ ...f, trialStartDate: e.target.value || null })}
-            className={IC}
+          <DateInput
+            value={f.trialStartDate}
+            onChange={val => setF({ ...f, trialStartDate: val || null })}
+            placeholder="Select trial start"
+            presets={[
+              { label: "Today", onClick: () => setF({ ...f, trialStartDate: getTodayDateStr() }) },
+            ]}
           />
         </F>
       </div>
 
       {/* Paystack Payment & Reference */}
-      <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-2.5">
+      <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
         <p className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
           <CreditCard size={13} className="text-emerald-600" /> Paystack Transaction &amp; Verification
         </p>
@@ -281,47 +274,59 @@ function UserForm({
             />
           </F>
           <F label="Last Payment Date">
-            <input
-              type="date"
-              value={f.lastPaymentDate || ""}
-              onChange={e => setF({ ...f, lastPaymentDate: e.target.value || null })}
-              className={IC}
+            <DateInput
+              value={f.lastPaymentDate}
+              onChange={val => setF({ ...f, lastPaymentDate: val || null })}
+              placeholder="Payment date"
+              presets={[
+                { label: "Today", onClick: () => setF({ ...f, lastPaymentDate: getTodayDateStr() }) },
+                { label: "Clear", onClick: () => setF({ ...f, lastPaymentDate: null }) },
+              ]}
             />
           </F>
         </div>
-        <div className="flex items-center justify-between pt-1">
-          <label className="flex items-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={Boolean(f.hasPaid)}
-              onChange={e => setF({ ...f, hasPaid: e.target.checked })}
-              className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 w-4 h-4"
-            />
-            <span>Mark as Verified Paid</span>
-          </label>
-          {f.hasPaid && (
-            <span className="text-[10px] text-emerald-700 bg-emerald-100 font-bold px-2 py-0.5 rounded">
-              Active Paid
-            </span>
-          )}
+        <div
+          onClick={() => setF({ ...f, hasPaid: !f.hasPaid })}
+          className={`p-2.5 rounded-xl border flex items-center justify-between gap-3 cursor-pointer transition-colors ${
+            f.hasPaid ? "bg-emerald-50/70 border-emerald-300" : "bg-white border-slate-200 hover:bg-slate-50"
+          }`}
+        >
+          <div>
+            <p className={`text-xs font-semibold ${f.hasPaid ? "text-emerald-950 font-bold" : "text-slate-700"}`}>
+              Mark as Verified Paid
+            </p>
+            <p className="text-[10px] text-slate-400">
+              Activates paid subscriber status immediately
+            </p>
+          </div>
+          <ToggleSwitch
+            checked={Boolean(f.hasPaid)}
+            onChange={val => setF({ ...f, hasPaid: val })}
+            size="sm"
+          />
         </div>
       </div>
 
       <div className="grid grid-cols-2 gap-3">
         <F label="Subscription Start">
-          <input
-            type="date"
-            value={f.subscriptionStart || ""}
-            onChange={e => setF({ ...f, subscriptionStart: e.target.value || null })}
-            className={IC}
+          <DateInput
+            value={f.subscriptionStart}
+            onChange={val => setF({ ...f, subscriptionStart: val || null })}
+            placeholder="Start date"
+            presets={[
+              { label: "Today", onClick: () => setF({ ...f, subscriptionStart: getTodayDateStr() }) },
+            ]}
           />
         </F>
         <F label="Subscription Expiry">
-          <input
-            type="date"
-            value={f.subscriptionExpiry || ""}
-            onChange={e => setF({ ...f, subscriptionExpiry: e.target.value || null })}
-            className={IC}
+          <DateInput
+            value={f.subscriptionExpiry}
+            onChange={val => setF({ ...f, subscriptionExpiry: val || null })}
+            placeholder="Expiry date"
+            presets={[
+              { label: "+1 Mo", onClick: () => setF({ ...f, subscriptionExpiry: addDurationToDate(f.subscriptionStart || getTodayDateStr(), "1month") }) },
+              { label: "+1 Yr", onClick: () => setF({ ...f, subscriptionExpiry: addDurationToDate(f.subscriptionStart || getTodayDateStr(), "1year") }) },
+            ]}
           />
         </F>
       </div>
@@ -2009,7 +2014,13 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
           </button>
           <button
             onClick={() => {
-              setForm({ ...menu.user });
+              setForm({
+                ...menu.user,
+                trialStartDate: toDateInputValue(menu.user.trialStartDate),
+                lastPaymentDate: toDateInputValue(menu.user.lastPaymentDate),
+                subscriptionStart: toDateInputValue(menu.user.subscriptionStart),
+                subscriptionExpiry: toDateInputValue(menu.user.subscriptionExpiry),
+              });
               setFErr({});
               setEditUser(menu.user);
               setMenu(null);
