@@ -389,7 +389,7 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
                 <button onClick={()=>{setDailyDate(TODAY);setDailyPage(1);}} className="px-2.5 py-1.5 text-xs font-semibold text-green-700 bg-green-50 border border-green-200 rounded-lg hover:bg-green-100 transition-colors">Today</button>
               )}
             </div>
-            <div className="flex items-center gap-2 flex-wrap">
+            <div className="hidden md:flex items-center gap-2 flex-wrap">
               <button onClick={()=>downloadCSV(`feed-stock-history-${dailyDate}.csv`,["#","Date","Fish Stock (Stock Date)","Brand","Pellet Size","Bags Opened","Kg/Bag","KG Deducted","Remaining KG in Stock"],filteredDailyRows.map((r,i)=>[i+1,r.date,`${r.fishStock}${r.stockDate&&r.stockDate!=="—"?` (${r.stockDate})`:""}`,r.brand,r.size,r.bagsOpened,r.kgPerBag,r.totalKgOpened,r.remainingKg]))} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 text-xs font-semibold hover:border-green-400 hover:text-green-600 transition-colors"><Download size={12}/> CSV</button>
               <button onClick={()=>openPrintWindow(`Feed Stock History Report — ${fmtStockingDate(dailyDate)}`,["#","Date","Fish Stock (Stock Date)","Brand","Pellet Size","Bags Opened","Kg/Bag","KG Deducted","Remaining KG in Stock"],filteredDailyRows.map((r,i)=>[i+1,r.date,`${r.fishStock}${r.stockDate&&r.stockDate!=="—"?` (${r.stockDate})`:""}`,r.brand,r.size,`${r.bagsOpened} bag${r.bagsOpened!==1?"s":""}`,`${r.kgPerBag}kg`,`${r.totalKgOpened}kg`,`${r.remainingKg}kg`]),`Feed Bags Opened & Remaining Log (${fmtStockingDate(dailyDate)})`)} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 text-xs font-semibold hover:border-green-400 hover:text-green-600 transition-colors"><FileText size={12}/> Print</button>
             </div>
@@ -472,7 +472,7 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
                             {r.stockDate && r.stockDate !== "—" && (
                               <p className="text-xs text-slate-500 font-normal leading-tight mt-0.5">{r.stockDate}</p>
                             )}
-                            {r.ponds.length > 0 && (
+                            {r.ponds && r.ponds.length > 0 && (
                               <p className="text-[10px] text-slate-400 mt-0.5">Ponds: {r.ponds.join(", ")}</p>
                             )}
                           </div>
@@ -523,10 +523,10 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
                     {r.ponds && r.ponds.length > 0 && (
                       <p className="text-[10px] text-slate-400 mt-0.5 truncate">Ponds: {r.ponds.join(", ")}</p>
                     )}
-                    <div className="flex items-center gap-2 mt-1">
-                      <span className="text-xs font-semibold text-slate-600">{r.brand}</span>
-                      <Bdg label={r.size} color="blue" />
-                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span className="text-xs font-semibold text-slate-600">{r.brand}</span>
+                    <Bdg label={r.size} color="blue" />
                   </div>
                 </div>
 

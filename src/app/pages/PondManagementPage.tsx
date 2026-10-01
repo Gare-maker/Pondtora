@@ -1301,16 +1301,23 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
           {canCreate&&<PBtn onClick={()=>{setAddF({name:"",lengthFt:"",widthFt:"",type:"Earthen",notes:"",category:"Production"});setAddErr({});setShowAdd(true);}} sm><Plus size={13}/> Add Pond</PBtn>}
         </div>
       </div>
-      <div className="grid grid-cols-3 gap-3">
+      <div className="hidden md:grid md:grid-cols-3 gap-3">
         <StatCard label="Total Ponds" value={String(ponds.length)} icon={Droplets}/>
         <StatCard label="Active" value={String(activePonds)} icon={CheckCircle} hi/>
         <StatCard label="Total Fish" value={totalFish.toLocaleString()} icon={Fish}/>
       </div>
       {/* List of Ponds Heading */}
       <div className="flex items-center justify-between px-1 mt-4">
-        <div className="flex items-center gap-2">
-          <p className="text-xs font-bold uppercase tracking-wider text-slate-700">List of Ponds</p>
-          <span className="text-xs text-slate-400 font-normal">({filteredPonds.length} ponds)</span>
+        <div className="flex items-center gap-2 flex-wrap">
+          <p className="text-xs font-bold uppercase tracking-wider text-slate-700">
+            List of Ponds
+            <span className="md:hidden font-normal normal-case text-slate-500 text-[11px] ml-1.5">
+              ({ponds.length} total · {activePonds} active · {totalFish.toLocaleString()} fish)
+            </span>
+            <span className="hidden md:inline text-slate-400 font-normal normal-case text-xs ml-1.5">
+              ({filteredPonds.length} ponds)
+            </span>
+          </p>
         </div>
       </div>
 
@@ -1391,14 +1398,16 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
             onTouchStart={()=>{longPressTimer.current=setTimeout(()=>setPondMobileMenu(p.id),750);}}
             onTouchEnd={()=>{if(longPressTimer.current)clearTimeout(longPressTimer.current);}}
             onTouchMove={()=>{if(longPressTimer.current){clearTimeout(longPressTimer.current);longPressTimer.current=null;}}}>
-            <div className="flex-1 min-w-0 pr-2">
-              <div className="flex items-center gap-2 mb-1">
-                <p className="font-bold text-slate-900 text-sm sm:text-base leading-tight truncate">{p.name}</p>
-                <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${p.status==="Active"?"text-emerald-600":"text-slate-400"}`}>
-                  <span className={`w-1.5 h-1.5 rounded-full ${p.status==="Active"?"bg-emerald-500":"bg-slate-400"}`}/>
-                  {p.status==="Active"?"Active":"Inactive"}
-                </span>
-              </div>
+            <div className="flex items-center gap-3 min-w-0 flex-1 pr-2">
+              <span className="text-xs text-slate-300 font-mono w-5 shrink-0">{pIdx+1}</span>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-1">
+                  <p className="font-bold text-slate-900 text-sm sm:text-base leading-tight truncate">{p.name}</p>
+                  <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${p.status==="Active"?"text-emerald-600":"text-slate-400"}`}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${p.status==="Active"?"bg-emerald-500":"bg-slate-400"}`}/>
+                    {p.status==="Active"?"Active":"Inactive"}
+                  </span>
+                </div>
               <div className="flex items-center gap-1.5 text-xs text-slate-600 font-medium truncate">
                 <span>{p.currentCount.toLocaleString()} fish</span>
                 {p.status==="Active"&&p.species!=="—"&&(

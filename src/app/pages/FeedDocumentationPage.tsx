@@ -2267,13 +2267,14 @@ function FeedDocumentation({
                         <h3 className="font-bold text-slate-900 text-sm sm:text-base truncate">
                           {getStockDisplayName(row.fishStock, row.stockDate)}
                         </h3>
-                        <div className="flex items-center gap-2 mt-1">
-                          <span className="text-xs font-semibold text-slate-600">{row.brand}</span>
-                          <Bdg label={row.size} color="blue" />
-                        </div>
+                        {row.stockDate && row.stockDate !== "—" && (
+                          <p className="text-xs text-slate-500 font-normal leading-tight mt-0.5">{row.stockDate}</p>
+                        )}
                       </div>
 
                       <div className="flex items-center gap-1.5 shrink-0" onClick={e => e.stopPropagation()}>
+                        <span className="text-xs font-semibold text-slate-600">{row.brand}</span>
+                        <Bdg label={row.size} color="blue" />
                         {/* 3-dots Menu Button */}
                         <div className="relative">
                           <button
