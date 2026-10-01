@@ -175,9 +175,8 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
           remainingKg: 0
         };
       } else {
-        // If already entered for this stock + brand + size today, keep single session rather than accumulating duplicate bags
-        dailyMap[key].bagsOpened = bags;
-        dailyMap[key].totalKgOpened = kg;
+        dailyMap[key].bagsOpened += bags;
+        dailyMap[key].totalKgOpened += kg;
       }
     });
 
