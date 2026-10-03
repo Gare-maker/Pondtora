@@ -4689,6 +4689,19 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   const accessibleFarms = isOwner ? farms : assignedStaffFarms;
   const hasOneFarmOrNone = accessibleFarms.length <= 1;
 
+  const matchesFarm = useCallback((fid?: string, pondName?: string) => {
+    if (!activeFarmId) return !fid || fid === "default" || fid === "—";
+    if (fid && fid === activeFarmId) return true;
+    if (pondName) {
+      const p = ponds.find(x => x.name.toLowerCase() === pondName.toLowerCase());
+      if (p && (p.farmId === activeFarmId || (!p.farmId && (farms[0]?.id === activeFarmId || farms.length <= 1)))) return true;
+    }
+    if (!fid || fid === "default" || fid === "—") {
+      return farms.length <= 1 || farms[0]?.id === activeFarmId;
+    }
+    return false;
+  }, [activeFarmId, ponds, farms]);
+
   const [kQuestionsState,setKQuestions_]=useState<any[]>(()=>{
     const cached = loadLocal("pondtora_k_questions", INIT_K);
     return Array.isArray(cached) && cached.length >= 25 ? cached : INIT_K;
@@ -6923,18 +6936,6 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   }, [isStaff, isAuth, accessibleFarms, activeFarmId, handleLogout]);
 
   /* Derived data — computed unconditionally before any early return (Rules of Hooks) */
-  const matchesFarm = (fid?: string, pondName?: string) => {
-    if (!activeFarmId) return !fid || fid === "default" || fid === "—";
-    if (fid && fid === activeFarmId) return true;
-    if (pondName) {
-      const p = ponds.find(x => x.name.toLowerCase() === pondName.toLowerCase());
-      if (p && (p.farmId === activeFarmId || (!p.farmId && (farms[0]?.id === activeFarmId || farms.length <= 1)))) return true;
-    }
-    if (!fid || fid === "default" || fid === "—") {
-      return farms.length <= 1 || farms[0]?.id === activeFarmId;
-    }
-    return false;
-  };
   const farmPonds=ponds.filter(p=>matchesFarm(p.farmId));
   const farmFeeding=feeding.filter(r=>matchesFarm(r.farmId,r.pond));
   const farmInventory=inventory.filter(i=>matchesFarm(i.farmId));
