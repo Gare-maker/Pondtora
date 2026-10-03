@@ -1,11 +1,17 @@
 import { useState, useMemo, useRef, useEffect } from "react";
-import { Plus, X, CheckCircle, Filter, Tag, Eye, FileText, AlertCircle, Download, Search, Pencil, Trash2, TrendingDown, Layers, ArrowUpRight, ArrowDownRight, ChevronDown, ChevronUp } from "lucide-react";
+import { Plus, X, CheckCircle, Filter, Tag, Eye, FileText, AlertCircle, Download, Search, Pencil, Trash2, TrendingDown, Layers, ArrowUpRight, ArrowDownRight, ChevronDown, ChevronUp, Calculator } from "lucide-react";
 import type { Pond, Invoice, InvoiceLineItem, Customer, PriceGroup, InvSettings, SortDir, WItem } from "../types";
 import { fmt, uid, TODAY, PAYMENT_METHODS, INV_STATUSES } from "../data";
 import { Card, Bdg, PBtn, Pagination, StatCard, Modal, F, IC, SC, SearchableSelect, SelDrop, DateFilter, DMONTHS_S, SH, PER_PAGE } from "../shared";
+import SalesCalculatorPage from "./SalesCalculatorPage";
 
-export default function InvoicesPage({ponds,invoices,customers,priceGroups,settings,onAddInvoice,onEditInvoice,onDeleteInvoice,onAddCustomer,onAddPriceGroup,onEditPriceGroup,onDeletePriceGroup,onUpdateSettings,currentUser,currency="₦",canCreate=true,canEdit=true,canDelete=true}:{ponds:Pond[];invoices:Invoice[];customers:Customer[];priceGroups:PriceGroup[];settings:InvSettings;onAddInvoice:(i:Invoice)=>void;onEditInvoice:(i:Invoice)=>void;onDeleteInvoice?:(id:string)=>void;onAddCustomer:(c:Customer)=>void;onAddPriceGroup:(g:PriceGroup)=>void;onEditPriceGroup:(g:PriceGroup)=>void;onDeletePriceGroup:(id:string)=>void;onUpdateSettings:(s:InvSettings)=>void;currentUser?:string;currency?:string;canCreate?:boolean;canEdit?:boolean;canDelete?:boolean;}){
+export default function InvoicesPage({ponds,invoices,customers,priceGroups,settings,onAddInvoice,onEditInvoice,onDeleteInvoice,onAddCustomer,onAddPriceGroup,onEditPriceGroup,onDeletePriceGroup,onUpdateSettings,currentUser,currency="₦",initialTab="invoices",canCreate=true,canEdit=true,canDelete=true}:{ponds:Pond[];invoices:Invoice[];customers:Customer[];priceGroups:PriceGroup[];settings:InvSettings;onAddInvoice:(i:Invoice)=>void;onEditInvoice:(i:Invoice)=>void;onDeleteInvoice?:(id:string)=>void;onAddCustomer:(c:Customer)=>void;onAddPriceGroup:(g:PriceGroup)=>void;onEditPriceGroup:(g:PriceGroup)=>void;onDeletePriceGroup:(id:string)=>void;onUpdateSettings:(s:InvSettings)=>void;currentUser?:string;currency?:string;initialTab?:"invoices"|"sales_calculator";canCreate?:boolean;canEdit?:boolean;canDelete?:boolean;}){
   const cs=currency;
+  const [activeTab, setActiveTab] = useState<"invoices" | "sales_calculator">(initialTab);
+  useEffect(() => {
+    if (initialTab) setActiveTab(initialTab);
+  }, [initialTab]);
+
   /* ── filter / sort state ── */
   const [search,setSearch]=useState(""); const [fPond,setFPond]=useState("All"); const [fStatus,setFStatus]=useState("All"); const [fMethod,setFMethod]=useState("All"); const [sortDir,setSortDir]=useState<SortDir>("desc");
   const invYears=[...new Set(invoices.map(i=>i.invoiceDate.slice(0,4)))].sort((a,b)=>b.localeCompare(a));
@@ -57,6 +63,28 @@ export default function InvoicesPage({ponds,invoices,customers,priceGroups,setti
   const [wNotes,setWNotes]=useState(settings.defaultNotes); const [wDate,setWDate]=useState(TODAY); const [wDue,setWDue]=useState(""); const [wMethod,setWMethod]=useState("Cash");
   const [payAmt,setPayAmt]=useState(""); const [payMethod,setPayMethod]=useState("Cash"); const [payDate,setPayDate]=useState(TODAY);
   const [custSuggestions,setCustSuggestions]=useState<Customer[]>([]);
+
+  const handleConvertFromCalc = (data: { items: any[]; discountType: "general" | "individual"; generalDiscount: number; additionalCharges: number; customerName: string; notes: string }) => {
+    setActiveTab("invoices");
+    setWItems(data.items.length > 0 ? data.items : [{ id: uid(), groupId: "", qty: "", discount: "" }]);
+    setWDiscountType(data.discountType);
+    setWGeneralDiscPerKg(data.generalDiscount ? String(data.generalDiscount) : "");
+    setWAdditional(data.additionalCharges ? String(data.additionalCharges) : "");
+    setWNotes(data.notes || settings.defaultNotes);
+    if (data.customerName) {
+      const match = customers.find(c => c.name.toLowerCase() === data.customerName.toLowerCase());
+      if (match) {
+        setWCust(match);
+        setWNewCust(false);
+      } else {
+        setWCust(null);
+        setWNewCust(true);
+        setCustF(prev => ({ ...prev, name: data.customerName }));
+      }
+    }
+    setStep(1);
+    setShowCreate(true);
+  };
 
   const pondObj=ponds.find(p=>p.name===wPond);
   const activePriceGroups=priceGroups.filter(g=>g.status==="Active");
@@ -140,8 +168,8 @@ export default function InvoicesPage({ponds,invoices,customers,priceGroups,setti
 
   const buildInvoiceHTML=(inv:Invoice):string=>{
     const totalWt=(inv.items||[]).reduce((s,it)=>s+it.qtyKg,0);
-    const itemRows=(inv.items||[]).map(it=>`<div style="margin:5px 0"><div style="font-weight:700;font-size:11px">${it.groupLabel||it.displayName}</div><div style="font-size:10px;color:#555;margin-top:1px">${it.qtyKg}kg × ${fmt(it.pricePerKg)}/kg</div>${it.discount>0?`<div style="font-size:10px;color:#c00;margin-top:1px">Discount: −${fmt(it.discount)}</div>`:""}<div style="font-size:12px;font-weight:700;text-align:right;margin-top:2px">${fmt(it.lineTotal)}</div></div><div style="border-top:1px dotted #ccc;margin:3px 0"></div>`).join("");
-    return`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${inv.invNumber}</title><style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:'Courier New',Courier,monospace;width:280px;margin:0 auto;padding:10px 8px;font-size:11px;color:#111;background:#fff}.r{display:flex;justify-content:space-between;margin:2px 0;font-size:10px}.lbl{color:#666}.b{font-weight:700}.hdr{font-size:8px;color:#888;text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px}.grand{display:flex;justify-content:space-between;font-size:15px;font-weight:900;border-top:2px solid #111;border-bottom:2px solid #111;padding:5px 0;margin:5px 0}.bal{display:flex;justify-content:space-between;font-size:11px;font-weight:700;color:#c00;margin-top:3px}.ft{font-size:8px;text-align:center;color:#777;margin-top:3px}@page{size:80mm auto;margin:3mm 2mm}</style></head><body><div style="font-size:14px;font-weight:900;text-align:center;letter-spacing:.5px;text-transform:uppercase">${settings.farmName}</div>${settings.farmAddress?`<div style="font-size:9px;color:#555;text-align:center;margin-top:2px">${settings.farmAddress}</div>`:""}${settings.farmPhone?`<div style="font-size:9px;color:#555;text-align:center">${settings.farmPhone}${settings.farmEmail?" | "+settings.farmEmail:""}</div>`:""}<hr style="border:none;border-top:2px solid #111;margin:6px 0"><div style="text-align:center;font-weight:700;font-size:13px;letter-spacing:2px">INVOICE</div><hr style="border:none;border-top:1px dashed #999;margin:6px 0"><div class="r"><span class="lbl">Invoice No:</span><span class="b">${inv.invNumber}</span></div><div class="r"><span class="lbl">Date:</span><span>${inv.invoiceDate}</span></div>${inv.dueDate?`<div class="r"><span class="lbl">Due Date:</span><span>${inv.dueDate}</span></div>`:""}<div class="r"><span class="lbl">Payment:</span><span>${inv.paymentMethod}</span></div><div class="r"><span class="lbl">Status:</span><span class="b">${inv.status}</span></div>${inv.pond?`<div class="r"><span class="lbl">Pond:</span><span>${inv.pond}</span></div>`:""}${inv.species?`<div class="r"><span class="lbl">Species:</span><span>${inv.species}</span></div>`:""}<hr style="border:none;border-top:1px dashed #999;margin:6px 0"><div class="hdr">Customer</div><div style="font-size:12px;font-weight:700">${inv.customer.name}</div>${inv.customer.businessName?`<div style="font-size:9px">${inv.customer.businessName}</div>`:""}<div style="font-size:9px;color:#555">${inv.customer.phone||""}</div>${inv.customer.address?`<div style="font-size:9px;color:#555">${inv.customer.address}</div>`:""}<hr style="border:none;border-top:1px dashed #999;margin:6px 0"><div class="hdr">Items</div>${itemRows}<hr style="border:none;border-top:2px solid #111;margin:6px 0"><div class="r"><span class="lbl">Fish Groups:</span><span>${(inv.items||[]).length}</span></div><div class="r"><span class="lbl">Total Weight:</span><span>${totalWt} kg</span></div><div class="r"><span class="lbl">Subtotal:</span><span>${fmt(inv.subtotal)}</span></div>${inv.discount>0?`<div class="r"><span class="lbl">Discount:</span><span style="color:#c00">−${fmt(inv.discount)}</span></div>`:""}${inv.additionalCharges>0?`<div class="r"><span class="lbl">Add. Charges:</span><span>+${fmt(inv.additionalCharges)}</span></div>`:""}<div class="grand"><span>TOTAL</span><span>${fmt(inv.grandTotal)}</span></div>${inv.amountPaid>0?`<div class="r"><span class="lbl">Amount Paid:</span><span style="color:#16a34a">${fmt(inv.amountPaid)}</span></div>`:""}${inv.outstanding>0?`<div class="bal"><span>Balance Due:</span><span>${fmt(inv.outstanding)}</span></div>`:""}${inv.notes||settings.bankDetails?`<hr style="border:none;border-top:1px dashed #999;margin:6px 0">`:""}${inv.notes?`<div style="font-size:9px;color:#444;margin-bottom:3px">${inv.notes}</div>`:""}${settings.bankDetails?`<div style="font-size:9px">${settings.bankDetails}</div>`:""}<hr style="border:none;border-top:1px dashed #999;margin:6px 0"><div class="ft">*** Thank you for your business! ***</div>${settings.footerMessage?`<div class="ft">${settings.footerMessage}</div>`:""}</body></html>`;
+    const itemRows=(inv.items||[]).map(it=>`<div style="margin:5px 0"><div style="font-weight:700;font-size:11px">${it.groupLabel||it.displayName}</div><div style="font-size:10px;color:#555;margin-top:1px">${it.qtyKg}kg × ${fmt(it.pricePerKg, cs)}/kg</div>${it.discount>0?`<div style="font-size:10px;color:#c00;margin-top:1px">Discount: −${fmt(it.discount, cs)}</div>`:""}<div style="font-size:12px;font-weight:700;text-align:right;margin-top:2px">${fmt(it.lineTotal, cs)}</div></div><div style="border-top:1px dotted #ccc;margin:3px 0"></div>`).join("");
+    return`<!DOCTYPE html><html><head><meta charset="utf-8"><title>${inv.invNumber}</title><style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:'Courier New',Courier,monospace;width:280px;margin:0 auto;padding:10px 8px;font-size:11px;color:#111;background:#fff}.r{display:flex;justify-content:space-between;margin:2px 0;font-size:10px}.lbl{color:#666}.b{font-weight:700}.hdr{font-size:8px;color:#888;text-transform:uppercase;letter-spacing:.5px;margin-bottom:3px}.grand{display:flex;justify-content:space-between;font-size:15px;font-weight:900;border-top:2px solid #111;border-bottom:2px solid #111;padding:5px 0;margin:5px 0}.bal{display:flex;justify-content:space-between;font-size:11px;font-weight:700;color:#c00;margin-top:3px}.ft{font-size:8px;text-align:center;color:#777;margin-top:3px}@page{size:80mm auto;margin:3mm 2mm}</style></head><body><div style="font-size:14px;font-weight:900;text-align:center;letter-spacing:.5px;text-transform:uppercase">${settings.farmName}</div>${settings.farmAddress?`<div style="font-size:9px;color:#555;text-align:center;margin-top:2px">${settings.farmAddress}</div>`:""}${settings.farmPhone?`<div style="font-size:9px;color:#555;text-align:center">${settings.farmPhone}${settings.farmEmail?" | "+settings.farmEmail:""}</div>`:""}<hr style="border:none;border-top:2px solid #111;margin:6px 0"><div style="text-align:center;font-weight:700;font-size:13px;letter-spacing:2px">INVOICE</div><hr style="border:none;border-top:1px dashed #999;margin:6px 0"><div class="r"><span class="lbl">Invoice No:</span><span class="b">${inv.invNumber}</span></div><div class="r"><span class="lbl">Date:</span><span>${inv.invoiceDate}</span></div>${inv.dueDate?`<div class="r"><span class="lbl">Due Date:</span><span>${inv.dueDate}</span></div>`:""}<div class="r"><span class="lbl">Payment:</span><span>${inv.paymentMethod}</span></div><div class="r"><span class="lbl">Status:</span><span class="b">${inv.status}</span></div>${inv.pond?`<div class="r"><span class="lbl">Pond:</span><span>${inv.pond}</span></div>`:""}${inv.species?`<div class="r"><span class="lbl">Species:</span><span>${inv.species}</span></div>`:""}<hr style="border:none;border-top:1px dashed #999;margin:6px 0"><div class="hdr">Customer</div><div style="font-size:12px;font-weight:700">${inv.customer.name}</div>${inv.customer.businessName?`<div style="font-size:9px">${inv.customer.businessName}</div>`:""}<div style="font-size:9px;color:#555">${inv.customer.phone||""}</div>${inv.customer.address?`<div style="font-size:9px;color:#555">${inv.customer.address}</div>`:""}<hr style="border:none;border-top:1px dashed #999;margin:6px 0"><div class="hdr">Items</div>${itemRows}<hr style="border:none;border-top:2px solid #111;margin:6px 0"><div class="r"><span class="lbl">Fish Groups:</span><span>${(inv.items||[]).length}</span></div><div class="r"><span class="lbl">Total Weight:</span><span>${totalWt} kg</span></div><div class="r"><span class="lbl">Subtotal:</span><span>${fmt(inv.subtotal, cs)}</span></div>${inv.discount>0?`<div class="r"><span class="lbl">Discount:</span><span style="color:#c00">−${fmt(inv.discount, cs)}</span></div>`:""}${inv.additionalCharges>0?`<div class="r"><span class="lbl">Add. Charges:</span><span>+${fmt(inv.additionalCharges, cs)}</span></div>`:""}<div class="grand"><span>TOTAL</span><span>${fmt(inv.grandTotal, cs)}</span></div>${inv.amountPaid>0?`<div class="r"><span class="lbl">Amount Paid:</span><span style="color:#16a34a">${fmt(inv.amountPaid, cs)}</span></div>`:""}${inv.outstanding>0?`<div class="bal"><span>Balance Due:</span><span>${fmt(inv.outstanding, cs)}</span></div>`:""}${inv.notes||settings.bankDetails?`<hr style="border:none;border-top:1px dashed #999;margin:6px 0">`:""}${inv.notes?`<div style="font-size:9px;color:#444;margin-bottom:3px">${inv.notes}</div>`:""}${settings.bankDetails?`<div style="font-size:9px">${settings.bankDetails}</div>`:""}<hr style="border:none;border-top:1px dashed #999;margin:6px 0"><div class="ft">*** Thank you for your business! ***</div>${settings.footerMessage?`<div class="ft">${settings.footerMessage}</div>`:""}</body></html>`;
   };
 
   const printInvoice=(inv:Invoice)=>{
@@ -207,15 +235,73 @@ export default function InvoicesPage({ponds,invoices,customers,priceGroups,setti
   };
   const totalWeight=(inv:Invoice)=>(inv.items||[]).reduce((s,it)=>s+it.qtyKg,0);
 
+  if (activeTab === "sales_calculator") {
+    return (
+      <div className="space-y-4">
+        <div className="px-4 sm:px-6 pt-4 sm:pt-6">
+          <div className="flex gap-1 bg-slate-200/90 border border-slate-300/70 p-1 rounded-xl w-fit shadow-2xs">
+            <button
+              onClick={() => setActiveTab("invoices")}
+              className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                activeTab === "invoices" ? "bg-white text-slate-900 shadow-sm font-bold border border-slate-200/80" : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              Invoices
+            </button>
+            <button
+              onClick={() => setActiveTab("sales_calculator")}
+              className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all flex items-center gap-1.5 ${
+                activeTab === "sales_calculator" ? "bg-white text-slate-900 shadow-sm font-bold border border-slate-200/80" : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              <Calculator size={14} /> Sales Calculator
+            </button>
+          </div>
+        </div>
+        <SalesCalculatorPage
+          priceGroups={priceGroups}
+          settings={settings}
+          onAddPriceGroup={onAddPriceGroup}
+          onEditPriceGroup={onEditPriceGroup}
+          onDeletePriceGroup={onDeletePriceGroup}
+          onConvertToInvoice={canCreate ? handleConvertFromCalc : undefined}
+          currency={cs}
+          canCreate={canCreate}
+          canEdit={canEdit}
+          canDelete={canDelete}
+        />
+      </div>
+    );
+  }
+
   return(
     <div className="p-4 sm:p-6 space-y-5 w-full">
-      <div className="sticky top-0 z-10 bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 flex flex-wrap items-center justify-between gap-3">
+      <div className="sticky top-0 z-30 bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 flex flex-wrap items-center justify-between gap-3 shadow-2xs">
         <div><h1 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Invoices</h1><p className="text-xs text-slate-400 mt-0.5">Manage customer invoices, configure pricing groups, generate professional invoices, and track payment status.</p></div>
         <div className="flex flex-wrap gap-2">
           {canEdit&&<PBtn sm outline onClick={()=>{setSettingsF({...settings});setShowSettings(true);}}><Filter size={13}/> Invoice Settings</PBtn>}
           <PBtn sm outline onClick={()=>{setShowGroupsPanel(true);setGroupFormMode(false);setEditGroup(null);}}><Tag size={13}/> Price Groups</PBtn>
           {canCreate&&<PBtn sm onClick={()=>{setShowCreate(true);resetWizard();}}><Plus size={13}/> Create Invoice</PBtn>}
         </div>
+      </div>
+
+      <div className="flex gap-1 bg-slate-200/90 border border-slate-300/70 p-1 rounded-xl w-fit shadow-2xs">
+        <button
+          onClick={() => setActiveTab("invoices")}
+          className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${
+            activeTab === "invoices" ? "bg-white text-slate-900 shadow-sm font-bold border border-slate-200/80" : "text-slate-600 hover:text-slate-900"
+          }`}
+        >
+          Invoices
+        </button>
+        <button
+          onClick={() => setActiveTab("sales_calculator")}
+          className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all flex items-center gap-1.5 ${
+            activeTab === "sales_calculator" ? "bg-white text-slate-900 shadow-sm font-bold border border-slate-200/80" : "text-slate-600 hover:text-slate-900"
+          }`}
+        >
+          <Calculator size={14} /> Sales Calculator
+        </button>
       </div>
 
       {/* ── Desktop Date filter ── */}

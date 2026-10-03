@@ -249,7 +249,7 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
 
   return(
     <div className="p-4 sm:p-6 space-y-5 w-full pb-20 sm:pb-8">
-      <div className="sticky top-0 z-10 bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 flex flex-wrap items-center justify-between gap-3">
+      <div className="sticky top-0 z-30 bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 flex flex-wrap items-center justify-between gap-3 shadow-2xs">
         <div>
           <h1 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Feed Stock</h1>
           <p className="text-xs text-slate-400 mt-0.5">Manage purchased feed stock, track daily bags opened, and view usage.</p>
@@ -260,7 +260,7 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
         </div>
       </div>
       <div className="grid grid-cols-2 gap-3">
-        <StatCard label="Total Bags" value={String(totalBagsInStock)} sub={`${totalBagsOpened} opened · ${totalBagsPurchased} purchased`} icon={Package} hi/>
+        <StatCard label="Total Bags" value={String(totalBagsInStock)} sub="in stock" icon={Package} hi/>
         <StatCard label="Total Kg" value={`${totalKgInStock}kg`} sub="in stock" icon={Layers}/>
       </div>
       <div className="flex gap-1 bg-slate-200/90 border border-slate-300/70 p-1 rounded-xl w-fit shadow-2xs">
@@ -562,7 +562,8 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
               <button onClick={()=>openPrintWindow("Feed Purchase History",["#","Purchased","Brand","Size","Bags","Kg/Bag","Total Kg","Cost/Bag","Total Value","Supplier"],filtPurchases.map((r,i)=>[i+1,r.purchaseDate,r.brand,r.size,r.bags,`${r.weightPerBag}kg`,`${r.totalKg}kg`,fmt(r.costPerBag),fmt(r.bags*r.costPerBag),r.supplier||"—"]),"All purchased feed stock")} className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-slate-200 bg-white text-slate-500 text-[11px] font-semibold hover:border-green-400 hover:text-green-600 transition-colors"><FileText size={11}/> PDF</button>
             </div>
           </div>
-          <div className="overflow-x-auto"><table className="w-full text-sm min-w-[700px]">
+          {/* Desktop Table View */}
+          <div className="hidden md:block overflow-x-auto"><table className="w-full text-sm min-w-[700px]">
             <thead><tr className="border-b border-slate-100 bg-slate-50">
               <th className="px-4 py-3 text-[11px] text-slate-400 w-10 sticky left-0 z-20 bg-slate-50">#</th>
               <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider sticky left-10 z-20 bg-slate-50 border-r border-slate-200 whitespace-nowrap">Purchased</th>
@@ -607,6 +608,47 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
               </tr></tfoot>
             )}
           </table></div>
+
+          {/* Mobile Card View */}
+          <div className="md:hidden p-3 space-y-2.5">
+            {filtPurchases.length===0?(
+              <p className="text-center text-xs text-slate-400 py-8">No purchases recorded yet</p>
+            ):(
+              pagedPurchases.map((row,i)=>(
+                <div key={row.id} className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-2xs space-y-2">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-bold text-slate-900">{row.brand}</span>
+                        <Bdg label={row.size} color="blue"/>
+                      </div>
+                      <p className="text-[11px] text-slate-400 mt-0.5">{row.purchaseDate} {row.supplier?`· ${row.supplier}`:""}</p>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      {canEdit&&(isPurchaseEditable(row.purchaseDate)?<button onClick={()=>setEditPurchase({...row})} className="p-1.5 rounded-lg text-slate-400 hover:text-green-600 hover:bg-green-50 transition-colors" title="Edit"><Pencil size={13}/></button>:<button onClick={()=>alert("This record can only be edited by an Administrator or Manager after 24 hours.")} className="p-1.5 rounded-lg text-slate-300 cursor-not-allowed" title="Locked"><Lock size={13}/></button>)}
+                      {canDelete&&<button onClick={()=>{if(confirm(`Are you sure you want to delete this purchase record (${row.brand} ${row.size})?`))onDelete(row.id);}} className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors" title="Delete"><Trash2 size={13}/></button>}
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-100 text-xs">
+                    <div className="bg-slate-50 p-2 rounded-lg">
+                      <span className="text-[10px] text-slate-400 block">Quantity</span>
+                      <span className="font-bold text-slate-900">{row.bags} bags</span>
+                      <span className="text-[10px] text-slate-400 block">{row.totalKg}kg total</span>
+                    </div>
+                    <div className="bg-slate-50 p-2 rounded-lg">
+                      <span className="text-[10px] text-slate-400 block">Cost / Bag</span>
+                      <span className="font-bold text-slate-900">{fmt(row.costPerBag)}</span>
+                    </div>
+                    <div className="bg-slate-50 p-2 rounded-lg">
+                      <span className="text-[10px] text-slate-400 block">Total Spend</span>
+                      <span className="font-bold text-green-700 font-['Barlow_Condensed',sans-serif] text-sm">{fmt(row.bags*row.costPerBag)}</span>
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+
           <div className="px-4 pb-2"><Pagination total={filtPurchases.length} page={purchasePage} perPage={PER_PAGE} onPage={setPurchasePage}/></div>
         </Card>
       )}

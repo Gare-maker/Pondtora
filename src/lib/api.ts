@@ -689,12 +689,13 @@ export async function verifyStaffActionPermission(table: string, action: "canCre
     }
     const queryStaffId = staffMemberId || currentUid;
 
-    const { data: permRow } = await supabase
+    const { data: permRows } = await supabase
       .from("staff_permissions")
-      .select("can_create, can_edit, can_delete, can_view")
+      .select("can_create, can_edit, can_delete, can_view, feature")
       .eq("staff_id", queryStaffId)
-      .eq("feature", feature)
-      .maybeSingle();
+      .in("feature", table === "price_groups" ? ["Invoices", "Sales Calculator"] : [feature]);
+
+    const permRow = permRows && permRows.length > 0 ? (permRows.find((r: any) => r.can_create || r.can_edit || r.can_delete) || permRows[0]) : null;
 
     if (permRow) {
       const allowed = action === "canCreate" ? Boolean(permRow.can_create) : action === "canEdit" ? Boolean(permRow.can_edit) : Boolean(permRow.can_delete);
@@ -1303,7 +1304,7 @@ export const api = {
         !isStaff ? safeQuery(supabase.from("staff_permissions").select("*")) : Promise.resolve({ data: [] }),
         canStaffView("Reports") ? farmScope("reports") : Promise.resolve({ data: [] }),
         canStaffView("Invoices") ? farmScope("customers") : Promise.resolve({ data: [] }),
-        canStaffView("Invoices") ? farmScope("price_groups") : Promise.resolve({ data: [] }),
+        canStaffView("Invoices") || canStaffView("Sales Calculator") ? farmScope("price_groups") : Promise.resolve({ data: [] }),
         canStaffView("Invoices") ? farmScope("invoices") : Promise.resolve({ data: [] }),
         safeQuery(supabase.from("invoice_settings").select("*").eq("user_id", effectiveOwnerId)),
         safeQuery(supabase.from("knowledge_questions").select("*")),

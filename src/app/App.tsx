@@ -53,7 +53,7 @@ const NAV:{id:View;icon:React.ElementType;label:string}[]=[
 /* Map nav id → permission name (undefined = always visible) */
 const NAV_PERM:Partial<Record<View,string>>={
   financial:"Financial Dashboard",ponds:"Pond Management",inventory:"Feed Stock",
-  documentation:"Feeding Records",invoices:"Invoices",reports:"Reports",investors:"Investors",assessments:"Staff Assessments",notifications:"Notifications",
+  documentation:"Feeding Records",invoices:"Invoices",sales_calculator:"Sales Calculator",reports:"Reports",investors:"Investors",assessments:"Staff Assessments",notifications:"Notifications",
 };
 function Sidebar({active,onNav,collapsed,onToggle,farms,activeFarmId,onSwitchFarm,onAddFarm,sideOpen,staff,unreadCount,onNotifications,onLogout,hasPerm,canView,isOwner,userProfile,currentStaff}:{active:View;onNav:(v:View)=>void;collapsed:boolean;onToggle:()=>void;farms:Farm[];activeFarmId:string;onSwitchFarm:(id:string)=>void;onAddFarm:()=>void;sideOpen:boolean;staff?:StaffMember[];unreadCount?:number;onNotifications?:()=>void;onLogout?:()=>void;hasPerm?:(p:string)=>boolean;canView?:(p:string)=>boolean;isOwner?:boolean;userProfile?:UserProfile|null;currentStaff?:StaffMember|null;}){
   const [farmOpen,setFarmOpen]=useState(false);
@@ -936,6 +936,7 @@ function StaffPage({
     "Financial Dashboard": { canView: false, canCreate: false, canEdit: false, canDelete: false },
     "Reports": { canView: false, canCreate: false, canEdit: false, canDelete: false },
     "Invoices": { canView: false, canCreate: false, canEdit: false, canDelete: false },
+    "Sales Calculator": { canView: false, canCreate: false, canEdit: false, canDelete: false },
     "Investors": { canView: false, canCreate: false, canEdit: false, canDelete: false },
     "Staff Assessments": { canView: false, canCreate: false, canEdit: false, canDelete: false },
     "Notifications": { canView: false, canCreate: false, canEdit: false, canDelete: false },
@@ -5239,15 +5240,17 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     if (!checkSubscriptionActive()) return;
     const fid=b.farmId||activeFarmId||farms[0]?.id||"";
     const farmBag:BagOpenLog={...b,id:isUuid(b.id)?b.id:crypto.randomUUID(),farmId:fid};
-    const existing=bagLogs.find(x=>x.id===farmBag.id || (isSameDate(x.date,farmBag.date)&&(x.size||"").toLowerCase().trim()===(farmBag.size||"").toLowerCase().trim()&&isStockMatch(x.fishStock, farmBag.fishStock)&&(!x.farmId||x.farmId===farmBag.farmId)));
-    if(existing){
-      const updated: BagOpenLog={...existing,bagsOpened:farmBag.bagsOpened,totalKg:farmBag.totalKg,kgPerBag:farmBag.kgPerBag,farmId:farmBag.farmId,brand:farmBag.brand,size:farmBag.size,fishStock:farmBag.fishStock};
-      setBagLogs(prev=>prev.map(x=>x.id===existing.id?updated:x));
-      api.bagLogs.update(updated).catch(console.warn);
-    } else {
-      setBagLogs(prev=>[farmBag,...prev]);
-      api.bagLogs.create(farmBag).catch(console.warn);
-    }
+    setBagLogs(prev=>{
+      const existing=prev.find(x=>x.id===farmBag.id || (isSameDate(x.date,farmBag.date)&&(x.size||"").toLowerCase().trim()===(farmBag.size||"").toLowerCase().trim()&&isStockMatch(x.fishStock, farmBag.fishStock)&&(!x.farmId||x.farmId===farmBag.farmId)));
+      if(existing){
+        const updated: BagOpenLog={...existing,bagsOpened:farmBag.bagsOpened,totalKg:farmBag.totalKg,kgPerBag:farmBag.kgPerBag,farmId:farmBag.farmId,brand:farmBag.brand,size:farmBag.size,fishStock:farmBag.fishStock};
+        api.bagLogs.update(updated).catch(console.warn);
+        return prev.map(x=>x.id===existing.id?updated:x);
+      } else {
+        api.bagLogs.create(farmBag).catch(console.warn);
+        return [farmBag,...prev];
+      }
+    });
   };
   const editBagLog=async(b:BagOpenLog)=>{
     if (!checkSubscriptionActive()) return;
@@ -5272,15 +5275,17 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     if (!checkSubscriptionActive()) return;
     const fid=r.farmId||activeFarmId||farms[0]?.id||"";
     const farmRemain:FeedRemainingLog={...r,id:isUuid(r.id)?r.id:crypto.randomUUID(),farmId:fid};
-    const existing=remainLogs.find(x=>x.id===farmRemain.id || (isSameDate(x.date,farmRemain.date)&&(x.size||"").toLowerCase().trim()===(farmRemain.size||"").toLowerCase().trim()&&isStockMatch(x.fishStock, farmRemain.fishStock)&&(!x.farmId||x.farmId===farmRemain.farmId)));
-    if(existing){
-      const updated: FeedRemainingLog={...existing,remainingKg:farmRemain.remainingKg,farmId:farmRemain.farmId,brand:farmRemain.brand,size:farmRemain.size,fishStock:farmRemain.fishStock};
-      setRemainLogs(prev=>prev.map(x=>x.id===existing.id?updated:x));
-      api.remainLogs.update(updated).catch(console.warn);
-    } else {
-      setRemainLogs(prev=>[farmRemain,...prev]);
-      api.remainLogs.create(farmRemain).catch(console.warn);
-    }
+    setRemainLogs(prev=>{
+      const existing=prev.find(x=>x.id===farmRemain.id || (isSameDate(x.date,farmRemain.date)&&(x.size||"").toLowerCase().trim()===(farmRemain.size||"").toLowerCase().trim()&&isStockMatch(x.fishStock, farmRemain.fishStock)&&(!x.farmId||x.farmId===farmRemain.farmId)));
+      if(existing){
+        const updated: FeedRemainingLog={...existing,remainingKg:farmRemain.remainingKg,farmId:farmRemain.farmId,brand:farmRemain.brand,size:farmRemain.size,fishStock:farmRemain.fishStock};
+        api.remainLogs.update(updated).catch(console.warn);
+        return prev.map(x=>x.id===existing.id?updated:x);
+      } else {
+        api.remainLogs.create(farmRemain).catch(console.warn);
+        return [farmRemain,...prev];
+      }
+    });
   };
   const editRemainLog=(r:FeedRemainingLog)=>{
     if (!checkSubscriptionActive()) return;
@@ -7663,7 +7668,8 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
               {active==="ponds"         &&(hasPerm("Pond Management")?<PondManagementPage ponds={farmPonds} onAddPond={addPond} onClosePond={closePond} onRestockPond={restockPond} onTransfer={transferStock} onNurseryTransfer={nurseryTransfer} mortality={farmMortality} onAddMortality={addMort} onAddCost={addExp} feedingRecords={farmFeeding} stockEvents={stockEvents} treatments={farmTreatments} onAddTreatment={addTreatment} activeFarmId={activeFarmId} onDeletePond={deletePond} onEditFish={editFish} onSetMaxKg={setPondMaxKg} onEditPond={handleEditPond} onScrollTop={()=>mainRef.current?.scrollTo({top:0,behavior:"instant"})} currency={cs} inventory={farmInventory} farms={farms} pondReports={farmPondReports} onAddPondReport={handleAddPondReport} canCreate={canCreate("Pond Management")} canEdit={canEdit("Pond Management")} canDelete={canDelete("Pond Management")}/>:<AccessDenied/>)}
               {active==="inventory"     &&(hasPerm("Feed Stock")?<FeedInventoryPage inventory={farmInventory} onAdd={addInv} onDelete={delInv} feedingRecords={farmFeeding} bagLogs={farmBagLogs} remainLogs={farmRemainLogs} ponds={farmPonds} onEditBagLog={editBagLog} onEditInv={editInv} currency={cs} canEditLocked={isOwner||currentStaff?.role==="Farm Manager"} canCreate={canCreate("Feed Stock")} canEdit={canEdit("Feed Stock")} canDelete={canDelete("Feed Stock")}/>:<AccessDenied/>)}
               {active==="documentation" &&(hasPerm("Feeding Records")?<FeedDocumentationPage feedingRecords={farmFeeding} onAddRecord={addFeed} onEditFeedRecord={editFeedRecord} onDeleteRecord={deleteFeedRecord} ponds={farmPonds} inventory={farmInventory} bagLogs={farmBagLogs} onAddBagLog={addBagLog} onEditBagLog={editBagLog} onEditInv={editInv} remainLogs={farmRemainLogs} onAddRemainLog={addRemainLog} onEditRemainLog={editRemainLog} onReconMismatches={onReconMismatches} reconFocus={reconFocus} canEditLocked={isOwner||currentStaff?.role==="Farm Manager"} currentUser={{name:currentStaff?.name||userProfile?.name||"",email:userProfile?.email||""}} canCreate={canCreate("Feeding Records")} canEdit={canEdit("Feeding Records")} canDelete={canDelete("Feeding Records")}/>:<AccessDenied/>)}
-              {active==="invoices"      &&(hasPerm("Invoices")?<InvoicesPage ponds={farmPonds} invoices={farmInvoices} customers={farmCustomers} priceGroups={farmPriceGroups} settings={invSettings} onAddInvoice={addInvoice} onEditInvoice={editInvoice} onDeleteInvoice={deleteInvoice} onAddCustomer={addCustomer} onAddPriceGroup={addPriceGroup} onEditPriceGroup={editPriceGroup} onDeletePriceGroup={delPriceGroup} onUpdateSettings={(s)=>{setInvSettings(s);api.invSettings.update(s).catch(console.warn);}} currentUser={userProfile?.name} currency={cs} canCreate={canCreate("Invoices")} canEdit={canEdit("Invoices")} canDelete={canDelete("Invoices")}/>:<AccessDenied/>)}
+              {active==="invoices"      &&(hasPerm("Invoices")||hasPerm("Sales Calculator")?<InvoicesPage ponds={farmPonds} invoices={farmInvoices} customers={farmCustomers} priceGroups={farmPriceGroups} settings={invSettings} onAddInvoice={addInvoice} onEditInvoice={editInvoice} onDeleteInvoice={deleteInvoice} onAddCustomer={addCustomer} onAddPriceGroup={addPriceGroup} onEditPriceGroup={editPriceGroup} onDeletePriceGroup={delPriceGroup} onUpdateSettings={(s)=>{setInvSettings(s);api.invSettings.update(s).catch(console.warn);}} currentUser={userProfile?.name} currency={cs} initialTab="invoices" canCreate={canCreate("Invoices")} canEdit={canEdit("Invoices")} canDelete={canDelete("Invoices")}/>:<AccessDenied/>)}
+              {active==="sales_calculator"&&(hasPerm("Sales Calculator")||hasPerm("Invoices")?<InvoicesPage ponds={farmPonds} invoices={farmInvoices} customers={farmCustomers} priceGroups={farmPriceGroups} settings={invSettings} onAddInvoice={addInvoice} onEditInvoice={editInvoice} onDeleteInvoice={deleteInvoice} onAddCustomer={addCustomer} onAddPriceGroup={addPriceGroup} onEditPriceGroup={editPriceGroup} onDeletePriceGroup={delPriceGroup} onUpdateSettings={(s)=>{setInvSettings(s);api.invSettings.update(s).catch(console.warn);}} currentUser={userProfile?.name} currency={cs} initialTab="sales_calculator" canCreate={canCreate("Sales Calculator")||canCreate("Invoices")} canEdit={canEdit("Sales Calculator")||canEdit("Invoices")} canDelete={canDelete("Sales Calculator")||canDelete("Invoices")}/>:<AccessDenied/>)}
               {active==="staff"         &&(isOwner?<StaffPage staff={staff} onAdd={addStaff} onEdit={editStaff} onDelete={delStaff} farms={farms.filter(f => f.userId === userProfile?.id || isOwner)} activeFarmId={activeFarmId} ownerEmail={userProfile?.email}/>:<AccessDenied/>)}
               {active==="investors"     &&(hasPerm("Investors")?<InvestorsPage investors={farmInvestors} investments={farmInvestments} payments={farmPayments} farms={farms} ponds={farmPonds} stockEvents={stockEvents} activeFarmId={activeFarmId} currency={cs} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}} isOwner={isOwner} canManage={isOwner||hasPerm("Investors")} onAddInvestor={handleAddInvestor} onEditInvestor={handleEditInvestor} onEditInvestment={handleEditInvestment} onDeleteInvestor={handleDeleteInvestor} onRecordPayment={handleRecordPayment} onMarkPaymentPaid={handleMarkPaymentPaid} canCreate={canCreate("Investors")} canEdit={canEdit("Investors")} canDelete={canDelete("Investors")}/>:<AccessDenied/>)}
               {active==="reports"       &&(hasPerm("Reports")?<ReportsPage reports={farmReports} staff={staff} onAdd={addReport} onEdit={editReportFn} onDelete={deleteReport} pondReports={farmPondReports} treatments={farmTreatments} farms={farms} ponds={farmPonds} stockEvents={stockEvents} onAddPondReport={handleAddPondReport} onDeletePondReport={deletePondReport} activeFarmId={activeFarmId} canCreate={canCreate("Reports")} canEdit={canEdit("Reports")} canDelete={canDelete("Reports")} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}} isOwner={isOwner}/>:<AccessDenied/>)}

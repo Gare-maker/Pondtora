@@ -1,5 +1,5 @@
 /* ─── Types ────────────────────────────────────────────────── */
-export type View = "financial" | "ponds" | "inventory" | "documentation" | "invoices" | "staff" | "investors" | "reports" | "assessments" | "pricing" | "notifications" | "settings";
+export type View = "financial" | "ponds" | "inventory" | "documentation" | "invoices" | "sales_calculator" | "staff" | "investors" | "reports" | "assessments" | "pricing" | "notifications" | "settings";
 export type SortDir = "asc" | "desc";
 
 export interface MonthData { month:string; revenue:number; expenses:number; feedCost:number; stockCost:number; maintenance:number; labor:number; utilities:number; overhead:number; }

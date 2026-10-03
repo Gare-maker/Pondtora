@@ -351,6 +351,7 @@ export const STAFF_PERMISSIONS = [
   "Feeding Records",
   "Reports",
   "Invoices",
+  "Sales Calculator",
   "Investors",
   "Staff Assessments",
   "Notifications",

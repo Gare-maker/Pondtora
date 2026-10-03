@@ -973,8 +973,8 @@ function FeedDocumentation({
 
   const getBagRowsForDate = (checkDate: string): BagRow[] => {
     const dateLabel = toDateLabel(checkDate);
-    const existingBags = (bagLogs || []).filter(b => b && (isSameDate(b.date, checkDate) || isSameDate(b.date, dateLabel) || isSameDate(b.date, selDate)));
-    const existingRemains = (remainLogs || []).filter(r => r && (isSameDate(r.date, checkDate) || isSameDate(r.date, dateLabel) || isSameDate(r.date, selDate)));
+    const existingBags = (bagLogs || []).filter(b => b && (isSameDate(b.date, checkDate) || isSameDate(b.date, dateLabel)));
+    const existingRemains = (remainLogs || []).filter(r => r && (isSameDate(r.date, checkDate) || isSameDate(r.date, dateLabel)));
 
     const map = new Map<string, BagRow>();
     existingBags.forEach(b => {
@@ -1022,7 +1022,7 @@ function FeedDocumentation({
 
     // If no bag logs exist yet for this date, look at today's feeding records to pre-fill rows
     const dayFeedRecords = (feedingRecords || []).filter(r =>
-      r && (isSameDate(r.date, checkDate) || isSameDate(r.date, dateLabel) || isSameDate(r.date, selDate)) &&
+      r && (isSameDate(r.date, checkDate) || isSameDate(r.date, dateLabel)) &&
       (Number(r.total) > 0 || Number(r.morning) > 0 || Number(r.evening) > 0)
     );
 
@@ -1101,6 +1101,9 @@ function FeedDocumentation({
     const dateLabel = toDateLabel(bagsDate);
     const formStockSizeKeys = new Set<string>();
 
+    // Calculate total requested bags across all rows grouped by brand and size
+    const requestedBagsByBrandSize: Record<string, { brand: string; size: string; totalRequestedBags: number; totalRequestedKg: number }> = {};
+
     bagRows.forEach((r, idx) => {
       if (!r.fishStock) {
         errs[`fs_${idx}`] = "Fish Stock is required";
@@ -1131,10 +1134,12 @@ function FeedDocumentation({
         return;
       }
       if (requestedBags > 0) {
-        const avail = getStockAvailable(r.brand, r.size, r.id);
-        if (requestedBags > avail.remainingBags || (requestedBags * r.kgPerBag) > avail.remainingKg) {
-          errs[`stock_${idx}`] = `Insufficient stock for ${r.brand} ${r.size}. Available: ${avail.remainingBags} bag${avail.remainingBags !== 1 ? "s" : ""} (${avail.remainingKg}kg).`;
+        const k = `${normalizedBrand}__${normalizedSize}`;
+        if (!requestedBagsByBrandSize[k]) {
+          requestedBagsByBrandSize[k] = { brand: r.brand, size: r.size, totalRequestedBags: 0, totalRequestedKg: 0 };
         }
+        requestedBagsByBrandSize[k].totalRequestedBags += requestedBags;
+        requestedBagsByBrandSize[k].totalRequestedKg += (requestedBags * (r.kgPerBag || 15));
       }
 
       const remVal = Number(r.remainingKg);
@@ -1142,6 +1147,32 @@ function FeedDocumentation({
         errs[`rem_${idx}`] = "Enter a valid remaining feed amount (0 or greater)";
       }
     });
+
+    // Check available inventory across all rows for this brand & size (excluding logs on this target date)
+    for (const [key, req] of Object.entries(requestedBagsByBrandSize)) {
+      const invItems = (inventory || []).filter(f => f && f.brand.toLowerCase().trim() === req.brand.toLowerCase().trim() && f.size.toLowerCase().trim() === req.size.toLowerCase().trim());
+      const totalPurchasedBags = invItems.reduce((s, f) => s + (Number(f.bags) || 0), 0);
+      const weightPerBag = invItems[0]?.weightPerBag || 15;
+      const totalPurchasedKg = invItems.reduce((s, f) => s + (Number(f.totalKg) || (Number(f.bags) * (Number(f.weightPerBag) || weightPerBag))), 0);
+
+      const openedOnOtherDates = (bagLogs || []).filter(b => 
+        b && 
+        b.brand?.toLowerCase().trim() === req.brand.toLowerCase().trim() && 
+        b.size?.toLowerCase().trim() === req.size.toLowerCase().trim() &&
+        !isSameDate(b.date, bagsDate) &&
+        !isSameDate(b.date, dateLabel)
+      );
+      const totalOpenedOtherBags = openedOnOtherDates.reduce((s, b) => s + (Number(b.bagsOpened) || 0), 0);
+      const totalOpenedOtherKg = openedOnOtherDates.reduce((s, b) => s + (Number(b.totalKg) || (Number(b.bagsOpened) * (Number(b.kgPerBag) || weightPerBag))), 0);
+
+      const availableBags = Math.max(0, totalPurchasedBags - totalOpenedOtherBags);
+      const availableKg = Math.max(0, totalPurchasedKg - totalOpenedOtherKg);
+
+      if (req.totalRequestedBags > availableBags || req.totalRequestedKg > availableKg) {
+        const errIdx = bagRows.findIndex(r => (r.brand || "").toLowerCase().trim() === req.brand.toLowerCase().trim() && (r.size || "").toLowerCase().trim() === req.size.toLowerCase().trim());
+        errs[`stock_${errIdx >= 0 ? errIdx : 0}`] = `Insufficient stock for ${req.brand} ${req.size}. Available: ${availableBags} bag${availableBags !== 1 ? "s" : ""} (${availableKg}kg), requested: ${req.totalRequestedBags} bags.`;
+      }
+    }
 
     if (Object.keys(errs).length) { setBagsErr(errs); return; }
     setBagsErr({});
@@ -1158,38 +1189,30 @@ function FeedDocumentation({
 
       // Save Bags Opened
       if (r.qty !== "" && !isNaN(n) && n >= 0) {
-        if (r.id) {
-          const existingRec = (bagLogs || []).find(x => x.id === r.id);
-          if (existingRec && onEditBagLog) {
-            promises.push(Promise.resolve(onEditBagLog({
-              ...existingRec,
-              date: dateLabel,
-              month: toMon(bagsDate),
-              year: toYr(bagsDate),
-              brand: r.brand,
-              size: r.size,
-              kgPerBag: r.kgPerBag,
-              bagsOpened: n,
-              totalKg: n * r.kgPerBag,
-              fishStock: fs
-            })));
-          } else {
-            promises.push(Promise.resolve(onAddBagLog({
-              id: r.id,
-              date: dateLabel,
-              month: toMon(bagsDate),
-              year: toYr(bagsDate),
-              brand: r.brand,
-              size: r.size,
-              kgPerBag: r.kgPerBag,
-              bagsOpened: n,
-              totalKg: n * r.kgPerBag,
-              fishStock: fs
-            })));
-          }
-        } else if (n > 0) {
+        const existingRec = (bagLogs || []).find(x => 
+          (r.id && x.id === r.id) || 
+          (isSameDate(x.date, dateLabel) && 
+           x.size?.toLowerCase().trim() === r.size?.toLowerCase().trim() && 
+           x.brand?.toLowerCase().trim() === r.brand?.toLowerCase().trim() && 
+           isStockMatch(x.fishStock, fs))
+        );
+
+        if (existingRec && onEditBagLog) {
+          promises.push(Promise.resolve(onEditBagLog({
+            ...existingRec,
+            date: dateLabel,
+            month: toMon(bagsDate),
+            year: toYr(bagsDate),
+            brand: r.brand,
+            size: r.size,
+            kgPerBag: r.kgPerBag,
+            bagsOpened: n,
+            totalKg: n * r.kgPerBag,
+            fishStock: fs
+          })));
+        } else if (n > 0 || (n === 0 && r.remainingKg !== "")) {
           promises.push(Promise.resolve(onAddBagLog({
-            id: uid(),
+            id: r.id || uid(),
             date: dateLabel,
             month: toMon(bagsDate),
             year: toYr(bagsDate),
@@ -1207,9 +1230,9 @@ function FeedDocumentation({
       const remVal = Number(r.remainingKg);
       if (r.remainingKg !== "" && !isNaN(remVal) && remVal >= 0 && fs) {
         const existingRemain = (remainLogs || []).find(x =>
-          x.brand === r.brand &&
-          x.size === r.size &&
-          normalizeFishStock(x.fishStock) === fs &&
+          x.brand?.toLowerCase().trim() === r.brand?.toLowerCase().trim() &&
+          x.size?.toLowerCase().trim() === r.size?.toLowerCase().trim() &&
+          (isStockMatch(x.fishStock, fs) || normalizeFishStock(x.fishStock) === fs) &&
           (isSameDate(x.date, bagsDate) || isSameDate(x.date, dateLabel))
         );
         if (existingRemain && onEditRemainLog) {
@@ -1218,7 +1241,7 @@ function FeedDocumentation({
             remainingKg: remVal,
             date: dateLabel
           })));
-        } else if (remVal > 0) {
+        } else {
           promises.push(Promise.resolve(onAddRemainLog({
             id: uid(),
             brand: r.brand,
@@ -2013,9 +2036,9 @@ function FeedDocumentation({
                             {atMax && <span className="text-[10px] font-bold text-red-500">⚠ Limit</span>}
                           </div>
                         </div>
-                        <div className="bg-amber-50/60 border border-amber-100/90 rounded-xl p-2 sm:p-2.5 flex flex-col justify-between">
+                        <div className="bg-slate-50/90 border border-slate-100 rounded-xl p-2 sm:p-2.5 flex flex-col justify-between">
                           <div className="flex items-center justify-between">
-                            <span className="text-[10px] font-bold uppercase tracking-wider text-amber-900">Morning</span>
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Morning</span>
                             {rec.morningTime && <span className="text-[9px] text-slate-400 font-mono">{rec.morningTime}</span>}
                           </div>
                           <div className="mt-0.5">
@@ -2023,9 +2046,9 @@ function FeedDocumentation({
                             <span className="text-xs font-bold text-slate-500 ml-1">kg</span>
                           </div>
                         </div>
-                        <div className="bg-blue-50/60 border border-blue-100/90 rounded-xl p-2 sm:p-2.5 flex flex-col justify-between">
+                        <div className="bg-slate-50/90 border border-slate-100 rounded-xl p-2 sm:p-2.5 flex flex-col justify-between">
                           <div className="flex items-center justify-between">
-                            <span className="text-[10px] font-bold uppercase tracking-wider text-blue-900">Evening</span>
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Evening</span>
                             {rec.eveningTime && <span className="text-[9px] text-slate-400 font-mono">{rec.eveningTime}</span>}
                           </div>
                           <div className="mt-0.5">
