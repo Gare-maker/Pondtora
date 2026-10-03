@@ -366,7 +366,7 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
   const [delUser, setDelUser] = useState<AdminUser | null>(null);
   const [form, setForm] = useState<Partial<AdminUser>>({ ...BLANK });
   const [fErr, setFErr] = useState<Record<string, string>>({});
-  const [farmerDataTab, setFarmerDataTab] = useState<"summary" | "ponds" | "feed" | "finance" | "staff" | "farms">("summary");
+  const [farmerDataTab, setFarmerDataTab] = useState<"summary" | "referrals" | "ponds" | "feed" | "finance" | "staff" | "farms">("summary");
 
   const [userExtra, setUserExtra] = useState<{
     loading: boolean;
@@ -833,6 +833,7 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
     { label: "User / Contact", key: "name" as SortKey },
     { label: "Farm & Location", key: "farmName" as SortKey },
     { label: "Assets / Team", key: null },
+    { label: "Referrals", key: null },
     { label: "Active Plan", key: "activePlan" as SortKey },
     { label: "Sub Status", key: "subscriptionStatus" as SortKey },
     { label: "Trial / Expiry", key: "subscriptionExpiry" as SortKey },
@@ -952,55 +953,59 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
             <thead className="bg-slate-50 border-b border-slate-200">
               <tr>
                 {COLS.map((col, i) => (
-                    <th
-                      key={i}
-                      className="px-4 py-3 text-left text-[10px] uppercase tracking-wider text-slate-400 font-bold whitespace-nowrap"
-                    >
-                      {col.key ? <SortBtn k={col.key} label={col.label} /> : col.label}
-                    </th>
-                  ))}
+                  <th
+                    key={i}
+                    className={`px-4 py-3 text-left text-[10px] uppercase tracking-wider text-slate-400 font-bold whitespace-nowrap ${
+                      i === 0 ? "sticky left-0 bg-slate-50 z-20 border-r border-slate-200 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.06)]" : ""
+                    }`}
+                  >
+                    {col.key ? <SortBtn k={col.key} label={col.label} /> : col.label}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-50">
+              {isRefreshing && users.length === 0 && (
+                <tr>
+                  <td colSpan={10} className="text-center py-20 text-slate-400 text-xs">
+                    <div className="max-w-md mx-auto space-y-3">
+                      <RotateCw className="mx-auto text-emerald-500 animate-spin" size={32} />
+                      <p className="font-semibold text-slate-700">Connecting to Supabase Database…</p>
+                      <p className="text-[11px] text-slate-400">Retrieving live registered farm accounts.</p>
+                    </div>
+                  </td>
                 </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-50">
-                {isRefreshing && users.length === 0 && (
-                  <tr>
-                    <td colSpan={9} className="text-center py-20 text-slate-400 text-xs">
-                      <div className="max-w-md mx-auto space-y-3">
-                        <RotateCw className="mx-auto text-emerald-500 animate-spin" size={32} />
-                        <p className="font-semibold text-slate-700">Connecting to Supabase Database…</p>
-                        <p className="text-[11px] text-slate-400">Retrieving live registered farm accounts.</p>
-                      </div>
-                    </td>
-                  </tr>
-                )}
-                {!isRefreshing && paged.length === 0 && (
-                  <tr>
-                    <td colSpan={9} className="text-center py-16 text-slate-400 text-xs">
-                      <div className="max-w-md mx-auto space-y-2">
-                        <AlertCircle className="mx-auto text-slate-300" size={32} />
-                        <p className="font-semibold text-slate-600">
-                          {users.length === 0 ? "No registered users found in the database yet." : "No matching users found."}
-                        </p>
-                        <p className="text-[11px] text-slate-400">
-                          {users.length === 0
-                            ? "Users who sign up or create farm accounts in the app will automatically appear here."
-                            : "Try adjusting your search terms or filter criteria."}
-                        </p>
-                        {onRefresh && users.length === 0 && (
-                          <button
-                            onClick={onRefresh}
-                            disabled={isRefreshing}
-                            className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-colors shadow-xs"
-                          >
-                            <RotateCw size={12} className={isRefreshing ? "animate-spin" : ""} />
-                            {isRefreshing ? "Syncing…" : "Sync from Database"}
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                )}
-                {paged.map((u) => (
+              )}
+              {!isRefreshing && paged.length === 0 && (
+                <tr>
+                  <td colSpan={10} className="text-center py-16 text-slate-400 text-xs">
+                    <div className="max-w-md mx-auto space-y-2">
+                      <AlertCircle className="mx-auto text-slate-300" size={32} />
+                      <p className="font-semibold text-slate-600">
+                        {users.length === 0 ? "No registered users found in the database yet." : "No matching users found."}
+                      </p>
+                      <p className="text-[11px] text-slate-400">
+                        {users.length === 0
+                          ? "Users who sign up or create farm accounts in the app will automatically appear here."
+                          : "Try adjusting your search terms or filter criteria."}
+                      </p>
+                      {onRefresh && users.length === 0 && (
+                        <button
+                          onClick={onRefresh}
+                          disabled={isRefreshing}
+                          className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-colors shadow-xs"
+                        >
+                          <RotateCw size={12} className={isRefreshing ? "animate-spin" : ""} />
+                          {isRefreshing ? "Syncing…" : "Sync from Database"}
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              )}
+              {paged.map((u) => {
+                const rStats = getUserReferralStats(u);
+                return (
                   <tr
                     key={u.id}
                     onClick={() => setViewUser(u)}
@@ -1008,7 +1013,7 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                     title="Click to view full user details and reach out"
                   >
                     {/* 1. User / Contact */}
-                    <td className="px-4 py-3 max-w-[220px]">
+                    <td className="px-4 py-3 max-w-[220px] sticky left-0 bg-white group-hover:bg-slate-50 z-10 border-r border-slate-100 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.06)]">
                       <div className="flex items-center gap-2.5">
                         <div className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-500 to-green-600 text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-xs">
                           {(u.name || u.email || "Farmer").charAt(0).toUpperCase()}
@@ -1072,7 +1077,27 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                       </div>
                     </td>
 
-                    {/* 4. Active Plan & Amount */}
+                    {/* 4. Referrals */}
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      <div className="flex flex-col gap-0.5">
+                        <div className="flex items-center gap-1">
+                          <span className={`text-[10.5px] font-bold px-1.5 py-0.5 rounded flex items-center gap-1 ${rStats.totalReferralsCount > 0 ? "bg-purple-100 text-purple-800" : "bg-slate-100 text-slate-500"}`}>
+                            🎁 {rStats.totalReferralsCount} referred
+                          </span>
+                        </div>
+                        {rStats.totalEarnings > 0 ? (
+                          <span className="text-[10px] text-emerald-700 font-bold">
+                            ₦{rStats.totalEarnings.toLocaleString()} earned
+                          </span>
+                        ) : (
+                          <span className="text-[10px] text-slate-400 font-mono">
+                            {rStats.referralCode}
+                          </span>
+                        )}
+                      </div>
+                    </td>
+
+                    {/* 5. Active Plan & Amount */}
                     <td className="px-4 py-3 text-slate-700 whitespace-nowrap font-medium">
                       {u.activePlan ? (
                         <div>
@@ -1097,7 +1122,7 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                       )}
                     </td>
 
-                    {/* 5. Sub Status */}
+                    {/* 6. Sub Status */}
                     <td className="px-4 py-3 whitespace-nowrap">
                       <div className="flex flex-col gap-0.5">
                         <div className="flex items-center gap-1.5">
@@ -1121,7 +1146,7 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                       </div>
                     </td>
 
-                    {/* 6. Trial / Expiry */}
+                    {/* 7. Trial / Expiry */}
                     <td className="px-4 py-3 text-slate-500 whitespace-nowrap">
                       {u.subscriptionStatus === "Trial" ? (
                         <span className="text-amber-600 font-bold flex items-center gap-1">
@@ -1134,7 +1159,7 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                       )}
                     </td>
 
-                    {/* 7. Account */}
+                    {/* 8. Account */}
                     <td className="px-4 py-3 whitespace-nowrap">
                       <Bdg
                         label={u.accountStatus}
@@ -1142,12 +1167,12 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                       />
                     </td>
 
-                    {/* 8. Joined */}
+                    {/* 9. Joined */}
                     <td className="px-4 py-3 text-slate-400 whitespace-nowrap text-[11px]">
                       {fmtDate(u.createdAt)}
                     </td>
 
-                    {/* 9. Actions */}
+                    {/* 10. Actions */}
                     <td className="px-4 py-3 text-right whitespace-nowrap">
                       <div className="flex items-center justify-end gap-1.5" onClick={e => e.stopPropagation()}>
                         <button
@@ -1185,19 +1210,22 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                       </div>
                     </td>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
 
-          {/* Mobile Users Cards View (md:hidden) */}
-          <div className="md:hidden divide-y divide-slate-100">
-            {paged.length === 0 ? (
-              <div className="p-6 text-center text-slate-400 text-xs">
-                No matching farm accounts found.
-              </div>
-            ) : (
-              paged.map((u) => (
+        {/* Mobile Users Cards View (md:hidden) */}
+        <div className="md:hidden divide-y divide-slate-100">
+          {paged.length === 0 ? (
+            <div className="p-6 text-center text-slate-400 text-xs">
+              No matching farm accounts found.
+            </div>
+          ) : (
+            paged.map((u) => {
+              const rStats = getUserReferralStats(u);
+              return (
                 <div
                   key={u.id}
                   onClick={() => setViewUser(u)}
@@ -1245,10 +1273,21 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                       <span>💧 {u.pondCount ?? 0} Ponds</span>
                     </div>
                   </div>
+
+                  {/* Referral summary row on mobile */}
+                  <div className="flex items-center justify-between text-[11px] bg-slate-50/90 px-2.5 py-1.5 rounded-lg border border-slate-200/60">
+                    <span className="font-semibold text-slate-700 flex items-center gap-1">
+                      🎁 Referrals: <strong className="text-purple-800">{rStats.totalReferralsCount}</strong> ({rStats.paidReferralsCount} paid)
+                    </span>
+                    <span className={`font-bold ${rStats.totalEarnings > 0 ? "text-emerald-700" : "text-slate-400"}`}>
+                      ₦{rStats.totalEarnings.toLocaleString()} earned
+                    </span>
+                  </div>
                 </div>
-              ))
-            )}
-          </div>
+              );
+            })
+          )}
+        </div>
 
           <div className="px-4 py-3 border-t border-slate-100 bg-slate-50/50">
             <Pagination total={filtered.length} page={page} perPage={PER_PAGE} onPage={setPage} />
@@ -1404,6 +1443,7 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
               <div className="flex items-center gap-1.5 overflow-x-auto">
                 {[
                   { id: "summary", label: "📊 Overview", count: null },
+                  { id: "referrals", label: "🎁 Referrals", count: getUserReferralStats(viewUser).totalReferralsCount },
                   { id: "ponds", label: "💧 Ponds & Fish", count: (userExtra?.ponds || []).length > 0 ? userExtra.ponds.length : (viewUser.pondCount ?? 0) },
                   { id: "feed", label: "🌾 Feed & Stock", count: (userExtra?.feedInventory || []).length },
                   { id: "finance", label: "💰 Financials & Invoices", count: (userExtra?.revenues?.length || 0) + (userExtra?.expenses?.length || 0) + (userExtra?.invoices?.length || 0) },
@@ -1587,6 +1627,185 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                       </div>
                     </div>
                   </div>
+
+                  {/* Referral Program Overview Card */}
+                  {(() => {
+                    const rStats = getUserReferralStats(viewUser);
+                    return (
+                      <div>
+                        <div className="flex items-center justify-between mb-2">
+                          <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                            <Gift size={13} className="text-purple-600" /> Referral Program & Commissions
+                          </h3>
+                          <button
+                            onClick={() => setFarmerDataTab("referrals")}
+                            className="text-purple-700 hover:text-purple-900 font-bold text-[11px] inline-flex items-center gap-1"
+                          >
+                            View Referrals Tab <ArrowRight size={11} />
+                          </button>
+                        </div>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                          <div className="bg-purple-50/60 border border-purple-200/70 p-2.5 rounded-xl">
+                            <p className="text-[10px] uppercase font-bold text-purple-600">Referral Code</p>
+                            <div className="flex items-center justify-between mt-0.5">
+                              <span className="font-mono font-bold text-purple-900 text-xs">{rStats.referralCode}</span>
+                              <button
+                                onClick={() => copyToClipboard(rStats.referralCode, "Referral code")}
+                                className="text-purple-500 hover:text-purple-800 p-0.5"
+                                title="Copy referral code"
+                              >
+                                <Copy size={11} />
+                              </button>
+                            </div>
+                          </div>
+                          <div className="bg-slate-50 border border-slate-200 p-2.5 rounded-xl text-center">
+                            <p className="text-[10px] uppercase font-bold text-slate-400">Total Referred</p>
+                            <p className="text-lg font-extrabold text-slate-800 font-['Barlow_Condensed',sans-serif] mt-0.5">
+                              {rStats.totalReferralsCount} <span className="text-[11px] font-normal text-slate-400">({rStats.paidReferralsCount} paid)</span>
+                            </p>
+                          </div>
+                          <div className="bg-emerald-50/60 border border-emerald-200/70 p-2.5 rounded-xl text-center">
+                            <p className="text-[10px] uppercase font-bold text-emerald-600">Total Earned</p>
+                            <p className="text-lg font-extrabold text-emerald-800 font-['Barlow_Condensed',sans-serif] mt-0.5">
+                              ₦{rStats.totalEarnings.toLocaleString()}
+                            </p>
+                          </div>
+                          <div className="bg-amber-50/60 border border-amber-200/70 p-2.5 rounded-xl text-center">
+                            <p className="text-[10px] uppercase font-bold text-amber-700">Available Payout</p>
+                            <p className="text-lg font-extrabold text-amber-900 font-['Barlow_Condensed',sans-serif] mt-0.5">
+                              ₦{rStats.availableEarnings.toLocaleString()}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+
+              {/* Tab: Referrals List & Payout Controls */}
+              {farmerDataTab === "referrals" && (
+                <div className="space-y-4">
+                  {(() => {
+                    const rStats = getUserReferralStats(viewUser);
+                    return (
+                      <>
+                        {/* Referral Summary Header Cards */}
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                          <div className="bg-purple-50/80 border border-purple-200 p-3 rounded-xl">
+                            <p className="text-[10px] uppercase font-bold text-purple-600">Referral Code</p>
+                            <div className="flex items-center justify-between mt-1">
+                              <span className="font-mono font-extrabold text-purple-900 text-sm tracking-wide">{rStats.referralCode}</span>
+                              <button
+                                onClick={() => copyToClipboard(rStats.referralCode, "Referral code")}
+                                className="text-purple-600 hover:text-purple-900 p-1 rounded hover:bg-purple-100"
+                                title="Copy code"
+                              >
+                                <Copy size={13} />
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="bg-slate-50 border border-slate-200 p-3 rounded-xl">
+                            <p className="text-[10px] uppercase font-bold text-slate-400">Total Farmers Invited</p>
+                            <p className="text-xl font-extrabold text-slate-800 font-['Barlow_Condensed',sans-serif] mt-1">
+                              {rStats.totalReferralsCount}
+                              <span className="text-xs font-normal text-slate-500 ml-1.5 font-sans">
+                                ({rStats.paidReferralsCount} paid, {rStats.trialReferralsCount} trial)
+                              </span>
+                            </p>
+                          </div>
+
+                          <div className="bg-emerald-50 border border-emerald-200 p-3 rounded-xl">
+                            <p className="text-[10px] uppercase font-bold text-emerald-600">Total Commission Earned</p>
+                            <p className="text-xl font-extrabold text-emerald-800 font-['Barlow_Condensed',sans-serif] mt-1">
+                              ₦{rStats.totalEarnings.toLocaleString()}
+                            </p>
+                          </div>
+
+                          <div className="bg-amber-50 border border-amber-200 p-3 rounded-xl flex flex-col justify-between">
+                            <div>
+                              <p className="text-[10px] uppercase font-bold text-amber-700">Available Payout</p>
+                              <p className="text-xl font-extrabold text-amber-900 font-['Barlow_Condensed',sans-serif] mt-0.5">
+                                ₦{rStats.availableEarnings.toLocaleString()}
+                              </p>
+                            </div>
+                            {rStats.availableEarnings > 0 && (
+                              <button
+                                onClick={() => {
+                                  const paidCount = markReferralRewardsPaid(rStats.referralCode || viewUser.email || "");
+                                  toast.success(`Marked ${paidCount} referral commission reward(s) as Paid!`);
+                                }}
+                                className="mt-2 w-full py-1 px-2 bg-amber-600 hover:bg-amber-700 text-white font-bold text-[11px] rounded-lg transition-colors shadow-xs"
+                              >
+                                Mark Commission Paid
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Referral Link Quick Copy Box */}
+                        <div className="bg-slate-50 border border-slate-200 p-3 rounded-xl flex items-center justify-between gap-3">
+                          <div className="min-w-0 flex-1">
+                            <p className="text-[10px] uppercase font-bold text-slate-400">Shareable Invite Link</p>
+                            <p className="text-xs font-mono text-slate-700 truncate mt-0.5">{rStats.referralLink}</p>
+                          </div>
+                          <button
+                            onClick={() => copyToClipboard(rStats.referralLink, "Referral link")}
+                            className="shrink-0 px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs rounded-lg transition-colors flex items-center gap-1.5"
+                          >
+                            <Copy size={12} /> Copy Invite Link
+                          </button>
+                        </div>
+
+                        {/* Referred Farmers Table / List */}
+                        <div>
+                          <h3 className="text-xs font-bold text-slate-700 mb-2 flex items-center gap-1.5">
+                            <UsersIcon size={14} className="text-purple-600" />
+                            Farmers Registered via {viewUser.name || "this user"}'s Code ({rStats.referredUsers.length})
+                          </h3>
+
+                          {rStats.referredUsers.length === 0 ? (
+                            <div className="p-8 text-center border border-slate-200 rounded-xl bg-slate-50 text-slate-400">
+                              <Gift size={28} className="mx-auto mb-2 text-slate-300" />
+                              <p className="font-semibold text-xs text-slate-600">No farmers referred yet</p>
+                              <p className="text-[11px] text-slate-400 mt-0.5">
+                                When new farmers register using code <strong className="text-purple-700 font-mono">{rStats.referralCode}</strong>, they will instantly appear here.
+                              </p>
+                            </div>
+                          ) : (
+                            <div className="border border-slate-200 rounded-xl overflow-hidden shadow-2xs divide-y divide-slate-100">
+                              {rStats.referredUsers.map((refUser) => (
+                                <div key={refUser.id} className="p-3 flex flex-wrap items-center justify-between gap-3 hover:bg-slate-50 transition-colors">
+                                  <div className="min-w-0">
+                                    <div className="flex items-center gap-2">
+                                      <p className="font-bold text-slate-900 text-xs truncate">{refUser.name}</p>
+                                      <Bdg
+                                        label={refUser.hasPaid ? "Subscribed (Paid)" : refUser.trialStatusText}
+                                        color={refUser.hasPaid ? "green" : (refUser.trialDaysLeft > 0 ? "blue" : "amber")}
+                                      />
+                                    </div>
+                                    <p className="text-[11px] text-slate-500 mt-0.5 truncate">
+                                      {refUser.email} • Farm: <strong className="text-slate-700">{refUser.farmName || "Primary Farm"}</strong> • Joined {fmtDate(refUser.createdAt)}
+                                    </p>
+                                  </div>
+
+                                  <div className="text-right shrink-0">
+                                    <p className="font-bold text-emerald-700 text-sm font-['Barlow_Condensed',sans-serif]">
+                                      {refUser.totalCommission > 0 ? `+₦${refUser.totalCommission.toLocaleString()}` : "₦0 commission"}
+                                    </p>
+                                    <p className="text-[10px] text-slate-400 font-medium">
+                                      {refUser.commissionBreakdown || (refUser.hasPaid ? "Standard Commission" : "Pending activation")}
+                                    </p>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </>
+                    );
+                  })()}
                 </div>
               )}
 

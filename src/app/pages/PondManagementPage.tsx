@@ -3,7 +3,7 @@ import {
   Fish, Plus, CheckCircle, X, ArrowRightLeft, Layers,
   Droplets, Trash2, ChevronDown, ChevronUp,
   ChevronLeft, ChevronRight, Eye, Download, FileText, Pencil,
-  MoreVertical, TrendingUp, TrendingDown, Search, History
+  MoreVertical, TrendingUp, TrendingDown, Search, History, GripVertical
 } from "lucide-react";
 import type { Pond, Expense, MortalityEntry, FeedingRecord, StockEvent, TreatmentRecord, BagOpenLog, FeedRemainingLog, FeedItem, Farm, PondReport } from "../types";
 import { EXPENSE_CATS, POND_TYPES, POND_SPECIES, MORT_CAUSES, TODAY, fmt, uid, toMon, toYr, downloadCSV, openPrintWindow, fmtStockingDate, getPondFishStock, formatFishStock } from "../data";
@@ -1037,7 +1037,7 @@ export function getNextPondFigure(ponds: Pond[]): string {
 }
 
 /* ─── 2. Pond Management ────────────────────────────────────── */
-export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPond,onTransfer,onNurseryTransfer,mortality,onAddMortality,onAddCost,feedingRecords,stockEvents,treatments,onAddTreatment,activeFarmId,onDeletePond,onEditFish,onSetMaxKg,onEditPond,onScrollTop,currency="₦",inventory=[],farms=[],pondReports=[],onAddPondReport,canCreate=true,canEdit=true,canDelete=true}:{ponds:Pond[];onAddPond:(p:Pond)=>void;onClosePond:(id:string)=>void;onRestockPond:(id:string,data:{species:string;initialStock:number;stockingDate:string;stockMonth:string;supplier?:string;fishStock?:string})=>void;onTransfer:(fromId:string,toId:string,date:string)=>void;onNurseryTransfer:(fromId:string,toId:string,count:number,pct:number,date:string)=>void;mortality:MortalityEntry[];onAddMortality:(m:MortalityEntry,pondId:string)=>void;onAddCost:(e:Expense)=>void;feedingRecords:FeedingRecord[];stockEvents:StockEvent[];treatments:TreatmentRecord[];onAddTreatment:(t:TreatmentRecord)=>void;activeFarmId:string;onDeletePond?:(id:string)=>void;onEditFish?:(pondId:string,u:{species:string;currentCount:number;stockingDate:string;fishStock?:string})=>void;onSetMaxKg:(pondId:string,size:string,maxKg:number)=>void;onEditPond?:(id:string,u:Partial<Pond>)=>void;onScrollTop?:()=>void;currency?:string;inventory?:FeedItem[];farms?:Farm[];pondReports?:PondReport[];onAddPondReport?:(r:PondReport)=>Promise<void>;canCreate?:boolean;canEdit?:boolean;canDelete?:boolean;}){
+export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPond,onTransfer,onNurseryTransfer,mortality,onAddMortality,onAddCost,feedingRecords,stockEvents,treatments,onAddTreatment,activeFarmId,onDeletePond,onEditFish,onSetMaxKg,onEditPond,onReorderPonds,onScrollTop,currency="₦",inventory=[],farms=[],pondReports=[],onAddPondReport,canCreate=true,canEdit=true,canDelete=true}:{ponds:Pond[];onAddPond:(p:Pond)=>void;onClosePond:(id:string)=>void;onRestockPond:(id:string,data:{species:string;initialStock:number;stockingDate:string;stockMonth:string;supplier?:string;fishStock?:string})=>void;onTransfer:(fromId:string,toId:string,date:string)=>void;onNurseryTransfer:(fromId:string,toId:string,count:number,pct:number,date:string)=>void;mortality:MortalityEntry[];onAddMortality:(m:MortalityEntry,pondId:string)=>void;onAddCost:(e:Expense)=>void;feedingRecords:FeedingRecord[];stockEvents:StockEvent[];treatments:TreatmentRecord[];onAddTreatment:(t:TreatmentRecord)=>void;activeFarmId:string;onDeletePond?:(id:string)=>void;onEditFish?:(pondId:string,u:{species:string;currentCount:number;stockingDate:string;fishStock?:string})=>void;onSetMaxKg:(pondId:string,size:string,maxKg:number)=>void;onEditPond?:(id:string,u:Partial<Pond>)=>void;onReorderPonds?:(ponds:Pond[])=>void;onScrollTop?:()=>void;currency?:string;inventory?:FeedItem[];farms?:Farm[];pondReports?:PondReport[];onAddPondReport?:(r:PondReport)=>Promise<void>;canCreate?:boolean;canEdit?:boolean;canDelete?:boolean;}){
   const cs=currency;
   const [detailId,setDetailId]=useState<string|null>(null);
   const [showAdd,setShowAdd]=useState(false);
@@ -1046,6 +1046,59 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
   const [editPondId,setEditPondId]=useState<string|null>(null);
   const [editPondErr,setEditPondErr]=useState<string|null>(null);
   const [editPondF,setEditPondF]=useState({name:"",type:"Earthen",lengthFt:"",widthFt:"",notes:"",category:"Production"});
+
+  /* ── Drag and Drop Reordering State ── */
+  const [draggedPondId, setDraggedPondId] = useState<string | null>(null);
+  const [dragOverPondId, setDragOverPondId] = useState<string | null>(null);
+  const [touchDraggingId, setTouchDraggingId] = useState<string | null>(null);
+  const touchCurrentTargetId = useRef<string | null>(null);
+
+  const handlePondReorder = (sourceId: string, targetId: string) => {
+    if (!sourceId || !targetId || sourceId === targetId) return;
+    const sourceIdx = ponds.findIndex(p => p.id === sourceId);
+    const targetIdx = ponds.findIndex(p => p.id === targetId);
+    if (sourceIdx < 0 || targetIdx < 0) return;
+
+    const newPonds = [...ponds];
+    const [moved] = newPonds.splice(sourceIdx, 1);
+    newPonds.splice(targetIdx, 0, moved);
+
+    if (onReorderPonds) {
+      onReorderPonds(newPonds);
+    }
+    setDraggedPondId(null);
+    setDragOverPondId(null);
+    setTouchDraggingId(null);
+    touchCurrentTargetId.current = null;
+  };
+
+  const handleTouchStart = (e: React.TouchEvent, id: string) => {
+    setTouchDraggingId(id);
+    setDraggedPondId(id);
+    touchCurrentTargetId.current = id;
+  };
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (!touchDraggingId) return;
+    const touch = e.touches[0];
+    const elem = document.elementFromPoint(touch.clientX, touch.clientY);
+    const card = elem?.closest("[data-pond-id]") as HTMLElement | null;
+    const targetId = card?.getAttribute("data-pond-id") || null;
+    if (targetId && targetId !== touchCurrentTargetId.current) {
+      touchCurrentTargetId.current = targetId;
+      setDragOverPondId(targetId);
+    }
+  };
+
+  const handleTouchEnd = () => {
+    if (touchDraggingId && touchCurrentTargetId.current && touchDraggingId !== touchCurrentTargetId.current) {
+      handlePondReorder(touchDraggingId, touchCurrentTargetId.current);
+    }
+    setTouchDraggingId(null);
+    setDraggedPondId(null);
+    setDragOverPondId(null);
+    touchCurrentTargetId.current = null;
+  };
 
   const openEditPond=(p:Pond)=>{
     setEditPondF({name:p.name,type:p.type,lengthFt:p.lengthFt||"",widthFt:p.widthFt||"",notes:p.notes,category:p.category||"Production"});
@@ -1347,8 +1400,8 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
       <Card className="hidden md:block mt-4">
         <div className="overflow-x-auto"><table className="w-full text-sm min-w-[700px]">
           <thead><tr className="border-b border-slate-100 bg-slate-50">
-            <th className="px-4 py-3 text-[11px] text-slate-400 w-10 sticky left-0 z-20 bg-slate-50">#</th>
-            <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider sticky left-10 z-20 bg-slate-50 border-r border-slate-200 whitespace-nowrap cursor-pointer select-none hover:text-green-600" onClick={()=>toggle("name")}><div className="flex items-center gap-1">Pond Name<div className="flex flex-col -space-y-0.5"><ChevronUp size={9} className={sf==="name"&&sd==="asc"?"text-green-600":"text-slate-200"}/><ChevronDown size={9} className={sf==="name"&&sd==="desc"?"text-green-600":"text-slate-200"}/></div></div></th>
+            <th className="px-3 py-3 text-[11px] text-slate-400 w-14 sticky left-0 z-20 bg-slate-50">#</th>
+            <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider sticky left-14 z-20 bg-slate-50 border-r border-slate-200 whitespace-nowrap cursor-pointer select-none hover:text-green-600" onClick={()=>toggle("name")}><div className="flex items-center gap-1">Pond Name<div className="flex flex-col -space-y-0.5"><ChevronUp size={9} className={sf==="name"&&sd==="asc"?"text-green-600":"text-slate-200"}/><ChevronDown size={9} className={sf==="name"&&sd==="desc"?"text-green-600":"text-slate-200"}/></div></div></th>
             <SH label="Type" field="type" sf={sf} sd={sd} onSort={toggle}/>
             <SH label="Species" field="species" sf={sf} sd={sd} onSort={toggle}/>
             <SH label="Fish Count" field="currentCount" sf={sf} sd={sd} onSort={toggle}/>
@@ -1361,10 +1414,39 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
               const logs=mortality.filter(m=>m.pondId===p.id);
               const dead=logs.reduce((s,m)=>s+m.count,0);
               const mRate=p.initialStock>0?((dead/p.initialStock)*100).toFixed(1):"0.0";
+              const isOver = dragOverPondId === p.id;
+              const isDragged = draggedPondId === p.id;
               return(
-                <tr key={p.id} className="hover:bg-slate-50 transition-colors">
-                  <td className="px-4 py-3.5 text-slate-300 text-xs font-mono sticky left-0 z-10 bg-white">{i+1}</td>
-                  <td className="px-4 py-3.5 sticky left-10 z-10 bg-white border-r border-slate-100 cursor-pointer hover:text-green-700" onClick={()=>setDetailId(p.id)}><p className="font-semibold text-slate-900 hover:text-green-700">{p.name}</p><p className="text-[11px] text-slate-400">{p.sizeM2} ft²</p></td>
+                <tr
+                  key={p.id}
+                  data-pond-id={p.id}
+                  onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; if (draggedPondId && draggedPondId !== p.id) setDragOverPondId(p.id); }}
+                  onDragLeave={() => { if (dragOverPondId === p.id) setDragOverPondId(null); }}
+                  onDrop={e => { e.preventDefault(); const src = draggedPondId || e.dataTransfer.getData("text/plain"); handlePondReorder(src, p.id); }}
+                  className={`transition-all ${isOver ? "bg-emerald-50/80 ring-2 ring-emerald-400 ring-inset" : "hover:bg-slate-50"} ${isDragged ? "opacity-30" : ""}`}
+                >
+                  <td className="px-3 py-3.5 text-slate-300 text-xs font-mono sticky left-0 z-10 bg-white">
+                    <div className="flex items-center gap-1.5">
+                      <div
+                        draggable
+                        onDragStart={e => {
+                          e.dataTransfer.setData("text/plain", p.id);
+                          e.dataTransfer.effectAllowed = "move";
+                          setDraggedPondId(p.id);
+                        }}
+                        onDragEnd={() => {
+                          setDraggedPondId(null);
+                          setDragOverPondId(null);
+                        }}
+                        className="p-1 rounded bg-slate-100 hover:bg-slate-200 active:bg-emerald-100 text-slate-400 hover:text-slate-700 active:text-emerald-700 cursor-grab active:cursor-grabbing transition-colors shrink-0 border border-slate-200/80"
+                        title="Drag knot to rearrange pond position"
+                      >
+                        <GripVertical size={13} className="shrink-0" />
+                      </div>
+                      <span className="font-semibold text-slate-400 w-4">{i+1}</span>
+                    </div>
+                  </td>
+                  <td className="px-4 py-3.5 sticky left-14 z-10 bg-white border-r border-slate-100 cursor-pointer hover:text-green-700" onClick={()=>setDetailId(p.id)}><p className="font-semibold text-slate-900 hover:text-green-700">{p.name}</p><p className="text-[11px] text-slate-400">{p.sizeM2} ft²</p></td>
                   <td className="px-4 py-3.5 text-slate-600">{p.type}</td>
                   <td className="px-4 py-3.5 text-slate-600">{p.species}</td>
                   <td className="px-4 py-3.5"><p className="font-semibold text-slate-900">{p.currentCount.toLocaleString()}</p><p className="text-[11px] text-slate-400">Mort: {mRate}%</p></td>
@@ -1385,7 +1467,7 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
         </table></div>
         <div className="px-4 pb-2"><Pagination total={filteredPonds.length} page={pondTablePage} perPage={PER_PAGE} onPage={setPondTablePage}/></div>
         <div className="px-4 pb-3 border-t border-slate-50 pt-2">
-          <p className="text-[11px] text-slate-400"><span className="font-semibold text-slate-500">Tip:</span> Open any pond to add Fish Stock, manage feeding records, and view the Fish Stock currently assigned to that pond.</p>
+          <p className="text-[11px] text-slate-400"><span className="font-semibold text-slate-500">Tip:</span> Use the grip knot handle on the left to drag and reorder ponds. Open any pond to manage fish stock and feeding records.</p>
         </div>
       </Card>
 
@@ -1394,15 +1476,43 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
         {filteredPonds.length===0&&<p className="text-center text-xs text-slate-400 py-8 bg-white border border-slate-200 rounded-xl">No ponds match filters</p>}
         {filteredPonds.map((p,pIdx)=>{
           const isNearBottom=pIdx>=filteredPonds.length-2;
+          const isOver = dragOverPondId === p.id;
+          const isDragged = draggedPondId === p.id;
           return(
-          <div key={p.id} className="bg-white border border-slate-200/60 rounded-xl p-3.5 flex items-center justify-between hover:border-green-300 hover:shadow-xs active:bg-slate-50 transition-all cursor-pointer shadow-xs"
+          <div
+            key={p.id}
+            data-pond-id={p.id}
+            onDragOver={e => { e.preventDefault(); if (draggedPondId && draggedPondId !== p.id) setDragOverPondId(p.id); }}
+            onDragLeave={() => { if (dragOverPondId === p.id) setDragOverPondId(null); }}
+            onDrop={e => { e.preventDefault(); const src = draggedPondId || e.dataTransfer.getData("text/plain"); handlePondReorder(src, p.id); }}
+            className={`bg-white border rounded-xl p-3.5 flex items-center justify-between transition-all cursor-pointer shadow-xs ${isOver ? "border-emerald-500 bg-emerald-50/50 ring-2 ring-emerald-400/40 scale-[1.01]" : "border-slate-200/60 hover:border-green-300 active:bg-slate-50"} ${isDragged ? "opacity-30" : ""}`}
             onClick={()=>setDetailId(p.id)}
             onContextMenu={e=>{e.preventDefault();setPondMobileMenu(p.id);}}
             onTouchStart={()=>{longPressTimer.current=setTimeout(()=>setPondMobileMenu(p.id),750);}}
             onTouchEnd={()=>{if(longPressTimer.current)clearTimeout(longPressTimer.current);}}
             onTouchMove={()=>{if(longPressTimer.current){clearTimeout(longPressTimer.current);longPressTimer.current=null;}}}>
-            <div className="flex items-center gap-3 min-w-0 flex-1 pr-2">
-              <span className="text-xs text-slate-300 font-mono w-5 shrink-0">{pIdx+1}</span>
+            <div className="flex items-center gap-2.5 min-w-0 flex-1 pr-2">
+              <div
+                draggable
+                onDragStart={e => {
+                  e.dataTransfer.setData("text/plain", p.id);
+                  e.dataTransfer.effectAllowed = "move";
+                  setDraggedPondId(p.id);
+                }}
+                onDragEnd={() => {
+                  setDraggedPondId(null);
+                  setDragOverPondId(null);
+                }}
+                onTouchStart={e => handleTouchStart(e, p.id)}
+                onTouchMove={handleTouchMove}
+                onTouchEnd={handleTouchEnd}
+                onClick={e => e.stopPropagation()}
+                className="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 active:bg-emerald-100 text-slate-400 hover:text-slate-700 active:text-emerald-700 cursor-grab active:cursor-grabbing transition-colors shrink-0 touch-none select-none border border-slate-200/80 shadow-2xs"
+                title="Drag knot to rearrange pond position"
+              >
+                <GripVertical size={15} className="shrink-0" />
+              </div>
+              <span className="text-xs text-slate-400 font-mono w-4 shrink-0 font-bold">{pIdx+1}</span>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-1">
                   <p className="font-bold text-slate-900 text-sm sm:text-base leading-tight truncate">{p.name}</p>

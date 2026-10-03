@@ -288,7 +288,7 @@ export default function SubscriptionsPage({ users, plans, onUpdate }: Props) {
           <table className="w-full text-xs min-w-[920px]">
             <thead className="bg-slate-50 border-b border-slate-100">
               <tr className="text-[10px] uppercase tracking-wider text-slate-500 font-bold">
-                <th className="px-4 py-3 text-left">Subscriber & Farm</th>
+                <th className="px-4 py-3 text-left sticky left-0 bg-slate-50 z-20 border-r border-slate-200/80 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.06)]">Subscriber & Farm</th>
                 <th className="px-4 py-3 text-left">Assigned Plan</th>
                 <th className="px-4 py-3 text-left">Price Rate</th>
                 <th className="px-4 py-3 text-left">Payment & Paystack Ref</th>
@@ -310,7 +310,7 @@ export default function SubscriptionsPage({ users, plans, onUpdate }: Props) {
                 const isPaid = Boolean(u.hasPaid || u.paystackReference || u.lastPaymentDate) && !u.freeAccess;
                 return (
                   <tr key={u.id} className="hover:bg-slate-50/80 transition-colors group">
-                    <td className="px-4 py-3 max-w-[200px]">
+                    <td className="px-4 py-3 max-w-[200px] sticky left-0 bg-white group-hover:bg-slate-50 z-10 border-r border-slate-100 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.06)]">
                       <p className="font-bold text-slate-900 truncate group-hover:text-emerald-700 transition-colors">
                         {u.name || "Farmer"}
                       </p>

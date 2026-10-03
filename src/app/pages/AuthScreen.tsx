@@ -252,6 +252,15 @@ function AuthScreen({
   const [trialBilling, setTrialBilling] = useState<"monthly" | "yearly">("monthly");
   const [trialFarmType, setTrialFarmType] = useState<"single" | "multi">("single");
 
+  // Always reset scroll to the very top whenever view or create step changes (e.g. going to subscription plan step)
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.scrollTo({ top: 0, left: 0, behavior: "instant" });
+      document.documentElement.scrollTo({ top: 0, left: 0, behavior: "instant" });
+      document.body.scrollTo({ top: 0, left: 0, behavior: "instant" });
+    }
+  }, [createStep, view]);
+
   const { singleFarmPlans = [], multiFarmPlans = [] } = useDynamicPlans();
   const trialPlans = (trialFarmType === "single" ? singleFarmPlans : multiFarmPlans) || [];
 
@@ -492,6 +501,9 @@ function AuthScreen({
     }
 
     setCreateStep("plan");
+    if (typeof window !== "undefined") {
+      window.scrollTo({ top: 0, left: 0, behavior: "instant" });
+    }
   };
 
   // ── Step 2: Select Free Trial Plan and trigger Sign Up ────────────────────

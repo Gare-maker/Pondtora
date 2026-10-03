@@ -228,7 +228,7 @@ export default function PlansPage({ plans, onAdd, onUpdate, onResetDefaults }: P
           <table className="w-full text-xs min-w-[650px]">
             <thead className="bg-slate-50 border-b border-slate-100">
               <tr className="text-[10px] uppercase tracking-wider text-slate-400 font-bold">
-                <th className="px-5 py-3 text-left">Plan Name</th>
+                <th className="px-5 py-3 text-left sticky left-0 bg-slate-50 z-20 border-r border-slate-200/80 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.06)]">Plan Name</th>
                 <th className="px-5 py-3 text-left">Description</th>
                 <th className="px-5 py-3 text-left">Monthly Rate</th>
                 <th className="px-5 py-3 text-left">Yearly Rate</th>
@@ -247,7 +247,7 @@ export default function PlansPage({ plans, onAdd, onUpdate, onResetDefaults }: P
               )}
               {active.map(p => (
                 <tr key={p.id} className="hover:bg-slate-50/70 transition-colors group">
-                  <td className="px-5 py-3.5 font-bold text-slate-900 whitespace-nowrap">
+                  <td className="px-5 py-3.5 font-bold text-slate-900 whitespace-nowrap sticky left-0 bg-white group-hover:bg-slate-50 z-10 border-r border-slate-100 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.06)]">
                     <span className="group-hover:text-green-700 transition-colors">{p.name}</span>
                   </td>
                   <td className="px-5 py-3.5 text-slate-500 max-w-[220px] truncate">
@@ -313,7 +313,7 @@ export default function PlansPage({ plans, onAdd, onUpdate, onResetDefaults }: P
             <table className="w-full text-xs min-w-[650px]">
               <thead className="bg-slate-50 border-b border-slate-100">
                 <tr className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">
-                  <th className="px-5 py-2.5 text-left">Plan</th>
+                  <th className="px-5 py-2.5 text-left sticky left-0 bg-slate-50 z-20 border-r border-slate-200/80 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.06)]">Plan</th>
                   <th className="px-5 py-2.5 text-left">Description</th>
                   <th className="px-5 py-2.5 text-left">Monthly</th>
                   <th className="px-5 py-2.5 text-left">Yearly</th>
@@ -324,8 +324,8 @@ export default function PlansPage({ plans, onAdd, onUpdate, onResetDefaults }: P
               </thead>
               <tbody className="divide-y divide-slate-50">
                 {archived.map(p => (
-                  <tr key={p.id} className="opacity-60 hover:opacity-100 transition-opacity">
-                    <td className="px-5 py-3 font-semibold text-slate-700 whitespace-nowrap">{p.name}</td>
+                  <tr key={p.id} className="opacity-60 hover:opacity-100 transition-opacity group">
+                    <td className="px-5 py-3 font-semibold text-slate-700 whitespace-nowrap sticky left-0 bg-white group-hover:bg-slate-50 z-10 border-r border-slate-100 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.06)]">{p.name}</td>
                     <td className="px-5 py-3 text-slate-400 max-w-[200px] truncate">{p.description || "—"}</td>
                     <td className="px-5 py-3 text-slate-500 whitespace-nowrap">{fmt(p.monthlyPrice)}</td>
                     <td className="px-5 py-3 text-slate-500 whitespace-nowrap">{fmt(p.yearlyPrice)}</td>

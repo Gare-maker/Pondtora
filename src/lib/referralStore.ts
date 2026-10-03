@@ -189,7 +189,7 @@ export function saveAllReferralRewards(rewards: ReferralReward[]) {
 /**
  * Records a new user signup with their referring code
  */
-export function attachReferralToNewUser(newUser: { id?: string; email: string; name?: string }, referrerCode?: string | null) {
+export function attachReferralToNewUser(newUser: { id?: string; email: string; name?: string; farmName?: string }, referrerCode?: string | null) {
   const code = (referrerCode || getPendingReferrerCode() || "").trim().toUpperCase();
   if (!code || !newUser.email) return;
 
@@ -199,6 +199,25 @@ export function attachReferralToNewUser(newUser: { id?: string; email: string; n
   const userIdx = allUsers.findIndex(u => (u.email || "").toLowerCase().trim() === cleanUserEmail);
   if (userIdx >= 0) {
     (allUsers[userIdx] as any).referredBy = code;
+    saveAllAdminUsers(allUsers);
+  } else {
+    allUsers.push({
+      id: newUser.id || "usr-" + Math.random().toString(36).slice(2, 8),
+      name: newUser.name || cleanUserEmail.split("@")[0],
+      email: cleanUserEmail,
+      farmName: newUser.farmName || "Primary Farm",
+      phone: "",
+      city: "Lagos",
+      state: "Lagos",
+      country: "Nigeria",
+      role: "owner",
+      activePlan: "Starter",
+      billingFrequency: "monthly",
+      subscriptionStatus: "Trial",
+      trialStartDate: new Date().toISOString().slice(0, 10),
+      referredBy: code,
+      createdAt: new Date().toISOString().slice(0, 10),
+    });
     saveAllAdminUsers(allUsers);
   }
 
@@ -216,6 +235,12 @@ export function attachReferralToNewUser(newUser: { id?: string; email: string; n
 
   // Clear pending referral after assigning
   clearPendingReferrerCode();
+
+  // Instantly notify any open referral stats / dashboards
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("pondtora:referrals_updated"));
+    window.dispatchEvent(new CustomEvent("pondtora:users_updated"));
+  }
 }
 
 /**
@@ -507,11 +532,32 @@ export async function fetchLiveUserReferralStats(user: { id?: string; name?: str
       saveAllReferralRewards(mergedRewards);
     }
 
-    // 2. Fetch all user profiles from Supabase where referred_by matches this user
-    const { data: dbReferredProfiles } = await supabase
-      .from("user_profiles")
-      .select("*")
-      .or(`referred_by.ilike.${cleanCode},referred_by.ilike.${cleanEmail}${userId ? `,referred_by.eq.${userId}` : ""}`);
+    // 2. Fetch referred user profiles from Supabase
+    let dbReferredProfiles: any[] = [];
+    
+    // First try SECURITY DEFINER RPC to bypass RLS
+    try {
+      const { data: rpcProfiles, error: rpcErr } = await supabase.rpc("get_user_referrals", {
+        p_referrer_code: cleanCode,
+        p_referrer_email: cleanEmail,
+      });
+      if (!rpcErr && Array.isArray(rpcProfiles)) {
+        dbReferredProfiles = rpcProfiles;
+      }
+    } catch {}
+
+    // Fallback to direct query if RPC not present
+    if (dbReferredProfiles.length === 0) {
+      try {
+        const { data: directProfiles } = await supabase
+          .from("user_profiles")
+          .select("*")
+          .or(`referred_by.ilike.${cleanCode},referred_by.ilike.${cleanEmail}${userId ? `,referred_by.eq.${userId}` : ""}`);
+        if (Array.isArray(directProfiles)) {
+          dbReferredProfiles = directProfiles;
+        }
+      } catch {}
+    }
 
     if (Array.isArray(dbReferredProfiles) && dbReferredProfiles.length > 0) {
       const allLocalUsers = loadAllAdminUsers();

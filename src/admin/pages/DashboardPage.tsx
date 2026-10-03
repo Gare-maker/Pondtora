@@ -651,7 +651,7 @@ export default function DashboardPage({
               <table className="w-full text-xs min-w-[700px]">
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50/50 text-[10px] uppercase tracking-wider text-slate-500 font-bold">
-                    <th className="py-2.5 px-3 text-left">Farmer / Contact</th>
+                    <th className="py-2.5 px-3 text-left sticky left-0 bg-slate-50 z-20 border-r border-slate-200/80 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.06)]">Farmer / Contact</th>
                     <th className="py-2.5 px-3 text-left">Farm Details</th>
                     <th className="py-2.5 px-3 text-left">Plan & Status</th>
                     <th className="py-2.5 px-3 text-left">Operations</th>
@@ -661,8 +661,8 @@ export default function DashboardPage({
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {filteredUsers.map(u => (
-                    <tr key={u.id} className="hover:bg-slate-50/80 transition-colors">
-                      <td className="py-3 px-3">
+                    <tr key={u.id} className="hover:bg-slate-50/80 transition-colors group">
+                      <td className="py-3 px-3 sticky left-0 bg-white group-hover:bg-slate-50 z-10 border-r border-slate-100 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.06)]">
                         <p className="font-bold text-slate-900 text-[13px]">{u.name || "Farmer"}</p>
                         <p className="text-slate-500 text-[11px] flex items-center gap-1 mt-0.5">
                           <Mail size={11} className="text-slate-400 shrink-0" /> {u.email}
