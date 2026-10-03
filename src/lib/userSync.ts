@@ -64,6 +64,22 @@ export function isStaffUser(u: any): boolean {
   );
 }
 
+function getFallbackPlanPrice(planTarget: string, freq: BillingFrequency): number {
+  const t = (planTarget || "starter").toLowerCase().trim();
+  const list = (DEFAULT_PLANS && Array.isArray(DEFAULT_PLANS) && DEFAULT_PLANS.length > 0)
+    ? DEFAULT_PLANS
+    : [
+        { name: "Starter", monthlyPrice: 3000, yearlyPrice: 28800 },
+        { name: "Growth", monthlyPrice: 5000, yearlyPrice: 48000 },
+        { name: "Commercial", monthlyPrice: 10000, yearlyPrice: 96000 },
+        { name: "3-Farm Plan", monthlyPrice: 24000, yearlyPrice: 230400 },
+        { name: "5-Farm Plan", monthlyPrice: 40000, yearlyPrice: 384000 },
+        { name: "Unlimited Farms", monthlyPrice: 70000, yearlyPrice: 672000 },
+      ];
+  const matched = list.find(p => p.name.toLowerCase().trim() === t) || list[0];
+  return freq === "yearly" ? matched.yearlyPrice : matched.monthlyPrice;
+}
+
 export function loadAllAdminUsers(): AdminUser[] {
   try {
     const raw = localStorage.getItem(USERS_STORAGE_KEY);
@@ -185,8 +201,7 @@ export async function fetchLiveAdminUsers(): Promise<{
         // If user is paid but amount not explicitly in DB, resolve from plan price
         if (hasPaid && (!subAmount || subAmount <= 0)) {
           const planTarget = activePlan.toLowerCase().trim();
-          const matchedPlan = DEFAULT_PLANS.find(dp => dp.name.toLowerCase().trim() === planTarget) || DEFAULT_PLANS[0];
-          subAmount = billingFreq === "yearly" ? matchedPlan.yearlyPrice : matchedPlan.monthlyPrice;
+          subAmount = getFallbackPlanPrice(planTarget, billingFreq);
         }
 
         const todayStr = new Date().toISOString().slice(0, 10);
@@ -339,8 +354,7 @@ export async function fetchLiveAdminUsers(): Promise<{
 
           if (hasPaid && (!subAmount || subAmount <= 0)) {
             const planTarget = activePlan.toLowerCase().trim();
-            const matchedPlan = DEFAULT_PLANS.find(dp => dp.name.toLowerCase().trim() === planTarget) || DEFAULT_PLANS[0];
-            subAmount = billingFreq === "yearly" ? matchedPlan.yearlyPrice : matchedPlan.monthlyPrice;
+            subAmount = getFallbackPlanPrice(planTarget, billingFreq);
           }
 
           const todayStr = new Date().toISOString().slice(0, 10);
@@ -1104,8 +1118,7 @@ export function syncUserProfileToAdmin(
 
     if (hasPaid && (!resolvedCustomAmount || resolvedCustomAmount <= 0) && !resolvedFreeAccess) {
       const planTarget = resolvedPlan.toLowerCase().trim();
-      const matchedPlan = DEFAULT_PLANS.find(dp => dp.name.toLowerCase().trim() === planTarget) || DEFAULT_PLANS[0];
-      resolvedCustomAmount = resolvedFreq === "yearly" ? matchedPlan.yearlyPrice : matchedPlan.monthlyPrice;
+      resolvedCustomAmount = getFallbackPlanPrice(planTarget, resolvedFreq);
     }
 
     const subStart = hasPaid ? (profile.subscriptionStart || (profile as any).subscription_start || current.subscriptionStart || new Date().toISOString().slice(0, 10)) : null;
@@ -1161,8 +1174,7 @@ export function syncUserProfileToAdmin(
 
     if (hasPaid && (!resolvedAmount || resolvedAmount <= 0) && !profileFreeAccess) {
       const planTarget = resolvedPlan.toLowerCase().trim();
-      const matchedPlan = DEFAULT_PLANS.find(dp => dp.name.toLowerCase().trim() === planTarget) || DEFAULT_PLANS[0];
-      resolvedAmount = resolvedFreq === "yearly" ? matchedPlan.yearlyPrice : matchedPlan.monthlyPrice;
+      resolvedAmount = getFallbackPlanPrice(planTarget, resolvedFreq);
     }
 
     const subStart = hasPaid ? (profile.subscriptionStart || (profile as any).subscription_start || new Date().toISOString().slice(0, 10)) : null;

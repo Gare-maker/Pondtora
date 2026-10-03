@@ -1,8 +1,9 @@
-import React, { useState, Component, ErrorInfo, ReactNode } from "react";
+import React, { useState, Component, ErrorInfo, ReactNode, Suspense, lazy } from "react";
 import ReactDOM from "react-dom/client";
 import "./styles/index.css";
 import App from "./app/App";
-import AdminApp from "./admin/AdminApp";
+
+const AdminApp = lazy(() => import("./admin/AdminApp"));
 
 // Listen for Vite chunk preload errors and automatically reload to fetch fresh assets
 if (typeof window !== "undefined") {
@@ -224,7 +225,15 @@ function Root() {
   }
 
   if (isAdmin) {
-    return <AdminApp onExit={exitAdmin} />;
+    return (
+      <Suspense fallback={
+        <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", backgroundColor: "#0f172a", color: "#ffffff", fontSize: "14px", fontFamily: "sans-serif" }}>
+          Loading Admin Control Center...
+        </div>
+      }>
+        <AdminApp onExit={exitAdmin} />
+      </Suspense>
+    );
   }
 
   return <App onAdmin={enterAdmin} />;

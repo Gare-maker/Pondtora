@@ -182,7 +182,7 @@ export default function AdminApp({ onExit }: { onExit?: () => void } = {}) {
   });
   const [plans, setPlans] = useState<AdminPlan[]>(() => {
     const loaded = loadLocal("pondtora_admin_plans", []);
-    return loaded.length > 0 ? loaded : DEFAULT_PLANS;
+    return loaded.length > 0 ? loaded : (DEFAULT_PLANS || []);
   });
   const [logs, setLogs] = useState<AdminActivityLog[]>(() => {
     const loaded = loadLocal("pondtora_admin_logs", []);
