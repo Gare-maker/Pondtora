@@ -103,15 +103,6 @@ class AdminErrorBoundary extends React.Component<AdminErrorBoundaryProps, AdminE
 
 type Page = "dashboard" | "users" | "subscriptions" | "plans" | "logs" | "settings";
 
-const NAV: { id: Page; label: string; icon: React.ElementType }[] = [
-  { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { id: "users", label: "Users & Farms", icon: Users },
-  { id: "subscriptions", label: "Subscriptions", icon: CreditCard },
-  { id: "plans", label: "Pricing & Plans", icon: Package },
-  { id: "logs", label: "Activity Logs", icon: Activity },
-  { id: "settings", label: "Settings", icon: Settings },
-];
-
 const INITIAL_LOGS: AdminActivityLog[] = [
   {
     id: "log-1",
@@ -172,6 +163,15 @@ export default function AdminApp({ onExit }: { onExit?: () => void } = {}) {
   const [isSyncing, setIsSyncing] = useState(false);
   const [isLiveDb, setIsLiveDb] = useState(false);
   const [lastSynced, setLastSynced] = useState<Date | null>(null);
+
+  const NAV = React.useMemo<{ id: Page; label: string; icon: React.ElementType }[]>(() => [
+    { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+    { id: "users", label: "Users & Farms", icon: Users },
+    { id: "subscriptions", label: "Subscriptions", icon: CreditCard },
+    { id: "plans", label: "Pricing & Plans", icon: Package },
+    { id: "logs", label: "Activity Logs", icon: Activity },
+    { id: "settings", label: "Settings", icon: Settings },
+  ], []);
 
   // Persistent Admin State (Live Supabase users, platform stats, and managed accounts)
   const [users, setUsers] = useState<AdminUser[]>(() => {

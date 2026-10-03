@@ -8,7 +8,7 @@ import type {
   TreatmentRecord, StaffMember, Report, Customer, PriceGroup,
   Invoice, InvSettings, Investor, Investment, InvestmentPayment, PondReport,
 } from "../app/types";
-import { INIT_K, INIT_C } from "../app/data";
+import { INIT_K, INIT_C } from "../app/questionsData";
 
 // Dedicated non-persisting client for background staff auth provisioning
 // Guarantees the logged-in owner's session in localStorage is NEVER overwritten

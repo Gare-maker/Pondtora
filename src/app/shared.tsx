@@ -2,7 +2,6 @@ import React, { useState, useMemo, useRef, useEffect } from "react";
 import type { ReactNode, ElementType } from "react";
 import { TrendingUp, TrendingDown, X, ChevronDown, ChevronUp, Calendar } from "lucide-react";
 import type { SortDir } from "./types";
-import { COUNTRIES } from "./data";
 
 /* ─── Shared UI ─────────────────────────────────────────────── */
 export function Card({children,className="",onClick}:{children:ReactNode;className?:string;onClick?:()=>void}){

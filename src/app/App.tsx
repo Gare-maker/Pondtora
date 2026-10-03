@@ -28,7 +28,7 @@ import AuthScreenPage from "./pages/AuthScreen";
 import LandingPage from "./pages/LandingPage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
 import CreatePasswordPage from "./pages/CreatePasswordPage";
-import EmployeeAssessmentsPage, { CandidateAssessment, INIT_C, INIT_K } from "./pages/EmployeeAssessmentsPage";
+import EmployeeAssessmentsPage from "./pages/EmployeeAssessmentsPage";
 import InvestorsPage from "./pages/InvestorsPage";
 import PondReportsComponent from "./pages/PondReportsComponent";
 import { Toaster, toast } from "sonner";
@@ -37,27 +37,26 @@ import { syncUserProfileToAdmin, getUserAdminOverride, logActivity, recordSucces
 import { initializePaystackCheckout, getActivePaystackPublicKey, loadPaystackConfig, getPendingPaystackTransaction, clearPendingPaystackTransaction } from "../lib/paystack";
 import { getUserReferralStats, fetchLiveUserReferralStats, captureReferralParam, getReferralLink, getUserReferralCode } from "../lib/referralStore";
 
-/* ─── Sidebar ───────────────────────────────────────────────── */
-const NAV:{id:View;icon:React.ElementType;label:string}[]=[
-  {id:"financial",        icon:LayoutDashboard, label:"Financial Dashboard"},
-  {id:"ponds",            icon:Droplets,        label:"Pond Management"},
-  {id:"inventory",        icon:Package,         label:"Feed Stock"},
-  {id:"documentation",    icon:BookOpen,        label:"Feeding Records"},
-  {id:"reports",          icon:FileText,        label:"Reports"},
-  {id:"invoices",         icon:Receipt,         label:"Invoices"},
-  {id:"sales_calculator", icon:Calculator,      label:"Sales Calculator"},
-  {id:"staff",            icon:Users,           label:"Staff"},
-  {id:"investors",        icon:Landmark,        label:"Investors"},
-  {id:"assessments",      icon:ClipboardList,   label:"Staff Assessments"},
-  {id:"pricing",          icon:Crown,           label:"Subscription"},
-  {id:"settings",         icon:Settings,        label:"Settings"},
-];
 /* Map nav id → permission name (undefined = always visible) */
 const NAV_PERM:Partial<Record<View,string>>={
   financial:"Financial Dashboard",ponds:"Pond Management",inventory:"Feed Stock",
   documentation:"Feeding Records",invoices:"Invoices",sales_calculator:"Sales Calculator",reports:"Reports",investors:"Investors",assessments:"Staff Assessments",notifications:"Notifications",
 };
 function Sidebar({active,onNav,collapsed,onToggle,farms,activeFarmId,onSwitchFarm,onAddFarm,sideOpen,staff,unreadCount,onNotifications,onLogout,hasPerm,canView,isOwner,userProfile,currentStaff}:{active:View;onNav:(v:View)=>void;collapsed:boolean;onToggle:()=>void;farms:Farm[];activeFarmId:string;onSwitchFarm:(id:string)=>void;onAddFarm:()=>void;sideOpen:boolean;staff?:StaffMember[];unreadCount?:number;onNotifications?:()=>void;onLogout?:()=>void;hasPerm?:(p:string)=>boolean;canView?:(p:string)=>boolean;isOwner?:boolean;userProfile?:UserProfile|null;currentStaff?:StaffMember|null;}){
+  const NAV = useMemo<{id:View;icon:React.ElementType;label:string}[]>(() => [
+    {id:"financial",        icon:LayoutDashboard, label:"Financial Dashboard"},
+    {id:"ponds",            icon:Droplets,        label:"Pond Management"},
+    {id:"inventory",        icon:Package,         label:"Feed Stock"},
+    {id:"documentation",    icon:BookOpen,        label:"Feeding Records"},
+    {id:"reports",          icon:FileText,        label:"Reports"},
+    {id:"invoices",         icon:Receipt,         label:"Invoices"},
+    {id:"sales_calculator", icon:Calculator,      label:"Sales Calculator"},
+    {id:"staff",            icon:Users,           label:"Staff"},
+    {id:"investors",        icon:Landmark,        label:"Investors"},
+    {id:"assessments",      icon:ClipboardList,   label:"Staff Assessments"},
+    {id:"pricing",          icon:Crown,           label:"Subscription"},
+    {id:"settings",         icon:Settings,        label:"Settings"},
+  ], []);
   const [farmOpen,setFarmOpen]=useState(false);
   const [showLogoutModal,setShowLogoutModal]=useState(false);
   const farmDropRef=useRef<HTMLDivElement>(null);
