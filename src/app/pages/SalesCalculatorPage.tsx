@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from "react";
 import {
   Calculator, Plus, Trash2, RotateCcw, Tag, CheckCircle,
-  Pencil, X, Percent
+  Pencil, Percent
 } from "lucide-react";
 import type { PriceGroup, InvSettings } from "../types";
 import { fmt, uid } from "../data";
@@ -14,7 +14,7 @@ export interface SalesCalculatorItem {
   discountPerKg: string;
 }
 
-const LOCAL_STORAGE_KEY = "pondtora_sales_calc_draft_v2";
+const LOCAL_STORAGE_KEY = "pondtora_sales_calc_draft_v3";
 
 export default function SalesCalculatorPage({
   priceGroups = [],
@@ -53,7 +53,6 @@ export default function SalesCalculatorPage({
   // Calculator State
   const [discountType, setDiscountType] = useState<"general" | "individual">("general");
   const [generalDiscPerKg, setGeneralDiscPerKg] = useState("");
-  const [additionalCharges, setAdditionalCharges] = useState("");
 
   const [items, setItems] = useState<SalesCalculatorItem[]>(() => {
     try {
@@ -99,7 +98,6 @@ export default function SalesCalculatorPage({
   const resetCalculator = () => {
     setDiscountType("general");
     setGeneralDiscPerKg("");
-    setAdditionalCharges("");
     setItems([{ id: uid(), groupId: activePriceGroups[0]?.id || "", qtyKg: "", discountPerKg: "" }]);
     try { localStorage.removeItem(LOCAL_STORAGE_KEY); } catch {}
   };
@@ -133,8 +131,7 @@ export default function SalesCalculatorPage({
   const totalKg = calculatedRows.reduce((s, r) => s + r.qtyKgNum, 0);
   const baseSubtotal = calculatedRows.reduce((s, r) => s + r.baseSubtotal, 0);
   const totalDiscount = calculatedRows.reduce((s, r) => s + r.rowDiscount, 0);
-  const additionalChargesNum = Number(additionalCharges) || 0;
-  const grandTotal = Math.max(0, baseSubtotal - totalDiscount + additionalChargesNum);
+  const grandTotal = Math.max(0, baseSubtotal - totalDiscount);
 
   // Price Group management handlers
   const handleSaveGroup = () => {
@@ -178,123 +175,110 @@ export default function SalesCalculatorPage({
   };
 
   return (
-    <div className="p-4 sm:p-6 space-y-4 w-full max-w-5xl mx-auto pb-16">
+    <div className="p-3 sm:p-5 space-y-3.5 w-full max-w-4xl mx-auto pb-16">
       {/* Top Header Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-3 bg-white border border-slate-200/90 rounded-2xl p-4 shadow-2xs">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-green-100 text-green-700 flex items-center justify-center shrink-0 shadow-2xs">
-            <Calculator size={22} />
+      <div className="flex flex-wrap items-center justify-between gap-2.5 bg-white border border-slate-200/90 rounded-xl px-3.5 py-2.5 shadow-2xs">
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-lg bg-green-100 text-green-700 flex items-center justify-center shrink-0">
+            <Calculator size={18} />
           </div>
           <div>
-            <h1 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] leading-tight">Sales Calculator</h1>
-            <p className="text-xs text-slate-400">Compute fish sales and calculate amount to pay in real-time.</p>
+            <h1 className="text-lg font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] leading-tight">Sales Calculator</h1>
+            <p className="text-[11px] text-slate-400">Compute fish sales and amount to pay in real-time.</p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-2">
           <button
             onClick={() => { setShowGroupsPanel(true); setGroupFormMode(false); setEditGroup(null); }}
-            className="px-3 py-1.5 text-xs font-semibold text-slate-700 border border-slate-200 bg-white rounded-xl hover:bg-slate-50 transition-colors flex items-center gap-1.5 shadow-2xs"
+            className="px-2.5 py-1 text-xs font-semibold text-slate-700 border border-slate-200 bg-white rounded-lg hover:bg-slate-50 transition-colors flex items-center gap-1 shadow-2xs"
           >
-            <Tag size={13} className="text-green-600" /> Set Price Groups ({activePriceGroups.length})
+            <Tag size={12} className="text-green-600" /> Set Price Groups ({activePriceGroups.length})
           </button>
           <button
             onClick={resetCalculator}
-            className="px-3 py-1.5 text-xs font-semibold text-slate-600 border border-slate-200 bg-white rounded-xl hover:bg-slate-50 transition-colors flex items-center gap-1.5"
-            title="Reset All Inputs"
+            className="px-2.5 py-1 text-xs font-semibold text-slate-600 border border-slate-200 bg-white rounded-lg hover:bg-slate-50 transition-colors flex items-center gap-1"
+            title="Reset Inputs"
           >
-            <RotateCcw size={12} /> Clear
+            <RotateCcw size={11} /> Clear
           </button>
         </div>
       </div>
 
       {/* Main Table-style Calculator Card */}
-      <Card className="p-4 sm:p-5 space-y-4">
-        {/* Discount & Charges Config Bar */}
-        <div className="bg-slate-50/90 border border-slate-200/80 rounded-xl p-3 flex flex-wrap items-center justify-between gap-3">
+      <Card className="p-3 sm:p-4 space-y-3">
+        {/* Compact Discount Bar */}
+        <div className="bg-slate-50 border border-slate-200/80 rounded-lg px-3 py-2 flex flex-wrap items-center justify-between gap-2 text-xs">
           <div className="flex items-center gap-2">
-            <span className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1">
-              <Percent size={13} className="text-green-600" /> Discount Mode:
+            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1">
+              <Percent size={11} className="text-green-600" /> Discount:
             </span>
-            <div className="inline-flex bg-slate-200/80 p-0.5 rounded-lg text-xs font-semibold">
+            <div className="inline-flex bg-slate-200/80 p-0.5 rounded-md text-[11px] font-semibold">
               <button
                 type="button"
                 onClick={() => setDiscountType("general")}
-                className={`px-3 py-1 rounded-md transition-all ${
+                className={`px-2 py-0.5 rounded transition-all ${
                   discountType === "general"
                     ? "bg-white text-slate-900 shadow-2xs font-bold"
                     : "text-slate-600 hover:text-slate-900"
                 }`}
               >
-                General Discount
+                General
               </button>
               <button
                 type="button"
                 onClick={() => setDiscountType("individual")}
-                className={`px-3 py-1 rounded-md transition-all ${
+                className={`px-2 py-0.5 rounded transition-all ${
                   discountType === "individual"
                     ? "bg-white text-slate-900 shadow-2xs font-bold"
                     : "text-slate-600 hover:text-slate-900"
                 }`}
               >
-                Individual Discount
+                Individual
               </button>
             </div>
           </div>
 
-          <div className="flex items-center gap-3 flex-wrap">
-            {discountType === "general" && (
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs font-semibold text-slate-600">Discount/kg ({cs}):</span>
-                <NumInput
-                  value={generalDiscPerKg}
-                  onChange={setGeneralDiscPerKg}
-                  placeholder="0"
-                  className={`${IC} w-24 py-1 text-xs font-bold text-amber-800 bg-amber-50/50 border-amber-200`}
-                  allowDecimal={true}
-                />
-              </div>
-            )}
-
+          {discountType === "general" && (
             <div className="flex items-center gap-1.5">
-              <span className="text-xs font-semibold text-slate-600">Additional Charges ({cs}):</span>
+              <span className="text-[11px] font-medium text-slate-600">Disc/kg ({cs}):</span>
               <NumInput
-                value={additionalCharges}
-                onChange={setAdditionalCharges}
+                value={generalDiscPerKg}
+                onChange={setGeneralDiscPerKg}
                 placeholder="0"
-                className={`${IC} w-28 py-1 text-xs font-semibold`}
+                className="w-20 px-2 py-1 text-xs font-bold text-amber-800 bg-amber-50/60 border border-amber-200 rounded-lg text-right"
                 allowDecimal={true}
               />
             </div>
-          </div>
+          )}
         </div>
 
         {/* Calculation Table (Desktop) */}
         <div className="hidden sm:block overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full text-xs">
             <thead>
-              <tr className="border-b border-slate-200/80 bg-slate-50/60 text-slate-500">
-                <th className="px-3 py-2.5 text-[11px] font-bold uppercase tracking-wider text-left w-10">#</th>
-                <th className="px-3 py-2.5 text-[11px] font-bold uppercase tracking-wider text-left min-w-[240px]">Price Group / Fish Size</th>
-                <th className="px-3 py-2.5 text-[11px] font-bold uppercase tracking-wider text-left w-36">Weight (KG)</th>
+              <tr className="border-b border-slate-200 bg-slate-50 text-slate-500">
+                <th className="px-2.5 py-2 text-[10px] font-bold uppercase tracking-wider text-left w-8">#</th>
+                <th className="px-2.5 py-2 text-[10px] font-bold uppercase tracking-wider text-left min-w-[220px]">Price Group</th>
+                <th className="px-2.5 py-2 text-[10px] font-bold uppercase tracking-wider text-left w-32">Weight (KG)</th>
                 {discountType === "individual" && (
-                  <th className="px-3 py-2.5 text-[11px] font-bold uppercase tracking-wider text-left w-36">Discount / kg ({cs})</th>
+                  <th className="px-2.5 py-2 text-[10px] font-bold uppercase tracking-wider text-left w-32">Disc / kg ({cs})</th>
                 )}
-                <th className="px-3 py-2.5 text-[11px] font-bold uppercase tracking-wider text-right w-40">Amount to Pay</th>
-                <th className="px-3 py-2.5 w-10"/>
+                <th className="px-2.5 py-2 text-[10px] font-bold uppercase tracking-wider text-right w-36">Amount to Pay</th>
+                <th className="px-2.5 py-2 w-8"/>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {calculatedRows.map((row, idx) => (
                 <tr key={row.id} className="hover:bg-slate-50/50 transition-colors">
-                  <td className="px-3 py-3 text-xs font-mono text-slate-400 text-center font-bold">
+                  <td className="px-2.5 py-2 font-mono text-slate-400 text-center font-bold">
                     {idx + 1}
                   </td>
-                  <td className="px-3 py-3">
+                  <td className="px-2.5 py-2">
                     <select
                       value={row.groupId}
                       onChange={e => updateItem(row.id, "groupId", e.target.value)}
-                      className={`${SC} py-1.5 text-xs font-bold text-slate-800`}
+                      className="w-full px-2 py-1 text-xs font-semibold text-slate-800 border border-slate-200 rounded-lg bg-white focus:border-green-500 focus:outline-none"
                     >
                       <option value="">Select Price Group...</option>
                       {activePriceGroups.map(g => (
@@ -304,56 +288,56 @@ export default function SalesCalculatorPage({
                       ))}
                     </select>
                     {row.pricePerKg > 0 && (
-                      <p className="text-[11px] font-semibold text-green-700 mt-1 pl-1 font-['Barlow_Condensed',sans-serif]">
-                        Rate: {fmt(row.pricePerKg, cs)} per kg
+                      <p className="text-[10px] font-semibold text-green-700 mt-0.5 pl-0.5">
+                        Rate: {fmt(row.pricePerKg, cs)}/kg
                       </p>
                     )}
                   </td>
-                  <td className="px-3 py-3">
+                  <td className="px-2.5 py-2">
                     <div className="relative">
                       <NumInput
                         value={row.qtyKg}
                         onChange={v => updateItem(row.id, "qtyKg", v)}
                         placeholder="0"
-                        className={`${IC} py-1.5 text-sm font-bold text-slate-900 pr-8`}
+                        className="w-full px-2 py-1 text-xs font-bold text-slate-900 border border-slate-200 rounded-lg pr-6"
                         allowDecimal={true}
                       />
-                      <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">kg</span>
+                      <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400">kg</span>
                     </div>
                   </td>
                   {discountType === "individual" && (
-                    <td className="px-3 py-3">
+                    <td className="px-2.5 py-2">
                       <div className="relative">
                         <NumInput
                           value={row.discountPerKg}
                           onChange={v => updateItem(row.id, "discountPerKg", v)}
                           placeholder="0"
-                          className={`${IC} py-1.5 text-xs font-bold text-amber-900 bg-amber-50/50 border-amber-200 pr-8`}
+                          className="w-full px-2 py-1 text-xs font-bold text-amber-900 bg-amber-50/40 border border-amber-200 rounded-lg pr-6"
                           allowDecimal={true}
                         />
-                        <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[11px] font-bold text-amber-600">/{cs}</span>
+                        <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-bold text-amber-600">/{cs}</span>
                       </div>
                     </td>
                   )}
-                  <td className="px-3 py-3 text-right">
-                    <span className="text-base font-extrabold text-slate-900 font-['Barlow_Condensed',sans-serif] block">
+                  <td className="px-2.5 py-2 text-right">
+                    <span className="text-sm font-extrabold text-slate-900 font-['Barlow_Condensed',sans-serif] block">
                       {fmt(row.lineTotal, cs)}
                     </span>
                     {row.rowDiscount > 0 && (
-                      <span className="text-[11px] font-bold text-rose-500 block">
-                        −{fmt(row.rowDiscount, cs)} disc
+                      <span className="text-[10px] font-bold text-rose-500 block">
+                        −{fmt(row.rowDiscount, cs)}
                       </span>
                     )}
                   </td>
-                  <td className="px-3 py-3 text-center">
+                  <td className="px-2.5 py-2 text-center">
                     {calculatedRows.length > 1 && (
                       <button
                         type="button"
                         onClick={() => removeItem(row.id)}
-                        className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+                        className="p-1 text-slate-300 hover:text-rose-600 rounded transition-colors"
                         title="Remove row"
                       >
-                        <Trash2 size={15} />
+                        <Trash2 size={13} />
                       </button>
                     )}
                   </td>
@@ -363,29 +347,28 @@ export default function SalesCalculatorPage({
           </table>
         </div>
 
-        {/* Calculation Cards (Mobile) */}
-        <div className="sm:hidden space-y-3">
+        {/* Calculation List (Mobile) - Ultra-Clean & Compact */}
+        <div className="sm:hidden space-y-2">
           {calculatedRows.map((row, idx) => (
-            <div key={row.id} className="bg-slate-50 border border-slate-200/90 rounded-xl p-3 space-y-2.5">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-slate-700">Fish Size #{idx + 1}</span>
+            <div key={row.id} className="bg-slate-50 border border-slate-200/90 rounded-lg p-2.5 space-y-2">
+              <div className="flex items-center justify-between gap-1.5">
+                <span className="text-[11px] font-bold text-slate-600">Size #{idx + 1}</span>
                 {calculatedRows.length > 1 && (
                   <button
                     type="button"
                     onClick={() => removeItem(row.id)}
-                    className="text-slate-400 hover:text-rose-600 p-1"
+                    className="text-slate-400 hover:text-rose-600 p-0.5"
                   >
-                    <Trash2 size={14} />
+                    <Trash2 size={13} />
                   </button>
                 )}
               </div>
 
               <div>
-                <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">Price Group</label>
                 <select
                   value={row.groupId}
                   onChange={e => updateItem(row.id, "groupId", e.target.value)}
-                  className={`${SC} py-1.5 text-xs font-bold text-slate-800`}
+                  className="w-full px-2 py-1 text-xs font-semibold text-slate-800 border border-slate-200 rounded-lg bg-white focus:border-green-500 focus:outline-none"
                 >
                   <option value="">Select Price Group...</option>
                   {activePriceGroups.map(g => (
@@ -395,54 +378,56 @@ export default function SalesCalculatorPage({
                   ))}
                 </select>
                 {row.pricePerKg > 0 && (
-                  <p className="text-[11px] font-semibold text-green-700 mt-1 pl-0.5 font-['Barlow_Condensed',sans-serif]">
-                    Rate: {fmt(row.pricePerKg, cs)} per kg
+                  <p className="text-[10px] font-semibold text-green-700 mt-0.5 pl-0.5">
+                    Rate: {fmt(row.pricePerKg, cs)}/kg
                   </p>
                 )}
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-2 gap-2 items-center">
                 <div>
-                  <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">Weight (KG)</label>
                   <div className="relative">
                     <NumInput
                       value={row.qtyKg}
                       onChange={v => updateItem(row.id, "qtyKg", v)}
                       placeholder="0"
-                      className={`${IC} py-1.5 text-sm font-bold text-slate-900 pr-8`}
+                      className="w-full px-2 py-1 text-xs font-bold text-slate-900 border border-slate-200 rounded-lg pr-6"
                       allowDecimal={true}
                     />
-                    <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">kg</span>
+                    <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400">kg</span>
                   </div>
                 </div>
 
                 {discountType === "individual" ? (
                   <div>
-                    <label className="text-[10px] font-bold uppercase tracking-wider text-amber-700 block mb-1">Discount/kg ({cs})</label>
                     <div className="relative">
                       <NumInput
                         value={row.discountPerKg}
                         onChange={v => updateItem(row.id, "discountPerKg", v)}
                         placeholder="0"
-                        className={`${IC} py-1.5 text-xs font-bold text-amber-900 bg-amber-50/50 border-amber-200 pr-8`}
+                        className="w-full px-2 py-1 text-xs font-bold text-amber-900 bg-amber-50/40 border border-amber-200 rounded-lg pr-6"
                         allowDecimal={true}
                       />
-                      <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] font-bold text-amber-600">/{cs}</span>
+                      <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-bold text-amber-600">/{cs}</span>
                     </div>
                   </div>
                 ) : (
-                  <div>
-                    <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">Row Total</label>
-                    <div className="py-1.5 px-2 bg-white border border-slate-200 rounded-lg text-sm font-extrabold text-slate-900 font-['Barlow_Condensed',sans-serif]">
+                  <div className="text-right">
+                    <span className="text-sm font-extrabold text-slate-900 font-['Barlow_Condensed',sans-serif]">
                       {fmt(row.lineTotal, cs)}
-                    </div>
+                    </span>
+                    {row.rowDiscount > 0 && (
+                      <span className="text-[10px] font-bold text-rose-500 block">
+                        −{fmt(row.rowDiscount, cs)}
+                      </span>
+                    )}
                   </div>
                 )}
               </div>
 
               {discountType === "individual" && (
-                <div className="flex justify-between items-center pt-2 border-t border-slate-200/70">
-                  <span className="text-xs font-bold text-slate-500">Row Total:</span>
+                <div className="flex justify-between items-center pt-1 border-t border-slate-200/60">
+                  <span className="text-[11px] font-medium text-slate-500">Row Total:</span>
                   <div className="text-right">
                     <span className="text-sm font-extrabold text-slate-900 font-['Barlow_Condensed',sans-serif]">
                       {fmt(row.lineTotal, cs)}
@@ -460,58 +445,36 @@ export default function SalesCalculatorPage({
         </div>
 
         {/* Add Row Button */}
-        <div className="pt-1">
+        <div>
           <button
             type="button"
             onClick={() => addItem()}
-            className="px-3.5 py-2 text-xs font-bold text-green-700 bg-green-50/80 hover:bg-green-100 border border-green-200/90 rounded-xl transition-colors inline-flex items-center gap-1.5"
+            className="px-2.5 py-1 text-xs font-bold text-green-700 bg-green-50 hover:bg-green-100 border border-green-200 rounded-lg transition-colors inline-flex items-center gap-1"
           >
-            <Plus size={14} /> Add Fish Size
+            <Plus size={13} /> Add Fish Size
           </button>
         </div>
 
-        {/* Total Calculation Summary Bar */}
-        <div className="mt-4 pt-4 border-t border-slate-200/90 bg-gradient-to-r from-slate-900 to-slate-800 text-white rounded-2xl p-4 sm:p-5 shadow-sm">
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 items-center">
+        {/* Total Calculation Summary Bar - Ultra-Clean & Simple */}
+        <div className="mt-3 pt-3 border-t border-slate-200 bg-slate-900 text-white rounded-xl px-4 py-3 shadow-xs">
+          <div className="flex items-center justify-between gap-4">
             <div>
-              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block">Total Fish Weight</span>
-              <span className="text-xl sm:text-2xl font-extrabold text-white font-['Barlow_Condensed',sans-serif]">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Total KG</span>
+              <span className="text-lg sm:text-xl font-extrabold text-white font-['Barlow_Condensed',sans-serif]">
                 {totalKg.toLocaleString()} <span className="text-xs font-normal text-slate-300">kg</span>
               </span>
             </div>
 
-            <div>
-              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block">Base Subtotal</span>
-              <span className="text-lg sm:text-xl font-bold text-slate-200 font-['Barlow_Condensed',sans-serif]">
-                {fmt(baseSubtotal, cs)}
-              </span>
-            </div>
-
-            {(totalDiscount > 0 || additionalChargesNum > 0) && (
-              <div>
-                {totalDiscount > 0 && (
-                  <div className="text-rose-400">
-                    <span className="text-[10px] uppercase font-bold tracking-wider block">Total Discount</span>
-                    <span className="text-sm font-bold font-['Barlow_Condensed',sans-serif]">−{fmt(totalDiscount, cs)}</span>
-                  </div>
-                )}
-                {additionalChargesNum > 0 && (
-                  <div className="text-slate-300 mt-1">
-                    <span className="text-[10px] uppercase font-bold tracking-wider block">Charges</span>
-                    <span className="text-sm font-bold font-['Barlow_Condensed',sans-serif]">+{fmt(additionalChargesNum, cs)}</span>
-                  </div>
-                )}
+            <div className="text-right">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-green-400 block">Total Amount</span>
+              <div className="flex items-baseline justify-end gap-2">
+                <span className="text-2xl sm:text-3xl font-extrabold text-green-400 font-['Barlow_Condensed',sans-serif]">
+                  {fmt(grandTotal, cs)}
+                </span>
               </div>
-            )}
-
-            <div className="col-span-2 sm:col-span-1 sm:text-right border-t sm:border-t-0 pt-3 sm:pt-0 border-slate-700/80">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-green-400 block">Total Amount to Pay</span>
-              <span className="text-2xl sm:text-3xl font-extrabold text-green-400 font-['Barlow_Condensed',sans-serif]">
-                {fmt(grandTotal, cs)}
-              </span>
-              {totalKg > 0 && (
-                <span className="text-[11px] text-slate-400 block mt-0.5">
-                  Avg: {fmt(grandTotal / totalKg, cs)}/kg
+              {totalDiscount > 0 && (
+                <span className="text-[10px] font-bold text-rose-400 block">
+                  (−{fmt(totalDiscount, cs)} discount applied)
                 </span>
               )}
             </div>
@@ -526,13 +489,13 @@ export default function SalesCalculatorPage({
           onClose={() => { setShowGroupsPanel(false); setGroupFormMode(false); setEditGroup(null); }}
           wide
         >
-          <div className="space-y-4">
+          <div className="space-y-3">
             <div className="flex items-center justify-between">
               <p className="text-xs text-slate-500">Configure fish size categories, pricing per kg, and active status.</p>
               {!groupFormMode && canCreate && (
                 <button
                   onClick={() => { setEditGroup(null); setGroupF({ group: "", displayName: "", description: "", pricePerKg: "", status: "Active" }); setGroupFormMode(true); }}
-                  className="px-3 py-1.5 text-xs font-bold text-green-700 bg-green-50 border border-green-200 rounded-lg hover:bg-green-100 transition-colors flex items-center gap-1"
+                  className="px-2.5 py-1 text-xs font-bold text-green-700 bg-green-50 border border-green-200 rounded-lg hover:bg-green-100 transition-colors flex items-center gap-1"
                 >
                   <Plus size={12} /> Add Price Group
                 </button>
@@ -540,12 +503,12 @@ export default function SalesCalculatorPage({
             </div>
 
             {groupFormMode ? (
-              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-3 animate-in fade-in duration-150">
-                <div className="flex items-center justify-between pb-2 border-b border-slate-200/80">
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 space-y-2.5 animate-in fade-in duration-150">
+                <div className="flex items-center justify-between pb-1.5 border-b border-slate-200/80">
                   <span className="text-xs font-bold text-slate-800">{editGroup ? "Edit Price Group" : "Create New Price Group"}</span>
                   <button onClick={() => { setGroupFormMode(false); setEditGroup(null); }} className="text-slate-400 hover:text-slate-600 text-xs">Cancel</button>
                 </div>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-2 gap-2.5">
                   <F label="Group Code (e.g. A, B, C)" error={groupErr.group}>
                     <input
                       value={groupF.group}
@@ -564,7 +527,7 @@ export default function SalesCalculatorPage({
                     />
                   </F>
                 </div>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-2 gap-2.5">
                   <F label={`Price Per KG (${cs})`} error={groupErr.pricePerKg}>
                     <NumInput
                       value={groupF.pricePerKg}
@@ -592,7 +555,7 @@ export default function SalesCalculatorPage({
                     placeholder="e.g. Catfish 200g – 400g"
                   />
                 </F>
-                <div className="flex gap-2 pt-2">
+                <div className="flex gap-2 pt-1">
                   <PBtn onClick={handleSaveGroup} sm>
                     <CheckCircle size={13} /> {editGroup ? "Save Changes" : "Create Group"}
                   </PBtn>
@@ -602,11 +565,11 @@ export default function SalesCalculatorPage({
             ) : null}
 
             {/* List of Price Groups */}
-            <div className="space-y-2 max-h-[360px] overflow-y-auto pr-1">
+            <div className="space-y-2 max-h-[340px] overflow-y-auto pr-1">
               {priceGroups.map(g => (
-                <div key={g.id} className="bg-white border border-slate-200 rounded-xl p-3 flex items-center justify-between gap-3 shadow-2xs hover:border-slate-300 transition-colors">
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <span className="w-8 h-8 rounded-lg bg-green-100 text-green-800 font-bold text-xs flex items-center justify-center font-mono shrink-0">
+                <div key={g.id} className="bg-white border border-slate-200 rounded-xl p-2.5 flex items-center justify-between gap-2.5 shadow-2xs hover:border-slate-300 transition-colors">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="w-7 h-7 rounded-lg bg-green-100 text-green-800 font-bold text-xs flex items-center justify-center font-mono shrink-0">
                       {g.group}
                     </span>
                     <div className="min-w-0">
@@ -624,10 +587,10 @@ export default function SalesCalculatorPage({
                     {canEdit && (
                       <button
                         onClick={() => handleEditClick(g)}
-                        className="p-1.5 rounded-lg text-slate-400 hover:text-green-600 hover:bg-green-50 transition-colors"
+                        className="p-1 rounded-lg text-slate-400 hover:text-green-600 hover:bg-green-50 transition-colors"
                         title="Edit Group"
                       >
-                        <Pencil size={13} />
+                        <Pencil size={12} />
                       </button>
                     )}
                     {canDelete && (
@@ -637,10 +600,10 @@ export default function SalesCalculatorPage({
                             onDeletePriceGroup(g.id);
                           }
                         }}
-                        className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                        className="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
                         title="Delete Group"
                       >
-                        <Trash2 size={13} />
+                        <Trash2 size={12} />
                       </button>
                     )}
                   </div>
