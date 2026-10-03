@@ -416,8 +416,8 @@ export default function InvoicesPage({ponds,invoices,customers,priceGroups,setti
                 <div className="space-y-2">
                   <label className="block text-[11px] font-bold text-slate-600 uppercase tracking-wide">Discount Mode</label>
                   <div className="flex gap-2">
-                    <button type="button" onClick={()=>setWDiscountType("general")} className={`flex-1 py-2 rounded-xl text-xs font-semibold border transition-all ${wDiscountType==="general"?"border-green-500 bg-green-50 text-green-700":"border-slate-200 text-slate-500 hover:border-green-300"}`}>General Discount ({cs}/kg)</button>
-                    <button type="button" onClick={()=>setWDiscountType("individual")} className={`flex-1 py-2 rounded-xl text-xs font-semibold border transition-all ${wDiscountType==="individual"?"border-green-500 bg-green-50 text-green-700":"border-slate-200 text-slate-500 hover:border-green-300"}`}>Individual ({cs}/kg per group)</button>
+                    <button type="button" onClick={()=>setWDiscountType("general")} className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold border transition-all ${wDiscountType==="general"?"border-green-500 bg-green-50 text-green-700 font-bold shadow-2xs":"border-slate-200 text-slate-500 hover:border-green-300"}`}>General Discount ({cs}/kg)</button>
+                    <button type="button" onClick={()=>setWDiscountType("individual")} className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-semibold border transition-all ${wDiscountType==="individual"?"border-green-500 bg-green-50 text-green-700 font-bold shadow-2xs":"border-slate-200 text-slate-500 hover:border-green-300"}`}>Individual ({cs}/kg per group)</button>
                   </div>
                   {wDiscountType==="general"&&(
                     <div className="bg-green-50 border border-green-200 rounded-xl px-4 py-3 space-y-2">

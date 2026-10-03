@@ -175,52 +175,44 @@ export default function SalesCalculatorPage({
   };
 
   return (
-    <div className="p-3 sm:p-5 space-y-3 w-full max-w-4xl mx-auto pb-16">
+    <div className="p-4 sm:p-6 space-y-5 w-full max-w-5xl mx-auto pb-20 sm:pb-8">
       {/* Top Header Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-2 bg-white border border-slate-200/90 rounded-xl px-3.5 py-2.5 shadow-2xs">
-        <div className="flex items-center gap-2.5">
-          <div className="w-7 h-7 rounded-lg bg-green-100 text-green-700 flex items-center justify-center shrink-0">
-            <Calculator size={16} />
-          </div>
-          <div>
-            <h1 className="text-base font-bold text-slate-900 leading-tight">Sales Calculator</h1>
-            <p className="text-[11px] text-slate-400">Compute fish sales and amount to pay in real-time.</p>
-          </div>
+      <div className="sticky top-0 z-30 bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 flex flex-wrap items-center justify-between gap-3 shadow-2xs">
+        <div>
+          <h1 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Sales Calculator</h1>
+          <p className="text-xs text-slate-400 mt-0.5">Compute fish sales and amount to pay in real-time.</p>
         </div>
 
-        <div className="flex items-center gap-1.5">
-          <button
+        <div className="flex flex-wrap items-center gap-2">
+          <PBtn
+            sm
+            outline
             onClick={() => { setShowGroupsPanel(true); setGroupFormMode(false); setEditGroup(null); }}
-            className="px-2.5 py-1 text-xs font-medium text-slate-700 border border-slate-200 bg-white rounded-lg hover:bg-slate-50 transition-colors flex items-center gap-1 shadow-2xs"
           >
-            <Tag size={12} className="text-green-600" /> Set Price Groups ({activePriceGroups.length})
-          </button>
-          <button
-            onClick={resetCalculator}
-            className="px-2.5 py-1 text-xs font-medium text-slate-600 border border-slate-200 bg-white rounded-lg hover:bg-slate-50 transition-colors flex items-center gap-1"
-            title="Reset Inputs"
-          >
-            <RotateCcw size={11} /> Clear
-          </button>
+            <Tag size={13} /> Price Groups ({activePriceGroups.length})
+          </PBtn>
+          <PBtn sm onClick={resetCalculator}>
+            <RotateCcw size={13} /> Clear
+          </PBtn>
         </div>
       </div>
 
       {/* Main Table-style Calculator Card */}
-      <Card className="p-3 sm:p-4 space-y-3">
+      <Card className="p-3 sm:p-5 space-y-4">
         {/* Compact Discount Bar */}
-        <div className="bg-slate-50 border border-slate-200/80 rounded-lg px-2.5 py-1.5 flex flex-wrap items-center justify-between gap-2 text-xs">
-          <div className="flex items-center gap-1.5">
-            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1">
-              <Percent size={10} className="text-green-600" /> Discount:
+        <div className="bg-slate-50 border border-slate-200/80 rounded-xl px-3 py-2.5 flex flex-wrap items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-bold text-slate-600 uppercase tracking-wide flex items-center gap-1.5">
+              <Percent size={12} className="text-green-600" /> Discount Mode
             </span>
-            <div className="inline-flex bg-slate-200/80 p-0.5 rounded-md text-[10px] font-medium">
+            <div className="inline-flex bg-slate-200/70 p-0.5 rounded-lg text-xs font-medium border border-slate-200/60">
               <button
                 type="button"
                 onClick={() => setDiscountType("general")}
-                className={`px-2 py-0.5 rounded transition-all ${
+                className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-all ${
                   discountType === "general"
-                    ? "bg-white text-slate-900 shadow-2xs font-bold"
-                    : "text-slate-600 hover:text-slate-900"
+                    ? "bg-white text-green-700 shadow-2xs font-bold"
+                    : "text-slate-500 hover:text-slate-800"
                 }`}
               >
                 General
@@ -228,10 +220,10 @@ export default function SalesCalculatorPage({
               <button
                 type="button"
                 onClick={() => setDiscountType("individual")}
-                className={`px-2 py-0.5 rounded transition-all ${
+                className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-all ${
                   discountType === "individual"
-                    ? "bg-white text-slate-900 shadow-2xs font-bold"
-                    : "text-slate-600 hover:text-slate-900"
+                    ? "bg-white text-green-700 shadow-2xs font-bold"
+                    : "text-slate-500 hover:text-slate-800"
                 }`}
               >
                 Individual
@@ -240,15 +232,17 @@ export default function SalesCalculatorPage({
           </div>
 
           {discountType === "general" && (
-            <div className="flex items-center gap-1">
-              <span className="text-[10px] font-medium text-slate-600">Disc/kg ({cs}):</span>
-              <NumInput
-                value={generalDiscPerKg}
-                onChange={setGeneralDiscPerKg}
-                placeholder="0"
-                className="w-16 px-1.5 py-0.5 text-xs font-semibold text-amber-800 bg-amber-50/60 border border-amber-200 rounded text-right"
-                allowDecimal={true}
-              />
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium text-slate-600">Discount per kg ({cs}):</span>
+              <div className="w-28">
+                <NumInput
+                  value={generalDiscPerKg}
+                  onChange={setGeneralDiscPerKg}
+                  placeholder="0"
+                  className={`${IC} text-xs py-1.5 px-2.5 text-right font-medium`}
+                  allowDecimal={true}
+                />
+              </div>
             </div>
           )}
         </div>
@@ -258,27 +252,27 @@ export default function SalesCalculatorPage({
           <table className="w-full text-xs">
             <thead>
               <tr className="border-b border-slate-200 bg-slate-50 text-slate-500">
-                <th className="px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider text-left w-8">#</th>
-                <th className="px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider text-left min-w-[200px]">Price Group</th>
-                <th className="px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider text-left w-28">Weight (KG)</th>
+                <th className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-left w-10">#</th>
+                <th className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-left min-w-[220px]">Price Group</th>
+                <th className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-left w-36">Weight (KG)</th>
                 {discountType === "individual" && (
-                  <th className="px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider text-left w-28">Disc / kg ({cs})</th>
+                  <th className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-left w-36">Disc / kg ({cs})</th>
                 )}
-                <th className="px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider text-right w-32">Amount</th>
-                <th className="px-2 py-1.5 w-7"/>
+                <th className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-right w-36">Amount</th>
+                <th className="px-3 py-2 w-8"/>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {calculatedRows.map((row, idx) => (
                 <tr key={row.id} className="hover:bg-slate-50/50 transition-colors">
-                  <td className="px-2 py-2 font-mono text-slate-400 text-center text-[11px]">
+                  <td className="px-3 py-2.5 font-mono text-slate-400 text-center text-[11px]">
                     {idx + 1}
                   </td>
-                  <td className="px-2 py-2">
+                  <td className="px-3 py-2.5">
                     <select
                       value={row.groupId}
                       onChange={e => updateItem(row.id, "groupId", e.target.value)}
-                      className="w-full px-2 py-1 text-xs text-slate-800 border border-slate-200 rounded bg-white focus:border-green-500 focus:outline-none"
+                      className={`${SC} text-xs py-1.5 px-2.5`}
                     >
                       <option value="">Select Price Group...</option>
                       {activePriceGroups.map(g => (
@@ -288,39 +282,39 @@ export default function SalesCalculatorPage({
                       ))}
                     </select>
                     {row.pricePerKg > 0 && (
-                      <p className="text-[10px] text-green-700 mt-0.5 pl-0.5 font-medium">
+                      <p className="text-[10px] text-green-700 mt-1 pl-0.5 font-medium">
                         Rate: {fmt(row.pricePerKg, cs)}/kg
                       </p>
                     )}
                   </td>
-                  <td className="px-2 py-2">
+                  <td className="px-3 py-2.5">
                     <div className="relative">
                       <NumInput
                         value={row.qtyKg}
                         onChange={v => updateItem(row.id, "qtyKg", v)}
                         placeholder="0"
-                        className="w-full px-2 py-1 text-xs text-slate-900 border border-slate-200 rounded pr-6 text-right"
+                        className={`${IC} text-xs py-1.5 pr-7 text-right font-medium`}
                         allowDecimal={true}
                       />
-                      <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-400">kg</span>
+                      <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[11px] text-slate-400 pointer-events-none">kg</span>
                     </div>
                   </td>
                   {discountType === "individual" && (
-                    <td className="px-2 py-2">
+                    <td className="px-3 py-2.5">
                       <div className="relative">
                         <NumInput
                           value={row.discountPerKg}
                           onChange={v => updateItem(row.id, "discountPerKg", v)}
                           placeholder="0"
-                          className="w-full px-2 py-1 text-xs text-amber-900 bg-amber-50/40 border border-amber-200 rounded pr-6 text-right"
+                          className={`${IC} text-xs py-1.5 pr-8 text-right font-medium`}
                           allowDecimal={true}
                         />
-                        <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-amber-600">/{cs}</span>
+                        <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[11px] text-slate-400 pointer-events-none">{cs}/kg</span>
                       </div>
                     </td>
                   )}
-                  <td className="px-2 py-2 text-right">
-                    <span className="text-xs font-semibold text-slate-900 block">
+                  <td className="px-3 py-2.5 text-right">
+                    <span className="text-xs font-bold text-slate-900 block font-mono">
                       {fmt(row.lineTotal, cs)}
                     </span>
                     {row.rowDiscount > 0 && (
@@ -329,15 +323,15 @@ export default function SalesCalculatorPage({
                       </span>
                     )}
                   </td>
-                  <td className="px-2 py-2 text-center">
+                  <td className="px-3 py-2.5 text-center">
                     {calculatedRows.length > 1 && (
                       <button
                         type="button"
                         onClick={() => removeItem(row.id)}
-                        className="p-1 text-slate-300 hover:text-rose-600 rounded transition-colors"
+                        className="p-1.5 text-slate-300 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition-colors"
                         title="Remove row"
                       >
-                        <Trash2 size={12} />
+                        <Trash2 size={13} />
                       </button>
                     )}
                   </td>
@@ -348,18 +342,18 @@ export default function SalesCalculatorPage({
         </div>
 
         {/* Calculation List (Mobile) - Ultra-Clean, Non-Busy */}
-        <div className="sm:hidden space-y-2">
+        <div className="sm:hidden space-y-2.5">
           {calculatedRows.map((row, idx) => (
-            <div key={row.id} className="bg-slate-50 border border-slate-200/80 rounded-lg p-2 space-y-1.5">
+            <div key={row.id} className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 space-y-2">
               <div className="flex items-center justify-between gap-1">
-                <span className="text-[10px] font-bold text-slate-500 uppercase">Item #{idx + 1}</span>
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">Fish Item #{idx + 1}</span>
                 {calculatedRows.length > 1 && (
                   <button
                     type="button"
                     onClick={() => removeItem(row.id)}
-                    className="text-slate-400 hover:text-rose-600 p-0.5"
+                    className="text-slate-400 hover:text-rose-600 p-1"
                   >
-                    <Trash2 size={12} />
+                    <Trash2 size={13} />
                   </button>
                 )}
               </div>
@@ -368,7 +362,7 @@ export default function SalesCalculatorPage({
                 <select
                   value={row.groupId}
                   onChange={e => updateItem(row.id, "groupId", e.target.value)}
-                  className="w-full px-2 py-1 text-xs text-slate-800 border border-slate-200 rounded bg-white focus:border-green-500 focus:outline-none"
+                  className={`${SC} text-xs py-1.5 px-2.5`}
                 >
                   <option value="">Select Price Group...</option>
                   {activePriceGroups.map(g => (
@@ -378,23 +372,23 @@ export default function SalesCalculatorPage({
                   ))}
                 </select>
                 {row.pricePerKg > 0 && (
-                  <p className="text-[10px] text-green-700 mt-0.5 pl-0.5 font-medium">
+                  <p className="text-[10px] text-green-700 mt-1 pl-0.5 font-medium">
                     Rate: {fmt(row.pricePerKg, cs)}/kg
                   </p>
                 )}
               </div>
 
-              <div className="grid grid-cols-2 gap-1.5 items-center">
+              <div className="grid grid-cols-2 gap-2 items-center">
                 <div>
                   <div className="relative">
                     <NumInput
                       value={row.qtyKg}
                       onChange={v => updateItem(row.id, "qtyKg", v)}
                       placeholder="0"
-                      className="w-full px-2 py-1 text-xs text-slate-900 border border-slate-200 rounded pr-6 text-right"
+                      className={`${IC} text-xs py-1.5 pr-7 text-right font-medium`}
                       allowDecimal={true}
                     />
-                    <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-400">kg</span>
+                    <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[11px] text-slate-400 pointer-events-none">kg</span>
                   </div>
                 </div>
 
@@ -405,15 +399,15 @@ export default function SalesCalculatorPage({
                         value={row.discountPerKg}
                         onChange={v => updateItem(row.id, "discountPerKg", v)}
                         placeholder="0"
-                        className="w-full px-2 py-1 text-xs text-amber-900 bg-amber-50/40 border border-amber-200 rounded pr-6 text-right"
+                        className={`${IC} text-xs py-1.5 pr-8 text-right font-medium`}
                         allowDecimal={true}
                       />
-                      <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-amber-600">/{cs}</span>
+                      <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[11px] text-slate-400 pointer-events-none">{cs}/kg</span>
                     </div>
                   </div>
                 ) : (
                   <div className="text-right">
-                    <span className="text-xs font-semibold text-slate-900">
+                    <span className="text-xs font-bold text-slate-900 font-mono">
                       {fmt(row.lineTotal, cs)}
                     </span>
                     {row.rowDiscount > 0 && (
@@ -426,10 +420,10 @@ export default function SalesCalculatorPage({
               </div>
 
               {discountType === "individual" && (
-                <div className="flex justify-between items-center pt-1 border-t border-slate-200/60 text-xs">
-                  <span className="text-[10px] text-slate-500">Amount:</span>
+                <div className="flex justify-between items-center pt-1.5 border-t border-slate-200/60 text-xs">
+                  <span className="text-[11px] text-slate-500">Amount:</span>
                   <div className="text-right">
-                    <span className="text-xs font-semibold text-slate-900">
+                    <span className="text-xs font-bold text-slate-900 font-mono">
                       {fmt(row.lineTotal, cs)}
                     </span>
                     {row.rowDiscount > 0 && (
@@ -446,13 +440,13 @@ export default function SalesCalculatorPage({
 
         {/* Add Row Button */}
         <div>
-          <button
-            type="button"
+          <PBtn
+            sm
+            outline
             onClick={() => addItem()}
-            className="px-2.5 py-1 text-xs font-medium text-green-700 bg-green-50 hover:bg-green-100 border border-green-200 rounded-lg transition-colors inline-flex items-center gap-1"
           >
-            <Plus size={12} /> Add Fish Size
-          </button>
+            <Plus size={13} /> Add Fish Size
+          </PBtn>
         </div>
 
         {/* Breakdown & Total Summary (Dark Area) */}
