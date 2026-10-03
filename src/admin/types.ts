@@ -74,9 +74,9 @@ export interface AdminPlan {
 }
 
 export const DEFAULT_PLANS: AdminPlan[] = [
-  { id: "starter",    name: "Starter",        monthlyPrice: 5000,  yearlyPrice: 48000,  description: "Up to 5 ponds, 1 farm",       status: "Active", farmLimit: 1,    pondLimit: 5    },
-  { id: "growth",     name: "Growth",          monthlyPrice: 15000, yearlyPrice: 144000, description: "Up to 15 ponds, 1 farm",      status: "Active", farmLimit: 1,    pondLimit: 15   },
-  { id: "commercial", name: "Commercial",      monthlyPrice: 50000, yearlyPrice: 480000, description: "Unlimited ponds, 1 farm",     status: "Active", farmLimit: 1,    pondLimit: null },
+  { id: "starter",    name: "Starter",        monthlyPrice: 3000,  yearlyPrice: 28800,  description: "Up to 5 ponds, 1 farm",       status: "Active", farmLimit: 1,    pondLimit: 5    },
+  { id: "growth",     name: "Growth",          monthlyPrice: 5000,  yearlyPrice: 48000,  description: "Up to 15 ponds, 1 farm",      status: "Active", farmLimit: 1,    pondLimit: 15   },
+  { id: "commercial", name: "Commercial",      monthlyPrice: 10000, yearlyPrice: 96000,  description: "Unlimited ponds, 1 farm",     status: "Active", farmLimit: 1,    pondLimit: null },
   { id: "3farm",      name: "3-Farm Plan",     monthlyPrice: 24000, yearlyPrice: 230400, description: "Unlimited ponds, 3 farms",    status: "Active", farmLimit: 3,    pondLimit: null },
   { id: "5farm",      name: "5-Farm Plan",     monthlyPrice: 40000, yearlyPrice: 384000, description: "Unlimited ponds, 5 farms",    status: "Active", farmLimit: 5,    pondLimit: null },
   { id: "unlimited",  name: "Unlimited Farms", monthlyPrice: 70000, yearlyPrice: 672000, description: "Unlimited ponds & farms",     status: "Active", farmLimit: null, pondLimit: null },

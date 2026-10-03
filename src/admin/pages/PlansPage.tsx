@@ -13,8 +13,8 @@ interface Props {
 
 const BLANK: Omit<AdminPlan, "id"> = {
   name: "",
-  monthlyPrice: 5000,
-  yearlyPrice: 48000,
+  monthlyPrice: 3000,
+  yearlyPrice: 28800,
   description: "",
   status: "Active",
   farmLimit: 1,
