@@ -17,9 +17,10 @@ import {
   ResponsiveContainer, PieChart, Pie, Cell, Legend
 } from "recharts";
 import type { View, SortDir, MonthData, FeedItem, Pond, Expense, Revenue, FeedingRecord, FeedEditEntry, MortalityEntry, BagOpenLog, FeedRemainingLog, StaffMember, Report, UserProfile, StockEvent, PriceGroup, Customer, InvSettings, InvoiceLineItem, Invoice, Farm, TreatmentRecord, WItem, EditEntry, Investor, Investment, InvestmentPayment, PondReport } from "./types";
-import { EXPENSE_CATS, REVENUE_SRCS, POND_TYPES, POND_SPECIES, MORT_CAUSES, TODAY, getTodayStr, fmt, yFmt, uid, toMon, toYr, PAYMENT_METHODS, INV_STATUSES, STAFF_PERMISSIONS, STAFF_ROLES_ALL, INIT_INV_SETTINGS, ADMIN_NAME, downloadCSV, openPrintWindow, COUNTRY_CURRENCIES, COUNTRIES, DIAL_CODES, FLAG_EMOJI, convertNGN, fmtStockingDate, formatFishStockDate, formatFishStock, isSameDate } from "./data";
+import { EXPENSE_CATS, REVENUE_SRCS, POND_TYPES, POND_SPECIES, MORT_CAUSES, TODAY, getTodayStr, fmt, yFmt, uid, toMon, toYr, PAYMENT_METHODS, INV_STATUSES, STAFF_PERMISSIONS, STAFF_ROLES_ALL, INIT_INV_SETTINGS, ADMIN_NAME, downloadCSV, openPrintWindow, COUNTRY_CURRENCIES, COUNTRIES, DIAL_CODES, FLAG_EMOJI, convertNGN, fmtStockingDate, formatFishStockDate, formatFishStock, isSameDate, isStockMatch } from "./data";
 import { Card, Bdg, PBtn, Pagination, PER_PAGE, StatCard, Tip, Modal, F, IC, SC, SearchableSelect, SelDrop, DMONTHS_S, DateFilter, SearchableCountrySelect, SH, useSort, DateInput, NumInput } from "./shared";
 import InvoicesPage from "./pages/InvoicesPage";
+import SalesCalculatorPage from "./pages/SalesCalculatorPage";
 import FeedDocumentationPage from "./pages/FeedDocumentationPage";
 import PondManagementPage from "./pages/PondManagementPage";
 import FeedInventoryPage from "./pages/FeedInventoryPage";
@@ -38,17 +39,18 @@ import { getUserReferralStats, fetchLiveUserReferralStats, captureReferralParam,
 
 /* ─── Sidebar ───────────────────────────────────────────────── */
 const NAV:{id:View;icon:React.ElementType;label:string}[]=[
-  {id:"financial",     icon:LayoutDashboard,label:"Financial Dashboard"},
-  {id:"ponds",         icon:Droplets,       label:"Pond Management"},
-  {id:"inventory",     icon:Package,        label:"Feed Stock"},
-  {id:"documentation", icon:BookOpen,       label:"Feeding Records"},
-  {id:"reports",       icon:FileText,       label:"Reports"},
-  {id:"invoices",      icon:Receipt,        label:"Invoices"},
-  {id:"staff",         icon:Users,          label:"Staff"},
-  {id:"investors",     icon:Landmark,       label:"Investors"},
-  {id:"assessments",   icon:ClipboardList,  label:"Staff Assessments"},
-  {id:"pricing",       icon:Crown,          label:"Subscription"},
-  {id:"settings",      icon:Settings,       label:"Settings"},
+  {id:"financial",        icon:LayoutDashboard, label:"Financial Dashboard"},
+  {id:"ponds",            icon:Droplets,        label:"Pond Management"},
+  {id:"inventory",        icon:Package,         label:"Feed Stock"},
+  {id:"documentation",    icon:BookOpen,        label:"Feeding Records"},
+  {id:"reports",          icon:FileText,        label:"Reports"},
+  {id:"invoices",         icon:Receipt,         label:"Invoices"},
+  {id:"sales_calculator", icon:Calculator,      label:"Sales Calculator"},
+  {id:"staff",            icon:Users,           label:"Staff"},
+  {id:"investors",        icon:Landmark,        label:"Investors"},
+  {id:"assessments",      icon:ClipboardList,   label:"Staff Assessments"},
+  {id:"pricing",          icon:Crown,           label:"Subscription"},
+  {id:"settings",         icon:Settings,        label:"Settings"},
 ];
 /* Map nav id → permission name (undefined = always visible) */
 const NAV_PERM:Partial<Record<View,string>>={
@@ -7668,8 +7670,8 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
               {active==="ponds"         &&(hasPerm("Pond Management")?<PondManagementPage ponds={farmPonds} onAddPond={addPond} onClosePond={closePond} onRestockPond={restockPond} onTransfer={transferStock} onNurseryTransfer={nurseryTransfer} mortality={farmMortality} onAddMortality={addMort} onAddCost={addExp} feedingRecords={farmFeeding} stockEvents={stockEvents} treatments={farmTreatments} onAddTreatment={addTreatment} activeFarmId={activeFarmId} onDeletePond={deletePond} onEditFish={editFish} onSetMaxKg={setPondMaxKg} onEditPond={handleEditPond} onScrollTop={()=>mainRef.current?.scrollTo({top:0,behavior:"instant"})} currency={cs} inventory={farmInventory} farms={farms} pondReports={farmPondReports} onAddPondReport={handleAddPondReport} canCreate={canCreate("Pond Management")} canEdit={canEdit("Pond Management")} canDelete={canDelete("Pond Management")}/>:<AccessDenied/>)}
               {active==="inventory"     &&(hasPerm("Feed Stock")?<FeedInventoryPage inventory={farmInventory} onAdd={addInv} onDelete={delInv} feedingRecords={farmFeeding} bagLogs={farmBagLogs} remainLogs={farmRemainLogs} ponds={farmPonds} onEditBagLog={editBagLog} onEditInv={editInv} currency={cs} canEditLocked={isOwner||currentStaff?.role==="Farm Manager"} canCreate={canCreate("Feed Stock")} canEdit={canEdit("Feed Stock")} canDelete={canDelete("Feed Stock")}/>:<AccessDenied/>)}
               {active==="documentation" &&(hasPerm("Feeding Records")?<FeedDocumentationPage feedingRecords={farmFeeding} onAddRecord={addFeed} onEditFeedRecord={editFeedRecord} onDeleteRecord={deleteFeedRecord} ponds={farmPonds} inventory={farmInventory} bagLogs={farmBagLogs} onAddBagLog={addBagLog} onEditBagLog={editBagLog} onEditInv={editInv} remainLogs={farmRemainLogs} onAddRemainLog={addRemainLog} onEditRemainLog={editRemainLog} onReconMismatches={onReconMismatches} reconFocus={reconFocus} canEditLocked={isOwner||currentStaff?.role==="Farm Manager"} currentUser={{name:currentStaff?.name||userProfile?.name||"",email:userProfile?.email||""}} canCreate={canCreate("Feeding Records")} canEdit={canEdit("Feeding Records")} canDelete={canDelete("Feeding Records")}/>:<AccessDenied/>)}
-              {active==="invoices"      &&(hasPerm("Invoices")||hasPerm("Sales Calculator")?<InvoicesPage ponds={farmPonds} invoices={farmInvoices} customers={farmCustomers} priceGroups={farmPriceGroups} settings={invSettings} onAddInvoice={addInvoice} onEditInvoice={editInvoice} onDeleteInvoice={deleteInvoice} onAddCustomer={addCustomer} onAddPriceGroup={addPriceGroup} onEditPriceGroup={editPriceGroup} onDeletePriceGroup={delPriceGroup} onUpdateSettings={(s)=>{setInvSettings(s);api.invSettings.update(s).catch(console.warn);}} currentUser={userProfile?.name} currency={cs} initialTab="invoices" canCreate={canCreate("Invoices")} canEdit={canEdit("Invoices")} canDelete={canDelete("Invoices")}/>:<AccessDenied/>)}
-              {active==="sales_calculator"&&(hasPerm("Sales Calculator")||hasPerm("Invoices")?<InvoicesPage ponds={farmPonds} invoices={farmInvoices} customers={farmCustomers} priceGroups={farmPriceGroups} settings={invSettings} onAddInvoice={addInvoice} onEditInvoice={editInvoice} onDeleteInvoice={deleteInvoice} onAddCustomer={addCustomer} onAddPriceGroup={addPriceGroup} onEditPriceGroup={editPriceGroup} onDeletePriceGroup={delPriceGroup} onUpdateSettings={(s)=>{setInvSettings(s);api.invSettings.update(s).catch(console.warn);}} currentUser={userProfile?.name} currency={cs} initialTab="sales_calculator" canCreate={canCreate("Sales Calculator")||canCreate("Invoices")} canEdit={canEdit("Sales Calculator")||canEdit("Invoices")} canDelete={canDelete("Sales Calculator")||canDelete("Invoices")}/>:<AccessDenied/>)}
+              {active==="invoices"      &&(hasPerm("Invoices")||hasPerm("Sales Calculator")?<InvoicesPage ponds={farmPonds} invoices={farmInvoices} customers={farmCustomers} priceGroups={farmPriceGroups} settings={invSettings} onAddInvoice={addInvoice} onEditInvoice={editInvoice} onDeleteInvoice={deleteInvoice} onAddCustomer={addCustomer} onAddPriceGroup={addPriceGroup} onEditPriceGroup={editPriceGroup} onDeletePriceGroup={delPriceGroup} onUpdateSettings={(s)=>{setInvSettings(s);api.invSettings.update(s).catch(console.warn);}} currentUser={userProfile?.name} currency={cs} canCreate={canCreate("Invoices")} canEdit={canEdit("Invoices")} canDelete={canDelete("Invoices")}/>:<AccessDenied/>)}
+              {active==="sales_calculator"&&(hasPerm("Sales Calculator")||hasPerm("Invoices")?<SalesCalculatorPage priceGroups={farmPriceGroups} settings={invSettings} onAddPriceGroup={addPriceGroup} onEditPriceGroup={editPriceGroup} onDeletePriceGroup={delPriceGroup} currency={cs} canCreate={canCreate("Sales Calculator")||canCreate("Invoices")} canEdit={canEdit("Sales Calculator")||canEdit("Invoices")} canDelete={canDelete("Sales Calculator")||canDelete("Invoices")}/>:<AccessDenied/>)}
               {active==="staff"         &&(isOwner?<StaffPage staff={staff} onAdd={addStaff} onEdit={editStaff} onDelete={delStaff} farms={farms.filter(f => f.userId === userProfile?.id || isOwner)} activeFarmId={activeFarmId} ownerEmail={userProfile?.email}/>:<AccessDenied/>)}
               {active==="investors"     &&(hasPerm("Investors")?<InvestorsPage investors={farmInvestors} investments={farmInvestments} payments={farmPayments} farms={farms} ponds={farmPonds} stockEvents={stockEvents} activeFarmId={activeFarmId} currency={cs} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}} isOwner={isOwner} canManage={isOwner||hasPerm("Investors")} onAddInvestor={handleAddInvestor} onEditInvestor={handleEditInvestor} onEditInvestment={handleEditInvestment} onDeleteInvestor={handleDeleteInvestor} onRecordPayment={handleRecordPayment} onMarkPaymentPaid={handleMarkPaymentPaid} canCreate={canCreate("Investors")} canEdit={canEdit("Investors")} canDelete={canDelete("Investors")}/>:<AccessDenied/>)}
               {active==="reports"       &&(hasPerm("Reports")?<ReportsPage reports={farmReports} staff={staff} onAdd={addReport} onEdit={editReportFn} onDelete={deleteReport} pondReports={farmPondReports} treatments={farmTreatments} farms={farms} ponds={farmPonds} stockEvents={stockEvents} onAddPondReport={handleAddPondReport} onDeletePondReport={deletePondReport} activeFarmId={activeFarmId} canCreate={canCreate("Reports")} canEdit={canEdit("Reports")} canDelete={canDelete("Reports")} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}} isOwner={isOwner}/>:<AccessDenied/>)}

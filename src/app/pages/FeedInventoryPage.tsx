@@ -1,7 +1,6 @@
-import React, { useState, useMemo } from "react";
 import {
   Plus, CheckCircle, Layers, Trash2, ChevronDown, ChevronUp,
-  Pencil, Package, Download, FileText, Lock, Calendar, ChevronLeft, ChevronRight, Search, Fish
+  Pencil, Package, Download, FileText, Lock, Calendar, ChevronLeft, ChevronRight, Search, Fish, Phone
 } from "lucide-react";
 import type { FeedItem, BagOpenLog, FeedRemainingLog, Pond } from "../types";
 import { FEED_SIZES, FEED_BRANDS, TODAY, fmt, uid, toMon, toYr, downloadCSV, openPrintWindow, fmtDate, fmtStockingDate, formatFishStock, formatFishStockDate, getPondFishStock } from "../data";
@@ -33,7 +32,7 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
   const [calcStep,setCalcStep]=useState<"input"|"results">("input");
   const [showCustomize,setShowCustomize]=useState(false);
   const [customEdit,setCustomEdit]=useState<Record<string,{bagsPerK:string;kgPerBag:string}>>({});
-  const [buyF,setBuyF]=useState({date:TODAY,brand:"Durante",size:"4.0 mm",bags:"",wpb:"15",cpb:"",supplier:""});
+  const [buyF,setBuyF]=useState({date:TODAY,brand:"Durante",size:"4.0 mm",bags:"",wpb:"15",cpb:"",supplier:"",supplierPhone:""});
   const [buyErr,setBuyErr]=useState<Record<string,string>>({});
   const [fBrand,setFBrand]=useState("All"); const [fSize,setFSize]=useState("All"); const [fMonth,setFMonth]=useState("All");
   const {sorted:sortedInv,sf,sd,toggle}=useSort(inventory,"brand");
@@ -73,21 +72,45 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
     if(!buyF.date)errs.date="Purchase date is required";
     if(Object.keys(errs).length){setBuyErr(errs);return;}
     setBuyErr({});
-    const bags=Number(buyF.bags),wpb=Number(buyF.wpb);onAdd({id:uid(),brand:buyF.brand,size:buyF.size,bags,weightPerBag:wpb,totalKg:bags*wpb,costPerBag:Number(buyF.cpb),supplier:buyF.supplier,purchaseDate:fmtDate(buyF.date),month:toMon(buyF.date)});
-    setShowBuy(false);setBuyErr({});setBuyF({date:TODAY,brand:"Durante",size:"4.0 mm",bags:"",wpb:"15",cpb:"",supplier:""});};
+    const bags=Number(buyF.bags),wpb=Number(buyF.wpb);
+    onAdd({
+      id:uid(),
+      brand:buyF.brand,
+      size:buyF.size,
+      bags,
+      weightPerBag:wpb,
+      totalKg:bags*wpb,
+      costPerBag:Number(buyF.cpb),
+      supplier:buyF.supplier,
+      supplierPhone:buyF.supplierPhone,
+      purchaseDate:fmtDate(buyF.date),
+      month:toMon(buyF.date)
+    });
+    setShowBuy(false);
+    setBuyErr({});
+    setBuyF({date:TODAY,brand:"Durante",size:"4.0 mm",bags:"",wpb:"15",cpb:"",supplier:"",supplierPhone:""});
+  };
   const [clearConfirmId,setClearConfirmId]=useState<string|null>(null);
   const [clearConfirmLabel,setClearConfirmLabel]=useState("");
   const handleDelete=(id:string,brand:string,size:string)=>{setClearConfirmId(id);setClearConfirmLabel(`${brand} ${size}`);};
   /* purchase history filters */
   const [pFMonth,setPFMonth]=useState<string>("All");
   const [pFYear,setPFYear]=useState<string>("All");
-  const purchaseYears=["2026"];
+  const purchaseYears=[...new Set(inventory.map(f=>{
+    const m = (f.purchaseDate||"").match(/\b(20\d\d)\b/);
+    return m ? m[1] : (f.month ? "2026" : "");
+  }).filter(Boolean))].sort((a,b)=>b.localeCompare(a));
+  if(purchaseYears.length===0) purchaseYears.push("2026");
   const purchaseMonths=[...new Set(inventory.map(f=>f.month).filter(Boolean))];
   /* edit purchase */
   const [editPurchase,setEditPurchase]=useState<FeedItem|null>(null);
   const [purchasePage,setPurchasePage]=useState(1);
   const filtPurchases=inventory.filter(f=>{
     if(pFMonth!=="All"&&f.month!==pFMonth)return false;
+    if(pFYear!=="All"){
+      const yr=(f.purchaseDate||"").match(/\b(20\d\d)\b/)?.[1]||"2026";
+      if(yr!==pFYear)return false;
+    }
     return true;
   });
   const pagedPurchases=[...filtPurchases].reverse().slice((purchasePage-1)*PER_PAGE,purchasePage*PER_PAGE);
@@ -558,12 +581,12 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
             </div>
             <div className="flex items-center gap-2">
               <p className="text-[11px] text-slate-400">{filtPurchases.length} purchase{filtPurchases.length!==1?"s":""}</p>
-              <button onClick={()=>downloadCSV("feed-purchases.csv",["#","Purchased","Brand","Size","Bags","Kg/Bag","Total Kg","Cost/Bag","Total Value","Supplier"],filtPurchases.map((r,i)=>[i+1,r.purchaseDate,r.brand,r.size,r.bags,r.weightPerBag,r.totalKg,r.costPerBag,r.bags*r.costPerBag,r.supplier||""]))} className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-slate-200 bg-white text-slate-500 text-[11px] font-semibold hover:border-green-400 hover:text-green-600 transition-colors"><Download size={11}/> CSV</button>
-              <button onClick={()=>openPrintWindow("Feed Purchase History",["#","Purchased","Brand","Size","Bags","Kg/Bag","Total Kg","Cost/Bag","Total Value","Supplier"],filtPurchases.map((r,i)=>[i+1,r.purchaseDate,r.brand,r.size,r.bags,`${r.weightPerBag}kg`,`${r.totalKg}kg`,fmt(r.costPerBag),fmt(r.bags*r.costPerBag),r.supplier||"—"]),"All purchased feed stock")} className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-slate-200 bg-white text-slate-500 text-[11px] font-semibold hover:border-green-400 hover:text-green-600 transition-colors"><FileText size={11}/> PDF</button>
+              <button onClick={()=>downloadCSV("feed-purchases.csv",["#","Purchased","Brand","Size","Bags","Kg/Bag","Total Kg","Cost/Bag","Total Value","Supplier","Supplier Phone"],filtPurchases.map((r,i)=>[i+1,r.purchaseDate,r.brand,r.size,r.bags,r.weightPerBag,r.totalKg,r.costPerBag,r.bags*r.costPerBag,r.supplier||"",r.supplierPhone||""]))} className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-slate-200 bg-white text-slate-500 text-[11px] font-semibold hover:border-green-400 hover:text-green-600 transition-colors"><Download size={11}/> CSV</button>
+              <button onClick={()=>openPrintWindow("Feed Purchase History",["#","Purchased","Brand","Size","Bags","Kg/Bag","Total Kg","Cost/Bag","Total Value","Supplier","Supplier Phone"],filtPurchases.map((r,i)=>[i+1,r.purchaseDate,r.brand,r.size,r.bags,`${r.weightPerBag}kg`,`${r.totalKg}kg`,fmt(r.costPerBag,cs),fmt(r.bags*r.costPerBag,cs),r.supplier||"—",r.supplierPhone||"—"]),"All purchased feed stock")} className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-slate-200 bg-white text-slate-500 text-[11px] font-semibold hover:border-green-400 hover:text-green-600 transition-colors"><FileText size={11}/> PDF</button>
             </div>
           </div>
           {/* Desktop Table View */}
-          <div className="hidden md:block overflow-x-auto"><table className="w-full text-sm min-w-[700px]">
+          <div className="hidden md:block overflow-x-auto"><table className="w-full text-sm min-w-[750px]">
             <thead><tr className="border-b border-slate-100 bg-slate-50">
               <th className="px-4 py-3 text-[11px] text-slate-400 w-10 sticky left-0 z-20 bg-slate-50">#</th>
               <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider sticky left-10 z-20 bg-slate-50 border-r border-slate-200 whitespace-nowrap">Purchased</th>
@@ -588,9 +611,23 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
                   <td className="px-4 py-3.5 font-bold text-slate-900">{row.bags}</td>
                   <td className="px-4 py-3.5 text-slate-500">{row.weightPerBag}kg</td>
                   <td className="px-4 py-3.5 text-slate-600">{row.totalKg}kg</td>
-                  <td className="px-4 py-3.5 text-slate-500">{fmt(row.costPerBag)}</td>
-                  <td className="px-4 py-3.5 font-bold text-green-700 font-['Barlow_Condensed',sans-serif]">{fmt(row.bags*row.costPerBag)}</td>
-                  <td className="px-4 py-3.5 text-slate-400 text-xs">{row.supplier||"—"}</td>
+                  <td className="px-4 py-3.5 text-slate-500">{fmt(row.costPerBag,cs)}</td>
+                  <td className="px-4 py-3.5 font-bold text-green-700 font-['Barlow_Condensed',sans-serif]">{fmt(row.bags*row.costPerBag,cs)}</td>
+                  <td className="px-4 py-3.5 text-slate-700 text-xs">
+                    {row.supplier || row.supplierPhone ? (
+                      <div>
+                        {row.supplier && <span className="font-semibold text-slate-900 block">{row.supplier}</span>}
+                        {row.supplierPhone && (
+                          <span className="text-[11px] text-slate-500 font-mono flex items-center gap-1 mt-0.5">
+                            <Phone size={10} className="text-slate-400 shrink-0" />
+                            {row.supplierPhone}
+                          </span>
+                        )}
+                      </div>
+                    ) : (
+                      <span className="text-slate-400">—</span>
+                    )}
+                  </td>
                   <td className="px-4 py-3.5 whitespace-nowrap">
                     <div className="flex items-center gap-1">
                       {canEdit&&(isPurchaseEditable(row.purchaseDate)?<button onClick={()=>setEditPurchase({...row})} className="p-1.5 rounded-lg text-slate-300 hover:text-green-600 hover:bg-green-50 transition-colors" title="Edit"><Pencil size={13}/></button>:<button onClick={()=>alert("This record can only be edited by an Administrator or Manager after 24 hours.")} className="p-1.5 rounded-lg text-slate-200 cursor-not-allowed" title="Locked after 24 hours"><Lock size={13}/></button>)}
@@ -603,47 +640,80 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
             {filtPurchases.length>0&&(
               <tfoot><tr className="bg-slate-50 border-t-2 border-slate-200">
                 <td colSpan={8} className="px-4 py-3 text-right text-xs font-bold text-slate-500 uppercase tracking-wider">Total Spend</td>
-                <td className="px-4 py-3 font-bold text-green-700 font-['Barlow_Condensed',sans-serif]">{fmt(filtPurchases.reduce((s,f)=>s+f.bags*f.costPerBag,0))}</td>
-                <td/>
+                <td className="px-4 py-3 font-bold text-green-700 font-['Barlow_Condensed',sans-serif]">{fmt(filtPurchases.reduce((s,f)=>s+f.bags*f.costPerBag,0),cs)}</td>
+                <td colSpan={2}/>
               </tr></tfoot>
             )}
           </table></div>
 
-          {/* Mobile Card View */}
-          <div className="md:hidden p-3 space-y-2.5">
+          {/* Mobile Individual Cards List */}
+          <div className="md:hidden p-3 space-y-3">
             {filtPurchases.length===0?(
               <p className="text-center text-xs text-slate-400 py-8">No purchases recorded yet</p>
             ):(
-              pagedPurchases.map((row,i)=>(
-                <div key={row.id} className="bg-white border border-slate-200 rounded-xl p-3.5 shadow-2xs space-y-2">
+              pagedPurchases.map((row)=>(
+                <div key={row.id} className="bg-white border border-slate-200/90 rounded-2xl p-3.5 shadow-2xs space-y-3">
                   <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-xs font-bold text-slate-900">{row.brand}</span>
-                        <Bdg label={row.size} color="blue"/>
+                    <div className="flex items-start gap-2.5">
+                      {/* Month & Year in vertical badge column */}
+                      <div className="flex flex-col items-center justify-center bg-slate-100 border border-slate-200/80 rounded-xl px-2.5 py-1.5 min-w-[54px] shrink-0 text-center">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 leading-tight">
+                          {row.month || toMon(row.purchaseDate) || "Month"}
+                        </span>
+                        <span className="text-xs font-extrabold text-slate-800 font-mono leading-tight mt-0.5">
+                          {(row.purchaseDate||"").match(/\b(20\d\d)\b/)?.[1] || toYr(row.purchaseDate) || "2026"}
+                        </span>
                       </div>
-                      <p className="text-[11px] text-slate-400 mt-0.5">{row.purchaseDate} {row.supplier?`· ${row.supplier}`:""}</p>
+
+                      <div>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-sm font-bold text-slate-900">{row.brand}</span>
+                          <Bdg label={row.size} color="blue"/>
+                        </div>
+                        <p className="text-[11px] text-slate-400 mt-0.5">{row.purchaseDate}</p>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-1">
+
+                    <div className="flex items-center gap-1 shrink-0">
                       {canEdit&&(isPurchaseEditable(row.purchaseDate)?<button onClick={()=>setEditPurchase({...row})} className="p-1.5 rounded-lg text-slate-400 hover:text-green-600 hover:bg-green-50 transition-colors" title="Edit"><Pencil size={13}/></button>:<button onClick={()=>alert("This record can only be edited by an Administrator or Manager after 24 hours.")} className="p-1.5 rounded-lg text-slate-300 cursor-not-allowed" title="Locked"><Lock size={13}/></button>)}
                       {canDelete&&<button onClick={()=>{if(confirm(`Are you sure you want to delete this purchase record (${row.brand} ${row.size})?`))onDelete(row.id);}} className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors" title="Delete"><Trash2 size={13}/></button>}
                     </div>
                   </div>
+
                   <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-100 text-xs">
-                    <div className="bg-slate-50 p-2 rounded-lg">
-                      <span className="text-[10px] text-slate-400 block">Quantity</span>
+                    <div className="bg-slate-50 p-2 rounded-xl">
+                      <span className="text-[10px] text-slate-400 block font-medium">Quantity</span>
                       <span className="font-bold text-slate-900">{row.bags} bags</span>
-                      <span className="text-[10px] text-slate-400 block">{row.totalKg}kg total</span>
+                      <span className="text-[10px] text-slate-500 block mt-0.5">{row.totalKg}kg total</span>
                     </div>
-                    <div className="bg-slate-50 p-2 rounded-lg">
-                      <span className="text-[10px] text-slate-400 block">Cost / Bag</span>
-                      <span className="font-bold text-slate-900">{fmt(row.costPerBag)}</span>
+                    <div className="bg-slate-50 p-2 rounded-xl">
+                      <span className="text-[10px] text-slate-400 block font-medium">Cost / Bag</span>
+                      <span className="font-bold text-slate-900">{fmt(row.costPerBag,cs)}</span>
+                      <span className="text-[10px] text-slate-400 block mt-0.5">{row.weightPerBag}kg/bag</span>
                     </div>
-                    <div className="bg-slate-50 p-2 rounded-lg">
-                      <span className="text-[10px] text-slate-400 block">Total Spend</span>
-                      <span className="font-bold text-green-700 font-['Barlow_Condensed',sans-serif] text-sm">{fmt(row.bags*row.costPerBag)}</span>
+                    <div className="bg-green-50/60 border border-green-100/60 p-2 rounded-xl">
+                      <span className="text-[10px] text-green-700 block font-bold">Total Spend</span>
+                      <span className="font-extrabold text-green-800 font-['Barlow_Condensed',sans-serif] text-base">{fmt(row.bags*row.costPerBag,cs)}</span>
                     </div>
                   </div>
+
+                  {(row.supplier || row.supplierPhone) && (
+                    <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2 text-xs bg-slate-50/60 -mx-3.5 -mb-3.5 px-3.5 py-2 rounded-b-2xl">
+                      <div className="min-w-0">
+                        <span className="text-[10px] uppercase font-bold text-slate-400 block">Supplier</span>
+                        <span className="font-semibold text-slate-800 truncate block">{row.supplier || "Supplier"}</span>
+                      </div>
+                      {row.supplierPhone && (
+                        <a
+                          href={`tel:${row.supplierPhone}`}
+                          className="flex items-center gap-1 text-xs font-semibold text-green-700 bg-green-50 hover:bg-green-100 border border-green-200/80 px-2 py-1 rounded-lg transition-colors shrink-0"
+                        >
+                          <Phone size={10} />
+                          <span>{row.supplierPhone}</span>
+                        </a>
+                      )}
+                    </div>
+                  )}
                 </div>
               ))
             )}
@@ -663,9 +733,12 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
         </div>
         <div className="grid grid-cols-2 gap-3">
           <F label={`Unit Price (${cs})`}><NumInput value={editPurchase.costPerBag} onChange={v=>setEditPurchase(p=>p?{...p,costPerBag:Number(v)||0}:p)} className={IC}/></F>
-          <F label="Total Cost"><p className="px-3 py-2 text-sm font-bold text-green-700">{fmt(editPurchase.bags*editPurchase.costPerBag)}</p></F>
+          <F label="Total Cost"><p className="px-3 py-2 text-sm font-bold text-green-700">{fmt(editPurchase.bags*editPurchase.costPerBag,cs)}</p></F>
         </div>
-        <F label="Supplier"><input value={editPurchase.supplier||""} onChange={e=>setEditPurchase(p=>p?{...p,supplier:e.target.value}:p)} className={IC} placeholder="Supplier name"/></F>
+        <div className="grid grid-cols-2 gap-3">
+          <F label="Supplier Name"><input value={editPurchase.supplier||""} onChange={e=>setEditPurchase(p=>p?{...p,supplier:e.target.value}:p)} className={IC} placeholder="Supplier name"/></F>
+          <F label="Supplier Phone"><input value={editPurchase.supplierPhone||""} onChange={e=>setEditPurchase(p=>p?{...p,supplierPhone:e.target.value}:p)} className={IC} placeholder="e.g. 08012345678"/></F>
+        </div>
         <F label="Purchase Date (e.g. Jun 10)"><input value={editPurchase.purchaseDate||""} onChange={e=>setEditPurchase(p=>p?{...p,purchaseDate:e.target.value}:p)} className={IC} placeholder="Jun 10"/></F>
         <div className="flex gap-2 pt-1"><PBtn onClick={()=>{if(editPurchase&&onEditInv){onEditInv(editPurchase);setEditPurchase(null);}}}><CheckCircle size={14}/> Save Changes</PBtn><button onClick={()=>setEditPurchase(null)} className="px-4 py-2 text-sm text-slate-400">Cancel</button></div>
       </Modal>}
@@ -869,9 +942,12 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
         </div>
         <div className="grid grid-cols-2 gap-3">
           <F label="Weight Per Bag (kg)"><NumInput value={buyF.wpb} onChange={v=>setBuyF(p=>({...p,wpb:v}))} className={IC}/></F>
-          <div><F label="Cost per Bag"><NumInput value={buyF.cpb} onChange={v=>{setBuyF(p=>({...p,cpb:v}));if(v&&Number(v)>0)setBuyErr(p=>({...p,cpb:""}));}} className={`${IC}${buyErr.cpb?" border-red-400 focus:ring-red-200":""}`} placeholder="0"/></F>{buyErr.cpb&&<p className="text-xs text-red-500 mt-1">{buyErr.cpb}</p>}</div>
+          <div><F label={`Cost per Bag (${cs})`}><NumInput value={buyF.cpb} onChange={v=>{setBuyF(p=>({...p,cpb:v}));if(v&&Number(v)>0)setBuyErr(p=>({...p,cpb:""}));}} className={`${IC}${buyErr.cpb?" border-red-400 focus:ring-red-200":""}`} placeholder="0"/></F>{buyErr.cpb&&<p className="text-xs text-red-500 mt-1">{buyErr.cpb}</p>}</div>
         </div>
-        <F label="Supplier"><input value={buyF.supplier} onChange={e=>setBuyF(p=>({...p,supplier:e.target.value}))} className={IC} placeholder="Supplier name"/></F>
+        <div className="grid grid-cols-2 gap-3">
+          <F label="Supplier Name"><input value={buyF.supplier} onChange={e=>setBuyF(p=>({...p,supplier:e.target.value}))} className={IC} placeholder="Supplier name"/></F>
+          <F label="Supplier Phone"><input value={buyF.supplierPhone||""} onChange={e=>setBuyF(p=>({...p,supplierPhone:e.target.value}))} className={IC} placeholder="e.g. 08012345678"/></F>
+        </div>
         <div className="flex gap-2 pt-1"><PBtn onClick={handleBuy}><Plus size={14}/> Save Purchase</PBtn><button onClick={()=>{setShowBuy(false);setBuyErr({});}} className="px-4 py-2 text-sm text-slate-400">Cancel</button></div>
       </Modal>}
     </div>

@@ -5,12 +5,8 @@ import { fmt, uid, TODAY, PAYMENT_METHODS, INV_STATUSES } from "../data";
 import { Card, Bdg, PBtn, Pagination, StatCard, Modal, F, IC, SC, SearchableSelect, SelDrop, DateFilter, DMONTHS_S, SH, PER_PAGE } from "../shared";
 import SalesCalculatorPage from "./SalesCalculatorPage";
 
-export default function InvoicesPage({ponds,invoices,customers,priceGroups,settings,onAddInvoice,onEditInvoice,onDeleteInvoice,onAddCustomer,onAddPriceGroup,onEditPriceGroup,onDeletePriceGroup,onUpdateSettings,currentUser,currency="₦",initialTab="invoices",canCreate=true,canEdit=true,canDelete=true}:{ponds:Pond[];invoices:Invoice[];customers:Customer[];priceGroups:PriceGroup[];settings:InvSettings;onAddInvoice:(i:Invoice)=>void;onEditInvoice:(i:Invoice)=>void;onDeleteInvoice?:(id:string)=>void;onAddCustomer:(c:Customer)=>void;onAddPriceGroup:(g:PriceGroup)=>void;onEditPriceGroup:(g:PriceGroup)=>void;onDeletePriceGroup:(id:string)=>void;onUpdateSettings:(s:InvSettings)=>void;currentUser?:string;currency?:string;initialTab?:"invoices"|"sales_calculator";canCreate?:boolean;canEdit?:boolean;canDelete?:boolean;}){
+export default function InvoicesPage({ponds,invoices,customers,priceGroups,settings,onAddInvoice,onEditInvoice,onDeleteInvoice,onAddCustomer,onAddPriceGroup,onEditPriceGroup,onDeletePriceGroup,onUpdateSettings,currentUser,currency="₦",canCreate=true,canEdit=true,canDelete=true}:{ponds:Pond[];invoices:Invoice[];customers:Customer[];priceGroups:PriceGroup[];settings:InvSettings;onAddInvoice:(i:Invoice)=>void;onEditInvoice:(i:Invoice)=>void;onDeleteInvoice?:(id:string)=>void;onAddCustomer:(c:Customer)=>void;onAddPriceGroup:(g:PriceGroup)=>void;onEditPriceGroup:(g:PriceGroup)=>void;onDeletePriceGroup:(id:string)=>void;onUpdateSettings:(s:InvSettings)=>void;currentUser?:string;currency?:string;canCreate?:boolean;canEdit?:boolean;canDelete?:boolean;}){
   const cs=currency;
-  const [activeTab, setActiveTab] = useState<"invoices" | "sales_calculator">(initialTab);
-  useEffect(() => {
-    if (initialTab) setActiveTab(initialTab);
-  }, [initialTab]);
 
   /* ── filter / sort state ── */
   const [search,setSearch]=useState(""); const [fPond,setFPond]=useState("All"); const [fStatus,setFStatus]=useState("All"); const [fMethod,setFMethod]=useState("All"); const [sortDir,setSortDir]=useState<SortDir>("desc");
@@ -235,45 +231,6 @@ export default function InvoicesPage({ponds,invoices,customers,priceGroups,setti
   };
   const totalWeight=(inv:Invoice)=>(inv.items||[]).reduce((s,it)=>s+it.qtyKg,0);
 
-  if (activeTab === "sales_calculator") {
-    return (
-      <div className="space-y-4">
-        <div className="px-4 sm:px-6 pt-4 sm:pt-6">
-          <div className="flex gap-1 bg-slate-200/90 border border-slate-300/70 p-1 rounded-xl w-fit shadow-2xs">
-            <button
-              onClick={() => setActiveTab("invoices")}
-              className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${
-                activeTab === "invoices" ? "bg-white text-slate-900 shadow-sm font-bold border border-slate-200/80" : "text-slate-600 hover:text-slate-900"
-              }`}
-            >
-              Invoices
-            </button>
-            <button
-              onClick={() => setActiveTab("sales_calculator")}
-              className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all flex items-center gap-1.5 ${
-                activeTab === "sales_calculator" ? "bg-white text-slate-900 shadow-sm font-bold border border-slate-200/80" : "text-slate-600 hover:text-slate-900"
-              }`}
-            >
-              <Calculator size={14} /> Sales Calculator
-            </button>
-          </div>
-        </div>
-        <SalesCalculatorPage
-          priceGroups={priceGroups}
-          settings={settings}
-          onAddPriceGroup={onAddPriceGroup}
-          onEditPriceGroup={onEditPriceGroup}
-          onDeletePriceGroup={onDeletePriceGroup}
-          onConvertToInvoice={canCreate ? handleConvertFromCalc : undefined}
-          currency={cs}
-          canCreate={canCreate}
-          canEdit={canEdit}
-          canDelete={canDelete}
-        />
-      </div>
-    );
-  }
-
   return(
     <div className="p-4 sm:p-6 space-y-5 w-full">
       <div className="sticky top-0 z-30 bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 flex flex-wrap items-center justify-between gap-3 shadow-2xs">
@@ -283,25 +240,6 @@ export default function InvoicesPage({ponds,invoices,customers,priceGroups,setti
           <PBtn sm outline onClick={()=>{setShowGroupsPanel(true);setGroupFormMode(false);setEditGroup(null);}}><Tag size={13}/> Price Groups</PBtn>
           {canCreate&&<PBtn sm onClick={()=>{setShowCreate(true);resetWizard();}}><Plus size={13}/> Create Invoice</PBtn>}
         </div>
-      </div>
-
-      <div className="flex gap-1 bg-slate-200/90 border border-slate-300/70 p-1 rounded-xl w-fit shadow-2xs">
-        <button
-          onClick={() => setActiveTab("invoices")}
-          className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${
-            activeTab === "invoices" ? "bg-white text-slate-900 shadow-sm font-bold border border-slate-200/80" : "text-slate-600 hover:text-slate-900"
-          }`}
-        >
-          Invoices
-        </button>
-        <button
-          onClick={() => setActiveTab("sales_calculator")}
-          className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all flex items-center gap-1.5 ${
-            activeTab === "sales_calculator" ? "bg-white text-slate-900 shadow-sm font-bold border border-slate-200/80" : "text-slate-600 hover:text-slate-900"
-          }`}
-        >
-          <Calculator size={14} /> Sales Calculator
-        </button>
       </div>
 
       {/* ── Desktop Date filter ── */}

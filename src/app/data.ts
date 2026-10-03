@@ -330,16 +330,44 @@ export function isSameDate(d1?: string | null, d2?: string | null): boolean {
   const n2 = normalize(s2);
   if (n1 === n2) return true;
 
-  // Compare month-day part ONLY if at least one side omits an explicit year
-  const s1HasExplicitYear = /\b\d{4}\b/.test(s1);
-  const s2HasExplicitYear = /\b\d{4}\b/.test(s2);
-  if (s1HasExplicitYear && s2HasExplicitYear) {
-    return false;
-  }
-
   const sub1 = n1.replace(/^\d{4}-/, "");
   const sub2 = n2.replace(/^\d{4}-/, "");
   return sub1 === sub2;
+}
+
+export function isStockMatch(stockA?: string | null, stockB?: string | null, ponds?: any[]): boolean {
+  if (!stockA || !stockB) return false;
+  if (stockA === "—" || stockB === "—") return false;
+  const a = stockA.trim().toLowerCase();
+  const b = stockB.trim().toLowerCase();
+  if (a === b) return true;
+
+  const fa = formatFishStock(stockA).trim().toLowerCase();
+  const fb = formatFishStock(stockB).trim().toLowerCase();
+  if (fa === fb && fa !== "—") return true;
+
+  const fda = formatFishStockDate(stockA).trim().toLowerCase();
+  const fdb = formatFishStockDate(stockB).trim().toLowerCase();
+  if (fda === fdb && fda !== "—") return true;
+
+  if (ponds && ponds.length > 0) {
+    const pA = (ponds || []).find(p => p && p.name && p.name.toLowerCase().trim() === a);
+    if (pA) {
+      const psA = getPondFishStock(pA).trim().toLowerCase();
+      if (psA === b || psA === fb || psA === fdb) return true;
+      if (pA.stockingDate && formatFishStockDate(pA.stockingDate).trim().toLowerCase() === b) return true;
+      if (pA.fishStock && pA.fishStock.trim().toLowerCase() === b) return true;
+    }
+    const pB = (ponds || []).find(p => p && p.name && p.name.toLowerCase().trim() === b);
+    if (pB) {
+      const psB = getPondFishStock(pB).trim().toLowerCase();
+      if (psB === a || psB === fa || psB === fda) return true;
+      if (pB.stockingDate && formatFishStockDate(pB.stockingDate).trim().toLowerCase() === a) return true;
+      if (pB.fishStock && pB.fishStock.trim().toLowerCase() === a) return true;
+    }
+  }
+
+  return false;
 }
 
 export const PAYMENT_METHODS=["Cash","Bank Transfer","POS","Cheque","Other"];
