@@ -91,7 +91,7 @@ export function formatPlanForUI(plan: AdminPlan): FormattedPlan {
 
 export function loadStoredPlans(): AdminPlan[] {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = typeof localStorage !== "undefined" ? localStorage.getItem(STORAGE_KEY) : null;
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed) && parsed.length > 0) {
@@ -99,7 +99,16 @@ export function loadStoredPlans(): AdminPlan[] {
       }
     }
   } catch {}
-  return DEFAULT_PLANS;
+  return (DEFAULT_PLANS && Array.isArray(DEFAULT_PLANS) && DEFAULT_PLANS.length > 0)
+    ? DEFAULT_PLANS
+    : [
+        { id: "starter", name: "Starter", monthlyPrice: 3000, yearlyPrice: 28800, description: "Up to 5 ponds, 1 farm", status: "Active", farmLimit: 1, pondLimit: 5 },
+        { id: "growth", name: "Growth", monthlyPrice: 5000, yearlyPrice: 48000, description: "Up to 15 ponds, 1 farm", status: "Active", farmLimit: 1, pondLimit: 15 },
+        { id: "commercial", name: "Commercial", monthlyPrice: 10000, yearlyPrice: 96000, description: "Unlimited ponds, 1 farm", status: "Active", farmLimit: 1, pondLimit: null },
+        { id: "3farm", name: "3-Farm Plan", monthlyPrice: 24000, yearlyPrice: 230400, description: "Unlimited ponds, 3 farms", status: "Active", farmLimit: 3, pondLimit: null },
+        { id: "5farm", name: "5-Farm Plan", monthlyPrice: 40000, yearlyPrice: 384000, description: "Unlimited ponds, 5 farms", status: "Active", farmLimit: 5, pondLimit: null },
+        { id: "unlimited", name: "Unlimited Farms", monthlyPrice: 70000, yearlyPrice: 672000, description: "Unlimited ponds & farms", status: "Active", farmLimit: null, pondLimit: null },
+      ];
 }
 
 /**

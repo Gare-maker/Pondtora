@@ -46,22 +46,6 @@ export interface AdminActivityLog {
   adminEmail: string;
 }
 
-/** Effective price for a user — respects priority: freeAccess > custom amount > plan default */
-export function effectivePrice(u: Partial<AdminUser>, plans?: { name: string; monthlyPrice: number; yearlyPrice: number }[]): number | "free" | null {
-  if (!u) return null;
-  if (u.freeAccess) return "free";
-  if (typeof u.subscriptionAmount === "number" && !isNaN(u.subscriptionAmount) && u.subscriptionAmount > 0) {
-    return u.subscriptionAmount;
-  }
-  const planList = plans && plans.length > 0 ? plans : DEFAULT_PLANS;
-  if (u.activePlan) {
-    const targetPlanName = u.activePlan.toLowerCase().trim();
-    const p = planList.find(x => x.name.toLowerCase().trim() === targetPlanName);
-    if (p) return u.billingFrequency === "yearly" ? p.yearlyPrice : p.monthlyPrice;
-  }
-  return null;
-}
-
 export interface AdminPlan {
   id: string;
   name: string;
@@ -81,6 +65,22 @@ export const DEFAULT_PLANS: AdminPlan[] = [
   { id: "5farm",      name: "5-Farm Plan",     monthlyPrice: 40000, yearlyPrice: 384000, description: "Unlimited ponds, 5 farms",    status: "Active", farmLimit: 5,    pondLimit: null },
   { id: "unlimited",  name: "Unlimited Farms", monthlyPrice: 70000, yearlyPrice: 672000, description: "Unlimited ponds & farms",     status: "Active", farmLimit: null, pondLimit: null },
 ];
+
+/** Effective price for a user — respects priority: freeAccess > custom amount > plan default */
+export function effectivePrice(u: Partial<AdminUser>, plans?: { name: string; monthlyPrice: number; yearlyPrice: number }[]): number | "free" | null {
+  if (!u) return null;
+  if (u.freeAccess) return "free";
+  if (typeof u.subscriptionAmount === "number" && !isNaN(u.subscriptionAmount) && u.subscriptionAmount > 0) {
+    return u.subscriptionAmount;
+  }
+  const planList = plans && plans.length > 0 ? plans : (DEFAULT_PLANS || []);
+  if (u.activePlan) {
+    const targetPlanName = u.activePlan.toLowerCase().trim();
+    const p = planList.find(x => x && x.name && x.name.toLowerCase().trim() === targetPlanName);
+    if (p) return u.billingFrequency === "yearly" ? p.yearlyPrice : p.monthlyPrice;
+  }
+  return null;
+}
 
 export function computeSubscriptionStatus(
   u: Partial<AdminUser>
