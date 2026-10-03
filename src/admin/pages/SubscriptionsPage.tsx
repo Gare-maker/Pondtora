@@ -4,6 +4,7 @@ import { Card, Bdg, PBtn, Pagination, PER_PAGE, Modal, F, IC, SC, DateInput, Tog
 import type { AdminUser, AdminPlan } from "../types";
 import { fmtDate, trialDaysLeft, fmtMoney, computeSubscriptionStatus, effectivePrice } from "../types";
 import { isStaffUser } from "../../lib/userSync";
+import { toast } from "sonner";
 
 interface Props {
   users: AdminUser[];
@@ -132,7 +133,7 @@ export default function SubscriptionsPage({ users, plans, onUpdate }: Props) {
     
     // Explicit payment verification: only mark hasPaid if user has verified payment or admin explicitly checked paid
     const isExplicitlyPaid = Boolean(!form.freeAccess && (form.hasPaid || form.paystackReference.trim() !== "" || form.lastPaymentDate.trim() !== ""));
-    const customAmt = !form.freeAccess && form.subscriptionAmount.trim() !== "" ? Number(form.subscriptionAmount) : null;
+    const customAmt = !form.freeAccess && form.subscriptionAmount.trim() !== "" && !isNaN(Number(form.subscriptionAmount)) ? Number(form.subscriptionAmount) : null;
 
     const updated: AdminUser = {
       ...editing,
@@ -150,6 +151,7 @@ export default function SubscriptionsPage({ users, plans, onUpdate }: Props) {
     updated.subscriptionStatus = computeSubscriptionStatus(updated);
     onUpdate(updated);
     setEditing(null);
+    toast.success(`Pricing & subscription updated for ${updated.name || updated.email}`);
   }
 
   function fmtEffective(u: AdminUser) {

@@ -598,6 +598,43 @@ export function subscribeToPlatformUpdates(onUpdate: () => void): () => void {
 /**
  * Persists an admin user modification to Supabase user_profiles, farms, and staff_members
  */
+/**
+ * Fetch remote user overrides from Supabase platform_settings
+ */
+export async function fetchRemoteUserOverrides(): Promise<Record<string, any>> {
+  try {
+    const { data, error } = await supabase
+      .from("platform_settings")
+      .select("value")
+      .eq("key", "admin_user_overrides")
+      .maybeSingle();
+
+    if (!error && data?.value && typeof data.value === "object") {
+      const overrides = data.value;
+      try {
+        localStorage.setItem("pondtora_admin_user_overrides", JSON.stringify(overrides));
+      } catch {}
+      return overrides;
+    }
+  } catch (err) {
+    console.warn("fetchRemoteUserOverrides error:", err);
+  }
+  try {
+    const raw = localStorage.getItem("pondtora_admin_user_overrides");
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+// Background initial fetch
+if (typeof window !== "undefined") {
+  fetchRemoteUserOverrides().catch(() => {});
+}
+
+/**
+ * Updates a user in the database, platform_settings overrides, and local caches
+ */
 export async function updateAdminUserInDb(u: AdminUser): Promise<boolean> {
   try {
     const cleanSubAmount =
@@ -609,6 +646,8 @@ export async function updateAdminUserInDb(u: AdminUser): Promise<boolean> {
 
     const isFree = Boolean(u.freeAccess);
     const finalAmount = isFree ? null : cleanSubAmount;
+    const cleanEmail = (u.email || "").trim().toLowerCase();
+    const isTargetUuid = Boolean(u.id && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(u.id.trim()));
 
     const profilePayload: Record<string, any> = {
       name: u.name,
@@ -643,42 +682,46 @@ export async function updateAdminUserInDb(u: AdminUser): Promise<boolean> {
 
     let profSuccess = false;
 
-    // 1. Direct Supabase user_profiles upsert/update (by ID or email)
-    if (u.id) {
-      const { data: updateData, error: updateErr } = await supabase
-        .from("user_profiles")
-        .update(profilePayload)
-        .eq("id", u.id)
-        .select();
+    // 1. Direct Supabase user_profiles update (by UUID ID if valid, or by email)
+    if (isTargetUuid) {
+      try {
+        const { data: updateData, error: updateErr } = await supabase
+          .from("user_profiles")
+          .update(profilePayload)
+          .eq("id", u.id)
+          .select();
 
-      if (!updateErr && updateData && updateData.length > 0) {
-        profSuccess = true;
-      }
+        if (!updateErr && updateData && updateData.length > 0) {
+          profSuccess = true;
+        }
+      } catch {}
     }
 
-    if (!profSuccess && u.email) {
-      const { data: emailData, error: emailErr } = await supabase
-        .from("user_profiles")
-        .update(profilePayload)
-        .ilike("email", u.email.trim())
-        .select();
+    if (cleanEmail) {
+      try {
+        const { data: emailData, error: emailErr } = await supabase
+          .from("user_profiles")
+          .update(profilePayload)
+          .ilike("email", cleanEmail)
+          .select();
 
-      if (!emailErr && emailData && emailData.length > 0) {
-        profSuccess = true;
-      }
+        if (!emailErr && emailData && emailData.length > 0) {
+          profSuccess = true;
+        }
+      } catch {}
     }
 
-    if (!profSuccess) {
+    if (!profSuccess && isTargetUuid) {
       // Upsert full row if record did not previously exist
       const upsertPayload: Record<string, any> = {
         ...profilePayload,
-        email: (u.email || "").trim().toLowerCase(),
+        id: u.id,
+        email: cleanEmail,
       };
-      if (u.id) upsertPayload.id = u.id;
       try {
         const { data: upsertData, error: upsertErr } = await supabase
           .from("user_profiles")
-          .upsert(upsertPayload, { onConflict: u.id ? "id" : "email" })
+          .upsert(upsertPayload, { onConflict: "id" })
           .select();
         if (!upsertErr && upsertData && upsertData.length > 0) {
           profSuccess = true;
@@ -697,11 +740,10 @@ export async function updateAdminUserInDb(u: AdminUser): Promise<boolean> {
         .maybeSingle();
 
       const currentOverrides = (existingSetting?.value && typeof existingSetting.value === "object") ? existingSetting.value : {};
-      const userKey = (u.email || u.id).trim().toLowerCase();
       
-      currentOverrides[userKey] = {
+      const overrideRecord = {
         userId: u.id,
-        email: (u.email || "").trim().toLowerCase(),
+        email: cleanEmail,
         name: u.name,
         farmName: u.farmName,
         subscriptionAmount: finalAmount,
@@ -711,8 +753,17 @@ export async function updateAdminUserInDb(u: AdminUser): Promise<boolean> {
         subscriptionStatus: u.subscriptionStatus,
         subscriptionExpiry: u.subscriptionExpiry || null,
         subscriptionStart: u.subscriptionStart || null,
+        paystackReference: u.paystackReference || null,
+        lastPaymentDate: u.lastPaymentDate || null,
         updatedAt: new Date().toISOString(),
       };
+
+      if (cleanEmail) {
+        currentOverrides[cleanEmail] = overrideRecord;
+      }
+      if (u.id) {
+        currentOverrides[u.id.toLowerCase()] = overrideRecord;
+      }
 
       try {
         localStorage.setItem("pondtora_admin_user_overrides", JSON.stringify(currentOverrides));
@@ -729,12 +780,11 @@ export async function updateAdminUserInDb(u: AdminUser): Promise<boolean> {
       console.warn("Could not persist admin_user_overrides to platform_settings:", overrideErr);
     }
 
-    // 3. Try RPC admin_update_user_profile if present in schema
+    // 3. Try RPC admin_update_user_profile (SECURITY DEFINER)
     try {
-      const isTargetUuid = Boolean(u.id && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(u.id.trim()));
       const { error: rpcErr } = await supabase.rpc("admin_update_user_profile", {
         target_user_id: isTargetUuid ? u.id : null,
-        target_email: u.email || null,
+        target_email: cleanEmail || null,
         new_name: u.name,
         new_farm_name: u.farmName,
         new_phone: u.phone,
@@ -1227,8 +1277,8 @@ export function getUserAdminOverride(
   };
 
   const parseAmount = (val: any): number | null => {
-    if (typeof val === "number" && !isNaN(val)) return val;
-    if (typeof val === "string" && val.trim() !== "" && !isNaN(Number(val))) return Number(val);
+    if (typeof val === "number" && !isNaN(val) && val > 0) return val;
+    if (typeof val === "string" && val.trim() !== "" && !isNaN(Number(val)) && Number(val) > 0) return Number(val);
     return null;
   };
 
@@ -1243,6 +1293,10 @@ export function getUserAdminOverride(
       ? parseAmount(profile?.subscription_amount)
       : parseAmount(profile?.raw_data?.subscription_amount) !== null
       ? parseAmount(profile?.raw_data?.subscription_amount)
+      : parseAmount(profile?.raw_data?.subscriptionAmount) !== null
+      ? parseAmount(profile?.raw_data?.subscriptionAmount)
+      : parseAmount(profile?.customAmount) !== null
+      ? parseAmount(profile?.customAmount)
       : null;
 
   const directFreeAccess = Boolean(
@@ -1254,7 +1308,7 @@ export function getUserAdminOverride(
   );
 
   const directSuspended = profile?.status === "Suspended" || profile?.accountStatus === "Suspended";
-  const directPlan = profile?.activePlan || profile?.active_plan || null;
+  const directPlan = profile?.activePlan || profile?.active_plan || profile?.raw_data?.active_plan || null;
   const directFreq: BillingFrequency = profile?.billingFrequency || profile?.billing_frequency || "monthly";
 
   // 2. Check platform_settings stored overrides in localStorage if available
@@ -1295,15 +1349,34 @@ export function getUserAdminOverride(
     );
   } catch {}
 
+  // 4. Check scoped user profile in localStorage
+  let localScopedAmount: number | null = null;
+  let localScopedPlan: string | null = null;
+  if (cleanEmail || profileId) {
+    try {
+      const scopedKey = cleanEmail ? `pondtora_${cleanEmail}_user_profile` : (profileId ? `pondtora_${profileId}_user_profile` : "");
+      if (scopedKey) {
+        const raw = localStorage.getItem(scopedKey);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          localScopedAmount = parseAmount(parsed.subscriptionAmount) || parseAmount(parsed.subscription_amount);
+          localScopedPlan = parsed.activePlan || parsed.active_plan;
+        }
+      }
+    } catch {}
+  }
+
   const cachedCustomAmount = parseAmount(adminCachedUser?.subscriptionAmount);
   const finalCustomAmount =
     directCustomAmount !== null
       ? directCustomAmount
-      : (remoteOverrideAmount !== null ? remoteOverrideAmount : cachedCustomAmount);
+      : (remoteOverrideAmount !== null
+          ? remoteOverrideAmount
+          : (cachedCustomAmount !== null ? cachedCustomAmount : localScopedAmount));
 
   const finalFreeAccess = directFreeAccess || remoteFreeAccess || Boolean(adminCachedUser?.freeAccess);
   const finalSuspended = directSuspended || (adminCachedUser?.accountStatus === "Suspended");
-  const finalPlan = directPlan || remoteActivePlan || adminCachedUser?.activePlan || null;
+  const finalPlan = directPlan || remoteActivePlan || adminCachedUser?.activePlan || localScopedPlan || null;
   const finalFreq: BillingFrequency = directFreq || remoteFreq || adminCachedUser?.billingFrequency || "monthly";
 
   return {

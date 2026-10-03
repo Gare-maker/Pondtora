@@ -2528,8 +2528,35 @@ function SubscriptionPage({
           query = query.ilike("email", email.trim());
         }
         const { data, error } = await query.maybeSingle();
+
+        // Also fetch latest platform_settings admin_user_overrides to ensure immediate sync across devices
+        let remoteOverrides: Record<string, any> = {};
+        try {
+          const { data: setRow } = await supabase
+            .from("platform_settings")
+            .select("value")
+            .eq("key", "admin_user_overrides")
+            .maybeSingle();
+          if (setRow?.value && typeof setRow.value === "object") {
+            remoteOverrides = setRow.value;
+            try {
+              localStorage.setItem("pondtora_admin_user_overrides", JSON.stringify(remoteOverrides));
+            } catch {}
+          }
+        } catch {}
+
+        const cleanEmail = (email || "").toLowerCase().trim();
+        const userOverride = (cleanEmail ? remoteOverrides[cleanEmail] : null) || (id ? remoteOverrides[id] : null);
+
         if (!error && data && isMounted) {
           const fresh = objToCamel<UserProfile>(data);
+          if (userOverride) {
+            if (userOverride.subscriptionAmount !== undefined) fresh.subscriptionAmount = userOverride.subscriptionAmount;
+            if (userOverride.activePlan) fresh.activePlan = userOverride.activePlan;
+            if (userOverride.freeAccess !== undefined) fresh.freeAccess = userOverride.freeAccess;
+            if (userOverride.billingFrequency) fresh.billingFrequency = userOverride.billingFrequency;
+            if (userOverride.subscriptionExpiry) fresh.subscriptionExpiry = userOverride.subscriptionExpiry;
+          }
           setLiveProfile(prev => {
             const merged = { ...(prev || {}), ...fresh };
             if (merged.id) {
@@ -2537,9 +2564,25 @@ function SubscriptionPage({
                 localStorage.setItem(`pondtora_${merged.id}_user_profile`, JSON.stringify(merged));
               } catch {}
             }
+            if (merged.email) {
+              try {
+                localStorage.setItem(`pondtora_${merged.email.toLowerCase().trim()}_user_profile`, JSON.stringify(merged));
+              } catch {}
+            }
             return merged;
           });
           if (onProfileUpdated) onProfileUpdated(fresh);
+        } else if (userOverride && isMounted) {
+          setLiveProfile(prev => {
+            const merged = {
+              ...(prev || {}),
+              subscriptionAmount: userOverride.subscriptionAmount,
+              activePlan: userOverride.activePlan || prev?.activePlan,
+              freeAccess: userOverride.freeAccess ?? prev?.freeAccess,
+              billingFrequency: userOverride.billingFrequency || prev?.billingFrequency,
+            } as UserProfile;
+            return merged;
+          });
         }
       } catch (err) {
         console.warn("Error refreshing user subscription profile:", err);
@@ -2557,7 +2600,7 @@ function SubscriptionPage({
     window.addEventListener("pondtora:user_profile_updated", handleUsersUpdate);
     window.addEventListener("pondtora:payment_successful", handleUsersUpdate);
 
-    // Subscribe to realtime database changes for user_profiles
+    // Subscribe to realtime database changes for user_profiles and platform_settings
     const profileId = userProfile?.id || liveProfile?.id;
     const profileEmail = userProfile?.email || liveProfile?.email;
     let channel: any = null;
@@ -2573,6 +2616,9 @@ function SubscriptionPage({
           ) {
             fetchFreshProfile();
           }
+        })
+        .on("postgres_changes", { event: "*", schema: "public", table: "platform_settings", filter: "key=eq.admin_user_overrides" }, () => {
+          fetchFreshProfile();
         })
         .subscribe();
     } catch {}
@@ -2691,10 +2737,21 @@ function SubscriptionPage({
     const baseYearly = typeof plan.yearlyPrice === "number" && plan.yearlyPrice > 0 ? plan.yearlyPrice : Math.round(baseMonthly * 12 * 0.8);
     const planRate = isYearly ? baseYearly : baseMonthly;
 
+    const userTargetPlan = (adminOverride.activePlan || effectiveProfile?.activePlan || activePlan || "").toLowerCase().trim();
+    const planNameClean = (plan.name || "").toLowerCase().trim();
+
+    // Check if this plan card matches the assigned/active plan
+    const isThisUserPlan = Boolean(
+      userTargetPlan &&
+      (planNameClean === userTargetPlan ||
+       planNameClean.includes(userTargetPlan) ||
+       userTargetPlan.includes(planNameClean))
+    );
+
     const isCustomNegotiated = Boolean(
       adminOverride.customAmount !== null &&
-      adminOverride.activePlan &&
-      adminOverride.activePlan.toLowerCase().trim() === (plan.name || "").toLowerCase().trim()
+      adminOverride.customAmount > 0 &&
+      (isThisUserPlan || !adminOverride.activePlan)
     );
 
     const price = isCustomNegotiated ? adminOverride.customAmount! : planRate;
@@ -6114,34 +6171,47 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
             } catch {}
           }
 
+          let remoteOverrides: Record<string, any> = {};
+          try {
+            const rawOvr = localStorage.getItem("pondtora_admin_user_overrides");
+            if (rawOvr) remoteOverrides = JSON.parse(rawOvr);
+          } catch {}
+
+          const currentEmailKey = (session.user.email || "").toLowerCase().trim();
+          const userOverride = (currentEmailKey ? remoteOverrides[currentEmailKey] : null) || (session.user.id ? remoteOverrides[session.user.id] : null);
+
+          const parseAmt = (v: any): number | null => {
+            if (typeof v === "number" && !isNaN(v) && v > 0) return v;
+            if (typeof v === "string" && v.trim() !== "" && !isNaN(Number(v)) && Number(v) > 0) return Number(v);
+            return null;
+          };
+
           const customSubAmount =
-            typeof prof?.subscription_amount === "number" && !isNaN(prof.subscription_amount)
-              ? prof.subscription_amount
-              : typeof (prof as any)?.subscriptionAmount === "number" && !isNaN((prof as any).subscriptionAmount)
-              ? (prof as any).subscriptionAmount
-              : typeof prof?.raw_data?.subscription_amount === "number" && !isNaN(prof.raw_data.subscription_amount)
-              ? prof.raw_data.subscription_amount
-              : typeof meta.subscription_amount === "number"
-              ? meta.subscription_amount
-              : null;
+            parseAmt(prof?.subscription_amount) ??
+            parseAmt((prof as any)?.subscriptionAmount) ??
+            parseAmt(prof?.raw_data?.subscription_amount) ??
+            parseAmt(prof?.raw_data?.subscriptionAmount) ??
+            parseAmt(userOverride?.subscriptionAmount) ??
+            parseAmt(meta.subscription_amount);
 
           const hasFreeAccess = Boolean(
             prof?.free_access ||
             (prof as any)?.freeAccess ||
             prof?.raw_data?.free_access ||
+            userOverride?.freeAccess ||
             meta.free_access ||
             meta.freeAccess ||
             session.user.email?.toLowerCase().trim() === "edafejesugarec@gmail.com"
           );
 
-          let resolvedPlan = prof?.active_plan || (prof as any)?.activePlan || meta.active_plan || meta.activePlan || "Starter";
+          let resolvedPlan = userOverride?.activePlan || prof?.active_plan || (prof as any)?.activePlan || meta.active_plan || meta.activePlan || "Starter";
           let resolvedTrialStart = prof?.trial_start_date || (prof as any)?.trialStartDate || meta.trial_start_date || meta.trialStartDate || null;
-          let resolvedSubStatus = prof?.subscription_status || (prof as any)?.subscriptionStatus || meta.subscription_status || meta.subscriptionStatus || "Trial";
-          let resolvedSubExpiry = prof?.subscription_expiry || (prof as any)?.subscriptionExpiry || meta.subscription_expiry || meta.subscriptionExpiry || null;
-          let resolvedSubStart = prof?.subscription_start || (prof as any)?.subscriptionStart || meta.subscription_start || meta.subscriptionStart || null;
-          let resolvedBillingFreq = prof?.billing_frequency || (prof as any)?.billingFrequency || meta.billing_frequency || meta.billingFrequency || "monthly";
-          let resolvedPaystackRef = prof?.paystack_reference || (prof as any)?.paystackReference || meta.paystack_reference || meta.paystackReference || null;
-          let resolvedLastPayment = prof?.last_payment_date || (prof as any)?.lastPaymentDate || meta.last_payment_date || meta.lastPaymentDate || null;
+          let resolvedSubStatus = userOverride?.subscriptionStatus || prof?.subscription_status || (prof as any)?.subscriptionStatus || meta.subscription_status || meta.subscriptionStatus || "Trial";
+          let resolvedSubExpiry = userOverride?.subscriptionExpiry || prof?.subscription_expiry || (prof as any)?.subscriptionExpiry || meta.subscription_expiry || meta.subscriptionExpiry || null;
+          let resolvedSubStart = userOverride?.subscriptionStart || prof?.subscription_start || (prof as any)?.subscriptionStart || meta.subscription_start || meta.subscriptionStart || null;
+          let resolvedBillingFreq = userOverride?.billingFrequency || prof?.billing_frequency || (prof as any)?.billingFrequency || meta.billing_frequency || meta.billingFrequency || "monthly";
+          let resolvedPaystackRef = userOverride?.paystackReference || prof?.paystack_reference || (prof as any)?.paystackReference || meta.paystack_reference || meta.paystackReference || null;
+          let resolvedLastPayment = userOverride?.lastPaymentDate || prof?.last_payment_date || (prof as any)?.lastPaymentDate || meta.last_payment_date || meta.lastPaymentDate || null;
           let resolvedFreeAccess = hasFreeAccess;
 
           // If current user is staff, inherit the Farm Owner's active subscription status
