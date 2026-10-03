@@ -2645,6 +2645,7 @@ function SubscriptionPage({
     "Feed Stock",
     "Feeding Records",
     "Fish Stock History",
+    "Sales Calculator",
     "Sales Invoicing",
     "Staff Management",
     "Investor Details & Returns Tracking",
@@ -2925,7 +2926,7 @@ function SubscriptionPage({
   return (
     <div className="p-4 sm:p-6 space-y-6 max-w-5xl mx-auto">
       {/* ── Top Header: Exclusively Displays Subscription Expiring Date ── */}
-      <div className="bg-white border border-slate-200/90 rounded-2xl p-5 sm:p-6 shadow-xs text-center -mt-2">
+      <div className="text-center py-2 -mt-2">
         <div className="flex items-center justify-center gap-2 mb-2">
           <Clock size={16} className={currentFarmSub.isExpired ? "text-red-500" : "text-emerald-600"} />
           <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Subscription Expiration</span>
@@ -4160,7 +4161,20 @@ function ChoosePlanScreen({onSelectPlan}:{onSelectPlan:(plan:string)=>void;}){
   const [planTab,setPlanTab]=useState<"single"|"multi">("single");
   const [yearlyS,setYearlyS]=useState(false);
   const [yearlyM,setYearlyM]=useState(false);
-  const EVERY_PLAN_INCLUDES=["Financial Dashboard","Pond Management","Feed Stock","Feeding Records","Fish Stock History","Sales Invoicing","Staff Management","Investor Details & Returns Tracking","Reports & Analytics","CSV Export","PDF Export"];
+  const EVERY_PLAN_INCLUDES = [
+    "Financial Dashboard",
+    "Pond Management",
+    "Feed Stock",
+    "Feeding Records",
+    "Fish Stock History",
+    "Sales Calculator",
+    "Sales Invoicing",
+    "Staff Management",
+    "Investor Details & Returns Tracking",
+    "Reports & Analytics",
+    "CSV Export",
+    "PDF Export",
+  ];
   const dp=(mp:number,yr:boolean)=>yr?Math.round(mp*12*0.80):mp;
   const sv=(mp:number)=>Math.round(mp*12*0.20);
   const BillingToggle=({yearly,setYearly}:{yearly:boolean;setYearly:(v:boolean)=>void})=>(
@@ -7600,7 +7614,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       </div>
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Mobile top bar */}
-        <div className="lg:hidden flex items-center justify-between px-4 py-2.5 bg-slate-900 border-b border-slate-800 shrink-0 z-20">
+        <div className="lg:hidden flex items-center justify-between px-4 py-2.5 bg-slate-900 border-b border-slate-800 shrink-0 relative z-40">
           <div className="flex items-center gap-2.5">
             <button onClick={()=>setSideOpen(true)} className="p-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 transition-colors">
               <Menu size={20}/>

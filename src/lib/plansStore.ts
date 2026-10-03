@@ -27,6 +27,7 @@ export const EVERY_PLAN_INCLUDES = [
   "Feed Stock",
   "Feeding Records",
   "Fish Stock History",
+  "Sales Calculator",
   "Sales Invoicing",
   "Staff Management",
   "Investor Details & Returns Tracking",

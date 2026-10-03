@@ -288,7 +288,6 @@ export async function initializePaystackCheckout(options: PaystackCheckoutOption
       amount: amountInKobo,
       currency: "NGN",
       ref: reference,
-      channels: ["card", "bank", "ussd", "qr", "mobile_money", "bank_transfer"],
       metadata: {
         custom_fields: [
           {

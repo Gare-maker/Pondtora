@@ -33,7 +33,7 @@ import type { AdminUser, AdminPlan, AdminActivityLog } from "./types";
 import { DEFAULT_PLANS } from "./types";
 import { projectId } from "../../utils/supabase/info";
 import { supabase } from "../lib/supabase";
-import { saveStoredPlans } from "../lib/plansStore";
+import { saveStoredPlans, fetchRemotePlans } from "../lib/plansStore";
 import { loadPaystackConfig, savePaystackConfig, fetchRemotePaystackConfig, PaystackConfig } from "../lib/paystack";
 import {
   loadAllAdminUsers,
@@ -255,6 +255,12 @@ export default function AdminApp({ onExit }: { onExit?: () => void } = {}) {
 
   // Automatically fetch live registered users and stats upon admin authentication
   useEffect(() => {
+    fetchRemotePlans().then(remotePlans => {
+      if (remotePlans && remotePlans.length > 0) {
+        setPlans(remotePlans);
+      }
+    }).catch(() => {});
+
     if (loggedIn) {
       handleSyncLiveUsers(false);
       const unsub = subscribeToPlatformUpdates(() => {
