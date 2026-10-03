@@ -149,7 +149,8 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
     const pondNames = matchingPonds.map(p => p.name).filter(Boolean);
     const rawStockDate = matchingPonds[0]?.stockingDate ? formatFishStockDate(matchingPonds[0].stockingDate) : formatFishStockDate(stockStr);
     const name = formatFishStock(stockStr);
-    return { name, stockDate: rawStockDate !== "—" ? rawStockDate : "—", ponds: pondNames };
+    const isDateDup = rawStockDate === "—" || name.toLowerCase().includes(rawStockDate.toLowerCase()) || rawStockDate.toLowerCase().includes(name.toLowerCase());
+    return { name, stockDate: isDateDup ? "—" : rawStockDate, ponds: pondNames };
   };
 
   const dailyDateStr = toValidDbDate(dailyDate) || dailyDate;
@@ -273,7 +274,7 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
 
   return(
     <div className="p-4 sm:p-6 space-y-5 w-full pb-20 sm:pb-8">
-      <div className="sticky top-0 z-30 bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 flex flex-wrap items-center justify-between gap-3 shadow-2xs">
+      <div className="sticky top-0 z-30 bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Feed Stock</h1>
           <p className="text-xs text-slate-400 mt-0.5">Manage purchased feed stock, track daily bags opened, and view usage.</p>
@@ -478,9 +479,6 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
                           <span className="w-2 h-2 rounded-full bg-green-500 shrink-0"/>
                           <div>
                             <p className="font-bold text-slate-900 text-sm leading-tight">{r.fishStock}</p>
-                            {r.stockDate && r.stockDate !== "—" && (
-                              <p className="text-xs text-slate-500 font-normal leading-tight mt-0.5">{r.stockDate}</p>
-                            )}
                             {r.ponds && r.ponds.length > 0 && (
                               <p className="text-[10px] text-slate-400 mt-0.5">Ponds: {r.ponds.join(", ")}</p>
                             )}
@@ -515,6 +513,12 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
 
           {/* Mobile Card List (Matches visual structure of Bags Opened cards on Feeding Record page) */}
           <div className="md:hidden space-y-3">
+            {/* Header for list of stock bags opened */}
+            <div className="flex items-center justify-between px-1">
+              <p className="text-xs font-bold uppercase tracking-wider text-slate-700">Feed Bags Opened for Stock</p>
+              <span className="text-[11px] text-slate-400">{filteredDailyRows.length} record{filteredDailyRows.length !== 1 ? "s" : ""}</span>
+            </div>
+
             {filteredDailyRows.length===0?(
               <div className="bg-white border border-slate-200/80 rounded-2xl p-6 text-center text-xs text-slate-400 shadow-xs">
                 No feed stock history recorded.
@@ -526,9 +530,6 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
                     <h3 className="font-bold text-slate-900 text-sm sm:text-base truncate">
                       {r.fishStock}
                     </h3>
-                    {r.stockDate && r.stockDate !== "—" && (
-                      <p className="text-xs text-slate-500 font-normal leading-tight mt-0.5">{r.stockDate}</p>
-                    )}
                     {r.ponds && r.ponds.length > 0 && (
                       <p className="text-[10px] text-slate-400 mt-0.5 truncate">Ponds: {r.ponds.join(", ")}</p>
                     )}

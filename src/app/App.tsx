@@ -2688,25 +2688,22 @@ function SubscriptionPage({
 
   const getPlanPricing = (plan: any, isYearly: boolean) => {
     const baseMonthly = typeof plan.monthlyPrice === "number" && !isNaN(plan.monthlyPrice) ? plan.monthlyPrice : 0;
-    const isUserAssignedPlan = Boolean(
+    const baseYearly = typeof plan.yearlyPrice === "number" && plan.yearlyPrice > 0 ? plan.yearlyPrice : Math.round(baseMonthly * 12 * 0.8);
+    const planRate = isYearly ? baseYearly : baseMonthly;
+
+    const isCustomNegotiated = Boolean(
       adminOverride.customAmount !== null &&
-      (
-        !adminOverride.activePlan ||
-        adminOverride.activePlan.toLowerCase() === plan.name.toLowerCase() ||
-        (activePlan && activePlan.toLowerCase() === plan.name.toLowerCase())
-      )
+      adminOverride.activePlan &&
+      adminOverride.activePlan.toLowerCase().trim() === (plan.name || "").toLowerCase().trim()
     );
 
-    const price = isUserAssignedPlan
-      ? adminOverride.customAmount!
-      : (adminOverride.customAmount !== null && !adminOverride.activePlan
-          ? adminOverride.customAmount!
-          : dp(baseMonthly, isYearly));
+    const price = isCustomNegotiated ? adminOverride.customAmount! : planRate;
 
     return {
       price,
-      isCustom: isUserAssignedPlan,
+      isCustom: isCustomNegotiated,
       baseMonthly,
+      baseYearly,
     };
   };
 
@@ -4211,10 +4208,10 @@ function ChoosePlanScreen({onSelectPlan}:{onSelectPlan:(plan:string)=>void;}){
                     <p className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-0.5">{plan.name}</p>
                     <p className={`text-sm font-semibold mb-3 ${plan.limit==="Unlimited active ponds"?"text-slate-700":"text-green-600"}`}>{plan.limit}</p>
                     <div className="flex items-baseline gap-1">
-                      <span className="text-4xl font-extrabold text-slate-900 font-['Barlow_Condensed',sans-serif]">{cs}{cvt(dp(plan.monthlyPrice,yearlyS)).toLocaleString()}</span>
+                      <span className="text-4xl font-extrabold text-slate-900 font-['Barlow_Condensed',sans-serif]">{cs}{cvt(yearlyS ? (plan.yearlyPrice || dp(plan.monthlyPrice, true)) : plan.monthlyPrice).toLocaleString()}</span>
                       <span className="text-slate-400 text-sm">{yearlyS?"/year":"/month"}</span>
                     </div>
-                    {yearlyS&&<p className="text-[11px] text-green-600 mt-1">Save {cs}{cvt(sv(plan.monthlyPrice)).toLocaleString()} per year</p>}
+                    {yearlyS&&<p className="text-[11px] text-green-600 mt-1">Save {cs}{cvt(plan.yearlySaving || sv(plan.monthlyPrice)).toLocaleString()} per year</p>}
                     <p className="text-xs text-slate-400 mt-2 leading-relaxed">{plan.desc}</p>
                   </div>
                   <div className="mb-4 space-y-1.5 flex-1">
@@ -4243,10 +4240,10 @@ function ChoosePlanScreen({onSelectPlan}:{onSelectPlan:(plan:string)=>void;}){
                     <div className="flex items-center gap-1.5 mb-1"><Fish size={11} className="text-green-500"/><p className={`text-sm font-semibold ${plan.farmLimit===Infinity?"text-slate-900":"text-green-600"}`}>{plan.farms}</p></div>
                     <p className="text-[11px] text-teal-600 font-medium mb-2">Unlimited active ponds per farm</p>
                     <div className="flex items-baseline gap-1">
-                      <span className="text-4xl font-extrabold text-slate-900 font-['Barlow_Condensed',sans-serif]">{cs}{cvt(dp(plan.monthlyPrice,yearlyM)).toLocaleString()}</span>
+                      <span className="text-4xl font-extrabold text-slate-900 font-['Barlow_Condensed',sans-serif]">{cs}{cvt(yearlyM ? (plan.yearlyPrice || dp(plan.monthlyPrice, true)) : plan.monthlyPrice).toLocaleString()}</span>
                       <span className="text-slate-400 text-sm">{yearlyM?"/year":"/month"}</span>
                     </div>
-                    {yearlyM&&<p className="text-[10px] text-green-600 mt-0.5">Save {cs}{cvt(sv(plan.monthlyPrice)).toLocaleString()} per year</p>}
+                    {yearlyM&&<p className="text-[10px] text-green-600 mt-0.5">Save {cs}{cvt(plan.yearlySaving || sv(plan.monthlyPrice)).toLocaleString()} per year</p>}
                     <p className="text-xs text-slate-400 mt-2 leading-relaxed">{plan.desc}</p>
                   </div>
                   <div className="mb-4 space-y-1.5 flex-1">
