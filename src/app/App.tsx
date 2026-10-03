@@ -2480,6 +2480,7 @@ function SubscriptionPage({
   userProfile,
   onProfileUpdated,
   activeFarmName,
+  onOpenReferrals,
 }: {
   farmCount?: number;
   activePlan: string | null;
@@ -2491,6 +2492,7 @@ function SubscriptionPage({
   userProfile?: UserProfile | null;
   onProfileUpdated?: (p: Partial<UserProfile>) => void;
   activeFarmName?: string;
+  onOpenReferrals?: () => void;
 }) {
   const cs = currency || "₦";
   const cvt = typeof convertPrice === "function" ? convertPrice : ((n: number) => n);
@@ -3308,6 +3310,30 @@ function SubscriptionPage({
         </div>
       )}
 
+      {/* Referral Partner Banner */}
+      <div className="bg-gradient-to-r from-emerald-900 via-slate-900 to-emerald-950 border border-emerald-500/30 rounded-2xl p-5 text-white flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-md">
+        <div className="space-y-1">
+          <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-[11px] font-bold">
+            <Gift size={12} className="text-emerald-400" /> Pondtora Referral Program
+          </div>
+          <h3 className="text-base font-bold font-['Barlow_Condensed',sans-serif] text-white">
+            Earn 30% Cash Commission on Every Farmer You Invite
+          </h3>
+          <p className="text-xs text-slate-300 max-w-xl leading-relaxed">
+            Earn 30% of their first subscription payment and 10% continuous commission on every renewal.
+          </p>
+        </div>
+        {onOpenReferrals && (
+          <button
+            type="button"
+            onClick={onOpenReferrals}
+            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs transition-colors shrink-0 flex items-center gap-1.5 cursor-pointer"
+          >
+            <Gift size={13} /> View Referral Dashboard
+          </button>
+        )}
+      </div>
+
       {/* Paystack Security & Supported Payment Options */}
       <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-4 text-center space-y-2">
         <div className="flex items-center justify-center gap-2 text-xs text-slate-600 font-semibold">
@@ -3322,11 +3348,12 @@ function SubscriptionPage({
 }
 
 /* ─── 9. Settings Page ───────────────────────────────────────── */
-function SettingsPage({farms,onAddFarm,onEditFarm,onDeleteFarm,userProfile,onUpdateProfile,isOwner,ponds,activePlan}:{
+function SettingsPage({farms,onAddFarm,onEditFarm,onDeleteFarm,userProfile,onUpdateProfile,isOwner,ponds,activePlan,initialTab="profile"}:{
   farms:Farm[];onAddFarm:(d:{name:string;city:string;state:string;country:string})=>void;onEditFarm:(f:Farm)=>void;onDeleteFarm:(id:string)=>void;
   userProfile:UserProfile|null;onUpdateProfile:(u:{name:string;phone:string})=>Promise<void>;isOwner:boolean;ponds:Pond[];activePlan:string|null;
+  initialTab?: "profile" | "farms" | "referrals";
 }){
-  const [tab,setTab]=useState<"profile"|"farms"|"referrals">("profile");
+  const [tab,setTab]=useState<"profile"|"farms"|"referrals">(initialTab);
   /* ── Referral State ── */
   const [refStats, setRefStats] = useState(() => getUserReferralStats(userProfile));
   const [copiedLink, setCopiedLink] = useState(false);
@@ -4642,6 +4669,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   const [investments,setInvestments]=useState<Investment[]>(()=>readInit("investments","investments",[]));
   const [investmentPayments,setInvestmentPayments]=useState<InvestmentPayment[]>(()=>readInit("investment_payments","investmentPayments",[]));
   const [pondReports,setPondReports]=useState<PondReport[]>(()=>readInit("pond_reports","pondReports",[]));
+  const [settingsTab,setSettingsTab]=useState<"profile"|"farms"|"referrals">("profile");
 
   // Action-level permissions for the current staff user (populated from backend staffInfo)
   const [staffOwnPermissions,setStaffOwnPermissions]=useState<Record<string,{canView:boolean;canCreate:boolean;canEdit:boolean;canDelete:boolean}>>({});
@@ -7741,8 +7769,8 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
               {active==="investors"     &&(hasPerm("Investors")?<InvestorsPage investors={farmInvestors} investments={farmInvestments} payments={farmPayments} farms={farms} ponds={farmPonds} stockEvents={stockEvents} activeFarmId={activeFarmId} currency={cs} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}} isOwner={isOwner} canManage={isOwner||hasPerm("Investors")} onAddInvestor={handleAddInvestor} onEditInvestor={handleEditInvestor} onEditInvestment={handleEditInvestment} onDeleteInvestor={handleDeleteInvestor} onRecordPayment={handleRecordPayment} onMarkPaymentPaid={handleMarkPaymentPaid} canCreate={canCreate("Investors")} canEdit={canEdit("Investors")} canDelete={canDelete("Investors")}/>:<AccessDenied/>)}
               {active==="reports"       &&(hasPerm("Reports")?<ReportsPage reports={farmReports} staff={staff} onAdd={addReport} onEdit={editReportFn} onDelete={deleteReport} pondReports={farmPondReports} treatments={farmTreatments} farms={farms} ponds={farmPonds} stockEvents={stockEvents} onAddPondReport={handleAddPondReport} onDeletePondReport={deletePondReport} activeFarmId={activeFarmId} canCreate={canCreate("Reports")} canEdit={canEdit("Reports")} canDelete={canDelete("Reports")} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}} isOwner={isOwner}/>:<AccessDenied/>)}
               {active==="assessments"   &&(hasPerm("Staff Assessments")?<EmployeeAssessmentsPage kQuestions={kQuestions} cQuestions={cQuestions} kResults={kResults} cResults={cResults} onSaveKQuestions={saveKQuestions} onSaveCQuestions={saveCQuestions} onAddKResult={addKResult} onAddCResult={addCResult} ownerId={userProfile?.id??""}/>:<AccessDenied/>)}
-              {active==="pricing"       &&(isOwner?<SubscriptionPage farmCount={farms.length} activePlan={activePlan} setActivePlan={setActivePlan} trialStartDate={trialStartDate} setTrialStartDate={setTrialStartDate} currency={cs} convertPrice={cvt} userProfile={userProfile} onProfileUpdated={(p) => setUserProfile(prev => { const next = { ...(prev || {}), ...p }; if(prev?.id){ try{ localStorage.setItem(`pondtora_${prev.id}_user_profile`, JSON.stringify(next)); }catch{} } return next; })} activeFarmName={farms.find(f=>f.id===activeFarmId)?.name||userProfile?.farmName}/>:<AccessDenied/>)}
-              {active==="settings"      &&<SettingsPage farms={isOwner?farms:accessibleFarms} onAddFarm={handleAddFarmDirect} onEditFarm={handleEditFarm} onDeleteFarm={handleDeleteFarm} userProfile={userProfile} onUpdateProfile={handleUpdateProfile} isOwner={isOwner} ponds={ponds} activePlan={activePlan}/>}
+              {active==="pricing"       &&(isOwner?<SubscriptionPage farmCount={farms.length} activePlan={activePlan} setActivePlan={setActivePlan} trialStartDate={trialStartDate} setTrialStartDate={setTrialStartDate} currency={cs} convertPrice={cvt} userProfile={userProfile} onProfileUpdated={(p) => setUserProfile(prev => { const next = { ...(prev || {}), ...p }; if(prev?.id){ try{ localStorage.setItem(`pondtora_${prev.id}_user_profile`, JSON.stringify(next)); }catch{} } return next; })} activeFarmName={farms.find(f=>f.id===activeFarmId)?.name||userProfile?.farmName} onOpenReferrals={() => { setSettingsTab("referrals"); nav("settings"); }}/>:<AccessDenied/>)}
+              {active==="settings"      &&<SettingsPage farms={isOwner?farms:accessibleFarms} onAddFarm={handleAddFarmDirect} onEditFarm={handleEditFarm} onDeleteFarm={handleDeleteFarm} userProfile={userProfile} onUpdateProfile={handleUpdateProfile} isOwner={isOwner} ponds={ponds} activePlan={activePlan} initialTab={settingsTab}/>}
               {active==="notifications" && (canView("Notifications") ? <NotificationsPage notifications={notifications} onMarkRead={markRead} onMarkAllRead={markAllRead} farms={farms} activeFarmId={activeFarmId} farmCount={farms.length} onDismiss={dismissNotif} onNotifNav={(n)=>{if(n.type==="reconciliation"&&n.reconDate&&n.reconKey){nav("documentation");setReconFocus({date:n.reconDate,key:n.reconKey});}}}/> : <AccessDenied/>)}
             </AppErrorBoundary>
           )}
