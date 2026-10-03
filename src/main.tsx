@@ -147,9 +147,16 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
                 color: "#475569",
                 fontFamily: "monospace",
                 overflowX: "auto",
-                maxHeight: "100px"
+                maxHeight: "140px"
               }}>
-                {this.state.error.message || String(this.state.error)}
+                <div style={{ fontWeight: "600", color: "#b91c1c", marginBottom: "4px" }}>
+                  {this.state.error.message || String(this.state.error)}
+                </div>
+                {this.state.error.stack && (
+                  <pre style={{ fontSize: "10.5px", color: "#64748b", margin: 0, whiteSpace: "pre-wrap", maxHeight: "80px", overflowY: "auto" }}>
+                    {this.state.error.stack}
+                  </pre>
+                )}
               </div>
             )}
             <div style={{ display: "flex", gap: "12px", justifyContent: "center" }}>
