@@ -28,11 +28,8 @@ export function getDynamicMultiFarmPlans(): FormattedPlan[] {
     return [];
   }
 }
-
-export const SINGLE_FARM_PLANS = getDynamicSingleFarmPlans();
-export const MULTI_FARM_PLANS = getDynamicMultiFarmPlans();
-
 /** monthly price → yearly price with 20% discount */
 export const yearlyPrice = (mp: number) => Math.round(mp * 12 * 0.8);
 /** savings per year */
 export const yearlySaving = (mp: number) => Math.round(mp * 12 * 0.2);
+

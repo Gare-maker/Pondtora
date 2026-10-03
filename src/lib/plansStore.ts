@@ -137,11 +137,6 @@ export async function fetchRemotePlans(): Promise<AdminPlan[]> {
   return loadStoredPlans();
 }
 
-// Background initial fetch
-if (typeof window !== "undefined") {
-  fetchRemotePlans().catch(() => {});
-}
-
 export function saveStoredPlans(plans: AdminPlan[]) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(plans));
