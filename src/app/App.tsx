@@ -421,7 +421,7 @@ function FinancialDashboard({
 
   return(
     <div className="p-4 sm:p-6 space-y-5 w-full">
-      <div className="sticky top-0 z-20 bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 flex flex-col gap-2.5">
+      <div className="bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 flex flex-col gap-2.5">
         <div className="flex items-center gap-3 justify-between">
           <div className="min-w-0 flex-1"><h1 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Financial Dashboard</h1><p className="text-xs text-slate-400 mt-0.5">Track revenue, expenses, and profitability across all farm operations.</p></div>
           <div className="flex items-center gap-2 shrink-0">
@@ -1170,7 +1170,7 @@ function StaffPage({
 
   return (
     <div className="p-4 sm:p-6 space-y-5 w-full">
-      <div className="sticky top-0 z-20 bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 flex flex-wrap items-center justify-between gap-3">
+      <div className="bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Staff</h1>
           <p className="text-xs text-slate-400 mt-0.5">Manage team members with access to Feeding Records and Feed Stock</p>
@@ -1998,7 +1998,7 @@ function ReportsPage({
   };
   return (
     <div className="p-4 sm:p-6 space-y-5 w-full">
-      <div className="sticky top-0 z-20 bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 flex flex-wrap items-center justify-between gap-3">
+      <div className="bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Reports</h1>
           <p className="text-xs text-slate-400 mt-0.5">
@@ -2484,7 +2484,7 @@ function NotificationsPage({notifications,onMarkRead,onMarkAllRead,farms,activeF
 
   return(
     <div className="p-4 sm:p-6 space-y-5 w-full">
-      <div className="sticky top-0 z-20 bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 flex items-center justify-between gap-3">
+      <div className="bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 flex items-center justify-between gap-3">
         <div>
           <div className="flex items-center gap-2.5">
             <h1 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Notifications</h1>
@@ -3622,7 +3622,7 @@ function SettingsPage({farms,onAddFarm,onEditFarm,onDeleteFarm,userProfile,onUpd
   const initials=(userProfile?.name||"U").split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase();
   return(
     <div className="p-4 sm:p-6 space-y-5 w-full">
-      <div className="sticky top-0 z-20 bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 flex flex-col gap-2.5 border-b border-slate-200/80 shadow-xs">
+      <div className="bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 flex flex-col gap-2.5 border-b border-slate-200/80 shadow-xs">
         <div>
           <h1 className="text-xl sm:text-2xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Settings</h1>
           <p className="text-xs text-slate-500 mt-0.5">Manage your profile, farm details, and referral rewards.</p>

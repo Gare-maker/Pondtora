@@ -1653,7 +1653,7 @@ function FeedDocumentation({
   return (
     <div className="p-4 sm:p-6 space-y-5 w-full pb-20 sm:pb-8">
       {/* ── Header ── */}
-      <div className="sticky top-0 z-20 bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 space-y-2.5">
+      <div className="space-y-2.5">
         {/* Top Row: Title + Date Picker */}
         <div className="flex items-start justify-between gap-2.5 sm:gap-4">
           <div className="min-w-0 flex-1">
