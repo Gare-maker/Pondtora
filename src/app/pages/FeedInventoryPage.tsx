@@ -95,26 +95,23 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
   const [clearConfirmLabel,setClearConfirmLabel]=useState("");
   const handleDelete=(id:string,brand:string,size:string)=>{setClearConfirmId(id);setClearConfirmLabel(`${brand} ${size}`);};
   /* purchase history filters */
-  const [pFMonth,setPFMonth]=useState<string>("All");
-  const [pFYear,setPFYear]=useState<string>("All");
-  const purchaseYears=[...new Set(inventory.map(f=>{
-    const m = (f.purchaseDate||"").match(/\b(20\d\d)\b/);
-    return m ? m[1] : (f.month ? "2026" : "");
-  }).filter(Boolean))].sort((a,b)=>b.localeCompare(a));
-  if(purchaseYears.length===0) purchaseYears.push("2026");
-  const purchaseMonths=[...new Set(inventory.map(f=>f.month).filter(Boolean))];
-  /* edit purchase */
-  const [editPurchase,setEditPurchase]=useState<FeedItem|null>(null);
-  const [purchasePage,setPurchasePage]=useState(1);
-  const filtPurchases=inventory.filter(f=>{
-    if(pFMonth!=="All"&&f.month!==pFMonth)return false;
-    if(pFYear!=="All"){
-      const yr=(f.purchaseDate||"").match(/\b(20\d\d)\b/)?.[1]||"2026";
-      if(yr!==pFYear)return false;
+  const [pMonthFilter, setPMonthFilter] = useState<string>("");
+  const [editPurchase, setEditPurchase] = useState<FeedItem|null>(null);
+  const [purchasePage, setPurchasePage] = useState(1);
+  const filtPurchases = inventory.filter(f => {
+    if (pMonthFilter) {
+      const pDate = f.purchaseDate || "";
+      if (pDate.startsWith(pMonthFilter)) return true;
+      const yr = pDate.match(/\b(20\d\d)\b/)?.[1] || "2026";
+      const [selYr, selMoNum] = pMonthFilter.split("-");
+      const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+      const selMoName = monthNames[parseInt(selMoNum, 10) - 1];
+      if (f.month && f.month === selMoName && yr === selYr) return true;
+      return false;
     }
     return true;
   });
-  const pagedPurchases=[...filtPurchases].reverse().slice((purchasePage-1)*PER_PAGE,purchasePage*PER_PAGE);
+  const pagedPurchases = [...filtPurchases].reverse().slice((purchasePage-1)*PER_PAGE, purchasePage*PER_PAGE);
   /* daily bags opened tab state */
   const [dailyDate, setDailyDate] = useState(TODAY);
   const [fDailyStock, setFDailyStock] = useState("All");
@@ -289,7 +286,7 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
         <StatCard label="Total Kg" value={`${totalKgInStock}kg`} sub="in stock" icon={Layers}/>
       </div>
       {/* ── Sticky Tab bar ── */}
-      <div className="sticky top-0 z-20 bg-[#f5f7fa] -mx-4 -mt-2 px-4 py-2.5 sm:-mx-6 sm:px-6 shadow-xs border-b border-slate-200/80 flex flex-wrap items-center justify-between gap-3">
+      <div className="sticky top-0 z-20 bg-[#f5f7fa] -mx-4 -mt-2 px-4 py-2 sm:-mx-6 sm:px-6 flex flex-wrap items-center justify-between gap-3">
         <div className="flex gap-1 bg-slate-200/90 border border-slate-300/70 p-1 rounded-xl w-fit shadow-2xs">
           {([
             ["stock", "Stock"],
@@ -581,13 +578,38 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
           <div className="px-5 py-3 border-b border-slate-100 flex flex-wrap items-center justify-between gap-2">
             <div className="flex flex-wrap items-center gap-2">
               <p className="text-xs font-bold uppercase tracking-wider text-slate-600">Feed Purchase History</p>
-              <div className="flex items-center gap-1.5"><span className="text-xs text-slate-400">Year:</span><select value={pFYear} onChange={e=>{setPFYear(e.target.value);setPurchasePage(1);}} className={`${SC} py-1 text-xs w-auto`}><option>All</option>{purchaseYears.map(y=><option key={y}>{y}</option>)}</select></div>
-              <div className="flex items-center gap-1.5"><span className="text-xs text-slate-400">Month:</span><select value={pFMonth} onChange={e=>{setPFMonth(e.target.value);setPurchasePage(1);}} className={`${SC} py-1 text-xs w-auto`}><option>All</option>{purchaseMonths.map(m=><option key={m}>{m}</option>)}</select></div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs text-slate-400">Date (Month/Year):</span>
+                <input
+                  type="month"
+                  value={pMonthFilter}
+                  onChange={e => {
+                    setPMonthFilter(e.target.value);
+                    setPurchasePage(1);
+                  }}
+                  className="px-2.5 py-1 text-xs border border-slate-200 rounded-lg bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-green-300 font-medium"
+                  style={{ colorScheme: "light" }}
+                />
+                {pMonthFilter && (
+                  <button
+                    onClick={() => {
+                      setPMonthFilter("");
+                      setPurchasePage(1);
+                    }}
+                    className="text-xs text-green-600 hover:text-green-700 underline font-semibold"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
             </div>
             <div className="flex items-center gap-2">
               <p className="text-[11px] text-slate-400">{filtPurchases.length} purchase{filtPurchases.length!==1?"s":""}</p>
-              <button onClick={()=>downloadCSV("feed-purchases.csv",["#","Purchased","Brand","Size","Bags","Kg/Bag","Total Kg","Cost/Bag","Total Value","Supplier","Supplier Phone"],filtPurchases.map((r,i)=>[i+1,r.purchaseDate,r.brand,r.size,r.bags,r.weightPerBag,r.totalKg,r.costPerBag,r.bags*r.costPerBag,r.supplier||"",r.supplierPhone||""]))} className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-slate-200 bg-white text-slate-500 text-[11px] font-semibold hover:border-green-400 hover:text-green-600 transition-colors"><Download size={11}/> CSV</button>
-              <button onClick={()=>openPrintWindow("Feed Purchase History",["#","Purchased","Brand","Size","Bags","Kg/Bag","Total Kg","Cost/Bag","Total Value","Supplier","Supplier Phone"],filtPurchases.map((r,i)=>[i+1,r.purchaseDate,r.brand,r.size,r.bags,`${r.weightPerBag}kg`,`${r.totalKg}kg`,fmt(r.costPerBag,cs),fmt(r.bags*r.costPerBag,cs),r.supplier||"—",r.supplierPhone||"—"]),"All purchased feed stock")} className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-slate-200 bg-white text-slate-500 text-[11px] font-semibold hover:border-green-400 hover:text-green-600 transition-colors"><FileText size={11}/> PDF</button>
+              {/* CSV & PDF hidden on mobile version */}
+              <div className="hidden sm:flex items-center gap-2">
+                <button onClick={()=>downloadCSV("feed-purchases.csv",["#","Purchased","Brand","Size","Bags","Kg/Bag","Total Kg","Cost/Bag","Total Value","Supplier","Supplier Phone"],filtPurchases.map((r,i)=>[i+1,r.purchaseDate,r.brand,r.size,r.bags,r.weightPerBag,r.totalKg,r.costPerBag,r.bags*r.costPerBag,r.supplier||"",r.supplierPhone||""]))} className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-slate-200 bg-white text-slate-500 text-[11px] font-semibold hover:border-green-400 hover:text-green-600 transition-colors"><Download size={11}/> CSV</button>
+                <button onClick={()=>openPrintWindow("Feed Purchase History",["#","Purchased","Brand","Size","Bags","Kg/Bag","Total Kg","Cost/Bag","Total Value","Supplier","Supplier Phone"],filtPurchases.map((r,i)=>[i+1,r.purchaseDate,r.brand,r.size,r.bags,`${r.weightPerBag}kg`,`${r.totalKg}kg`,fmt(r.costPerBag,cs),fmt(r.bags*r.costPerBag,cs),r.supplier||"—",r.supplierPhone||"—"]),"All purchased feed stock")} className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-slate-200 bg-white text-slate-500 text-[11px] font-semibold hover:border-green-400 hover:text-green-600 transition-colors"><FileText size={11}/> PDF</button>
+              </div>
             </div>
           </div>
           {/* Desktop Table View */}

@@ -4627,7 +4627,15 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   const [collapsed,setCollapsed]=useState(false);
   const [mFarmOpen,setMFarmOpen]=useState(false);
   const mFarmRef=useRef<HTMLDivElement>(null);
-  useEffect(()=>{const h=(e:MouseEvent)=>{if(mFarmRef.current&&!mFarmRef.current.contains(e.target as Node))setMFarmOpen(false);};document.addEventListener("mousedown",h);return()=>document.removeEventListener("mousedown",h);},[]);
+  useEffect(()=>{
+    const h=(e:Event)=>{if(mFarmRef.current&&!mFarmRef.current.contains(e.target as Node))setMFarmOpen(false);};
+    document.addEventListener("mousedown",h);
+    document.addEventListener("touchstart",h,{passive:true});
+    return()=>{
+      document.removeEventListener("mousedown",h);
+      document.removeEventListener("touchstart",h);
+    };
+  },[]);
   useEffect(()=>{const h=(e:KeyboardEvent)=>{if(e.key==="Escape")setMFarmOpen(false);};document.addEventListener("keydown",h);return()=>document.removeEventListener("keydown",h);},[]);
   
   useEffect(() => {
@@ -5047,6 +5055,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     const handleScroll = () => {
       const scrollPos = (mainRef.current ? mainRef.current.scrollTop : 0) || window.scrollY || document.documentElement.scrollTop || 0;
       setShowScrollTop(scrollPos > 60);
+      setMFarmOpen(false);
     };
 
     const el = mainRef.current;
@@ -7947,8 +7956,8 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
         <Sidebar active={active} onNav={nav} collapsed={false} onToggle={()=>setSideOpen(false)} farms={accessibleFarms} activeFarmId={activeFarmId} onSwitchFarm={id=>{handleSwitchFarm(id);setSideOpen(false);}} onAddFarm={()=>{setSideOpen(false);setShowAddFarm(true);}} sideOpen={sideOpen} staff={staff} unreadCount={unreadCount} onNotifications={()=>{nav("notifications");setSideOpen(false);}} onLogout={handleLogout} hasPerm={hasPerm} canView={canView} isOwner={isOwner} userProfile={userProfile} currentStaff={currentStaff}/>
       </div>
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        {/* Mobile top bar */}
-        <div className="lg:hidden flex items-center justify-between px-4 py-2.5 bg-slate-900 border-b border-slate-800 shrink-0 relative z-40">
+        {/* Mobile top bar — always pinned to the top */}
+        <header className="lg:hidden flex items-center justify-between px-4 py-2.5 bg-slate-900 border-b border-slate-800 shrink-0 sticky top-0 z-40">
           <div className="flex items-center gap-2.5">
             <button onClick={()=>setSideOpen(true)} className="p-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 transition-colors">
               <Menu size={20}/>
