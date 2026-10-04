@@ -1506,9 +1506,9 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
                   <tr
                     key={p.id}
                     data-pond-id={p.id}
-                    className="bg-emerald-50/70 border-2 border-dashed border-emerald-400 h-14 transition-all duration-150"
+                    className="bg-emerald-50/40 border border-dashed border-emerald-300/80 h-14 transition-all duration-150"
                   >
-                    <td colSpan={8} className="px-4 py-3 text-center text-xs font-semibold text-emerald-700 select-none">
+                    <td colSpan={8} className="px-4 py-3 text-center text-xs font-semibold text-emerald-700/90 select-none">
                       <div className="flex items-center justify-center gap-2">
                         <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping"/>
                         <span>Moving <strong>{p.name}</strong> here…</span>
@@ -1524,7 +1524,7 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
                   data-pond-id={p.id}
                   className={`transition-all duration-200 ${
                     isOver
-                      ? "bg-emerald-50/60 ring-2 ring-emerald-400 ring-inset"
+                      ? "bg-emerald-50/50 ring-1 ring-emerald-300 ring-inset"
                       : "hover:bg-slate-50"
                   }`}
                 >
@@ -1591,7 +1591,7 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
               <div
                 key={p.id}
                 data-pond-id={p.id}
-                className="border-2 border-dashed border-emerald-400 bg-emerald-50/60 rounded-xl h-[72px] flex items-center justify-center text-xs font-semibold text-emerald-700 transition-all duration-150 shadow-inner select-none"
+                className="border border-dashed border-emerald-300/80 bg-emerald-50/40 rounded-xl h-[72px] flex items-center justify-center text-xs font-semibold text-emerald-700/90 transition-all duration-150 shadow-2xs select-none"
               >
                 <div className="flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping"/>
@@ -1607,7 +1607,7 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
             data-pond-id={p.id}
             className={`bg-white border rounded-xl p-3.5 flex items-center justify-between transition-all duration-200 shadow-xs select-none ${
               isOver
-                ? "border-emerald-400 bg-emerald-50/40 ring-2 ring-emerald-300/60"
+                ? "border-emerald-300 bg-emerald-50/30"
                 : "border-slate-200/60 hover:border-green-300 active:bg-slate-50 cursor-pointer"
             }`}
             onClick={() => {
@@ -1708,40 +1708,40 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
             pointerEvents: "none",
             zIndex: 99999,
           }}
-          className="transform scale-[1.03] rotate-1 shadow-2xl rounded-xl border-2 border-emerald-500 bg-white/95 backdrop-blur-md ring-4 ring-emerald-400/30 p-3.5 select-none"
+          className="transform scale-[1.02] rotate-1 shadow-xl rounded-xl border border-emerald-400/80 bg-white/98 p-3.5 select-none"
         >
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2.5 min-w-0 flex-1">
-              <div className="p-1.5 rounded-lg bg-emerald-500 text-white border-2 border-emerald-600 ring-2 ring-emerald-300 shadow-md shrink-0">
+              <div className="p-1.5 rounded-lg bg-emerald-500 text-white border border-emerald-600 shadow-xs shrink-0">
                 <GripVertical size={16} className="shrink-0" />
               </div>
               <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2 mb-0.5">
+                <div className="flex items-center gap-2 mb-1">
                   <p className="font-bold text-slate-900 text-sm sm:text-base leading-tight truncate">{draggedPond.name}</p>
-                  <span className={`inline-flex items-center gap-1 text-xs font-semibold ${draggedPond.status === "Active" ? "text-emerald-600" : "text-slate-400"}`}>
+                  <span className={`inline-flex items-center gap-1.5 text-xs font-medium ${draggedPond.status === "Active" ? "text-emerald-600" : "text-slate-400"}`}>
                     <span className={`w-1.5 h-1.5 rounded-full ${draggedPond.status === "Active" ? "bg-emerald-500" : "bg-slate-400"}`}/>
                     {draggedPond.status === "Active" ? "Active" : "Inactive"}
                   </span>
                 </div>
                 <div className="flex items-center gap-1.5 text-xs text-slate-600 font-medium truncate">
-                  <span className="font-bold text-slate-800">{draggedPond.currentCount.toLocaleString()} fish</span>
-                  {draggedPond.species && draggedPond.species !== "—" && (
+                  <span>{draggedPond.currentCount.toLocaleString()} fish</span>
+                  {draggedPond.status === "Active" && draggedPond.species && draggedPond.species !== "—" && (
                     <>
                       <span className="text-slate-300">·</span>
                       <span className="text-slate-700">{draggedPond.species}</span>
                     </>
                   )}
-                  {draggedPond.category && (
+                  {draggedPond.stockingDate && draggedPond.stockingDate !== "—" && (
                     <>
                       <span className="text-slate-300">·</span>
-                      <span className="text-purple-700 font-semibold">{draggedPond.category}</span>
+                      <span className="text-slate-400 font-normal">{fmtStockingDate(draggedPond.stockingDate)}</span>
                     </>
                   )}
                 </div>
               </div>
             </div>
             <div className="shrink-0">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 bg-emerald-100/90 px-2 py-1 rounded-md border border-emerald-300 shadow-xs flex items-center gap-1">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 bg-emerald-50 px-2 py-1 rounded-md border border-emerald-200/80 shadow-2xs flex items-center gap-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"/>
                 Carrying
               </span>
