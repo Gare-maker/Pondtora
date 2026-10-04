@@ -177,7 +177,7 @@ export default function SalesCalculatorPage({
   return (
     <div className="p-4 sm:p-6 space-y-5 w-full max-w-5xl mx-auto pb-20 sm:pb-8">
       {/* Top Header Bar */}
-      <div className="sticky top-0 z-30 bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Sales Calculator</h1>
           <p className="text-xs text-slate-400 mt-0.5">Calculate the total amount your customers are to pay for fish purchased.</p>

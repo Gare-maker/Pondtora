@@ -400,7 +400,7 @@ function PondDetail({
   };
   return(
     <div className="p-4 sm:p-6 space-y-4 w-full">
-      <div className="sticky top-0 z-10 bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 space-y-2">
+      <div className="space-y-2">
         <div className="flex items-center gap-2 text-sm"><button onClick={onBack} className="text-green-600 hover:underline font-medium">← Ponds</button><span className="text-slate-300">/</span><span className="text-slate-700 font-semibold">{pond.name}</span></div>
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0 flex-1"><h1 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">{pond.name} — Operational Detail</h1><p className="text-xs text-slate-400">{pond.type} · {pond.species} · Stocked {fmtStockingDate(pond.stockingDate)}</p><div className="mt-1 flex items-center gap-1.5 flex-wrap"><Bdg label={pond.category||"Production"} color={pond.category==="Nursery"?"purple":"teal"}/><Bdg label={pond.status==="Active"?"Active":"Inactive"} color={pond.status==="Active"?"green":"gray"}/></div></div>
@@ -1431,7 +1431,7 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
 
   return(
     <div className="p-4 sm:p-6 space-y-5 w-full pb-20 sm:pb-8">
-      <div className="sticky top-0 z-10 bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Pond Management</h1>
           <p className="text-xs text-slate-400 mt-0.5">View and manage all ponds — stock details, feeding history, and operational costs.</p>

@@ -421,7 +421,7 @@ function FinancialDashboard({
 
   return(
     <div className="p-4 sm:p-6 space-y-5 w-full">
-      <div className="sticky top-0 z-10 bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 flex flex-col gap-2.5">
+      <div className="bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 flex flex-col gap-2.5">
         <div className="flex items-center gap-3 justify-between">
           <div className="min-w-0 flex-1"><h1 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Financial Dashboard</h1><p className="text-xs text-slate-400 mt-0.5">Track revenue, expenses, and profitability across all farm operations.</p></div>
           <div className="flex items-center gap-2 shrink-0">
@@ -1170,7 +1170,7 @@ function StaffPage({
 
   return (
     <div className="p-4 sm:p-6 space-y-5 w-full">
-      <div className="sticky top-0 z-10 bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 flex flex-wrap items-center justify-between gap-3">
+      <div className="bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Staff</h1>
           <p className="text-xs text-slate-400 mt-0.5">Manage team members with access to Feeding Records and Feed Stock</p>
@@ -1791,14 +1791,15 @@ function ReportsPage({
   const [reportPage, setReportPage] = useState(1);
   const [editReport, setEditReport] = useState<Report | null>(null);
   const [reviewReport, setReviewReport] = useState<Report | null>(null);
+  const [viewingApprovalReport, setViewingApprovalReport] = useState<Report | null>(null);
   const [reviewNote, setReviewNote] = useState("");
-  const [reviewStatus, setReviewStatus] = useState("Reviewed");
+  const [reviewStatus, setReviewStatus] = useState("Approved");
   const [savingReview, setSavingReview] = useState(false);
 
   const openReviewModal = (r: Report) => {
     setReviewReport(r);
     setReviewNote(r.adminReviewNote || "");
-    setReviewStatus(r.adminReviewStatus || "Reviewed");
+    setReviewStatus(r.adminReviewStatus || "Approved");
   };
 
   const handleSaveReview = async () => {
@@ -1814,7 +1815,7 @@ function ReportsPage({
       };
       onEdit(updated);
       setReviewReport(null);
-      toast.success("Review note saved successfully");
+      toast.success(reviewStatus === "Approved" ? "Report approved successfully" : "Review saved successfully");
     } finally {
       setSavingReview(false);
     }
@@ -1997,7 +1998,7 @@ function ReportsPage({
   };
   return (
     <div className="p-4 sm:p-6 space-y-5 w-full">
-      <div className="sticky top-0 z-10 bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 flex flex-wrap items-center justify-between gap-3">
+      <div className="bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Reports</h1>
           <p className="text-xs text-slate-400 mt-0.5">
@@ -2093,6 +2094,7 @@ function ReportsPage({
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">{group.items.map(r => {
                   const isStaffReport = Boolean(r.isStaffSubmission || r.authorRole === "staff" || r.createdByRole === "staff");
+                  const isApproved = r.adminReviewStatus === "Approved";
                   return (
                     <Card key={r.id} className="p-4 space-y-3">
                       <div className="flex items-start justify-between gap-2">
@@ -2104,26 +2106,54 @@ function ReportsPage({
                                 Official Staff Record
                               </span>
                             )}
-                            {r.adminReviewStatus && (
-                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800 border border-indigo-200">
+                            {isApproved ? (
+                              <button
+                                type="button"
+                                onClick={() => setViewingApprovalReport(r)}
+                                className="inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-300 hover:bg-emerald-200 active:scale-95 transition-all shadow-2xs cursor-pointer"
+                                title="Click to view full approval details"
+                              >
+                                <CheckCircle size={12} className="text-emerald-600" />
+                                Approved
+                              </button>
+                            ) : r.adminReviewStatus ? (
+                              <button
+                                type="button"
+                                onClick={() => setViewingApprovalReport(r)}
+                                className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800 border border-indigo-200 hover:bg-indigo-200 transition-colors cursor-pointer"
+                                title="Click to view review details"
+                              >
                                 {r.adminReviewStatus}
-                              </span>
-                            )}
+                              </button>
+                            ) : null}
                             <span className="text-xs text-slate-400">{r.date}</span>
                           </div>
                           <h3 className="text-sm font-bold text-slate-900 mt-1">{r.title}</h3>
                           <p className="text-xs text-slate-400">By {r.author} {isStaffReport ? "(Staff)" : ""}</p>
                         </div>
                         <div className="flex items-center gap-1 shrink-0">
-                          {/* Admin Review Button for Owners/Admins on Staff Reports */}
-                          {isOwner && isStaffReport && (
+                          {/* Admin Review / Approve Button for Owners/Admins */}
+                          {isOwner && (
                             <button
                               onClick={() => openReviewModal(r)}
-                              className="px-2.5 py-1 text-xs font-semibold bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200 rounded-lg transition-colors flex items-center gap-1"
-                              title="Add or update administrative review"
+                              className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1 ${
+                                isApproved
+                                  ? "bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200"
+                                  : "bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200"
+                              }`}
+                              title={isApproved ? "Update approval / review notes" : "Approve or add administrative review"}
                             >
-                              <FileText size={12} />
-                              Review
+                              {isApproved ? (
+                                <>
+                                  <CheckCircle size={12} className="text-emerald-600" />
+                                  Approved
+                                </>
+                              ) : (
+                                <>
+                                  <FileText size={12} />
+                                  {r.adminReviewStatus ? "Reviewed" : "Approve / Review"}
+                                </>
+                              )}
                             </button>
                           )}
                           {/* Normal Edit Button ONLY for non-staff reports within 6 hours */}
@@ -2147,22 +2177,54 @@ function ReportsPage({
                           </div>
                         ))}
                       </div>
-                      {/* Review Box Display */}
-                      {r.adminReviewNote && (
-                        <div className="border-t border-slate-100 pt-2.5 bg-indigo-50/50 p-2.5 rounded-xl border border-indigo-100 space-y-1">
+                      {/* Clickable Review & Approval Banner */}
+                      {(r.adminReviewNote || r.adminReviewStatus) && (
+                        <div
+                          onClick={() => setViewingApprovalReport(r)}
+                          className={`border-t border-slate-100 pt-2.5 p-3 rounded-xl border space-y-1.5 cursor-pointer hover:shadow-xs transition-all ${
+                            isApproved
+                              ? "bg-emerald-50/70 border-emerald-200 hover:bg-emerald-50"
+                              : "bg-indigo-50/60 border-indigo-200 hover:bg-indigo-50"
+                          }`}
+                          title="Click to view full review and approval details"
+                        >
                           <div className="flex items-center justify-between">
-                            <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-700">Administrative Review Note</span>
+                            <div className="flex items-center gap-1.5">
+                              {isApproved ? (
+                                <CheckCircle size={13} className="text-emerald-600" />
+                              ) : (
+                                <FileText size={13} className="text-indigo-600" />
+                              )}
+                              <span className={`text-[10px] font-bold uppercase tracking-wider ${
+                                isApproved ? "text-emerald-800" : "text-indigo-700"
+                              }`}>
+                                {isApproved ? "Administrative Approval" : "Administrative Review"}
+                              </span>
+                            </div>
                             {r.adminReviewStatus && (
-                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800">
+                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                                isApproved
+                                  ? "bg-emerald-100 text-emerald-800 border border-emerald-300"
+                                  : "bg-indigo-100 text-indigo-800"
+                              }`}>
                                 {r.adminReviewStatus}
                               </span>
                             )}
                           </div>
-                          <p className="text-xs text-indigo-950 font-medium">{r.adminReviewNote}</p>
-                          {r.reviewedBy && (
-                            <p className="text-[10px] text-slate-400">
-                              Reviewed by {r.reviewedBy}{r.reviewedAt ? ` on ${new Date(r.reviewedAt).toLocaleDateString()}` : ""}
+                          {r.adminReviewNote && (
+                            <p className={`text-xs font-medium ${
+                              isApproved ? "text-emerald-950" : "text-indigo-950"
+                            }`}>
+                              {r.adminReviewNote}
                             </p>
+                          )}
+                          {r.reviewedBy && (
+                            <div className="flex items-center justify-between pt-1 border-t border-slate-200/50 text-[10px] text-slate-500">
+                              <span>Approved / Reviewed by <strong className="text-slate-700">{r.reviewedBy}</strong></span>
+                              {r.reviewedAt && (
+                                <span>{new Date(r.reviewedAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}</span>
+                              )}
+                            </div>
                           )}
                         </div>
                       )}
@@ -2250,22 +2312,23 @@ function ReportsPage({
         <Modal title={`Administrative Review: ${reviewReport.title}`} onClose={() => setReviewReport(null)}>
           <div className="space-y-4">
             <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs text-slate-600 space-y-1">
-              <p><strong className="text-slate-700">Author:</strong> {reviewReport.author} (Staff)</p>
+              <p><strong className="text-slate-700">Author:</strong> {reviewReport.author} {reviewReport.isStaffSubmission || reviewReport.authorRole === "staff" ? "(Staff)" : ""}</p>
               <p><strong className="text-slate-700">Date:</strong> {reviewReport.date}</p>
               <p className="text-[11px] text-amber-700 font-medium">
-                Note: Original staff submission fields cannot be altered. Your review comments and verification status will be attached to this official record.
+                Note: Original submission fields remain intact. Your verification status and review comments will be recorded and visible to your team.
               </p>
             </div>
-            <F label="Review Status">
+            <F label="Review & Approval Status">
               <select
                 className={SC}
                 value={reviewStatus}
                 onChange={e => setReviewStatus(e.target.value)}
               >
-                <option value="Reviewed">Reviewed</option>
                 <option value="Approved">Approved</option>
+                <option value="Reviewed">Reviewed</option>
                 <option value="Needs Clarification">Needs Clarification</option>
                 <option value="Pending Review">Pending Review</option>
+                <option value="Rejected">Rejected</option>
               </select>
             </F>
             <F label="Administrative Notes / Feedback">
@@ -2273,7 +2336,7 @@ function ReportsPage({
                 className={`${IC} min-h-[90px]`}
                 value={reviewNote}
                 onChange={e => setReviewNote(e.target.value)}
-                placeholder="Enter feedback, verification remarks, or instructions for the staff member…"
+                placeholder="Enter feedback, verification remarks, or instructions for the team…"
               />
             </F>
             <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
@@ -2288,10 +2351,93 @@ function ReportsPage({
                 type="button"
                 onClick={handleSaveReview}
                 disabled={savingReview}
-                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5"
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5 shadow-xs"
               >
                 {savingReview && <Loader2 size={13} className="animate-spin" />}
-                Save Review
+                {reviewStatus === "Approved" ? "Approve Report" : "Save Review"}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Viewing Approval & Review Details Popup Modal */}
+      {viewingApprovalReport && (
+        <Modal
+          title="Report Review & Approval Details"
+          onClose={() => setViewingApprovalReport(null)}
+        >
+          <div className="space-y-4">
+            {/* Header / Summary Card */}
+            <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-2.5">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <span className="text-sm font-bold text-slate-900">{viewingApprovalReport.title}</span>
+                <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border ${
+                  viewingApprovalReport.adminReviewStatus === "Approved"
+                    ? "bg-emerald-100 text-emerald-800 border-emerald-300"
+                    : viewingApprovalReport.adminReviewStatus === "Needs Clarification"
+                    ? "bg-amber-100 text-amber-800 border-amber-300"
+                    : viewingApprovalReport.adminReviewStatus === "Rejected"
+                    ? "bg-rose-100 text-rose-800 border-rose-300"
+                    : "bg-indigo-100 text-indigo-800 border-indigo-300"
+                }`}>
+                  {viewingApprovalReport.adminReviewStatus === "Approved" && <CheckCircle size={14} className="text-emerald-600" />}
+                  {viewingApprovalReport.adminReviewStatus || "Reviewed"}
+                </span>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs text-slate-600 pt-1 border-t border-slate-200/60">
+                <div><span className="text-slate-400">Author:</span> <strong className="text-slate-800">{viewingApprovalReport.author}</strong></div>
+                <div><span className="text-slate-400">Date:</span> <strong className="text-slate-800">{viewingApprovalReport.date}</strong></div>
+                <div><span className="text-slate-400">Type:</span> <strong className="text-slate-800">{viewingApprovalReport.type}</strong></div>
+              </div>
+            </div>
+
+            {/* Administrative Notes / Feedback */}
+            <div className="p-4 bg-white rounded-2xl border border-slate-200 space-y-2 shadow-2xs">
+              <h4 className="text-[11px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+                <FileText size={13} className="text-slate-400" />
+                Administrative Feedback & Notes
+              </h4>
+              <p className="text-sm text-slate-800 whitespace-pre-wrap leading-relaxed">
+                {viewingApprovalReport.adminReviewNote || "No administrative notes or comments provided."}
+              </p>
+            </div>
+
+            {/* Reviewer / Approval Metadata */}
+            <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/80 flex flex-col sm:flex-row sm:items-center justify-between text-xs text-slate-600 gap-1.5">
+              <div>
+                <span className="text-slate-400">Approved / Reviewed by: </span>
+                <strong className="text-slate-800">{viewingApprovalReport.reviewedBy || "Admin"}</strong>
+              </div>
+              {viewingApprovalReport.reviewedAt && (
+                <div>
+                  <span className="text-slate-400">Date & Time: </span>
+                  <strong className="text-slate-700">{new Date(viewingApprovalReport.reviewedAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}</strong>
+                </div>
+              )}
+            </div>
+
+            {/* Actions */}
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+              {isOwner && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const r = viewingApprovalReport;
+                    setViewingApprovalReport(null);
+                    openReviewModal(r);
+                  }}
+                  className="px-4 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Pencil size={13} /> Update Review
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setViewingApprovalReport(null)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer"
+              >
+                Close
               </button>
             </div>
           </div>
@@ -2338,7 +2484,7 @@ function NotificationsPage({notifications,onMarkRead,onMarkAllRead,farms,activeF
 
   return(
     <div className="p-4 sm:p-6 space-y-5 w-full">
-      <div className="sticky top-0 z-10 bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 flex items-center justify-between gap-3">
+      <div className="bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 flex items-center justify-between gap-3">
         <div>
           <div className="flex items-center gap-2.5">
             <h1 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Notifications</h1>
@@ -3476,7 +3622,7 @@ function SettingsPage({farms,onAddFarm,onEditFarm,onDeleteFarm,userProfile,onUpd
   const initials=(userProfile?.name||"U").split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase();
   return(
     <div className="p-4 sm:p-6 space-y-5 w-full">
-      <div className="sticky top-0 z-30 bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 flex flex-col gap-2.5 border-b border-slate-200/80 shadow-xs">
+      <div className="bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 flex flex-col gap-2.5 border-b border-slate-200/80 shadow-xs">
         <div>
           <h1 className="text-xl sm:text-2xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Settings</h1>
           <p className="text-xs text-slate-500 mt-0.5">Manage your profile, farm details, and referral rewards.</p>
@@ -4895,7 +5041,17 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   const pondLimit = adminOverride.hasFreeAccess ? Infinity : (activePlan ? PLAN_POND_LIMITS[activePlan] ?? 5 : 5);
   const farmLimit = adminOverride.hasFreeAccess ? Infinity : (activePlan ? PLAN_FARM_LIMITS[activePlan] ?? 1 : 1);
   const mainRef=useRef<HTMLElement>(null);
+  const [showScrollTop, setShowScrollTop] = useState(false);
   useEffect(()=>{mainRef.current?.scrollTo({top:0,behavior:"instant"});},[active]);
+  useEffect(() => {
+    const el = mainRef.current;
+    if (!el) return;
+    const handleScroll = () => {
+      setShowScrollTop(el.scrollTop > 80);
+    };
+    el.addEventListener("scroll", handleScroll, { passive: true });
+    return () => el.removeEventListener("scroll", handleScroll);
+  }, []);
   const nav=(v:View)=>{setActive(v);setSideOpen(false);};
   const handleSwitchFarm=useCallback((fid:string)=>{
     setActiveFarmId(fid);
@@ -7866,6 +8022,17 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
             </AppErrorBoundary>
           )}
         </main>
+        {showScrollTop && (
+          <button
+            type="button"
+            onClick={() => mainRef.current?.scrollTo({ top: 0, behavior: "smooth" })}
+            aria-label="Scroll to top"
+            className="fixed bottom-20 sm:bottom-8 left-1/2 -translate-x-1/2 z-40 bg-emerald-600 hover:bg-emerald-700 active:scale-90 text-white w-10 h-10 rounded-full shadow-xl border border-emerald-400/40 flex items-center justify-center transition-all duration-300 animate-in fade-in slide-in-from-bottom-2 cursor-pointer"
+            title="Scroll to top"
+          >
+            <ChevronUp size={20} strokeWidth={2.5} />
+          </button>
+        )}
       </div>
       {/* Add Farm Modal */}
       {showAddFarm&&(

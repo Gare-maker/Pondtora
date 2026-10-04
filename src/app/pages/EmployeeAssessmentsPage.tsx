@@ -412,9 +412,9 @@ export function CandidateAssessment({
   const testLabel=type==="knowledge"?"Knowledge Test":"Compatibility Test";
   const totalQ=questions.length;
 
-  /* ── Shared sticky header ── */
+  /* ── Shared header ── */
   const Hdr=({showClose=true}:{showClose?:boolean})=>(
-    <header className="bg-white border-b border-slate-200 px-4 sm:px-6 py-4 flex items-center gap-3 sticky top-0 z-10 shrink-0">
+    <header className="bg-white border-b border-slate-200 px-4 sm:px-6 py-4 flex items-center gap-3 shrink-0">
       <div>
         <p className="text-base font-black text-slate-900 font-['Barlow_Condensed',sans-serif]">Pondtora</p>
         <p className="text-xs text-slate-400">{testLabel}</p>
@@ -817,7 +817,7 @@ export default function EmployeeAssessmentsPage({
   return(
     <div className="p-4 sm:p-6 space-y-6 w-full">
       {/* Header */}
-      <div className="sticky top-0 z-10 bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
         <div>
           <h1 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Staff Assessments</h1>
           <p className="text-xs text-slate-400 mt-0.5">Manage assessment questions, distribute links, and review candidate results.</p>
