@@ -744,7 +744,17 @@ export default function EmployeeAssessmentsPage({
   onAddKResult?:(r:KResult)=>void;onAddCResult?:(r:CResult)=>void;
   ownerId?:string;
 }){
-  const [activeTab,setActiveTab]=useState<"compatibility"|"knowledge">("compatibility");
+  const [activeTab,setActiveTab_]=useState<"compatibility"|"knowledge">(()=>{
+    try {
+      const saved = localStorage.getItem("pondtora_assessment_active_tab");
+      if (saved === "compatibility" || saved === "knowledge") return saved;
+    } catch {}
+    return "compatibility";
+  });
+  const setActiveTab = (t: "compatibility" | "knowledge") => {
+    setActiveTab_(t);
+    try { localStorage.setItem("pondtora_assessment_active_tab", t); } catch {}
+  };
 
   /* Search */
   const [kSearch,setKSearch]=useState("");

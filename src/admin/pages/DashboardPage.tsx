@@ -109,7 +109,17 @@ export default function DashboardPage({
   isLiveDb,
   lastSynced,
 }: Props) {
-  const [activeTab, setActiveTab] = useState<"operations" | "saas" | "users">("operations");
+  const [activeTab, setActiveTab_] = useState<"operations" | "saas" | "users">(() => {
+    try {
+      const saved = localStorage.getItem("pondtora_admin_dashboard_tab");
+      if (saved === "operations" || saved === "saas" || saved === "users") return saved;
+    } catch {}
+    return "operations";
+  });
+  const setActiveTab = (t: "operations" | "saas" | "users") => {
+    setActiveTab_(t);
+    try { localStorage.setItem("pondtora_admin_dashboard_tab", t); } catch {}
+  };
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("All");
   const [selectedUserDossier, setSelectedUserDossier] = useState<AdminUser | null>(null);

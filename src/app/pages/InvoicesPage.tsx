@@ -61,7 +61,6 @@ export default function InvoicesPage({ponds,invoices,customers,priceGroups,setti
   const [custSuggestions,setCustSuggestions]=useState<Customer[]>([]);
 
   const handleConvertFromCalc = (data: { items: any[]; discountType: "general" | "individual"; generalDiscount: number; additionalCharges: number; customerName: string; notes: string }) => {
-    setActiveTab("invoices");
     setWItems(data.items.length > 0 ? data.items : [{ id: uid(), groupId: "", qty: "", discount: "" }]);
     setWDiscountType(data.discountType);
     setWGeneralDiscPerKg(data.generalDiscount ? String(data.generalDiscount) : "");

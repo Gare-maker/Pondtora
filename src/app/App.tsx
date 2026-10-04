@@ -4493,6 +4493,84 @@ function mergeWithLocal<T extends { id?: string }>(backendItems?: T[], localItem
   return merged;
 }
 
+const VALID_VIEWS: View[] = [
+  "financial",
+  "ponds",
+  "inventory",
+  "documentation",
+  "reports",
+  "invoices",
+  "sales_calculator",
+  "staff",
+  "investors",
+  "assessments",
+  "pricing",
+  "notifications",
+  "settings",
+];
+
+function normalizeViewName(v: string | null | undefined): View | null {
+  if (!v) return null;
+  const clean = v.toLowerCase().replace(/^[#/?]+/, "").replace(/-/g, "_").trim();
+  if (!clean) return null;
+  if (clean === "dashboard" || clean === "finance" || clean === "financial_dashboard") return "financial";
+  if (clean === "feed_stock" || clean === "feed_inventory" || clean === "stock") return "inventory";
+  if (clean === "feed_records" || clean === "feeding_records" || clean === "feed_doc" || clean === "feeding_doc" || clean === "feeding_documentation") return "documentation";
+  if (clean === "pond_management" || clean === "pond" || clean === "ponds_management") return "ponds";
+  if (clean === "sales" || clean === "calculator" || clean === "sales_calc" || clean === "sales_calculator") return "sales_calculator";
+  if (clean === "subscription" || clean === "subscriptions" || clean === "plans" || clean === "pricing_plans") return "pricing";
+  if (clean === "staff_assessments" || clean === "assessment" || clean === "candidate_assessment") return "assessments";
+  if (clean === "notification" || clean === "notifs") return "notifications";
+  if (clean === "setting" || clean === "profile_settings") return "settings";
+  if (clean === "investor" || clean === "investments") return "investors";
+  if (clean === "report" || clean === "reporting") return "reports";
+  if (clean === "invoice" || clean === "invoicing") return "invoices";
+
+  if (VALID_VIEWS.includes(clean as View)) {
+    return clean as View;
+  }
+  return null;
+}
+
+function getInitialActiveView(): View {
+  if (typeof window !== "undefined") {
+    try {
+      // 1. Check URL hash (e.g., #/sales_calculator, #sales_calculator, #/invoices, etc.)
+      const hash = window.location.hash;
+      if (
+        hash &&
+        !hash.startsWith("#/assess/") &&
+        !hash.startsWith("#/reset-password") &&
+        !hash.startsWith("#/create-password") &&
+        !hash.startsWith("#admin") &&
+        !hash.startsWith("#/admin")
+      ) {
+        const fromHash = normalizeViewName(hash);
+        if (fromHash) return fromHash;
+      }
+
+      // 2. Check query params (e.g. ?page=sales_calculator or ?view=ponds)
+      const sp = new URLSearchParams(window.location.search);
+      const fromQuery = normalizeViewName(sp.get("view") || sp.get("page") || sp.get("tab"));
+      if (fromQuery) return fromQuery;
+
+      // 3. Check localStorage (user-specific or global)
+      const authRaw = localStorage.getItem("pondtora_auth");
+      let uid: string | null = null;
+      if (authRaw) {
+        try {
+          const parsed = JSON.parse(authRaw);
+          if (parsed?.user?.id) uid = parsed.user.id;
+        } catch {}
+      }
+      const stored = (uid ? localStorage.getItem(`pondtora_${uid}_active_view`) : null) || localStorage.getItem("pondtora_active_view");
+      const fromStored = normalizeViewName(stored);
+      if (fromStored) return fromStored;
+    } catch {}
+  }
+  return "financial";
+}
+
 /* ─── Root ──────────────────────────────────────────────────── */
 export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   const [routeState, setRouteState] = useState<"reset-password" | "create-password" | "normal">(() => {
@@ -4557,8 +4635,32 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     if (!activeSessionUid) return null;
     return loadLocal(`pondtora_${activeSessionUid}_user_profile`, null);
   });
-  const [active,setActive_]=useState<View>("financial");
-  const setActive=(v:View)=>{setActive_(v);};
+  const [active,setActive_]=useState<View>(()=>getInitialActiveView());
+  const setActive=useCallback((v:View)=>{
+    setActive_(v);
+    try {
+      localStorage.setItem("pondtora_active_view", v);
+      const cUid = typeof window !== "undefined" ? getStoredAuthUser() : null;
+      if (cUid) {
+        localStorage.setItem(`pondtora_${cUid}_active_view`, v);
+      }
+      if (typeof window !== "undefined") {
+        const h = window.location.hash;
+        if (
+          !h.startsWith("#/assess/") &&
+          !h.startsWith("#/reset-password") &&
+          !h.startsWith("#/create-password") &&
+          !h.startsWith("#admin") &&
+          !h.startsWith("#/admin")
+        ) {
+          const targetHash = `#/${v}`;
+          if (window.location.hash !== targetHash) {
+            window.history.replaceState(null, "", targetHash);
+          }
+        }
+      }
+    } catch {}
+  },[]);
   const [sideOpen,setSideOpen]=useState(false);
   const [collapsed,setCollapsed]=useState(false);
   const [mFarmOpen,setMFarmOpen]=useState(false);
@@ -4588,6 +4690,15 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
         setShowLanding(false);
       } else {
         setRouteState("normal");
+        const viewFromHash = normalizeViewName(window.location.hash);
+        if (viewFromHash) {
+          setActive_(viewFromHash);
+          try {
+            localStorage.setItem("pondtora_active_view", viewFromHash);
+            const cUid = getStoredAuthUser();
+            if (cUid) localStorage.setItem(`pondtora_${cUid}_active_view`, viewFromHash);
+          } catch {}
+        }
       }
     };
     window.addEventListener("popstate", handleUrlChange);
@@ -4597,6 +4708,25 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       window.removeEventListener("hashchange", handleUrlChange);
     };
   }, []);
+
+  // Synchronize URL hash when logged in and active view is loaded
+  useEffect(() => {
+    if (isAuth && !showLanding && routeState === "normal" && typeof window !== "undefined") {
+      const h = window.location.hash;
+      if (
+        !h.startsWith("#/assess/") &&
+        !h.startsWith("#/reset-password") &&
+        !h.startsWith("#/create-password") &&
+        !h.startsWith("#admin") &&
+        !h.startsWith("#/admin")
+      ) {
+        const targetHash = `#/${active}`;
+        if (window.location.hash !== targetHash) {
+          window.history.replaceState(null, "", targetHash);
+        }
+      }
+    }
+  }, [isAuth, showLanding, routeState, active]);
   
   const [isDataLoading, setIsDataLoading] = useState(false);
 
@@ -4788,7 +4918,17 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   const [investments,setInvestments]=useState<Investment[]>(()=>readInit("investments","investments",[]));
   const [investmentPayments,setInvestmentPayments]=useState<InvestmentPayment[]>(()=>readInit("investment_payments","investmentPayments",[]));
   const [pondReports,setPondReports]=useState<PondReport[]>(()=>readInit("pond_reports","pondReports",[]));
-  const [settingsTab,setSettingsTab]=useState<"profile"|"farms"|"referrals">("profile");
+  const [settingsTab,setSettingsTab_]=useState<"profile"|"farms"|"referrals">(()=>{
+    try {
+      const saved = localStorage.getItem("pondtora_settings_tab");
+      if (saved === "profile" || saved === "farms" || saved === "referrals") return saved;
+    } catch {}
+    return "profile";
+  });
+  const setSettingsTab = (t: "profile" | "farms" | "referrals") => {
+    setSettingsTab_(t);
+    try { localStorage.setItem("pondtora_settings_tab", t); } catch {}
+  };
 
   // Action-level permissions for the current staff user (populated from backend staffInfo)
   const [staffOwnPermissions,setStaffOwnPermissions]=useState<Record<string,{canView:boolean;canCreate:boolean;canEdit:boolean;canDelete:boolean}>>({});

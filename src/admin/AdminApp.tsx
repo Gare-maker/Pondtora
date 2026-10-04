@@ -103,6 +103,30 @@ class AdminErrorBoundary extends React.Component<AdminErrorBoundaryProps, AdminE
 
 type Page = "dashboard" | "users" | "subscriptions" | "plans" | "logs" | "settings";
 
+const VALID_ADMIN_PAGES: Page[] = ["dashboard", "users", "subscriptions", "plans", "logs", "settings"];
+
+function getInitialAdminPage(): Page {
+  if (typeof window !== "undefined") {
+    try {
+      const hash = window.location.hash.toLowerCase();
+      const match = hash.match(/^#\/?admin\/(dashboard|users|subscriptions|plans|logs|settings)/);
+      if (match && match[1] && VALID_ADMIN_PAGES.includes(match[1] as Page)) {
+        return match[1] as Page;
+      }
+      const sp = new URLSearchParams(window.location.search);
+      const pageParam = sp.get("admin_page");
+      if (pageParam && VALID_ADMIN_PAGES.includes(pageParam as Page)) {
+        return pageParam as Page;
+      }
+      const stored = localStorage.getItem("pondtora_admin_active_page");
+      if (stored && VALID_ADMIN_PAGES.includes(stored as Page)) {
+        return stored as Page;
+      }
+    } catch {}
+  }
+  return "dashboard";
+}
+
 const INITIAL_LOGS: AdminActivityLog[] = [
   {
     id: "log-1",
@@ -158,11 +182,49 @@ export default function AdminApp({ onExit }: { onExit?: () => void } = {}) {
   const [adminEmail, setAdminEmail] = useState<string>(() => {
     return localStorage.getItem("pondtora_admin_email") || "edafejesugarec@gmail.com";
   });
-  const [page, setPage] = useState<Page>("dashboard");
+  const [page, setPage_] = useState<Page>(() => getInitialAdminPage());
+  const setPage = (p: Page) => {
+    setPage_(p);
+    try {
+      localStorage.setItem("pondtora_admin_active_page", p);
+      if (typeof window !== "undefined") {
+        window.history.replaceState(null, "", `#/admin/${p}`);
+      }
+    } catch {}
+  };
   const [sideOpen, setSideOpen] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isLiveDb, setIsLiveDb] = useState(false);
   const [lastSynced, setLastSynced] = useState<Date | null>(null);
+
+  useEffect(() => {
+    const handleHash = () => {
+      const hash = window.location.hash.toLowerCase();
+      const match = hash.match(/^#\/?admin\/(dashboard|users|subscriptions|plans|logs|settings)/);
+      if (match && match[1] && VALID_ADMIN_PAGES.includes(match[1] as Page)) {
+        setPage_(match[1] as Page);
+        try {
+          localStorage.setItem("pondtora_admin_active_page", match[1]);
+        } catch {}
+      }
+    };
+    window.addEventListener("hashchange", handleHash);
+    window.addEventListener("popstate", handleHash);
+    return () => {
+      window.removeEventListener("hashchange", handleHash);
+      window.removeEventListener("popstate", handleHash);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (loggedIn && typeof window !== "undefined") {
+      const hash = window.location.hash.toLowerCase();
+      const match = hash.match(/^#\/?admin\/(dashboard|users|subscriptions|plans|logs|settings)/);
+      if (!match || match[1] !== page) {
+        window.history.replaceState(null, "", `#/admin/${page}`);
+      }
+    }
+  }, [loggedIn, page]);
 
   const NAV = React.useMemo<{ id: Page; label: string; icon: React.ElementType }[]>(() => [
     { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
