@@ -7891,11 +7891,11 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       <div className={`fixed lg:hidden inset-y-0 left-0 z-50 w-64 transition-transform duration-200 ${sideOpen?"translate-x-0":"-translate-x-full"}`}>
         <Sidebar active={active} onNav={nav} collapsed={false} onToggle={()=>setSideOpen(false)} farms={accessibleFarms} activeFarmId={activeFarmId} onSwitchFarm={id=>{handleSwitchFarm(id);setSideOpen(false);}} onAddFarm={()=>{setSideOpen(false);setShowAddFarm(true);}} sideOpen={sideOpen} staff={staff} unreadCount={unreadCount} onNotifications={()=>{nav("notifications");setSideOpen(false);}} onLogout={handleLogout} hasPerm={hasPerm} canView={canView} isOwner={isOwner} userProfile={userProfile} currentStaff={currentStaff}/>
       </div>
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        {/* Mobile top bar — always pinned to the top */}
-        <header className="lg:hidden flex items-center justify-between px-4 py-2.5 bg-slate-900 border-b border-slate-800 shrink-0 sticky top-0 z-40">
+      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
+        {/* Mobile top bar — permanently pinned to the top */}
+        <header className="lg:hidden flex items-center justify-between px-4 h-14 bg-slate-900 border-b border-slate-800 shrink-0 sticky top-0 z-40 select-none">
           <div className="flex items-center gap-2.5">
-            <button onClick={()=>setSideOpen(true)} className="p-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 transition-colors">
+            <button onClick={()=>setSideOpen(true)} className="p-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer" aria-label="Open menu">
               <Menu size={20}/>
             </button>
             <div className="flex items-center gap-2">
@@ -7904,7 +7904,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
             </div>
           </div>
           <div className="relative" ref={mFarmRef}>
-            <button onClick={()=>setMFarmOpen(p=>!p)} className="flex items-center gap-1.5 text-xs text-emerald-400 font-semibold bg-slate-800 border border-slate-700/80 px-2.5 py-1.5 rounded-lg hover:bg-slate-700/80 transition-colors">
+            <button onClick={()=>setMFarmOpen(p=>!p)} className="flex items-center gap-1.5 text-xs text-emerald-400 font-semibold bg-slate-800 border border-slate-700/80 px-2.5 py-1.5 rounded-lg hover:bg-slate-700/80 transition-colors cursor-pointer">
               <span className="truncate max-w-[130px] text-slate-200">
                 {(accessibleFarms.find(f=>f.id===activeFarmId)||farms.find(f=>f.id===activeFarmId)||accessibleFarms[0]||farms[0])?.name || userProfile?.farmName || "Select Farm"}
               </span>
@@ -7913,7 +7913,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
             {mFarmOpen&&(
               <div className="absolute right-0 top-full mt-1 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl z-50 overflow-hidden min-w-[200px]">
                 {(accessibleFarms.length > 0 ? accessibleFarms : farms).map(f=>(
-                  <button key={f.id} onClick={()=>{handleSwitchFarm(f.id);setMFarmOpen(false);}} className={`w-full flex items-center gap-2 px-3 py-2.5 text-left hover:bg-slate-800 transition-colors ${f.id===activeFarmId?"bg-emerald-500/10":""}`}>
+                  <button key={f.id} onClick={()=>{handleSwitchFarm(f.id);setMFarmOpen(false);}} className={`w-full flex items-center gap-2 px-3 py-2.5 text-left hover:bg-slate-800 transition-colors cursor-pointer ${f.id===activeFarmId?"bg-emerald-500/10":""}`}>
                     <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${f.id===activeFarmId?"bg-emerald-400":"bg-slate-600"}`}/>
                     <div className="min-w-0 flex-1">
                       <p className={`text-xs font-semibold truncate ${f.id===activeFarmId?"text-emerald-300":"text-slate-200"}`}>{f.name}</p>
@@ -7923,12 +7923,12 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
                   </button>
                 ))}
                 {isOwner&&<div className="border-t border-slate-800">
-                  <button onClick={()=>{setMFarmOpen(false);setShowAddFarm(true);}} className="w-full flex items-center gap-2 px-3 py-2.5 text-xs text-emerald-400 font-semibold hover:bg-slate-800 transition-colors"><Plus size={12}/> Add New Farm</button>
+                  <button onClick={()=>{setMFarmOpen(false);setShowAddFarm(true);}} className="w-full flex items-center gap-2 px-3 py-2.5 text-xs text-emerald-400 font-semibold hover:bg-slate-800 transition-colors cursor-pointer"><Plus size={12}/> Add New Farm</button>
                 </div>}
               </div>
             )}
           </div>
-        </div>
+        </header>
         {/* Farm Subscription Expiration Read-Only Banner */}
         {farmSubInfo.isExpired && (
           <div className="bg-gradient-to-r from-rose-600 via-rose-500 to-rose-600 text-white px-4 py-2.5 flex items-center justify-between text-xs font-medium shrink-0 shadow-sm z-30 border-b border-rose-700/50">
@@ -7950,7 +7950,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
             )}
           </div>
         )}
-        <main ref={mainRef} className="flex-1 overflow-y-auto bg-[#f5f7fa] pb-24 sm:pb-8 touch-pan-y" style={{ WebkitOverflowScrolling: "touch" }}>
+        <main ref={mainRef} className="flex-1 overflow-y-auto bg-[#f5f7fa] pb-24 sm:pb-8 touch-pan-y overscroll-y-contain" style={{ WebkitOverflowScrolling: "touch" }}>
           {isDataLoading ? (
             <div className="flex flex-col items-center justify-center min-h-[60vh] gap-3 p-6">
               <Loader2 size={36} className="text-green-600 animate-spin" />
