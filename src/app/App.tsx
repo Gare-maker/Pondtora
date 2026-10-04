@@ -5966,7 +5966,12 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   const [showChoosePlan,setShowChoosePlan]=useState(false);
   const [showVerifyEmail,setShowVerifyEmail]=useState(false);
   const [pendingUser,setPendingUser]=useState<UserProfile|null>(null);
-  const [authLoading,setAuthLoading]=useState(true);
+  const [authLoading,setAuthLoading]=useState(()=>{
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("pondtora_is_auth") !== "true";
+    }
+    return true;
+  });
   const [setupSql,setSetupSql]=useState<string|null>(null);
   const [showSetup,setShowSetup]=useState(false);
   const [setupRunning,setSetupRunning]=useState(false);
@@ -7883,7 +7888,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   const markRead=(id:string)=>{setReadNotifIds(prev=>new Set([...prev,id]));setExtraNotifs(prev=>prev.map(n=>n.id===id?{...n,read:true}:n));};
   const markAllRead=()=>{setReadNotifIds(prev=>new Set([...prev,...notifications.map(n=>n.id)]));setExtraNotifs(prev=>prev.map(n=>({...n,read:true})));};
   /* Auth gate — must come AFTER all hooks */
-  if(authLoading) return(
+  if(authLoading && !isAuth) return(
     <div className="fixed inset-0 bg-white flex items-center justify-center">
       <div className="flex flex-col items-center gap-3">
         <Loader2 size={28} className="animate-spin text-green-600"/>
