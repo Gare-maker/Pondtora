@@ -1049,9 +1049,14 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
 
   /* ── Local Ponds & Live Drag-and-Reorder State ── */
   const [localPonds, setLocalPonds] = useState<Pond[]>(ponds);
+  const localPondsRef = useRef<Pond[]>(localPonds);
+  localPondsRef.current = localPonds;
+
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
   const [dragOverPondId, setDragOverPondId] = useState<string | null>(null);
-  const touchCurrentTargetId = useRef<string | null>(null);
+  const [dragPointerPos, setDragPointerPos] = useState<{ x: number; y: number } | null>(null);
+  const [dragOffset, setDragOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [dragCardSize, setDragCardSize] = useState<{ width: number; height: number }>({ width: 340, height: 72 });
   const isReorderingRef = useRef<boolean>(false);
   const isDragging = !!activeDragId;
 
@@ -1107,14 +1112,78 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
     isReorderingRef.current = true;
     setActiveDragId(null);
     setDragOverPondId(null);
-    touchCurrentTargetId.current = null;
+    setDragPointerPos(null);
     if (onReorderPonds) {
       onReorderPonds(finalPonds);
     }
     setTimeout(() => {
       isReorderingRef.current = false;
-    }, 150);
+    }, 200);
   };
+
+  const handleStartDrag = (e: React.PointerEvent, pond: Pond) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setSortField(null);
+    isReorderingRef.current = true;
+
+    const targetCard = (e.currentTarget.closest('[data-pond-id]') as HTMLElement) || e.currentTarget;
+    const rect = targetCard.getBoundingClientRect();
+
+    setDragOffset({
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top,
+    });
+    setDragCardSize({
+      width: rect.width || 340,
+      height: rect.height || 72,
+    });
+    setDragPointerPos({ x: e.clientX, y: e.clientY });
+    setActiveDragId(pond.id);
+    setDragOverPondId(pond.id);
+  };
+
+  useEffect(() => {
+    if (!activeDragId) return;
+
+    const handlePointerMove = (e: PointerEvent) => {
+      e.preventDefault();
+      setDragPointerPos({ x: e.clientX, y: e.clientY });
+
+      const elems = document.elementsFromPoint(e.clientX, e.clientY);
+      for (const el of elems) {
+        const card = el.closest('[data-pond-id]') as HTMLElement | null;
+        if (card) {
+          const targetId = card.getAttribute('data-pond-id');
+          if (targetId && targetId !== activeDragId) {
+            setDragOverPondId(targetId);
+            performLiveReorder(activeDragId, targetId);
+            break;
+          }
+        }
+      }
+    };
+
+    const handlePointerUp = (e: PointerEvent) => {
+      e.preventDefault();
+      finalizeReorder(localPondsRef.current);
+    };
+
+    window.addEventListener("pointermove", handlePointerMove, { passive: false });
+    window.addEventListener("pointerup", handlePointerUp, { passive: false });
+    window.addEventListener("pointercancel", handlePointerUp, { passive: false });
+
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+      window.removeEventListener("pointercancel", handlePointerUp);
+    };
+  }, [activeDragId]);
+
+  const draggedPond = useMemo(() => {
+    if (!activeDragId) return null;
+    return localPonds.find(p => p.id === activeDragId) || ponds.find(p => p.id === activeDragId) || null;
+  }, [activeDragId, localPonds, ponds]);
 
   const openEditPond=(p:Pond)=>{
     setEditPondF({name:p.name,type:p.type,lengthFt:p.lengthFt||"",widthFt:p.widthFt||"",notes:p.notes,category:p.category||"Production"});
@@ -1431,56 +1500,39 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
               const mRate=p.initialStock>0?((dead/p.initialStock)*100).toFixed(1):"0.0";
               const isOver = dragOverPondId === p.id && activeDragId !== p.id;
               const isDragged = activeDragId === p.id;
+
+              if (isDragged) {
+                return (
+                  <tr
+                    key={p.id}
+                    data-pond-id={p.id}
+                    className="bg-emerald-50/70 border-2 border-dashed border-emerald-400 h-14 transition-all duration-150"
+                  >
+                    <td colSpan={8} className="px-4 py-3 text-center text-xs font-semibold text-emerald-700 select-none">
+                      <div className="flex items-center justify-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping"/>
+                        <span>Moving <strong>{p.name}</strong> here…</span>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              }
+
               return(
                 <tr
                   key={p.id}
                   data-pond-id={p.id}
-                  onDragOver={e => {
-                    e.preventDefault();
-                    e.dataTransfer.dropEffect = "move";
-                    if (activeDragId && activeDragId !== p.id) {
-                      setDragOverPondId(p.id);
-                      performLiveReorder(activeDragId, p.id);
-                    }
-                  }}
-                  onDragLeave={() => {
-                    if (dragOverPondId === p.id) setDragOverPondId(null);
-                  }}
-                  onDrop={e => {
-                    e.preventDefault();
-                    finalizeReorder(localPonds);
-                  }}
                   className={`transition-all duration-200 ${
-                    isDragged
-                      ? "bg-emerald-50/90 ring-2 ring-emerald-500 ring-inset shadow-sm"
-                      : isOver
-                      ? "bg-emerald-50/50 ring-1 ring-emerald-300 ring-inset"
+                    isOver
+                      ? "bg-emerald-50/60 ring-2 ring-emerald-400 ring-inset"
                       : "hover:bg-slate-50"
                   }`}
                 >
                   <td className="px-3 py-3.5 text-slate-300 text-xs font-mono sticky left-0 z-10 bg-inherit">
                     <div className="flex items-center gap-1.5">
                       <div
-                        draggable
-                        onPointerDown={() => {
-                          setActiveDragId(p.id);
-                          setSortField(null);
-                        }}
-                        onDragStart={e => {
-                          e.stopPropagation();
-                          e.dataTransfer.setData("text/plain", p.id);
-                          e.dataTransfer.effectAllowed = "move";
-                          setActiveDragId(p.id);
-                          setSortField(null);
-                        }}
-                        onDragEnd={() => {
-                          finalizeReorder(localPonds);
-                        }}
-                        className={`p-1.5 rounded-lg cursor-grab active:cursor-grabbing transition-all shrink-0 select-none ${
-                          isDragged
-                            ? "bg-emerald-500 text-white border-emerald-600 ring-2 ring-emerald-300 shadow-md scale-110"
-                            : "bg-slate-100 hover:bg-slate-200 text-slate-400 hover:text-slate-700 border border-slate-200/80"
-                        }`}
+                        onPointerDown={e => handleStartDrag(e, p)}
+                        className="p-1.5 rounded-lg cursor-grab active:cursor-grabbing transition-all shrink-0 select-none touch-none bg-slate-100 hover:bg-emerald-100 hover:text-emerald-700 text-slate-400 border border-slate-200/80 active:bg-emerald-500 active:text-white"
                         title="Drag to rearrange pond order"
                       >
                         <GripVertical size={13} className="shrink-0" />
@@ -1533,29 +1585,29 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
           const isNearBottom=pIdx>=filteredPonds.length-2;
           const isOver = dragOverPondId === p.id && activeDragId !== p.id;
           const isDragged = activeDragId === p.id;
+
+          if (isDragged) {
+            return (
+              <div
+                key={p.id}
+                data-pond-id={p.id}
+                className="border-2 border-dashed border-emerald-400 bg-emerald-50/60 rounded-xl h-[72px] flex items-center justify-center text-xs font-semibold text-emerald-700 transition-all duration-150 shadow-inner select-none"
+              >
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping"/>
+                  <span>Moving <strong>{p.name}</strong> here…</span>
+                </div>
+              </div>
+            );
+          }
+
           return(
           <div
             key={p.id}
             data-pond-id={p.id}
-            onDragOver={e => {
-              e.preventDefault();
-              if (activeDragId && activeDragId !== p.id) {
-                setDragOverPondId(p.id);
-                performLiveReorder(activeDragId, p.id);
-              }
-            }}
-            onDragLeave={() => {
-              if (dragOverPondId === p.id) setDragOverPondId(null);
-            }}
-            onDrop={e => {
-              e.preventDefault();
-              finalizeReorder(localPonds);
-            }}
             className={`bg-white border rounded-xl p-3.5 flex items-center justify-between transition-all duration-200 shadow-xs select-none ${
-              isDragged
-                ? "border-emerald-500 bg-emerald-50/70 ring-2 ring-emerald-400/60 shadow-md scale-[1.02] z-20"
-                : isOver
-                ? "border-emerald-300 bg-emerald-50/30"
+              isOver
+                ? "border-emerald-400 bg-emerald-50/40 ring-2 ring-emerald-300/60"
                 : "border-slate-200/60 hover:border-green-300 active:bg-slate-50 cursor-pointer"
             }`}
             onClick={() => {
@@ -1588,52 +1640,9 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
           >
             <div className="flex items-center gap-2.5 min-w-0 flex-1 pr-2">
               <div
-                draggable
-                onPointerDown={() => {
-                  setActiveDragId(p.id);
-                  setSortField(null);
-                }}
-                onDragStart={e => {
-                  e.stopPropagation();
-                  e.dataTransfer.setData("text/plain", p.id);
-                  e.dataTransfer.effectAllowed = "move";
-                  setActiveDragId(p.id);
-                  setSortField(null);
-                }}
-                onDragEnd={() => {
-                  finalizeReorder(localPonds);
-                }}
-                onTouchStart={e => {
-                  e.stopPropagation();
-                  setActiveDragId(p.id);
-                  touchCurrentTargetId.current = p.id;
-                  setSortField(null);
-                }}
-                onTouchMove={e => {
-                  if (!activeDragId) return;
-                  const touch = e.touches[0];
-                  const elem = document.elementFromPoint(touch.clientX, touch.clientY);
-                  const card = elem?.closest("[data-pond-id]") as HTMLElement | null;
-                  const targetId = card?.getAttribute("data-pond-id");
-                  if (targetId && targetId !== touchCurrentTargetId.current) {
-                    touchCurrentTargetId.current = targetId;
-                    setDragOverPondId(targetId);
-                    performLiveReorder(activeDragId, targetId);
-                  }
-                }}
-                onTouchEnd={e => {
-                  e.stopPropagation();
-                  finalizeReorder(localPonds);
-                }}
-                onTouchCancel={() => {
-                  finalizeReorder(localPonds);
-                }}
+                onPointerDown={e => handleStartDrag(e, p)}
                 onClick={e => e.stopPropagation()}
-                className={`p-1.5 rounded-lg cursor-grab active:cursor-grabbing transition-all shrink-0 touch-none select-none ${
-                  isDragged
-                    ? "bg-emerald-500 text-white border-emerald-600 ring-2 ring-emerald-300 shadow-md scale-110"
-                    : "bg-slate-100 hover:bg-slate-200 text-slate-400 hover:text-slate-700 border border-slate-200/80 shadow-2xs"
-                }`}
+                className="p-1.5 rounded-lg cursor-grab active:cursor-grabbing transition-all shrink-0 touch-none select-none bg-slate-100 hover:bg-emerald-100 text-slate-400 hover:text-emerald-700 active:bg-emerald-500 active:text-white border border-slate-200/80 shadow-2xs"
                 title="Drag to rearrange pond order"
               >
                 <GripVertical size={16} className="shrink-0" />
@@ -1687,6 +1696,59 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
         })}
         {filteredPonds.length>PER_PAGE&&<Pagination total={filteredPonds.length} page={pondTablePage} perPage={PER_PAGE} onPage={setPondTablePage}/>}
       </div>
+
+      {/* Floating Carried Card Preview */}
+      {activeDragId && draggedPond && dragPointerPos && (
+        <div
+          style={{
+            position: "fixed",
+            left: `${dragPointerPos.x - dragOffset.x}px`,
+            top: `${dragPointerPos.y - dragOffset.y}px`,
+            width: `${Math.min(dragCardSize.width || 340, typeof window !== "undefined" ? window.innerWidth - 24 : 340)}px`,
+            pointerEvents: "none",
+            zIndex: 99999,
+          }}
+          className="transform scale-[1.03] rotate-1 shadow-2xl rounded-xl border-2 border-emerald-500 bg-white/95 backdrop-blur-md ring-4 ring-emerald-400/30 p-3.5 select-none"
+        >
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2.5 min-w-0 flex-1">
+              <div className="p-1.5 rounded-lg bg-emerald-500 text-white border-2 border-emerald-600 ring-2 ring-emerald-300 shadow-md shrink-0">
+                <GripVertical size={16} className="shrink-0" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 mb-0.5">
+                  <p className="font-bold text-slate-900 text-sm sm:text-base leading-tight truncate">{draggedPond.name}</p>
+                  <span className={`inline-flex items-center gap-1 text-xs font-semibold ${draggedPond.status === "Active" ? "text-emerald-600" : "text-slate-400"}`}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${draggedPond.status === "Active" ? "bg-emerald-500" : "bg-slate-400"}`}/>
+                    {draggedPond.status === "Active" ? "Active" : "Inactive"}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5 text-xs text-slate-600 font-medium truncate">
+                  <span className="font-bold text-slate-800">{draggedPond.currentCount.toLocaleString()} fish</span>
+                  {draggedPond.species && draggedPond.species !== "—" && (
+                    <>
+                      <span className="text-slate-300">·</span>
+                      <span className="text-slate-700">{draggedPond.species}</span>
+                    </>
+                  )}
+                  {draggedPond.category && (
+                    <>
+                      <span className="text-slate-300">·</span>
+                      <span className="text-purple-700 font-semibold">{draggedPond.category}</span>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+            <div className="shrink-0">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 bg-emerald-100/90 px-2 py-1 rounded-md border border-emerald-300 shadow-xs flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"/>
+                Carrying
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
       {deletePondId&&(()=>{const p=ponds.find(x=>x.id===deletePondId);return(<Modal title="Delete Pond" onClose={()=>setDeletePondId(null)}><div className="flex flex-col items-center text-center py-2"><div className="w-12 h-12 rounded-full bg-red-50 border-2 border-red-200 flex items-center justify-center mb-4"><Trash2 size={22} className="text-red-500"/></div><p className="text-sm font-bold text-slate-800 mb-1">Are you sure you want to delete {p?.name}?</p><p className="text-xs text-slate-400 mb-5">This action cannot be undone. The pond and all its records will be permanently removed.</p><div className="flex gap-3 w-full"><button onClick={()=>{onDeletePond&&onDeletePond(deletePondId);setDeletePondId(null);}} className="flex-1 py-2.5 rounded-xl text-sm font-bold bg-red-500 hover:bg-red-600 text-white transition-colors">Delete Pond</button><button onClick={()=>setDeletePondId(null)} className="flex-1 py-2.5 rounded-xl text-sm font-semibold border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors">Cancel</button></div></div></Modal>);})()}
       {editPondModal}
       {showAdd&&<Modal title="Add Pond" onClose={()=>{setShowAdd(false);setAddErr({});}}>
