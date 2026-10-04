@@ -107,10 +107,10 @@ export const INIT_MORT: MortalityEntry[] = [
 ];
 
 /* ─── Utils ─────────────────────────────────────────────────── */
-export const fmt  = (n: any) => {
-  if (n === null || n === undefined) return "₦0";
+export const fmt  = (n: any, cur: string = "₦") => {
+  if (n === null || n === undefined) return `${cur}0`;
   const num = typeof n === "number" ? n : Number(n);
-  return isNaN(num) ? "₦0" : "₦" + num.toLocaleString();
+  return isNaN(num) ? `${cur}0` : `${cur}` + num.toLocaleString();
 };
 export const yFmt = (v: any) => {
   if (v === null || v === undefined) return "₦0";

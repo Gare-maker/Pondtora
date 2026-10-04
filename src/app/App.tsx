@@ -2132,28 +2132,15 @@ function ReportsPage({
                           <p className="text-xs text-slate-400">By {r.author} {isStaffReport ? "(Staff)" : ""}</p>
                         </div>
                         <div className="flex items-center gap-1 shrink-0">
-                          {/* Admin Review / Approve Button for Owners/Admins */}
-                          {isOwner && (
+                          {/* Admin Review / Approve Button ONLY when unreviewed */}
+                          {isOwner && !r.adminReviewStatus && (
                             <button
                               onClick={() => openReviewModal(r)}
-                              className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1 ${
-                                isApproved
-                                  ? "bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200"
-                                  : "bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200"
-                              }`}
-                              title={isApproved ? "Update approval / review notes" : "Approve or add administrative review"}
+                              className="px-2.5 py-1 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200"
+                              title="Approve or add administrative review"
                             >
-                              {isApproved ? (
-                                <>
-                                  <CheckCircle size={12} className="text-emerald-600" />
-                                  Approved
-                                </>
-                              ) : (
-                                <>
-                                  <FileText size={12} />
-                                  {r.adminReviewStatus ? "Reviewed" : "Approve / Review"}
-                                </>
-                              )}
+                              <FileText size={12} />
+                              Approve / Review
                             </button>
                           )}
                           {/* Normal Edit Button ONLY for non-staff reports within 6 hours */}
@@ -2177,57 +2164,6 @@ function ReportsPage({
                           </div>
                         ))}
                       </div>
-                      {/* Clickable Review & Approval Banner */}
-                      {(r.adminReviewNote || r.adminReviewStatus) && (
-                        <div
-                          onClick={() => setViewingApprovalReport(r)}
-                          className={`border-t border-slate-100 pt-2.5 p-3 rounded-xl border space-y-1.5 cursor-pointer hover:shadow-xs transition-all ${
-                            isApproved
-                              ? "bg-emerald-50/70 border-emerald-200 hover:bg-emerald-50"
-                              : "bg-indigo-50/60 border-indigo-200 hover:bg-indigo-50"
-                          }`}
-                          title="Click to view full review and approval details"
-                        >
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-1.5">
-                              {isApproved ? (
-                                <CheckCircle size={13} className="text-emerald-600" />
-                              ) : (
-                                <FileText size={13} className="text-indigo-600" />
-                              )}
-                              <span className={`text-[10px] font-bold uppercase tracking-wider ${
-                                isApproved ? "text-emerald-800" : "text-indigo-700"
-                              }`}>
-                                {isApproved ? "Administrative Approval" : "Administrative Review"}
-                              </span>
-                            </div>
-                            {r.adminReviewStatus && (
-                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                                isApproved
-                                  ? "bg-emerald-100 text-emerald-800 border border-emerald-300"
-                                  : "bg-indigo-100 text-indigo-800"
-                              }`}>
-                                {r.adminReviewStatus}
-                              </span>
-                            )}
-                          </div>
-                          {r.adminReviewNote && (
-                            <p className={`text-xs font-medium ${
-                              isApproved ? "text-emerald-950" : "text-indigo-950"
-                            }`}>
-                              {r.adminReviewNote}
-                            </p>
-                          )}
-                          {r.reviewedBy && (
-                            <div className="flex items-center justify-between pt-1 border-t border-slate-200/50 text-[10px] text-slate-500">
-                              <span>Approved / Reviewed by <strong className="text-slate-700">{r.reviewedBy}</strong></span>
-                              {r.reviewedAt && (
-                                <span>{new Date(r.reviewedAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}</span>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      )}
                     </Card>
                   );
                 })}</div>

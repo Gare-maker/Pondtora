@@ -40,7 +40,7 @@ export default function SalesCalculatorPage({
 
   // Active price groups
   const activePriceGroups = useMemo(() => {
-    return priceGroups.filter(g => g.status === "Active");
+    return (priceGroups || []).filter(g => g && g.status === "Active");
   }, [priceGroups]);
 
   // Manage price groups modal
@@ -59,10 +59,17 @@ export default function SalesCalculatorPage({
       const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed.map((it: any) => ({
+            id: it?.id || uid(),
+            groupId: it?.groupId || "",
+            qtyKg: String(it?.qtyKg ?? ""),
+            discountPerKg: String(it?.discountPerKg ?? "")
+          }));
+        }
       }
     } catch {}
-    return [{ id: uid(), groupId: activePriceGroups[0]?.id || "", qtyKg: "", discountPerKg: "" }];
+    return [{ id: uid(), groupId: "", qtyKg: "", discountPerKg: "" }];
   });
 
   // Keep draft in local storage for 100% offline support
@@ -74,8 +81,13 @@ export default function SalesCalculatorPage({
 
   // Set default group when activePriceGroups load if items are empty
   useEffect(() => {
-    if (activePriceGroups.length > 0 && items.length === 1 && !items[0].groupId) {
-      setItems([{ ...items[0], groupId: activePriceGroups[0].id }]);
+    if (activePriceGroups.length > 0) {
+      setItems(prev => {
+        if (prev.length === 1 && !prev[0].groupId) {
+          return [{ ...prev[0], groupId: activePriceGroups[0].id }];
+        }
+        return prev;
+      });
     }
   }, [activePriceGroups]);
 
@@ -86,7 +98,7 @@ export default function SalesCalculatorPage({
 
   const removeItem = (id: string) => {
     setItems(prev => {
-      const filtered = prev.filter(x => x.id !== id);
+      const filtered = prev.filter(x => x && x.id !== id);
       return filtered.length > 0 ? filtered : [{ id: uid(), groupId: activePriceGroups[0]?.id || "", qtyKg: "", discountPerKg: "" }];
     });
   };
@@ -104,12 +116,12 @@ export default function SalesCalculatorPage({
 
   // Calculations
   const calculatedRows = useMemo(() => {
-    const genDisc = Number(generalDiscPerKg) || 0;
-    return items.map(item => {
-      const group = priceGroups.find(g => g.id === item.groupId);
-      const pricePerKg = group?.pricePerKg || 0;
-      const qty = Number(item.qtyKg) || 0;
-      const discPerKg = discountType === "individual" ? (Number(item.discountPerKg) || 0) : genDisc;
+    const genDisc = Math.max(0, Number(generalDiscPerKg) || 0);
+    return (items || []).filter(Boolean).map(item => {
+      const group = (priceGroups || []).find(g => g && g.id === item?.groupId);
+      const pricePerKg = Number(group?.pricePerKg) || 0;
+      const qty = Math.max(0, Number(item?.qtyKg) || 0);
+      const discPerKg = discountType === "individual" ? Math.max(0, Number(item?.discountPerKg) || 0) : genDisc;
       const baseSubtotal = qty * pricePerKg;
       const rowDiscount = qty * discPerKg;
       const lineTotal = Math.max(0, baseSubtotal - rowDiscount);
@@ -128,9 +140,9 @@ export default function SalesCalculatorPage({
     });
   }, [items, priceGroups, discountType, generalDiscPerKg]);
 
-  const totalKg = calculatedRows.reduce((s, r) => s + r.qtyKgNum, 0);
-  const baseSubtotal = calculatedRows.reduce((s, r) => s + r.baseSubtotal, 0);
-  const totalDiscount = calculatedRows.reduce((s, r) => s + r.rowDiscount, 0);
+  const totalKg = calculatedRows.reduce((s, r) => s + (r.qtyKgNum || 0), 0);
+  const baseSubtotal = calculatedRows.reduce((s, r) => s + (r.baseSubtotal || 0), 0);
+  const totalDiscount = calculatedRows.reduce((s, r) => s + (r.rowDiscount || 0), 0);
   const grandTotal = Math.max(0, baseSubtotal - totalDiscount);
 
   // Price Group management handlers
@@ -147,7 +159,8 @@ export default function SalesCalculatorPage({
       displayName: groupF.displayName.trim(),
       description: groupF.description.trim(),
       pricePerKg: Number(groupF.pricePerKg),
-      status: groupF.status
+      status: groupF.status,
+      farmId: editGroup?.farmId
     };
 
     if (editGroup) {

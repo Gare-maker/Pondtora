@@ -923,17 +923,25 @@ async function dbUpdate<T extends { id?: string }>(table: string, item: T, cache
 
   // Submitted Staff Report Protection:
   // Once a staff report has been submitted, its original contents are immutable for Admin and staff alike.
-  // Only separate review fields may be saved.
+  // Only separate review fields (admin_review_note, admin_review_status, reviewed_by, reviewed_at, status, resolved_by, resolved_date) may be updated.
   if (table === "reports" || table === "pond_reports") {
     try {
       const { data: existing } = await supabase.from(table).select("*").eq("id", targetId).maybeSingle();
       if (existing) {
-        const isStaffSubmission = existing.created_by_role === "staff" || existing.author_role === "staff" || existing.is_staff_submission === true || (existing.author && existing.author !== "Admin" && existing.created_by_id && existing.created_by_id !== authUid);
+        const isStaffSubmission = existing.created_by_role === "staff" || existing.author_role === "staff" || existing.is_staff_submission === true;
         if (isStaffSubmission) {
-          const allowedAdminFields = new Set(["review_status", "admin_review_note", "reviewed_by", "reviewed_at"]);
+          const allowedAdminFields = new Set([
+            "admin_review_note", "admin_review_status", "review_status", "reviewed_by", "reviewed_at",
+            "status", "resolved_by", "resolved_date", "user_id", "tags", "timestamp"
+          ]);
           for (const key of Object.keys(snake)) {
-            if (!allowedAdminFields.has(key) && snake[key] !== existing[key] && snake[key] !== undefined) {
-              throw new Error("Submitted staff reports are official submitted records and cannot be edited.");
+            if (!allowedAdminFields.has(key) && snake[key] !== undefined) {
+              const existingVal = existing[key];
+              const newVal = snake[key];
+              const isMatch = (existingVal == newVal) || (JSON.stringify(existingVal) === JSON.stringify(newVal));
+              if (!isMatch) {
+                throw new Error("Submitted staff reports are official submitted records and cannot be edited.");
+              }
             }
           }
         }
@@ -1416,7 +1424,24 @@ export const api = {
         mortalityEntries: extract<MortalityEntry>(mortRes, "mortalityEntries", (r: any) => objToCamel<MortalityEntry>(r)),
         treatmentRecords: extract<TreatmentRecord>(treatRes, "treatmentRecords", (r: any) => objToCamel<TreatmentRecord>(r)),
         staffMembers: staffList,
-        reports: extract<Report>(repRes, "reports", (r: any) => objToCamel<Report>(r)),
+        reports: (() => {
+          const fetched = extract<Report>(repRes, "reports", (r: any) => objToCamel<Report>(r));
+          const cachedReports: Report[] = cached?.reports || [];
+          const cachedMap = new Map(cachedReports.map(c => [c.id, c]));
+          return fetched.map(r => {
+            const c = cachedMap.get(r.id);
+            if (c && (c.adminReviewStatus || c.adminReviewNote)) {
+              return {
+                ...r,
+                adminReviewStatus: r.adminReviewStatus || c.adminReviewStatus,
+                adminReviewNote: r.adminReviewNote || c.adminReviewNote,
+                reviewedBy: r.reviewedBy || c.reviewedBy,
+                reviewedAt: r.reviewedAt || c.reviewedAt,
+              };
+            }
+            return r;
+          });
+        })(),
         customers: extract<Customer>(custRes, "customers", (r: any) => objToCamel<Customer>(r)),
         priceGroups: extract<PriceGroup>(pgRes, "priceGroups", (r: any) => objToCamel<PriceGroup>(r)),
         invoices: extract<Invoice>(invsRes, "invoices", (r: any) => objToCamel<Invoice>(r)),
@@ -1428,7 +1453,24 @@ export const api = {
         investors: extract<Investor>(investorsRes, "investors", (r: any) => objToCamel<Investor>(r)),
         investments: extract<Investment>(investmentsRes, "investments", (r: any) => objToCamel<Investment>(r)),
         investmentPayments: extract<InvestmentPayment>(invPayRes, "investmentPayments", (r: any) => objToCamel<InvestmentPayment>(r)),
-        pondReports: extract<PondReport>(pondRepRes, "pondReports", (r: any) => objToCamel<PondReport>(r)),
+        pondReports: (() => {
+          const fetched = extract<PondReport>(pondRepRes, "pondReports", (r: any) => objToCamel<PondReport>(r));
+          const cachedPondReports: PondReport[] = cached?.pondReports || [];
+          const cachedMap = new Map(cachedPondReports.map(c => [c.id, c]));
+          return fetched.map(r => {
+            const c = cachedMap.get(r.id);
+            if (c && (c.adminReviewStatus || c.adminReviewNote)) {
+              return {
+                ...r,
+                adminReviewStatus: r.adminReviewStatus || c.adminReviewStatus,
+                adminReviewNote: r.adminReviewNote || c.adminReviewNote,
+                reviewedBy: r.reviewedBy || c.reviewedBy,
+                reviewedAt: r.reviewedAt || c.reviewedAt,
+              };
+            }
+            return r;
+          });
+        })(),
         staffInfo: staffMember || null,
         isStaff: !!staffMember,
       };
