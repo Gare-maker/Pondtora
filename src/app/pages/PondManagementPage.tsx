@@ -1047,57 +1047,73 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
   const [editPondErr,setEditPondErr]=useState<string|null>(null);
   const [editPondF,setEditPondF]=useState({name:"",type:"Earthen",lengthFt:"",widthFt:"",notes:"",category:"Production"});
 
-  /* ── Drag and Drop Reordering State ── */
-  const [draggedPondId, setDraggedPondId] = useState<string | null>(null);
+  /* ── Local Ponds & Live Drag-and-Reorder State ── */
+  const [localPonds, setLocalPonds] = useState<Pond[]>(ponds);
+  const [activeDragId, setActiveDragId] = useState<string | null>(null);
   const [dragOverPondId, setDragOverPondId] = useState<string | null>(null);
-  const [touchDraggingId, setTouchDraggingId] = useState<string | null>(null);
   const touchCurrentTargetId = useRef<string | null>(null);
+  const isReorderingRef = useRef<boolean>(false);
+  const isDragging = !!activeDragId;
 
-  const handlePondReorder = (sourceId: string, targetId: string) => {
+  // Sync local ponds when props change (unless currently dragging)
+  useEffect(() => {
+    if (!activeDragId) {
+      setLocalPonds(ponds);
+    }
+  }, [ponds, activeDragId]);
+
+  /* ── Column Sorting (default is null = natural custom drag-order) ── */
+  const [sortField, setSortField] = useState<string | null>(null);
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+
+  const toggleSort = (field: string) => {
+    if (sortField === field) {
+      if (sortDir === "asc") {
+        setSortDir("desc");
+      } else {
+        // Third click clears sort and returns to custom drag order
+        setSortField(null);
+        setSortDir("asc");
+      }
+    } else {
+      setSortField(field);
+      setSortDir("asc");
+    }
+  };
+
+  const sortedPonds = useMemo(() => {
+    if (!sortField) return localPonds;
+    return [...localPonds].sort((a: any, b: any) => {
+      const va = a[sortField], vb = b[sortField];
+      if (typeof va === "string") return sortDir === "asc" ? va.localeCompare(vb) : vb.localeCompare(va);
+      return sortDir === "asc" ? (va ?? 0) - (vb ?? 0) : (vb ?? 0) - (va ?? 0);
+    });
+  }, [localPonds, sortField, sortDir]);
+
+  const performLiveReorder = (sourceId: string, targetId: string) => {
     if (!sourceId || !targetId || sourceId === targetId) return;
-    const sourceIdx = ponds.findIndex(p => p.id === sourceId);
-    const targetIdx = ponds.findIndex(p => p.id === targetId);
-    if (sourceIdx < 0 || targetIdx < 0) return;
+    setLocalPonds(prev => {
+      const srcIdx = prev.findIndex(p => p.id === sourceId);
+      const tgtIdx = prev.findIndex(p => p.id === targetId);
+      if (srcIdx < 0 || tgtIdx < 0 || srcIdx === tgtIdx) return prev;
+      const copy = [...prev];
+      const [moved] = copy.splice(srcIdx, 1);
+      copy.splice(tgtIdx, 0, moved);
+      return copy;
+    });
+  };
 
-    const newPonds = [...ponds];
-    const [moved] = newPonds.splice(sourceIdx, 1);
-    newPonds.splice(targetIdx, 0, moved);
-
+  const finalizeReorder = (finalPonds: Pond[]) => {
+    isReorderingRef.current = true;
+    setActiveDragId(null);
+    setDragOverPondId(null);
+    touchCurrentTargetId.current = null;
     if (onReorderPonds) {
-      onReorderPonds(newPonds);
+      onReorderPonds(finalPonds);
     }
-    setDraggedPondId(null);
-    setDragOverPondId(null);
-    setTouchDraggingId(null);
-    touchCurrentTargetId.current = null;
-  };
-
-  const handleTouchStart = (e: React.TouchEvent, id: string) => {
-    setTouchDraggingId(id);
-    setDraggedPondId(id);
-    touchCurrentTargetId.current = id;
-  };
-
-  const handleTouchMove = (e: React.TouchEvent) => {
-    if (!touchDraggingId) return;
-    const touch = e.touches[0];
-    const elem = document.elementFromPoint(touch.clientX, touch.clientY);
-    const card = elem?.closest("[data-pond-id]") as HTMLElement | null;
-    const targetId = card?.getAttribute("data-pond-id") || null;
-    if (targetId && targetId !== touchCurrentTargetId.current) {
-      touchCurrentTargetId.current = targetId;
-      setDragOverPondId(targetId);
-    }
-  };
-
-  const handleTouchEnd = () => {
-    if (touchDraggingId && touchCurrentTargetId.current && touchDraggingId !== touchCurrentTargetId.current) {
-      handlePondReorder(touchDraggingId, touchCurrentTargetId.current);
-    }
-    setTouchDraggingId(null);
-    setDraggedPondId(null);
-    setDragOverPondId(null);
-    touchCurrentTargetId.current = null;
+    setTimeout(() => {
+      isReorderingRef.current = false;
+    }, 150);
   };
 
   const openEditPond=(p:Pond)=>{
@@ -1136,7 +1152,6 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
     return()=>document.removeEventListener("mousedown",handler);
   },[pondMobileMenu]);
   useEffect(()=>{onScrollTop?.();},[detailId]);
-  const {sorted:sortedPonds,sf,sd,toggle}=useSort(ponds,"name");
   const [pondTablePage,setPondTablePage]=useState(1);
   const pond=ponds.find(p=>p.id===detailId);
 
@@ -1401,12 +1416,12 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
         <div className="overflow-x-auto"><table className="w-full text-sm min-w-[700px]">
           <thead><tr className="border-b border-slate-100 bg-slate-50">
             <th className="px-3 py-3 text-[11px] text-slate-400 w-14 sticky left-0 z-20 bg-slate-50">#</th>
-            <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider sticky left-14 z-20 bg-slate-50 border-r border-slate-200 whitespace-nowrap cursor-pointer select-none hover:text-green-600" onClick={()=>toggle("name")}><div className="flex items-center gap-1">Pond Name<div className="flex flex-col -space-y-0.5"><ChevronUp size={9} className={sf==="name"&&sd==="asc"?"text-green-600":"text-slate-200"}/><ChevronDown size={9} className={sf==="name"&&sd==="desc"?"text-green-600":"text-slate-200"}/></div></div></th>
-            <SH label="Type" field="type" sf={sf} sd={sd} onSort={toggle}/>
-            <SH label="Species" field="species" sf={sf} sd={sd} onSort={toggle}/>
-            <SH label="Fish Count" field="currentCount" sf={sf} sd={sd} onSort={toggle}/>
+            <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider sticky left-14 z-20 bg-slate-50 border-r border-slate-200 whitespace-nowrap cursor-pointer select-none hover:text-green-600" onClick={()=>toggleSort("name")}><div className="flex items-center gap-1">Pond Name<div className="flex flex-col -space-y-0.5"><ChevronUp size={9} className={sortField==="name"&&sortDir==="asc"?"text-green-600":"text-slate-200"}/><ChevronDown size={9} className={sortField==="name"&&sortDir==="desc"?"text-green-600":"text-slate-200"}/></div></div></th>
+            <SH label="Type" field="type" sf={sortField||""} sd={sortDir} onSort={toggleSort}/>
+            <SH label="Species" field="species" sf={sortField||""} sd={sortDir} onSort={toggleSort}/>
+            <SH label="Fish Count" field="currentCount" sf={sortField||""} sd={sortDir} onSort={toggleSort}/>
             <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider">Category</th>
-            <SH label="Status" field="status" sf={sf} sd={sd} onSort={toggle}/>
+            <SH label="Status" field="status" sf={sortField||""} sd={sortDir} onSort={toggleSort}/>
             <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider">Actions</th>
           </tr></thead>
           <tbody className="divide-y divide-slate-50">
@@ -1414,50 +1429,90 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
               const logs=mortality.filter(m=>m.pondId===p.id);
               const dead=logs.reduce((s,m)=>s+m.count,0);
               const mRate=p.initialStock>0?((dead/p.initialStock)*100).toFixed(1):"0.0";
-              const isOver = dragOverPondId === p.id;
-              const isDragged = draggedPondId === p.id;
+              const isOver = dragOverPondId === p.id && activeDragId !== p.id;
+              const isDragged = activeDragId === p.id;
               return(
                 <tr
                   key={p.id}
                   data-pond-id={p.id}
-                  onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; if (draggedPondId && draggedPondId !== p.id) setDragOverPondId(p.id); }}
-                  onDragLeave={() => { if (dragOverPondId === p.id) setDragOverPondId(null); }}
-                  onDrop={e => { e.preventDefault(); const src = draggedPondId || e.dataTransfer.getData("text/plain"); handlePondReorder(src, p.id); }}
-                  className={`transition-all ${isOver ? "bg-emerald-50/80 ring-2 ring-emerald-400 ring-inset" : "hover:bg-slate-50"} ${isDragged ? "opacity-30" : ""}`}
+                  onDragOver={e => {
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = "move";
+                    if (activeDragId && activeDragId !== p.id) {
+                      setDragOverPondId(p.id);
+                      performLiveReorder(activeDragId, p.id);
+                    }
+                  }}
+                  onDragLeave={() => {
+                    if (dragOverPondId === p.id) setDragOverPondId(null);
+                  }}
+                  onDrop={e => {
+                    e.preventDefault();
+                    finalizeReorder(localPonds);
+                  }}
+                  className={`transition-all duration-200 ${
+                    isDragged
+                      ? "bg-emerald-50/90 ring-2 ring-emerald-500 ring-inset shadow-sm"
+                      : isOver
+                      ? "bg-emerald-50/50 ring-1 ring-emerald-300 ring-inset"
+                      : "hover:bg-slate-50"
+                  }`}
                 >
-                  <td className="px-3 py-3.5 text-slate-300 text-xs font-mono sticky left-0 z-10 bg-white">
+                  <td className="px-3 py-3.5 text-slate-300 text-xs font-mono sticky left-0 z-10 bg-inherit">
                     <div className="flex items-center gap-1.5">
                       <div
                         draggable
+                        onPointerDown={() => {
+                          setActiveDragId(p.id);
+                          setSortField(null);
+                        }}
                         onDragStart={e => {
+                          e.stopPropagation();
                           e.dataTransfer.setData("text/plain", p.id);
                           e.dataTransfer.effectAllowed = "move";
-                          setDraggedPondId(p.id);
+                          setActiveDragId(p.id);
+                          setSortField(null);
                         }}
                         onDragEnd={() => {
-                          setDraggedPondId(null);
-                          setDragOverPondId(null);
+                          finalizeReorder(localPonds);
                         }}
-                        className="p-1 rounded bg-slate-100 hover:bg-slate-200 active:bg-emerald-100 text-slate-400 hover:text-slate-700 active:text-emerald-700 cursor-grab active:cursor-grabbing transition-colors shrink-0 border border-slate-200/80"
-                        title="Drag knot to rearrange pond position"
+                        className={`p-1.5 rounded-lg cursor-grab active:cursor-grabbing transition-all shrink-0 select-none ${
+                          isDragged
+                            ? "bg-emerald-500 text-white border-emerald-600 ring-2 ring-emerald-300 shadow-md scale-110"
+                            : "bg-slate-100 hover:bg-slate-200 text-slate-400 hover:text-slate-700 border border-slate-200/80"
+                        }`}
+                        title="Drag to rearrange pond order"
                       >
                         <GripVertical size={13} className="shrink-0" />
                       </div>
                       <span className="font-semibold text-slate-400 w-4">{i+1}</span>
                     </div>
                   </td>
-                  <td className="px-4 py-3.5 sticky left-14 z-10 bg-white border-r border-slate-100 cursor-pointer hover:text-green-700" onClick={()=>setDetailId(p.id)}><p className="font-semibold text-slate-900 hover:text-green-700">{p.name}</p><p className="text-[11px] text-slate-400">{p.sizeM2} ft²</p></td>
+                  <td
+                    className="px-4 py-3.5 sticky left-14 z-10 bg-inherit border-r border-slate-100 cursor-pointer hover:text-green-700"
+                    onClick={() => {
+                      if (isReorderingRef.current || isDragging) return;
+                      setDetailId(p.id);
+                    }}
+                  >
+                    <p className="font-semibold text-slate-900 hover:text-green-700">{p.name}</p>
+                    <p className="text-[11px] text-slate-400">{p.sizeM2} ft²</p>
+                  </td>
                   <td className="px-4 py-3.5 text-slate-600">{p.type}</td>
                   <td className="px-4 py-3.5 text-slate-600">{p.species}</td>
                   <td className="px-4 py-3.5"><p className="font-semibold text-slate-900">{p.currentCount.toLocaleString()}</p><p className="text-[11px] text-slate-400">Mort: {mRate}%</p></td>
                   <td className="px-4 py-3.5"><Bdg label={p.category||"Production"} color={p.category==="Nursery"?"purple":"teal"}/></td>
                   <td className="px-4 py-3.5"><Bdg label={p.status==="Active"?"Active":"Inactive"} color={p.status==="Active"?"green":"gray"}/></td>
                   <td className="px-4 py-3.5">
-                    <div className="flex items-center gap-1">
-                      <button onClick={()=>setDetailId(p.id)} className="flex items-center gap-1 text-xs font-semibold text-green-600 hover:text-green-800 transition-colors"><Eye size={13}/> View</button>
-                      {canEdit&&<button onClick={()=>openEditPond(p)} className="p-1.5 rounded-lg text-slate-300 hover:text-green-600 hover:bg-green-50 transition-colors" title="Edit pond"><Pencil size={13}/></button>}
-                      {canDelete&&<button onClick={()=>{if(p.status!=="Empty"||p.currentCount>0)return;setDeletePondId(p.id);}} disabled={p.status==="Active"||p.currentCount>0} className={`p-1.5 rounded-lg transition-colors ${p.status==="Empty"&&p.currentCount===0?"text-slate-300 hover:text-red-500 hover:bg-red-50":"text-slate-200 cursor-not-allowed"}`}><Trash2 size={13}/></button>}
-                    </div>
+                    {isDragging ? (
+                      <span className="text-[11px] text-emerald-600 font-medium italic">Reordering…</span>
+                    ) : (
+                      <div className="flex items-center gap-1">
+                        <button onClick={()=>setDetailId(p.id)} className="flex items-center gap-1 text-xs font-semibold text-green-600 hover:text-green-800 transition-colors"><Eye size={13}/> View</button>
+                        {canEdit&&<button onClick={()=>openEditPond(p)} className="p-1.5 rounded-lg text-slate-300 hover:text-green-600 hover:bg-green-50 transition-colors" title="Edit pond"><Pencil size={13}/></button>}
+                        {canDelete&&<button onClick={()=>{if(p.status!=="Empty"||p.currentCount>0)return;setDeletePondId(p.id);}} disabled={p.status==="Active"||p.currentCount>0} className={`p-1.5 rounded-lg transition-colors ${p.status==="Empty"&&p.currentCount===0?"text-slate-300 hover:text-red-500 hover:bg-red-50":"text-slate-200 cursor-not-allowed"}`}><Trash2 size={13}/></button>}
+                      </div>
+                    )}
                   </td>
                 </tr>
               );
@@ -1476,41 +1531,112 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
         {filteredPonds.length===0&&<p className="text-center text-xs text-slate-400 py-8 bg-white border border-slate-200 rounded-xl">No ponds match filters</p>}
         {filteredPonds.map((p,pIdx)=>{
           const isNearBottom=pIdx>=filteredPonds.length-2;
-          const isOver = dragOverPondId === p.id;
-          const isDragged = draggedPondId === p.id;
+          const isOver = dragOverPondId === p.id && activeDragId !== p.id;
+          const isDragged = activeDragId === p.id;
           return(
           <div
             key={p.id}
             data-pond-id={p.id}
-            onDragOver={e => { e.preventDefault(); if (draggedPondId && draggedPondId !== p.id) setDragOverPondId(p.id); }}
-            onDragLeave={() => { if (dragOverPondId === p.id) setDragOverPondId(null); }}
-            onDrop={e => { e.preventDefault(); const src = draggedPondId || e.dataTransfer.getData("text/plain"); handlePondReorder(src, p.id); }}
-            className={`bg-white border rounded-xl p-3.5 flex items-center justify-between transition-all cursor-pointer shadow-xs ${isOver ? "border-emerald-500 bg-emerald-50/50 ring-2 ring-emerald-400/40 scale-[1.01]" : "border-slate-200/60 hover:border-green-300 active:bg-slate-50"} ${isDragged ? "opacity-30" : ""}`}
-            onClick={()=>setDetailId(p.id)}
-            onContextMenu={e=>{e.preventDefault();setPondMobileMenu(p.id);}}
-            onTouchStart={()=>{longPressTimer.current=setTimeout(()=>setPondMobileMenu(p.id),750);}}
-            onTouchEnd={()=>{if(longPressTimer.current)clearTimeout(longPressTimer.current);}}
-            onTouchMove={()=>{if(longPressTimer.current){clearTimeout(longPressTimer.current);longPressTimer.current=null;}}}>
+            onDragOver={e => {
+              e.preventDefault();
+              if (activeDragId && activeDragId !== p.id) {
+                setDragOverPondId(p.id);
+                performLiveReorder(activeDragId, p.id);
+              }
+            }}
+            onDragLeave={() => {
+              if (dragOverPondId === p.id) setDragOverPondId(null);
+            }}
+            onDrop={e => {
+              e.preventDefault();
+              finalizeReorder(localPonds);
+            }}
+            className={`bg-white border rounded-xl p-3.5 flex items-center justify-between transition-all duration-200 shadow-xs select-none ${
+              isDragged
+                ? "border-emerald-500 bg-emerald-50/70 ring-2 ring-emerald-400/60 shadow-md scale-[1.02] z-20"
+                : isOver
+                ? "border-emerald-300 bg-emerald-50/30"
+                : "border-slate-200/60 hover:border-green-300 active:bg-slate-50 cursor-pointer"
+            }`}
+            onClick={() => {
+              if (isReorderingRef.current || isDragging) return;
+              setDetailId(p.id);
+            }}
+            onContextMenu={e => {
+              if (isReorderingRef.current || isDragging) {
+                e.preventDefault();
+                return;
+              }
+              e.preventDefault();
+              setPondMobileMenu(p.id);
+            }}
+            onTouchStart={() => {
+              if (isReorderingRef.current || isDragging) return;
+              longPressTimer.current = setTimeout(() => {
+                if (!activeDragId) setPondMobileMenu(p.id);
+              }, 750);
+            }}
+            onTouchEnd={() => {
+              if (longPressTimer.current) clearTimeout(longPressTimer.current);
+            }}
+            onTouchMove={() => {
+              if (longPressTimer.current) {
+                clearTimeout(longPressTimer.current);
+                longPressTimer.current = null;
+              }
+            }}
+          >
             <div className="flex items-center gap-2.5 min-w-0 flex-1 pr-2">
               <div
                 draggable
+                onPointerDown={() => {
+                  setActiveDragId(p.id);
+                  setSortField(null);
+                }}
                 onDragStart={e => {
+                  e.stopPropagation();
                   e.dataTransfer.setData("text/plain", p.id);
                   e.dataTransfer.effectAllowed = "move";
-                  setDraggedPondId(p.id);
+                  setActiveDragId(p.id);
+                  setSortField(null);
                 }}
                 onDragEnd={() => {
-                  setDraggedPondId(null);
-                  setDragOverPondId(null);
+                  finalizeReorder(localPonds);
                 }}
-                onTouchStart={e => handleTouchStart(e, p.id)}
-                onTouchMove={handleTouchMove}
-                onTouchEnd={handleTouchEnd}
+                onTouchStart={e => {
+                  e.stopPropagation();
+                  setActiveDragId(p.id);
+                  touchCurrentTargetId.current = p.id;
+                  setSortField(null);
+                }}
+                onTouchMove={e => {
+                  if (!activeDragId) return;
+                  const touch = e.touches[0];
+                  const elem = document.elementFromPoint(touch.clientX, touch.clientY);
+                  const card = elem?.closest("[data-pond-id]") as HTMLElement | null;
+                  const targetId = card?.getAttribute("data-pond-id");
+                  if (targetId && targetId !== touchCurrentTargetId.current) {
+                    touchCurrentTargetId.current = targetId;
+                    setDragOverPondId(targetId);
+                    performLiveReorder(activeDragId, targetId);
+                  }
+                }}
+                onTouchEnd={e => {
+                  e.stopPropagation();
+                  finalizeReorder(localPonds);
+                }}
+                onTouchCancel={() => {
+                  finalizeReorder(localPonds);
+                }}
                 onClick={e => e.stopPropagation()}
-                className="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 active:bg-emerald-100 text-slate-400 hover:text-slate-700 active:text-emerald-700 cursor-grab active:cursor-grabbing transition-colors shrink-0 touch-none select-none border border-slate-200/80 shadow-2xs"
-                title="Drag knot to rearrange pond position"
+                className={`p-1.5 rounded-lg cursor-grab active:cursor-grabbing transition-all shrink-0 touch-none select-none ${
+                  isDragged
+                    ? "bg-emerald-500 text-white border-emerald-600 ring-2 ring-emerald-300 shadow-md scale-110"
+                    : "bg-slate-100 hover:bg-slate-200 text-slate-400 hover:text-slate-700 border border-slate-200/80 shadow-2xs"
+                }`}
+                title="Drag to rearrange pond order"
               >
-                <GripVertical size={15} className="shrink-0" />
+                <GripVertical size={16} className="shrink-0" />
               </div>
               <span className="text-xs text-slate-400 font-mono w-4 shrink-0 font-bold">{pIdx+1}</span>
               <div className="flex-1 min-w-0">
@@ -1538,22 +1664,24 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
                 </div>
               </div>
             </div>
-            <div className="relative shrink-0 flex items-center">
-              <ChevronRight size={18} className="text-slate-400"/>
-              {pondMobileMenu===p.id&&(
-                <div ref={pondMenuRef} className={`absolute right-0 z-50 bg-white border border-slate-200 rounded-xl shadow-2xl overflow-hidden min-w-[160px] ${isNearBottom?"bottom-0":"top-0"}`} onClick={e=>e.stopPropagation()}>
-                  <button onClick={()=>{setDetailId(p.id);setPondMobileMenu(null);}} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-2"><Eye size={14}/> View Details</button>
-                  {canEdit&&<button onClick={()=>{openEditPond(p);setPondMobileMenu(null);}} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-2"><Pencil size={14}/> Edit</button>}
-                  {canDelete&&<button
-                    onClick={()=>{
-                      if(p.currentCount>0){alert(`Cannot delete ${p.name}: pond still has ${p.currentCount.toLocaleString()} fish. Remove all fish stock first.`);setPondMobileMenu(null);return;}
-                      setDeletePondId(p.id);setPondMobileMenu(null);
-                    }}
-                    className={`w-full text-left px-4 py-2.5 text-sm flex items-center gap-2 ${p.currentCount>0?"text-slate-300 cursor-not-allowed":"text-red-500 hover:bg-red-50"}`}
-                  ><Trash2 size={14}/> Delete Pond{p.currentCount>0&&<span className="text-[10px] text-slate-300 ml-auto">Not empty</span>}</button>}
-                </div>
-              )}
-            </div>
+            {!isDragging && (
+              <div className="relative shrink-0 flex items-center">
+                <ChevronRight size={18} className="text-slate-400"/>
+                {pondMobileMenu===p.id&&(
+                  <div ref={pondMenuRef} className={`absolute right-0 z-50 bg-white border border-slate-200 rounded-xl shadow-2xl overflow-hidden min-w-[160px] ${isNearBottom?"bottom-0":"top-0"}`} onClick={e=>e.stopPropagation()}>
+                    <button onClick={()=>{setDetailId(p.id);setPondMobileMenu(null);}} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-2"><Eye size={14}/> View Details</button>
+                    {canEdit&&<button onClick={()=>{openEditPond(p);setPondMobileMenu(null);}} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-2"><Pencil size={14}/> Edit</button>}
+                    {canDelete&&<button
+                      onClick={()=>{
+                        if(p.currentCount>0){alert(`Cannot delete ${p.name}: pond still has ${p.currentCount.toLocaleString()} fish. Remove all fish stock first.`);setPondMobileMenu(null);return;}
+                        setDeletePondId(p.id);setPondMobileMenu(null);
+                      }}
+                      className={`w-full text-left px-4 py-2.5 text-sm flex items-center gap-2 ${p.currentCount>0?"text-slate-300 cursor-not-allowed":"text-red-500 hover:bg-red-50"}`}
+                    ><Trash2 size={14}/> Delete Pond{p.currentCount>0&&<span className="text-[10px] text-slate-300 ml-auto">Not empty</span>}</button>}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
           );
         })}

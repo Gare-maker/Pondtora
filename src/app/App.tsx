@@ -4649,7 +4649,36 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   const [showAddFarm,setShowAddFarm]=useState(false);
   const [addFarmF,setAddFarmF]=useState({name:"",city:"",state:"",country:"Nigeria"});
   
-  const [ponds,setPonds]=useState<Pond[]>(()=>readInit("ponds","ponds",[]));
+  const [ponds,setPonds]=useState<Pond[]>(() => {
+    const rawPonds = readInit<Pond[]>("ponds","ponds",[]);
+    const currentUid = typeof window !== "undefined" ? getStoredAuthUser() : null;
+    if (currentUid && Array.isArray(rawPonds) && rawPonds.length > 0) {
+      const sortedByOrder: Pond[] = [];
+      const farmIds = Array.from(new Set(rawPonds.map(p => p.farmId || "")));
+      farmIds.forEach(fid => {
+        const farmPondsList = rawPonds.filter(p => (p.farmId || "") === fid);
+        try {
+          const rawOrder = localStorage.getItem(`pondtora_${currentUid}_pond_order_${fid}`);
+          if (rawOrder) {
+            const orderIds: string[] = JSON.parse(rawOrder);
+            if (Array.isArray(orderIds) && orderIds.length > 0) {
+              farmPondsList.sort((a, b) => {
+                const idxA = orderIds.indexOf(a.id);
+                const idxB = orderIds.indexOf(b.id);
+                if (idxA === -1 && idxB === -1) return 0;
+                if (idxA === -1) return 1;
+                if (idxB === -1) return -1;
+                return idxA - idxB;
+              });
+            }
+          }
+        } catch {}
+        sortedByOrder.push(...farmPondsList);
+      });
+      return sortedByOrder.length > 0 ? sortedByOrder : rawPonds;
+    }
+    return rawPonds;
+  });
   const [inventory,setInventory]=useState<FeedItem[]>(()=>readInit("inventory","feedInventory",[]));
   const [feeding,setFeeding]=useState<FeedingRecord[]>(()=>readInit("feeding","feedingRecords",[]));
   const [bagLogs,setBagLogs]=useState<BagOpenLog[]>(()=>readInit("bag_logs","bagOpenLogs",[]));
@@ -5043,12 +5072,23 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     }
   };
   const handleReorderPonds=useCallback((reorderedPonds:Pond[])=>{
+    const fid=activeFarmId||farms[0]?.id||"";
     setPonds(prev=>{
-      const fid=activeFarmId||farms[0]?.id||"";
       const otherFarmsPonds=prev.filter(p=>!matchesFarm(p.farmId));
-      return [...reorderedPonds,...otherFarmsPonds];
+      const nextAllPonds = [...reorderedPonds,...otherFarmsPonds];
+      if (userProfile?.id) {
+        const uids = [userProfile.id];
+        if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) uids.push(userProfile.ownerId);
+        uids.forEach(uid => {
+          saveUserLocal(uid, "ponds", "ponds", nextAllPonds);
+          try {
+            localStorage.setItem(`pondtora_${uid}_pond_order_${fid}`, JSON.stringify(reorderedPonds.map(p => p.id)));
+          } catch {}
+        });
+      }
+      return nextAllPonds;
     });
-  },[activeFarmId,farms,matchesFarm]);
+  },[activeFarmId,farms,matchesFarm,userProfile?.id,userProfile?.ownerId,saveUserLocal]);
   const closePond=async(id:string)=>{
     if (!checkSubscriptionActive()) return;
     const p=ponds.find(x=>x.id===id);
@@ -5781,7 +5821,34 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     // Set backend authoritative data directly for the current authenticated user, normalizing farmId
     if (pondsData) {
       const normPonds = pondsData.filter((p: Pond) => !isDeletedId(p.id)).map((p: Pond) => ({ ...p, farmId: normFid(p.farmId) }));
-      setPonds(normPonds);
+      const currentUid = userProfile?.id || (typeof window !== "undefined" ? getStoredAuthUser() : null);
+      if (currentUid) {
+        const sortedByOrder: Pond[] = [];
+        const farmIds = Array.from(new Set(normPonds.map(p => p.farmId || "")));
+        farmIds.forEach(fid => {
+          const farmPondsList = normPonds.filter(p => (p.farmId || "") === fid);
+          try {
+            const rawOrder = localStorage.getItem(`pondtora_${currentUid}_pond_order_${fid}`);
+            if (rawOrder) {
+              const orderIds: string[] = JSON.parse(rawOrder);
+              if (Array.isArray(orderIds) && orderIds.length > 0) {
+                farmPondsList.sort((a, b) => {
+                  const idxA = orderIds.indexOf(a.id);
+                  const idxB = orderIds.indexOf(b.id);
+                  if (idxA === -1 && idxB === -1) return 0;
+                  if (idxA === -1) return 1;
+                  if (idxB === -1) return -1;
+                  return idxA - idxB;
+                });
+              }
+            }
+          } catch {}
+          sortedByOrder.push(...farmPondsList);
+        });
+        setPonds(sortedByOrder.length > 0 ? sortedByOrder : normPonds);
+      } else {
+        setPonds(normPonds);
+      }
     }
 
     const stockData: StockEvent[] = Array.isArray(d.stockEvents)
@@ -6006,7 +6073,31 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
         const cf=loadUserLocal(uid,"farms","farms",[]).filter((x: any) => !isDeletedId(x.id));
         if(cf.length>0)setFarms(cf);
         const cp=loadUserLocal(uid,"ponds","ponds",[]).filter((x: any) => !isDeletedId(x.id));
-        if(cp.length>0)setPonds(cp);
+        if(cp.length>0){
+          const sortedByOrder: Pond[] = [];
+          const farmIds = Array.from(new Set(cp.map((p: Pond) => p.farmId || "")));
+          farmIds.forEach(fid => {
+            const farmPondsList = cp.filter((p: Pond) => (p.farmId || "") === fid);
+            try {
+              const rawOrder = localStorage.getItem(`pondtora_${uid}_pond_order_${fid}`);
+              if (rawOrder) {
+                const orderIds: string[] = JSON.parse(rawOrder);
+                if (Array.isArray(orderIds) && orderIds.length > 0) {
+                  farmPondsList.sort((a: Pond, b: Pond) => {
+                    const idxA = orderIds.indexOf(a.id);
+                    const idxB = orderIds.indexOf(b.id);
+                    if (idxA === -1 && idxB === -1) return 0;
+                    if (idxA === -1) return 1;
+                    if (idxB === -1) return -1;
+                    return idxA - idxB;
+                  });
+                }
+              }
+            } catch {}
+            sortedByOrder.push(...farmPondsList);
+          });
+          setPonds(sortedByOrder.length > 0 ? sortedByOrder : cp);
+        }
         const ce=loadUserLocal(uid,"expenses","expenses",[]).filter((x: any) => !isDeletedId(x.id));
         if(ce.length>0)setExpenses(ce);
         const cr=loadUserLocal(uid,"revenues","revenues",[]).filter((x: any) => !isDeletedId(x.id));
