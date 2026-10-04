@@ -1752,9 +1752,9 @@ function FeedDocumentation({
 
       {/* ── Sticky Tab bar ── */}
       <div className="sticky top-0 z-20 bg-[#f5f7fa] -mx-4 -mt-2 px-4 py-2 sm:-mx-6 sm:px-6 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex gap-1 bg-slate-200/90 border border-slate-300/70 p-1 rounded-xl w-fit shadow-2xs">
+        <div className="flex gap-1 bg-slate-200/80 p-1 rounded-xl w-fit">
           {(["daily", "bags", "reconciliation"] as const).map(t => (
-            <button key={t} onClick={() => setDocTab(t)} className={`relative px-4 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${docTab === t ? "bg-white text-green-700 font-bold shadow-sm border border-slate-200/80" : "text-slate-600 hover:text-slate-900"}`}>
+            <button key={t} onClick={() => setDocTab(t)} className={`relative px-4 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${docTab === t ? "bg-white text-green-700 font-bold" : "text-slate-600 hover:text-slate-900"}`}>
               {t === "daily" ? "Daily Feed" : t === "bags" ? "Opened Bags" : "Reconciliation"}
               {t === "reconciliation" && hasMismatchOnSelDate && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse ring-2 ring-white" />}
             </button>

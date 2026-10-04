@@ -287,7 +287,7 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
       </div>
       {/* ── Sticky Tab bar ── */}
       <div className="sticky top-0 z-20 bg-[#f5f7fa] -mx-4 -mt-2 px-4 py-2 sm:-mx-6 sm:px-6 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex gap-1 bg-slate-200/90 border border-slate-300/70 p-1 rounded-xl w-fit shadow-2xs">
+        <div className="flex gap-1 bg-slate-200/80 p-1 rounded-xl w-fit">
           {([
             ["stock", "Stock"],
             ["daily_bags", "Daily Bags Opened"],
@@ -296,8 +296,8 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
             <button
               key={t}
               onClick={() => setTab(t as any)}
-              className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all cursor-pointer ${
-                tab === t ? "bg-white text-slate-900 shadow-sm font-bold border border-slate-200/80" : "text-slate-600 hover:text-slate-900"
+              className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors cursor-pointer ${
+                tab === t ? "bg-white text-slate-900 font-bold" : "text-slate-600 hover:text-slate-900"
               }`}
             >
               {label}
