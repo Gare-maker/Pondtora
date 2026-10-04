@@ -421,7 +421,7 @@ function FinancialDashboard({
 
   return(
     <div className="p-4 sm:p-6 space-y-5 w-full">
-      <div className="bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 flex flex-col gap-2.5">
+      <div className="sticky top-0 z-20 bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 flex flex-col gap-2.5">
         <div className="flex items-center gap-3 justify-between">
           <div className="min-w-0 flex-1"><h1 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Financial Dashboard</h1><p className="text-xs text-slate-400 mt-0.5">Track revenue, expenses, and profitability across all farm operations.</p></div>
           <div className="flex items-center gap-2 shrink-0">
@@ -1170,7 +1170,7 @@ function StaffPage({
 
   return (
     <div className="p-4 sm:p-6 space-y-5 w-full">
-      <div className="bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 flex flex-wrap items-center justify-between gap-3">
+      <div className="sticky top-0 z-20 bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Staff</h1>
           <p className="text-xs text-slate-400 mt-0.5">Manage team members with access to Feeding Records and Feed Stock</p>
@@ -1998,7 +1998,7 @@ function ReportsPage({
   };
   return (
     <div className="p-4 sm:p-6 space-y-5 w-full">
-      <div className="bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 flex flex-wrap items-center justify-between gap-3">
+      <div className="sticky top-0 z-20 bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Reports</h1>
           <p className="text-xs text-slate-400 mt-0.5">
@@ -2484,7 +2484,7 @@ function NotificationsPage({notifications,onMarkRead,onMarkAllRead,farms,activeF
 
   return(
     <div className="p-4 sm:p-6 space-y-5 w-full">
-      <div className="bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 flex items-center justify-between gap-3">
+      <div className="sticky top-0 z-20 bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 flex items-center justify-between gap-3">
         <div>
           <div className="flex items-center gap-2.5">
             <h1 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Notifications</h1>
@@ -3622,7 +3622,7 @@ function SettingsPage({farms,onAddFarm,onEditFarm,onDeleteFarm,userProfile,onUpd
   const initials=(userProfile?.name||"U").split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase();
   return(
     <div className="p-4 sm:p-6 space-y-5 w-full">
-      <div className="bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 flex flex-col gap-2.5 border-b border-slate-200/80 shadow-xs">
+      <div className="sticky top-0 z-20 bg-[#f5f7fa] -mx-4 -mt-4 px-4 py-3 sm:-mx-6 sm:-mt-6 sm:px-6 sm:py-4 flex flex-col gap-2.5 border-b border-slate-200/80 shadow-xs">
         <div>
           <h1 className="text-xl sm:text-2xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Settings</h1>
           <p className="text-xs text-slate-500 mt-0.5">Manage your profile, farm details, and referral rewards.</p>
@@ -5044,14 +5044,22 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   const [showScrollTop, setShowScrollTop] = useState(false);
   useEffect(()=>{mainRef.current?.scrollTo({top:0,behavior:"instant"});},[active]);
   useEffect(() => {
-    const el = mainRef.current;
-    if (!el) return;
     const handleScroll = () => {
-      setShowScrollTop(el.scrollTop > 80);
+      const scrollPos = (mainRef.current ? mainRef.current.scrollTop : 0) || window.scrollY || document.documentElement.scrollTop || 0;
+      setShowScrollTop(scrollPos > 60);
     };
-    el.addEventListener("scroll", handleScroll, { passive: true });
-    return () => el.removeEventListener("scroll", handleScroll);
-  }, []);
+
+    const el = mainRef.current;
+    if (el) el.addEventListener("scroll", handleScroll, { passive: true });
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    document.addEventListener("scroll", handleScroll, { passive: true });
+
+    return () => {
+      if (el) el.removeEventListener("scroll", handleScroll);
+      window.removeEventListener("scroll", handleScroll);
+      document.removeEventListener("scroll", handleScroll);
+    };
+  }, [active, isDataLoading]);
   const nav=(v:View)=>{setActive(v);setSideOpen(false);};
   const handleSwitchFarm=useCallback((fid:string)=>{
     setActiveFarmId(fid);
@@ -8025,12 +8033,16 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
         {showScrollTop && (
           <button
             type="button"
-            onClick={() => mainRef.current?.scrollTo({ top: 0, behavior: "smooth" })}
+            onClick={() => {
+              mainRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+              window.scrollTo({ top: 0, behavior: "smooth" });
+              document.documentElement.scrollTo({ top: 0, behavior: "smooth" });
+            }}
             aria-label="Scroll to top"
-            className="fixed bottom-20 sm:bottom-8 left-1/2 -translate-x-1/2 z-40 bg-emerald-600 hover:bg-emerald-700 active:scale-90 text-white w-10 h-10 rounded-full shadow-xl border border-emerald-400/40 flex items-center justify-center transition-all duration-300 animate-in fade-in slide-in-from-bottom-2 cursor-pointer"
+            className="fixed bottom-20 sm:bottom-8 left-1/2 -translate-x-1/2 z-50 bg-emerald-600 hover:bg-emerald-700 active:scale-90 text-white w-12 h-12 rounded-full shadow-2xl border-2 border-white ring-4 ring-emerald-500/20 flex items-center justify-center transition-all duration-300 animate-in fade-in zoom-in-95 cursor-pointer"
             title="Scroll to top"
           >
-            <ChevronUp size={20} strokeWidth={2.5} />
+            <ChevronUp size={24} strokeWidth={3} className="text-white drop-shadow-xs" />
           </button>
         )}
       </div>
