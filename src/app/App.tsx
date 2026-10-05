@@ -4597,6 +4597,10 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
         sp.get("verified") === "true" || hp.has("access_token") || sp.has("code") ||
         hp.has("error") || sp.has("error");
       if (isAuthCallback) return false;
+
+      // If user is authenticated in localStorage, don't show landing on reload
+      const isStoredAuth = localStorage.getItem("pondtora_is_auth") === "true" || Boolean(localStorage.getItem("pondtora_auth"));
+      if (isStoredAuth) return false;
     }
     return localStorage.getItem("pondtora_show_landing")!=="false";
   });
@@ -8088,7 +8092,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
             )}
           </div>
         )}
-        <main ref={mainRef} className="flex-1 overflow-y-auto bg-[#f5f7fa] pb-24 sm:pb-8 touch-pan-y overscroll-y-contain" style={{ WebkitOverflowScrolling: "touch" }}>
+        <main ref={mainRef} className="flex-1 overflow-y-auto bg-[#f5f7fa] pb-24 sm:pb-8 touch-pan-y" style={{ WebkitOverflowScrolling: "touch" }}>
           {isDataLoading ? (
             <div className="flex flex-col items-center justify-center min-h-[60vh] gap-3 p-6">
               <Loader2 size={36} className="text-green-600 animate-spin" />

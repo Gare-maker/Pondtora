@@ -265,12 +265,16 @@ export function attachReferralToNewUser(newUser: { id?: string; email: string; n
 /**
  * Calculates standard plan price fallback if not stored
  */
-function getStandardPlanPrice(planName: string): number {
+function getStandardPlanPrice(planName: string, freq?: string): number {
   const clean = (planName || "").toLowerCase();
-  if (clean.includes("commercial")) return 50000;
-  if (clean.includes("growth") || clean.includes("pro")) return 25000;
-  if (clean.includes("starter") || clean.includes("basic")) return 15000;
-  return 15000;
+  const isYearly = (freq || "").toLowerCase() === "yearly";
+  if (clean.includes("unlimited")) return isYearly ? 672000 : 70000;
+  if (clean.includes("5-farm")) return isYearly ? 384000 : 40000;
+  if (clean.includes("3-farm")) return isYearly ? 230400 : 24000;
+  if (clean.includes("commercial")) return isYearly ? 96000 : 10000;
+  if (clean.includes("growth") || clean.includes("pro")) return isYearly ? 48000 : 5000;
+  if (clean.includes("starter") || clean.includes("basic")) return isYearly ? 28800 : 3000;
+  return 3000;
 }
 
 /**
@@ -296,11 +300,11 @@ export function processReferralCommission(params: {
 
   const cleanRefCode = referrerCode.trim().toUpperCase();
 
-  // Find the referrer account
+  // Find the referrer account by exact code, exact email, or exact user ID
   const referrerUser = allUsers.find(u => {
-    const uCode = ((u as any).referralCode || generateReferralCode(u.name, u.email, u.id)).toUpperCase();
-    const uEmail = (u.email || "").toUpperCase();
-    const uId = (u.id || "").toUpperCase();
+    const uCode = ((u as any).referralCode || (u as any).referral_code || generateReferralCode(u.name, u.email, u.id)).toUpperCase().trim();
+    const uEmail = (u.email || "").toUpperCase().trim();
+    const uId = (u.id || "").toUpperCase().trim();
     return uCode === cleanRefCode || uId === cleanRefCode || uEmail === cleanRefCode;
   });
 
@@ -364,22 +368,22 @@ export function processReferralCommission(params: {
 }
 
 /**
- * Calculates user's referral summary & list of referred farmers (synchronously from cache)
+ * Calculates user's referral summary & list of referred farmers (strictly scoped to this user only)
  */
 export function getUserReferralStats(user: { id?: string; name?: string; email?: string; referralCode?: string } | null): ReferralStats {
   const code = getUserReferralCode(user);
-  const cleanCode = code.toUpperCase();
+  const cleanCode = code.toUpperCase().trim();
   const cleanEmail = (user?.email || "").toLowerCase().trim();
-  const userId = (user?.id || "").toUpperCase();
+  const userId = (user?.id || "").toUpperCase().trim();
 
   const allUsers = loadAllAdminUsers();
   const allRewards = loadAllReferralRewards();
 
-  // Collect all possible referral codes / aliases for this user
+  // ONLY collect specific, unique identifiers for THIS user (NO first names, NO fuzzy substring matching)
   const userRefCodes = new Set<string>();
   if (cleanCode) userRefCodes.add(cleanCode);
-  if (user?.referralCode) userRefCodes.add(user.referralCode.trim().toUpperCase());
-  if ((user as any)?.referral_code) userRefCodes.add(String((user as any).referral_code).trim().toUpperCase());
+  if (user?.referralCode && user.referralCode.trim()) userRefCodes.add(user.referralCode.trim().toUpperCase());
+  if ((user as any)?.referral_code && String((user as any).referral_code).trim()) userRefCodes.add(String((user as any).referral_code).trim().toUpperCase());
   if (cleanEmail) {
     userRefCodes.add(cleanEmail.toUpperCase());
     userRefCodes.add(cleanEmail);
@@ -388,41 +392,47 @@ export function getUserReferralStats(user: { id?: string; name?: string; email?:
     userRefCodes.add(userId);
     userRefCodes.add(userId.toLowerCase());
   }
-  if (user?.name) userRefCodes.add(user.name.trim().toUpperCase());
 
   try {
-    const c1 = localStorage.getItem(`pondtora_${cleanEmail}_ref_code`);
-    if (c1) userRefCodes.add(c1.trim().toUpperCase());
-    const c2 = localStorage.getItem("pondtora_user_referral_code");
-    if (c2) userRefCodes.add(c2.trim().toUpperCase());
+    if (cleanEmail) {
+      const c1 = localStorage.getItem(`pondtora_${cleanEmail}_ref_code`);
+      if (c1 && c1.trim()) userRefCodes.add(c1.trim().toUpperCase());
+    }
   } catch {}
 
-  const foundAdminUser = allUsers.find(u => (u.email || "").toLowerCase().trim() === cleanEmail || (userId && u.id.toUpperCase() === userId));
-  if ((foundAdminUser as any)?.referralCode) userRefCodes.add(String((foundAdminUser as any).referralCode).trim().toUpperCase());
-  if ((foundAdminUser as any)?.referral_code) userRefCodes.add(String((foundAdminUser as any).referral_code).trim().toUpperCase());
+  const foundAdminUser = allUsers.find(u => (u.email || "").toLowerCase().trim() === cleanEmail || (userId && u.id && u.id.toUpperCase() === userId));
+  if ((foundAdminUser as any)?.referralCode && String((foundAdminUser as any).referralCode).trim()) {
+    userRefCodes.add(String((foundAdminUser as any).referralCode).trim().toUpperCase());
+  }
+  if ((foundAdminUser as any)?.referral_code && String((foundAdminUser as any).referral_code).trim()) {
+    userRefCodes.add(String((foundAdminUser as any).referral_code).trim().toUpperCase());
+  }
 
-  // Rewards for this user
+  // Strict reward matching for this user
   let myRewards = allRewards.filter(r => {
-    const rRef = (r.referrerCode || "").toUpperCase();
+    const rRef = (r.referrerCode || "").toUpperCase().trim();
     const rEmail = (r.referrerEmail || "").toLowerCase().trim();
     return (
-      userRefCodes.has(rRef) ||
-      (userId && (rRef === userId || rRef === userId.toLowerCase())) ||
+      (rRef && userRefCodes.has(rRef)) ||
       (cleanEmail && rEmail === cleanEmail) ||
       (cleanEmail && rRef === cleanEmail.toUpperCase()) ||
-      Array.from(userRefCodes).some(c => c && rRef.includes(c))
+      (userId && (rRef === userId || rRef === userId.toLowerCase()))
     );
   });
 
-  // Find all users referred by this user from AdminUsers
+  // Strict referred users matching from allUsers (a user cannot refer themselves)
   const referredUsersList = allUsers.filter(u => {
+    const uEmail = (u.email || "").toLowerCase().trim();
+    if (uEmail && cleanEmail && uEmail === cleanEmail) return false;
+    if (u.id && userId && (u.id.toUpperCase() === userId || u.id.toLowerCase() === userId.toLowerCase())) return false;
+
     const refBy = (((u as any).referredBy || (u as any).referred_by || "") as string).trim().toUpperCase();
     if (!refBy) return false;
+
     return (
       userRefCodes.has(refBy) ||
       (cleanEmail && refBy === cleanEmail.toUpperCase()) ||
-      (userId && (refBy === userId || refBy === userId.toLowerCase())) ||
-      Array.from(userRefCodes).some(c => c && (refBy.includes(c) || c.includes(refBy)))
+      (userId && (refBy === userId || refBy === userId.toLowerCase()))
     );
   });
 
@@ -430,7 +440,7 @@ export function getUserReferralStats(user: { id?: string; name?: string; email?:
   const existingReferredEmails = new Set(referredUsersList.map(u => (u.email || "").toLowerCase().trim()));
   myRewards.forEach(r => {
     const rEmail = (r.referredUserEmail || "").toLowerCase().trim();
-    if (rEmail && !existingReferredEmails.has(rEmail)) {
+    if (rEmail && cleanEmail && rEmail !== cleanEmail && !existingReferredEmails.has(rEmail)) {
       existingReferredEmails.add(rEmail);
       referredUsersList.push({
         id: r.referredUserId || "usr-" + rEmail.replace(/[^a-zA-Z0-9]/g, "").slice(0, 10),
@@ -471,7 +481,7 @@ export function getUserReferralStats(user: { id?: string; name?: string; email?:
     if (hasPaid && uRewards.length === 0) {
       const planPrice = (typeof u.subscriptionAmount === "number" && u.subscriptionAmount > 0)
         ? u.subscriptionAmount
-        : getStandardPlanPrice(u.activePlan || "Starter");
+        : getStandardPlanPrice(u.activePlan || "Starter", (u as any).billingFrequency);
       const commRate = 0.30;
       const commAmt = Math.round(planPrice * commRate);
 
@@ -522,14 +532,6 @@ export function getUserReferralStats(user: { id?: string; name?: string; email?:
     } catch {}
   }
 
-  const totalEarnings = myRewards.reduce((sum, r) => sum + (r.commissionAmount || 0), 0);
-  const availableEarnings = myRewards
-    .filter(r => r.status === "Available")
-    .reduce((sum, r) => sum + (r.commissionAmount || 0), 0);
-  const paidOutEarnings = myRewards
-    .filter(r => r.status === "Paid")
-    .reduce((sum, r) => sum + (r.commissionAmount || 0), 0);
-
   const referredUsers: ReferredUserRecord[] = referredUsersList.map(u => {
     const uEmail = (u.email || "").toLowerCase().trim();
     const userRewards = myRewards.filter(r => (r.referredUserEmail || "").toLowerCase().trim() === uEmail);
@@ -571,7 +573,17 @@ export function getUserReferralStats(user: { id?: string; name?: string; email?:
     if (userRewards.length > 0) {
       paymentAmount = userRewards.reduce((sum, r) => sum + (r.paymentAmount || 0), 0);
     } else if (hasPaid) {
-      paymentAmount = (typeof u.subscriptionAmount === "number" && u.subscriptionAmount > 0) ? u.subscriptionAmount : getStandardPlanPrice(u.activePlan || "Starter");
+      paymentAmount = (typeof u.subscriptionAmount === "number" && u.subscriptionAmount > 0)
+        ? u.subscriptionAmount
+        : getStandardPlanPrice(u.activePlan || "Starter", (u as any).billingFrequency);
+    }
+
+    // Actual Commission Amount: 30% first payment, 10% renewals
+    let calculatedCommission = 0;
+    if (userRewards.length > 0) {
+      calculatedCommission = commTotal;
+    } else if (hasPaid && paymentAmount > 0) {
+      calculatedCommission = Math.round(paymentAmount * 0.30);
     }
 
     // Breakdown text
@@ -586,9 +598,8 @@ export function getUserReferralStats(user: { id?: string; name?: string; email?:
         parts.push(`10% renewals (₦${recTotal.toLocaleString()})`);
       }
       commissionBreakdown = parts.join(" + ");
-    } else if (hasPaid && commTotal === 0) {
-      const estimated = Math.round(paymentAmount * 0.30);
-      commissionBreakdown = `30% 1st (₦${estimated.toLocaleString()})`;
+    } else if (hasPaid && calculatedCommission > 0) {
+      commissionBreakdown = `30% 1st (₦${calculatedCommission.toLocaleString()})`;
     }
 
     return {
@@ -600,10 +611,10 @@ export function getUserReferralStats(user: { id?: string; name?: string; email?:
       subscriptionStatus: hasPaid ? "Active" : (trialDaysLeft > 0 ? "Trial" : "Expired"),
       hasPaid,
       activePlan: u.activePlan || "Starter Plan",
-      paymentAmount,
+      paymentAmount: hasPaid ? paymentAmount : 0,
       trialDaysLeft,
       trialStatusText,
-      totalCommission: commTotal || (hasPaid ? Math.round(paymentAmount * 0.30) : 0),
+      totalCommission: calculatedCommission,
       paymentCount: userRewards.length || (hasPaid ? 1 : 0),
       commissionBreakdown,
     };
@@ -611,6 +622,12 @@ export function getUserReferralStats(user: { id?: string; name?: string; email?:
 
   const paidReferralsCount = referredUsers.filter(u => u.hasPaid || u.totalCommission > 0).length;
   const trialReferralsCount = referredUsers.filter(u => !u.hasPaid && u.totalCommission === 0).length;
+
+  const totalEarnings = referredUsers.reduce((sum, u) => sum + (u.totalCommission || 0), 0);
+  const paidOutEarnings = myRewards
+    .filter(r => r.status === "Paid")
+    .reduce((sum, r) => sum + (r.commissionAmount || 0), 0);
+  const availableEarnings = Math.max(0, totalEarnings - paidOutEarnings);
 
   return {
     referralCode: code,
