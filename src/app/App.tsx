@@ -10,7 +10,7 @@ import {
   Layers, Droplets, Trash2, Menu, ChevronDown,
   ChevronUp, ChevronsLeft, ChevronsRight, ChevronLeft, ChevronRight, ChevronRight as ChevronRightIcon, Eye, Search,
   Download, FileText, BadgeCheck, Pencil, Users, Mail, Phone, ArrowRightLeft, History, Filter, Crown, Receipt, MoreVertical, AlertCircle, Bell, LogOut, ClipboardList, Lock, Loader2, Copy, Link, Database, ExternalLink, Settings, EyeOff,
-  Sparkles, CreditCard, Landmark, Gift, Share2, PhoneCall, MessageCircle, Check, ShieldAlert, Clock, AlertTriangle
+  Sparkles, CreditCard, Landmark, Gift, Share2, PhoneCall, MessageCircle, Check, ShieldAlert, Clock, AlertTriangle, RotateCw
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -6418,6 +6418,79 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     };
   },[loadFromBackend,userProfile?.id]);
 
+  /* ── Mobile Touch Drag-to-Refresh ── */
+  const [pullDistance, setPullDistance] = useState(0);
+  const [isPullRefreshing, setIsPullRefreshing] = useState(false);
+  const touchStartYRef = useRef(0);
+  const isPullingRef = useRef(false);
+
+  useEffect(() => {
+    const mainEl = mainRef.current;
+    if (!mainEl) return;
+
+    const handleTouchStart = (e: TouchEvent) => {
+      if (mainEl.scrollTop <= 2 && e.touches.length === 1) {
+        touchStartYRef.current = e.touches[0].clientY;
+        isPullingRef.current = true;
+      } else {
+        isPullingRef.current = false;
+      }
+    };
+
+    const handleTouchMove = (e: TouchEvent) => {
+      if (!isPullingRef.current || isPullRefreshing) return;
+      if (mainEl.scrollTop > 2) {
+        isPullingRef.current = false;
+        setPullDistance(0);
+        return;
+      }
+      const currentY = e.touches[0].clientY;
+      const diff = currentY - touchStartYRef.current;
+      if (diff > 0) {
+        // Damping factor for smooth natural pull feel
+        const damped = Math.min(diff * 0.45, 80);
+        setPullDistance(damped);
+      } else {
+        setPullDistance(0);
+      }
+    };
+
+    const handleTouchEnd = async () => {
+      if (!isPullingRef.current || isPullRefreshing) {
+        setPullDistance(0);
+        return;
+      }
+      isPullingRef.current = false;
+      if (pullDistance >= 50) {
+        setIsPullRefreshing(true);
+        setPullDistance(55);
+        try {
+          await loadFromBackend();
+          toast.success("Page refreshed!");
+        } catch {
+          window.location.reload();
+        } finally {
+          setTimeout(() => {
+            setIsPullRefreshing(false);
+            setPullDistance(0);
+          }, 500);
+        }
+      } else {
+        setPullDistance(0);
+      }
+    };
+
+    mainEl.addEventListener("touchstart", handleTouchStart, { passive: true });
+    mainEl.addEventListener("touchmove", handleTouchMove, { passive: true });
+    mainEl.addEventListener("touchend", handleTouchEnd, { passive: true });
+
+    return () => {
+      mainEl.removeEventListener("touchstart", handleTouchStart);
+      mainEl.removeEventListener("touchmove", handleTouchMove);
+      mainEl.removeEventListener("touchend", handleTouchEnd);
+    };
+  }, [isPullRefreshing, loadFromBackend, pullDistance]);
+
   /* ── Restore session via Supabase Auth ── */
   useEffect(()=>{
     const p = typeof window !== "undefined" ? window.location.pathname.toLowerCase() : "";
@@ -8092,7 +8165,19 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
             )}
           </div>
         )}
-        <main ref={mainRef} className="flex-1 overflow-y-auto bg-[#f5f7fa] pb-24 sm:pb-8 touch-pan-y" style={{ WebkitOverflowScrolling: "touch" }}>
+        <main ref={mainRef} className="flex-1 overflow-y-auto bg-[#f5f7fa] pb-24 sm:pb-8 touch-pan-y relative" style={{ WebkitOverflowScrolling: "touch" }}>
+          {/* Mobile Drag-to-Refresh Indicator */}
+          {pullDistance > 0 && (
+            <div
+              className="flex items-center justify-center transition-all duration-150 overflow-hidden sm:hidden py-1.5 select-none pointer-events-none sticky top-0 z-30 w-full"
+              style={{ height: `${pullDistance}px`, opacity: Math.min(pullDistance / 35, 1) }}
+            >
+              <div className="flex items-center gap-2 px-3.5 py-1.5 bg-white/95 backdrop-blur-sm border border-emerald-200/90 rounded-full shadow-lg text-xs font-bold text-slate-800">
+                <RotateCw size={13} className={`text-emerald-600 ${isPullRefreshing ? "animate-spin" : ""}`} style={{ transform: `rotate(${pullDistance * 4}deg)` }} />
+                <span>{isPullRefreshing ? "Refreshing…" : pullDistance >= 50 ? "Release to refresh" : "Pull down to refresh"}</span>
+              </div>
+            </div>
+          )}
           {isDataLoading ? (
             <div className="flex flex-col items-center justify-center min-h-[60vh] gap-3 p-6">
               <Loader2 size={36} className="text-green-600 animate-spin" />
