@@ -2928,6 +2928,27 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
               );
             })}
           </div>
+
+          <div className="mt-10 p-5 sm:p-6 bg-emerald-50/80 border border-emerald-200/90 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-4 text-center sm:text-left shadow-xs">
+            <div className="flex items-center gap-3.5">
+              <div className="w-11 h-11 rounded-xl bg-red-600 text-white flex items-center justify-center shrink-0 shadow-sm text-base font-bold">
+                ▶
+              </div>
+              <div>
+                <p className="text-sm sm:text-base font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Want step-by-step video guides?</p>
+                <p className="text-xs text-slate-600 mt-0.5">Watch our official video tutorials and complete aquaculture management walkthroughs.</p>
+              </div>
+            </div>
+            <a
+              href="https://youtube.com/@pondtora?si=u7-SbqHRs-PPAKD9"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl transition-colors shrink-0 inline-flex items-center gap-1.5 shadow-xs"
+            >
+              <span>Learn How to Use Pondtora</span>
+              <ExternalLink size={12} />
+            </a>
+          </div>
         </div>
       </section>
 
@@ -3003,12 +3024,23 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
             </div>
 
             <div>
-              <p className="text-xs uppercase tracking-widest font-black text-emerald-400 mb-3">System & Ponds</p>
+              <p className="text-xs uppercase tracking-widest font-black text-emerald-400 mb-3">System & Resources</p>
               <ul className="space-y-2 text-xs text-slate-300">
                 <li><button onClick={() => scrollTo("fields")} className="hover:text-white">Pond Types & Systems</button></li>
                 <li><button onClick={() => scrollTo("testimonials")} className="hover:text-white">Farmer Stories</button></li>
                 <li><button onClick={() => scrollTo("pricing")} className="hover:text-white">Pricing & Plans</button></li>
                 <li><button onClick={() => scrollTo("faq")} className="hover:text-white">FAQ</button></li>
+                <li>
+                  <a
+                    href="https://youtube.com/@pondtora?si=u7-SbqHRs-PPAKD9"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="hover:text-white text-emerald-400 font-semibold inline-flex items-center gap-1.5 transition-colors"
+                  >
+                    <span className="text-red-500 font-bold">▶</span>
+                    <span>Learn How to Use Pondtora</span>
+                  </a>
+                </li>
               </ul>
             </div>
 
@@ -3035,6 +3067,17 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
                     className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-500/30 rounded-lg font-semibold text-[11px] transition-colors"
                   >
                     <span>💬 Chat on WhatsApp</span>
+                  </a>
+                </li>
+                <li>
+                  <a
+                    href="https://www.facebook.com/share/19kEpHht6y/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 text-slate-300 hover:text-white font-medium transition-colors"
+                  >
+                    <span className="text-[#1877F2]">📘</span>
+                    <span>Facebook: Pondtora</span>
                   </a>
                 </li>
               </ul>

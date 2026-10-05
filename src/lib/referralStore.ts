@@ -647,30 +647,51 @@ export function getUserReferralStats(user: { id?: string; name?: string; email?:
  * Asynchronously queries Supabase for live referred users and rewards, updating local cache
  */
 export async function fetchLiveUserReferralStats(user: { id?: string; name?: string; email?: string; referralCode?: string } | null): Promise<ReferralStats> {
-  const code = getUserReferralCode(user);
-  const cleanCode = code.toUpperCase();
   const cleanEmail = (user?.email || "").toLowerCase().trim();
-  const userId = (user?.id || "").toLowerCase();
+  const userId = (user?.id || "").trim();
+
+  // 0. Ensure we have the user's latest referral code from Supabase user_profiles if id/email available
+  let dbStoredCode: string | null = null;
+  if (userId || cleanEmail) {
+    try {
+      let query = supabase.from("user_profiles").select("id, email, referral_code, referred_by");
+      if (userId) query = query.eq("id", userId);
+      else if (cleanEmail) query = query.ilike("email", cleanEmail);
+      const { data: selfProf } = await query.maybeSingle();
+      if (selfProf?.referral_code && typeof selfProf.referral_code === "string" && selfProf.referral_code.trim()) {
+        dbStoredCode = selfProf.referral_code.trim().toUpperCase();
+      }
+    } catch {}
+  }
+
+  const code = dbStoredCode || getUserReferralCode(user);
+  const cleanCode = code.toUpperCase();
 
   const userRefCodes = new Set<string>();
   if (cleanCode) userRefCodes.add(cleanCode);
-  if (user?.referralCode) userRefCodes.add(user.referralCode.trim().toUpperCase());
-  if ((user as any)?.referral_code) userRefCodes.add(String((user as any).referral_code).trim().toUpperCase());
+  if (dbStoredCode) userRefCodes.add(dbStoredCode);
+  if (user?.referralCode && user.referralCode.trim()) userRefCodes.add(user.referralCode.trim().toUpperCase());
+  if ((user as any)?.referral_code && String((user as any).referral_code).trim()) userRefCodes.add(String((user as any).referral_code).trim().toUpperCase());
   if (cleanEmail) {
     userRefCodes.add(cleanEmail.toUpperCase());
     userRefCodes.add(cleanEmail);
   }
   if (userId) {
     userRefCodes.add(userId);
+    userRefCodes.add(userId.toLowerCase());
     userRefCodes.add(userId.toUpperCase());
   }
-  if (user?.name) userRefCodes.add(user.name.trim().toUpperCase());
+  if (user?.name && user.name.trim()) {
+    userRefCodes.add(user.name.trim().toUpperCase());
+  }
 
   try {
-    const c1 = localStorage.getItem(`pondtora_${cleanEmail}_ref_code`);
-    if (c1) userRefCodes.add(c1.trim().toUpperCase());
+    if (cleanEmail) {
+      const c1 = localStorage.getItem(`pondtora_${cleanEmail}_ref_code`);
+      if (c1 && c1.trim()) userRefCodes.add(c1.trim().toUpperCase());
+    }
     const c2 = localStorage.getItem("pondtora_user_referral_code");
-    if (c2) userRefCodes.add(c2.trim().toUpperCase());
+    if (c2 && c2.trim()) userRefCodes.add(c2.trim().toUpperCase());
   } catch {}
 
   try {
@@ -688,37 +709,43 @@ export async function fetchLiveUserReferralStats(user: { id?: string; name?: str
       }
     } catch {}
 
-    // Direct table query fallback
-    if (dbRewards.length === 0) {
-      try {
-        const rewardOrClauses: string[] = [];
-        userRefCodes.forEach(c => {
-          if (c) rewardOrClauses.push(`referrer_code.ilike.${c}`);
-        });
-        if (cleanEmail) rewardOrClauses.push(`referrer_email.ilike.${cleanEmail}`);
-
-        if (rewardOrClauses.length > 0) {
-          const { data: directRewards } = await supabase
-            .from("referral_rewards")
-            .select("*")
-            .or(rewardOrClauses.join(","));
-          if (Array.isArray(directRewards)) {
-            dbRewards = directRewards;
-          }
+    // Direct table query fallback / augmentation
+    try {
+      const rewardOrClauses: string[] = [];
+      userRefCodes.forEach(c => {
+        if (c && c.length > 1) {
+          rewardOrClauses.push(`referrer_code.ilike.${c}`);
         }
-      } catch {}
-    }
+      });
+      if (cleanEmail) rewardOrClauses.push(`referrer_email.ilike.${cleanEmail}`);
+
+      if (rewardOrClauses.length > 0) {
+        const { data: directRewards } = await supabase
+          .from("referral_rewards")
+          .select("*")
+          .or(rewardOrClauses.join(","));
+        if (Array.isArray(directRewards) && directRewards.length > 0) {
+          const seenRewardIds = new Set(dbRewards.map(r => r.id));
+          directRewards.forEach(r => {
+            if (!seenRewardIds.has(r.id)) {
+              dbRewards.push(r);
+              seenRewardIds.add(r.id);
+            }
+          });
+        }
+      }
+    } catch {}
 
     if (Array.isArray(dbRewards) && dbRewards.length > 0) {
       const localRewards = loadAllReferralRewards();
       const mergedRewards: ReferralReward[] = [...localRewards];
 
       dbRewards.forEach(r => {
-        const matchIdx = mergedRewards.findIndex(lr => lr.id === r.id || (lr.paymentReference && lr.paymentReference === r.payment_reference));
+        const matchIdx = mergedRewards.findIndex(lr => lr.id === r.id || (lr.paymentReference && r.payment_reference && lr.paymentReference === r.payment_reference));
         const formatted: ReferralReward = {
           id: r.id,
-          referrerCode: r.referrer_code,
-          referrerEmail: r.referrer_email,
+          referrerCode: r.referrer_code || cleanCode,
+          referrerEmail: r.referrer_email || cleanEmail,
           referredUserId: r.referred_user_id,
           referredUserEmail: r.referred_user_email,
           referredUserName: r.referred_user_name || r.referred_user_email?.split("@")[0] || "Farmer",
@@ -757,27 +784,35 @@ export async function fetchLiveUserReferralStats(user: { id?: string; name?: str
       }
     } catch {}
 
-    // Fallback direct query on user_profiles
-    if (dbReferredProfiles.length === 0) {
-      try {
-        const orClauses: string[] = [];
-        userRefCodes.forEach(c => {
-          if (c) orClauses.push(`referred_by.ilike.${c}`);
-        });
-        if (cleanEmail) orClauses.push(`referred_by.ilike.${cleanEmail}`);
-        if (userId) orClauses.push(`referred_by.eq.${userId}`);
-
-        if (orClauses.length > 0) {
-          const { data: directProfiles } = await supabase
-            .from("user_profiles")
-            .select("*")
-            .or(orClauses.join(","));
-          if (Array.isArray(directProfiles) && directProfiles.length > 0) {
-            dbReferredProfiles = directProfiles;
-          }
+    // Fallback or supplementary direct query on user_profiles
+    try {
+      const orClauses: string[] = [];
+      userRefCodes.forEach(c => {
+        if (c && c.length > 1) {
+          orClauses.push(`referred_by.ilike.${c}`);
+          orClauses.push(`referred_by.eq.${c}`);
         }
-      } catch {}
-    }
+      });
+      if (cleanEmail) orClauses.push(`referred_by.ilike.${cleanEmail}`);
+      if (userId) orClauses.push(`referred_by.eq.${userId}`);
+
+      if (orClauses.length > 0) {
+        const { data: directProfiles } = await supabase
+          .from("user_profiles")
+          .select("*")
+          .or(orClauses.join(","));
+        if (Array.isArray(directProfiles) && directProfiles.length > 0) {
+          const seenProfileIds = new Set(dbReferredProfiles.map(p => p.id || p.email));
+          directProfiles.forEach(p => {
+            const key = p.id || p.email;
+            if (!seenProfileIds.has(key)) {
+              dbReferredProfiles.push(p);
+              seenProfileIds.add(key);
+            }
+          });
+        }
+      }
+    } catch {}
 
     if (Array.isArray(dbReferredProfiles) && dbReferredProfiles.length > 0) {
       const allLocalUsers = loadAllAdminUsers();
@@ -785,13 +820,19 @@ export async function fetchLiveUserReferralStats(user: { id?: string; name?: str
 
       dbReferredProfiles.forEach(p => {
         const pEmail = (p.email || "").toLowerCase().trim();
+        // Prevent counting the user themselves as a referral
+        if (pEmail && cleanEmail && pEmail === cleanEmail) return;
+        if (p.id && userId && (p.id === userId || p.id.toLowerCase() === userId.toLowerCase())) return;
+
         const existingIdx = allLocalUsers.findIndex(u => (u.email || "").toLowerCase().trim() === pEmail || (p.id && u.id === p.id));
         
         const hasPaid = Boolean(
           p.paystack_reference ||
           p.last_payment_date ||
+          p.hasPaid ||
           p.subscription_status === "Paid" ||
-          (p.subscription_status === "Active" && Boolean(p.subscription_expiry || p.paystack_reference))
+          p.status === "Paid" ||
+          ((p.subscription_status === "Active" || p.status === "Active") && Boolean(p.subscription_expiry || p.paystack_reference || p.last_payment_date))
         );
 
         if (existingIdx >= 0) {
@@ -892,7 +933,7 @@ export async function fetchLiveUserReferralStats(user: { id?: string; name?: str
     console.warn("Live referral fetch from Supabase:", err);
   }
 
-  return getUserReferralStats(user);
+  return getUserReferralStats({ ...user, referralCode: cleanCode });
 }
 
 /**

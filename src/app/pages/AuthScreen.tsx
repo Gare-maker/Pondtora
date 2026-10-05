@@ -447,6 +447,8 @@ function AuthScreen({
         permissions: staffPerms,
         ownerId: staffOwnerId,
         farms: staffFarms,
+        referralCode: existingProf?.referral_code || meta.referral_code || meta.referralCode,
+        referredBy: existingProf?.referred_by || meta.referred_by || meta.referredBy,
       };
       syncUserProfileToAdmin(profile, meta.active_plan, 1);
       onLogin(profile);

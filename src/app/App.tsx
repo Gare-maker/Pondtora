@@ -179,8 +179,20 @@ function Sidebar({active,onNav,collapsed,onToggle,farms,activeFarmId,onSwitchFar
             </div>
           </div>
         )}
+        <div className={`px-2 pt-1 pb-1 ${collapsed ? "" : ""}`}>
+          <a
+            href="https://youtube.com/@pondtora?si=u7-SbqHRs-PPAKD9"
+            target="_blank"
+            rel="noopener noreferrer"
+            title="Learn How to Use Pondtora"
+            className={`w-full flex items-center gap-2 py-2 px-2.5 rounded-xl text-emerald-400 hover:text-white hover:bg-emerald-950/40 transition-colors text-xs font-semibold ${collapsed ? "justify-center px-0" : ""}`}
+          >
+            <span className="text-red-500 font-bold shrink-0">▶</span>
+            {!collapsed && <span className="truncate">Learn How to Use Pondtora</span>}
+          </a>
+        </div>
         {onLogout&&(
-          <div className={`px-2 ${collapsed?"pt-2":""}`}>
+          <div className={`px-2 ${collapsed?"pt-1":""}`}>
             <button onClick={()=>setShowLogoutModal(true)} title="Log Out" className={`w-full flex items-center gap-2 py-2 rounded-xl text-slate-400 hover:text-red-400 hover:bg-red-950/30 transition-colors text-xs ${collapsed?"justify-center":""}`}>
               <ArrowRightLeft size={14} className="rotate-90"/>
               {!collapsed&&<span>Log Out</span>}
@@ -3674,6 +3686,48 @@ function SettingsPage({farms,onAddFarm,onEditFarm,onDeleteFarm,userProfile,onUpd
               </button>
             </div>
           </div>
+
+          {/* Help, Learning & Support Card */}
+          <div className="bg-white border border-slate-200 rounded-2xl p-6 space-y-4">
+            <div>
+              <h2 className="text-sm font-bold text-slate-800 font-['Barlow_Condensed',sans-serif] uppercase tracking-wide">Help, Learning & Support</h2>
+              <p className="text-xs text-slate-500 mt-0.5">Explore guides, video tutorials, and reach our support desk anytime.</p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <a
+                href="https://youtube.com/@pondtora?si=u7-SbqHRs-PPAKD9"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-3 p-3 rounded-xl border border-emerald-200/80 bg-emerald-50/50 hover:bg-emerald-100/60 transition-colors group"
+              >
+                <div className="w-9 h-9 rounded-lg bg-red-600 text-white flex items-center justify-center font-bold text-sm shrink-0 shadow-xs">
+                  ▶
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-bold text-slate-900 group-hover:text-emerald-900">Learn How to Use Pondtora</p>
+                  <p className="text-[11px] text-slate-500 truncate">Watch full video guides on YouTube</p>
+                </div>
+                <ExternalLink size={13} className="text-slate-400 group-hover:text-emerald-700 shrink-0" />
+              </a>
+
+              <a
+                href="https://www.facebook.com/share/19kEpHht6y/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-3 p-3 rounded-xl border border-slate-200 bg-slate-50/70 hover:bg-slate-100 transition-colors group"
+              >
+                <div className="w-9 h-9 rounded-lg bg-[#1877F2] text-white flex items-center justify-center font-bold text-sm shrink-0 shadow-xs">
+                  f
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-bold text-slate-900 group-hover:text-blue-900">Facebook Page</p>
+                  <p className="text-[11px] text-slate-500 truncate">Follow & connect on Facebook</p>
+                </div>
+                <ExternalLink size={13} className="text-slate-400 group-hover:text-blue-700 shrink-0" />
+              </a>
+            </div>
+          </div>
         </div>
       )}
 
@@ -6701,6 +6755,8 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
             billingFrequency: resolvedBillingFreq,
             paystackReference: resolvedPaystackRef,
             lastPaymentDate: resolvedLastPayment,
+            referralCode: prof?.referral_code || meta.referral_code || meta.referralCode || (prof as any)?.referralCode,
+            referredBy: prof?.referred_by || meta.referred_by || meta.referredBy || (prof as any)?.referredBy,
           });
           if(meta.active_farm_id){
             setActiveFarmId(meta.active_farm_id);
@@ -6933,6 +6989,8 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
           billingFrequency: billingFreqStr,
           paystackReference: paystackRefStr,
           lastPaymentDate: lastPaymentStr,
+          referralCode: prof?.referral_code || meta.referral_code || meta.referralCode || (prof as any)?.referralCode,
+          referredBy: prof?.referred_by || meta.referred_by || meta.referredBy || (prof as any)?.referredBy,
         };
 
         setUserProfile(prev=>{
@@ -6945,6 +7003,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
         if(meta.active_farm_id){
           setActiveFarmId(meta.active_farm_id);
         }
+        setActive("financial");
         setIsAuth(true);
         setShowLanding(false);
         loadFromBackend();
@@ -6987,11 +7046,25 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     setUserProfile(null);
     setIsAuth(false);
     setShowLanding(true);
+    setActive_("financial");
     try{
       const keys=Object.keys(localStorage);
       for(const k of keys){
         if(k.startsWith("pondtora_") && !k.startsWith("pondtora_admin_") && !k.startsWith("pondtora_custom_plans")){
           localStorage.removeItem(k);
+        }
+      }
+      localStorage.removeItem("pondtora_active_view");
+      if (typeof window !== "undefined") {
+        const h = window.location.hash;
+        if (
+          !h.startsWith("#/assess/") &&
+          !h.startsWith("#/reset-password") &&
+          !h.startsWith("#/create-password") &&
+          !h.startsWith("#admin") &&
+          !h.startsWith("#/admin")
+        ) {
+          window.history.replaceState(null, "", window.location.pathname + window.location.search);
         }
       }
     }catch{}
@@ -7002,6 +7075,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     setIsDataLoading(true);
     resetAllState();
     setUserProfile(profile);
+    setActive("financial");
     setIsAuth(true);
     setShowLanding(false);
     loadFromBackend();
@@ -7018,6 +7092,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   const handleSignup=(profile:UserProfile)=>{
     // With Supabase, if we get here a session exists (signUp returned session immediately)
     // Show plan selector before entering the app
+    setActive("financial");
     setPendingUser(profile);
     setShowChoosePlan(true);
   };
