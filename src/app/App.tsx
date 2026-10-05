@@ -3786,16 +3786,11 @@ function SettingsPage({farms,onAddFarm,onEditFarm,onDeleteFarm,userProfile,onUpd
             {/* Box 1: Your Unique Referral Code */}
             <div className="bg-gradient-to-br from-emerald-50/90 via-white to-slate-50 border border-emerald-200/90 rounded-2xl p-4 sm:p-6 shadow-xs space-y-3 flex flex-col justify-between">
               <div>
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <Gift size={18} className="text-emerald-700 shrink-0" />
-                    <h3 className="text-sm sm:text-base font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">
-                      Your Referral Code
-                    </h3>
-                  </div>
-                  <span className="text-[10px] font-extrabold bg-emerald-600 text-white px-2 py-0.5 rounded-full uppercase tracking-wider">
-                    30% Commission
-                  </span>
+                <div className="flex items-center gap-2">
+                  <Gift size={18} className="text-emerald-700 shrink-0" />
+                  <h3 className="text-sm sm:text-base font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">
+                    Your Referral Code
+                  </h3>
                 </div>
                 <p className="text-xs text-slate-600 mt-2 leading-relaxed">
                   Tell other farmers to enter this code in the <strong>Referral Code</strong> field when creating their account.
@@ -3967,7 +3962,6 @@ function SettingsPage({farms,onAddFarm,onEditFarm,onDeleteFarm,userProfile,onUpd
                   <table className="w-full text-xs">
                     <thead>
                       <tr className="border-b border-slate-100 bg-slate-50/80">
-                        <th className="px-4 py-3 text-left text-[10px] font-bold text-slate-400 uppercase tracking-wider">Farmer</th>
                         <th className="px-4 py-3 text-left text-[10px] font-bold text-slate-400 uppercase tracking-wider">Farm Name</th>
                         <th className="px-4 py-3 text-left text-[10px] font-bold text-slate-400 uppercase tracking-wider">Registered</th>
                         <th className="px-4 py-3 text-left text-[10px] font-bold text-slate-400 uppercase tracking-wider">Status & Stage</th>
@@ -3976,13 +3970,11 @@ function SettingsPage({farms,onAddFarm,onEditFarm,onDeleteFarm,userProfile,onUpd
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {refStats.referredUsers.map((u) => (
-                        <tr key={u.id} className="hover:bg-slate-50/80 transition-colors">
+                      {refStats.referredUsers.map((u, idx) => (
+                        <tr key={u.id || idx} className="hover:bg-slate-50/80 transition-colors">
                           <td className="px-4 py-3">
-                            <p className="font-bold text-slate-800">{u.name}</p>
-                            <p className="text-[11px] text-slate-400">{u.email}</p>
+                            <p className="font-bold text-slate-800">{u.farmName || `Referral #${idx + 1}`}</p>
                           </td>
-                          <td className="px-4 py-3 text-slate-600">{u.farmName || "Primary Farm"}</td>
                           <td className="px-4 py-3 text-slate-500 whitespace-nowrap">{u.createdAt}</td>
                           <td className="px-4 py-3">
                             {u.hasPaid ? (
@@ -4022,13 +4014,12 @@ function SettingsPage({farms,onAddFarm,onEditFarm,onDeleteFarm,userProfile,onUpd
 
                 {/* Mobile Card List View (Clean & No Overlaps) */}
                 <div className="sm:hidden divide-y divide-slate-100">
-                  {refStats.referredUsers.map((u) => (
-                    <div key={u.id} className="p-4 space-y-2.5">
+                  {refStats.referredUsers.map((u, idx) => (
+                    <div key={u.id || idx} className="p-4 space-y-2.5">
                       <div className="flex items-start justify-between gap-2">
                         <div>
-                          <p className="font-bold text-slate-900 text-sm">{u.name}</p>
-                          <p className="text-xs text-slate-400">{u.email}</p>
-                          <p className="text-xs text-slate-600 mt-0.5 font-medium">{u.farmName || "Primary Farm"}</p>
+                          <p className="font-bold text-slate-900 text-sm">{u.farmName || `Referral #${idx + 1}`}</p>
+                          <p className="text-xs text-slate-500 mt-0.5 font-medium">Joined: {u.createdAt}</p>
                         </div>
                         <div className="text-right shrink-0">
                           <p className="text-[10px] text-slate-400 uppercase font-bold">Commission</p>
@@ -4050,7 +4041,9 @@ function SettingsPage({farms,onAddFarm,onEditFarm,onDeleteFarm,userProfile,onUpd
                             </span>
                           )}
                         </div>
-                        <span className="text-[11px] text-slate-400">Registered: {u.createdAt}</span>
+                        <span className="text-[11px] text-slate-500 font-mono">
+                          {u.paymentAmount > 0 ? `₦${u.paymentAmount.toLocaleString()}` : "₦0 (Trial)"}
+                        </span>
                       </div>
                     </div>
                   ))}

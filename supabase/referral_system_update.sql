@@ -35,11 +35,12 @@ CREATE TABLE IF NOT EXISTS referral_rewards (
 CREATE INDEX IF NOT EXISTS idx_referral_rewards_referrer_code ON referral_rewards (referrer_code);
 CREATE INDEX IF NOT EXISTS idx_referral_rewards_referrer_email ON referral_rewards (referrer_email);
 CREATE INDEX IF NOT EXISTS idx_referral_rewards_referred_email ON referral_rewards (referred_user_email);
+CREATE INDEX IF NOT EXISTS idx_referral_rewards_status ON referral_rewards (status);
 
 -- 4. Enable RLS on referral_rewards
 ALTER TABLE IF EXISTS referral_rewards ENABLE ROW LEVEL SECURITY;
 
--- Allow all authenticated users and service role to select and insert referral rewards
+-- Allow authenticated users and anon to select and insert referral rewards
 DROP POLICY IF EXISTS "Allow select referral_rewards" ON referral_rewards;
 CREATE POLICY "Allow select referral_rewards" ON referral_rewards
   FOR SELECT USING (true);
@@ -116,3 +117,76 @@ $$;
 
 -- Grant execution permissions
 GRANT EXECUTE ON FUNCTION get_user_referrals(TEXT, TEXT) TO authenticated, anon;
+
+-- 6. RPC function: get_user_referral_rewards
+CREATE OR REPLACE FUNCTION get_user_referral_rewards(
+  p_referrer_code TEXT,
+  p_referrer_email TEXT
+)
+RETURNS SETOF referral_rewards
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  clean_code TEXT := UPPER(TRIM(COALESCE(p_referrer_code, '')));
+  clean_email TEXT := LOWER(TRIM(COALESCE(p_referrer_email, '')));
+BEGIN
+  RETURN QUERY
+  SELECT *
+  FROM referral_rewards
+  WHERE (
+    (clean_code <> '' AND UPPER(TRIM(referrer_code)) = clean_code)
+    OR (clean_email <> '' AND LOWER(TRIM(referrer_email)) = clean_email)
+  )
+  ORDER BY created_at DESC;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION get_user_referral_rewards(TEXT, TEXT) TO authenticated, anon;
+
+-- 7. RPC function: clear_user_referral_balance
+CREATE OR REPLACE FUNCTION clear_user_referral_balance(
+  p_referrer_code TEXT,
+  p_referrer_email TEXT
+)
+RETURNS TABLE (
+  cleared_count INT,
+  cleared_amount NUMERIC
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  clean_code TEXT := UPPER(TRIM(COALESCE(p_referrer_code, '')));
+  clean_email TEXT := LOWER(TRIM(COALESCE(p_referrer_email, '')));
+  v_count INT := 0;
+  v_amount NUMERIC := 0;
+BEGIN
+  -- Sum available amount
+  SELECT COALESCE(SUM(commission_amount), 0), COUNT(*)
+  INTO v_amount, v_count
+  FROM referral_rewards
+  WHERE status = 'Available'
+    AND (
+      (clean_code <> '' AND UPPER(TRIM(referrer_code)) = clean_code)
+      OR (clean_email <> '' AND LOWER(TRIM(referrer_email)) = clean_email)
+    );
+
+  -- Update status to Paid
+  IF v_count > 0 THEN
+    UPDATE referral_rewards
+    SET status = 'Paid',
+        paid_date = NOW(),
+        updated_at = NOW()
+    WHERE status = 'Available'
+      AND (
+        (clean_code <> '' AND UPPER(TRIM(referrer_code)) = clean_code)
+        OR (clean_email <> '' AND LOWER(TRIM(referrer_email)) = clean_email)
+      );
+  END IF;
+
+  RETURN QUERY SELECT v_count, v_amount;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION clear_user_referral_balance(TEXT, TEXT) TO authenticated, anon;

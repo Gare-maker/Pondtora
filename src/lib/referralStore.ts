@@ -368,7 +368,7 @@ export function getUserReferralStats(user: { id?: string; name?: string; email?:
   });
 
   // Rewards for this user
-  const myRewards = allRewards.filter(r => {
+  let myRewards = allRewards.filter(r => {
     const rRef = (r.referrerCode || "").toUpperCase();
     const rEmail = (r.referrerEmail || "").toLowerCase().trim();
     return (
@@ -377,6 +377,73 @@ export function getUserReferralStats(user: { id?: string; name?: string; email?:
       (cleanEmail && rEmail === cleanEmail)
     );
   });
+
+  // Check if any paid referred user is missing a reward in myRewards
+  let newRewardsAdded = false;
+  referredUsersList.forEach(u => {
+    const uEmail = (u.email || "").toLowerCase().trim();
+    const uRewards = myRewards.filter(r => (r.referredUserEmail || "").toLowerCase().trim() === uEmail);
+    const hasPaid = Boolean(
+      u.hasPaid ||
+      u.paystackReference ||
+      u.lastPaymentDate ||
+      uRewards.length > 0 ||
+      (u.subscriptionStatus && (u.subscriptionStatus.toLowerCase() === "active" || u.subscriptionStatus.toLowerCase() === "paid") && (u.paystackReference || u.lastPaymentDate || u.subscriptionExpiry || uRewards.length > 0))
+    );
+
+    if (hasPaid && uRewards.length === 0) {
+      const planPrice = (typeof u.subscriptionAmount === "number" && u.subscriptionAmount > 0)
+        ? u.subscriptionAmount
+        : getStandardPlanPrice(u.activePlan || "Starter");
+      const commRate = 0.30;
+      const commAmt = Math.round(planPrice * commRate);
+
+      const synthReward: ReferralReward = {
+        id: "ref-rew-" + (u.id ? String(u.id).replace(/[^a-zA-Z0-9]/g, "").slice(-8) : Math.random().toString(36).slice(2, 10)),
+        referrerCode: cleanCode,
+        referrerEmail: user?.email || cleanCode,
+        referredUserId: u.id,
+        referredUserEmail: uEmail,
+        referredUserName: u.name || uEmail.split("@")[0],
+        paymentReference: u.paystackReference || "LIVE-CONFIRMED",
+        planName: u.activePlan || "Starter Plan",
+        paymentAmount: planPrice,
+        paymentType: "first",
+        commissionRate: commRate,
+        commissionAmount: commAmt,
+        status: "Available",
+        createdAt: u.lastPaymentDate || u.createdAt || new Date().toISOString().slice(0, 10),
+      };
+
+      myRewards.unshift(synthReward);
+      allRewards.unshift(synthReward);
+      newRewardsAdded = true;
+
+      // Sync to Supabase asynchronously
+      try {
+        supabase.from("referral_rewards").insert({
+          referrer_code: cleanCode,
+          referrer_email: user?.email || cleanCode,
+          referred_user_id: u.id || null,
+          referred_user_email: uEmail,
+          referred_user_name: u.name || uEmail.split("@")[0],
+          payment_reference: synthReward.paymentReference,
+          plan_name: synthReward.planName,
+          payment_amount: planPrice,
+          payment_type: "first",
+          commission_rate: commRate,
+          commission_amount: commAmt,
+          status: "Available",
+        }).then(() => {}).catch(() => {});
+      } catch {}
+    }
+  });
+
+  if (newRewardsAdded) {
+    try {
+      localStorage.setItem(REFERRALS_STORAGE_KEY, JSON.stringify(allRewards));
+    } catch {}
+  }
 
   const totalEarnings = myRewards.reduce((sum, r) => sum + (r.commissionAmount || 0), 0);
   const availableEarnings = myRewards
@@ -493,10 +560,31 @@ export async function fetchLiveUserReferralStats(user: { id?: string; name?: str
 
   try {
     // 1. Fetch rewards directly from Supabase referral_rewards
-    const { data: dbRewards } = await supabase
-      .from("referral_rewards")
-      .select("*")
-      .or(`referrer_code.ilike.${cleanCode},referrer_email.ilike.${cleanEmail}`);
+    let dbRewards: any[] = [];
+
+    // Try RPC first
+    try {
+      const { data: rpcRewards, error: rpcRewardsErr } = await supabase.rpc("get_user_referral_rewards", {
+        p_referrer_code: cleanCode,
+        p_referrer_email: cleanEmail,
+      });
+      if (!rpcRewardsErr && Array.isArray(rpcRewards)) {
+        dbRewards = rpcRewards;
+      }
+    } catch {}
+
+    // Direct table query fallback
+    if (dbRewards.length === 0) {
+      try {
+        const { data: directRewards } = await supabase
+          .from("referral_rewards")
+          .select("*")
+          .or(`referrer_code.ilike.${cleanCode},referrer_email.ilike.${cleanEmail}`);
+        if (Array.isArray(directRewards)) {
+          dbRewards = directRewards;
+        }
+      } catch {}
+    }
 
     if (Array.isArray(dbRewards) && dbRewards.length > 0) {
       const localRewards = loadAllReferralRewards();
@@ -676,22 +764,26 @@ export async function fetchLiveUserReferralStats(user: { id?: string; name?: str
 }
 
 /**
- * Admin action: marks rewards as paid out to the user
+ * Admin action: marks rewards as paid out to the user and clears their available balance
  */
-export function markReferralRewardsPaid(referrerCodeOrEmail: string): number {
+export async function clearUserReferralBalance(referrerCodeOrEmail: string, referrerId?: string): Promise<{ count: number; amount: number }> {
   const clean = referrerCodeOrEmail.trim().toUpperCase();
   const cleanEmail = referrerCodeOrEmail.toLowerCase().trim();
+  const cleanId = (referrerId || "").trim().toLowerCase();
   const allRewards = loadAllReferralRewards();
 
   let count = 0;
+  let amount = 0;
   const todayStr = new Date().toISOString().slice(0, 10);
 
   const updated = allRewards.map(r => {
-    if (
-      (r.referrerCode.toUpperCase() === clean || (r.referrerEmail || "").toLowerCase().trim() === cleanEmail) &&
-      r.status === "Available"
-    ) {
+    const matchCode = (r.referrerCode || "").toUpperCase() === clean;
+    const matchEmail = (r.referrerEmail || "").toLowerCase().trim() === cleanEmail;
+    const matchId = cleanId && (r.referredUserId || "").toLowerCase() === cleanId;
+
+    if ((matchCode || matchEmail || matchId) && r.status === "Available") {
       count++;
+      amount += (r.commissionAmount || 0);
       return {
         ...r,
         status: "Paid" as const,
@@ -704,23 +796,72 @@ export function markReferralRewardsPaid(referrerCodeOrEmail: string): number {
   if (count > 0) {
     saveAllReferralRewards(updated);
     
-    // Also update Supabase referral_rewards table
+    // 1. Update Supabase via clear_user_referral_balance RPC
     try {
-      supabase
+      await supabase.rpc("clear_user_referral_balance", {
+        p_referrer_code: clean,
+        p_referrer_email: cleanEmail,
+      });
+    } catch {}
+
+    // 2. Fallback direct table update on Supabase referral_rewards table
+    try {
+      await supabase
         .from("referral_rewards")
         .update({ status: "Paid", paid_date: new Date().toISOString() })
         .or(`referrer_code.ilike.${clean},referrer_email.ilike.${cleanEmail}`)
-        .eq("status", "Available")
-        .then(() => {})
-        .catch(() => {});
+        .eq("status", "Available");
     } catch {}
 
     logActivity(
-      "Referral Payout Completed",
+      "Referral Payout Cleared",
       "system",
-      `Paid out ${count} referral rewards for ${referrerCodeOrEmail}`,
+      `Paid out ₦${amount.toLocaleString()} (${count} rewards) to ${referrerCodeOrEmail}`,
       "admin"
     );
+
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("pondtora:referrals_updated"));
+      window.dispatchEvent(new CustomEvent("pondtora:users_updated"));
+    }
+  }
+
+  return { count, amount };
+}
+
+/**
+ * Backward compatibility alias for marking rewards paid
+ */
+export function markReferralRewardsPaid(referrerCodeOrEmail: string, referrerId?: string): number {
+  const clean = referrerCodeOrEmail.trim().toUpperCase();
+  const cleanEmail = referrerCodeOrEmail.toLowerCase().trim();
+  const allRewards = loadAllReferralRewards();
+
+  let count = 0;
+  let amount = 0;
+  const todayStr = new Date().toISOString().slice(0, 10);
+
+  const updated = allRewards.map(r => {
+    if (
+      ((r.referrerCode || "").toUpperCase() === clean || (r.referrerEmail || "").toLowerCase().trim() === cleanEmail) &&
+      r.status === "Available"
+    ) {
+      count++;
+      amount += (r.commissionAmount || 0);
+      return {
+        ...r,
+        status: "Paid" as const,
+        paidDate: todayStr,
+      };
+    }
+    return r;
+  });
+
+  if (count > 0) {
+    saveAllReferralRewards(updated);
+    
+    // Asynchronously sync to Supabase
+    clearUserReferralBalance(referrerCodeOrEmail, referrerId).catch(() => {});
   }
 
   return count;
@@ -740,3 +881,4 @@ if (typeof window !== "undefined") {
     }
   }) as EventListener);
 }
+

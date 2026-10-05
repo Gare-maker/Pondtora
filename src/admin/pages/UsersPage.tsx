@@ -11,7 +11,7 @@ import type { AdminUser, AdminPlan, AccountStatus } from "../types";
 import { fmtDate, trialDaysLeft, fmtMoney, computeSubscriptionStatus, effectivePrice } from "../types";
 import { supabase } from "../../lib/supabase";
 import { isStaffUser } from "../../lib/userSync";
-import { getUserReferralStats, markReferralRewardsPaid } from "../../lib/referralStore";
+import { getUserReferralStats, markReferralRewardsPaid, clearUserReferralBalance } from "../../lib/referralStore";
 import { toast } from "sonner";
 
 function getWhatsAppUrl(phone?: string, name?: string): string | null {
@@ -1086,9 +1086,16 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                           </span>
                         </div>
                         {rStats.totalEarnings > 0 ? (
-                          <span className="text-[10px] text-emerald-700 font-bold">
-                            ₦{rStats.totalEarnings.toLocaleString()} earned
-                          </span>
+                          <div className="flex items-center gap-1 flex-wrap">
+                            <span className="text-[10px] text-emerald-700 font-bold">
+                              ₦{rStats.totalEarnings.toLocaleString()} earned
+                            </span>
+                            {rStats.availableEarnings > 0 && (
+                              <span className="text-[9px] bg-amber-100 text-amber-800 font-bold px-1 py-0.2 rounded" title="Available to cash out">
+                                ₦{rStats.availableEarnings.toLocaleString()} avail.
+                              </span>
+                            )}
+                          </div>
                         ) : (
                           <span className="text-[10px] text-slate-400 font-mono">
                             {rStats.referralCode}
@@ -1670,11 +1677,27 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                               ₦{rStats.totalEarnings.toLocaleString()}
                             </p>
                           </div>
-                          <div className="bg-amber-50/60 border border-amber-200/70 p-2.5 rounded-xl text-center">
-                            <p className="text-[10px] uppercase font-bold text-amber-700">Available Payout</p>
-                            <p className="text-lg font-extrabold text-amber-900 font-['Barlow_Condensed',sans-serif] mt-0.5">
-                              ₦{rStats.availableEarnings.toLocaleString()}
-                            </p>
+                          <div className="bg-amber-50/60 border border-amber-200/70 p-2.5 rounded-xl text-center flex flex-col justify-between">
+                            <div>
+                              <p className="text-[10px] uppercase font-bold text-amber-700">Available Payout</p>
+                              <p className="text-lg font-extrabold text-amber-900 font-['Barlow_Condensed',sans-serif] mt-0.5">
+                                ₦{rStats.availableEarnings.toLocaleString()}
+                              </p>
+                            </div>
+                            {rStats.availableEarnings > 0 && (
+                              <button
+                                onClick={async (e) => {
+                                  e.stopPropagation();
+                                  if (window.confirm(`Clear available referral balance of ₦${rStats.availableEarnings.toLocaleString()} for ${viewUser.name || viewUser.email} (paid via bank transfer)?`)) {
+                                    const res = await clearUserReferralBalance(rStats.referralCode || viewUser.email || "", viewUser.id);
+                                    toast.success(`Cleared ₦${res.amount.toLocaleString()} available referral balance!`);
+                                  }
+                                }}
+                                className="mt-1.5 w-full py-1 px-1.5 bg-amber-600 hover:bg-amber-700 text-white font-bold text-[10px] rounded-lg transition-colors shadow-xs"
+                              >
+                                Clear Balance (Paid)
+                              </button>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -1729,16 +1752,23 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                               <p className="text-xl font-extrabold text-amber-900 font-['Barlow_Condensed',sans-serif] mt-0.5">
                                 ₦{rStats.availableEarnings.toLocaleString()}
                               </p>
+                              {rStats.paidOutEarnings > 0 && (
+                                <p className="text-[10px] text-slate-500 mt-0.5">
+                                  (₦{rStats.paidOutEarnings.toLocaleString()} previously settled)
+                                </p>
+                              )}
                             </div>
                             {rStats.availableEarnings > 0 && (
                               <button
-                                onClick={() => {
-                                  const paidCount = markReferralRewardsPaid(rStats.referralCode || viewUser.email || "");
-                                  toast.success(`Marked ${paidCount} referral commission reward(s) as Paid!`);
+                                onClick={async () => {
+                                  if (window.confirm(`Confirm payment of ₦${rStats.availableEarnings.toLocaleString()} to ${viewUser.name || viewUser.email} via bank transfer and clear their available balance?`)) {
+                                    const res = await clearUserReferralBalance(rStats.referralCode || viewUser.email || "", viewUser.id);
+                                    toast.success(`Cleared ₦${res.amount.toLocaleString()} (${res.count} reward${res.count !== 1 ? "s" : ""}) available referral balance!`);
+                                  }
                                 }}
-                                className="mt-2 w-full py-1 px-2 bg-amber-600 hover:bg-amber-700 text-white font-bold text-[11px] rounded-lg transition-colors shadow-xs"
+                                className="mt-2 w-full py-1.5 px-2 bg-amber-600 hover:bg-amber-700 text-white font-bold text-[11px] rounded-lg transition-colors shadow-xs flex items-center justify-center gap-1"
                               >
-                                Mark Commission Paid
+                                <CheckCircle size={12} /> Clear Balance (Mark Paid)
                               </button>
                             )}
                           </div>
