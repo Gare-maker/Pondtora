@@ -26,14 +26,14 @@ export async function getAuthUserId(): Promise<string | null> {
 
 /**
  * Returns the canonical application URL.
- * Defaults to the production domain (https://pondtora.site) or VITE_APP_URL.
+ * Defaults to the production domain (https://pondtora.com) or VITE_APP_URL.
  * If running on localhost or loopback, it ALWAYS returns the production domain
- * (https://pondtora.site) so that links sent via email (password reset, staff invitations,
+ * (https://pondtora.com) so that links sent via email (password reset, staff invitations,
  * account verification, assessments) always link to the live domain and never to localhost.
  */
 export function getAppUrl(): string {
   const envUrl = (typeof import.meta !== "undefined" && import.meta.env?.VITE_APP_URL) as string | undefined;
-  const canonicalDomain = (envUrl && envUrl.trim()) || "https://pondtora.site";
+  const canonicalDomain = (envUrl && envUrl.trim()) || "https://pondtora.com";
 
   if (typeof window === "undefined") {
     return canonicalDomain.replace(/\/+$/, "");

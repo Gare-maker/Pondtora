@@ -397,7 +397,7 @@ app.post(`${P}/staff-members/invite`, async (c) => {
 
   let staffAuthId: string | null = null;
   let inviteError = null;
-  const baseAppUrl = (appUrl || "https://pondtora.site").replace(/\/+$/, "");
+  const baseAppUrl = (appUrl || "https://pondtora.com").replace(/\/+$/, "");
   const redirectTo = `${baseAppUrl}/create-password`;
 
   if (SVC_KEY()) {
@@ -549,7 +549,7 @@ app.post(`${P}/staff-members/resend-invite`, async (c) => {
   if (!email) return c.json({ error: "Email is required" }, 400);
   const svc = adminDb();
   const cleanEmail = email.trim().toLowerCase();
-  const baseAppUrl = (appUrl || "https://pondtora.site").replace(/\/+$/, "");
+  const baseAppUrl = (appUrl || "https://pondtora.com").replace(/\/+$/, "");
   const redirectTo = `${baseAppUrl}/create-password`;
 
   let emailSent = false;
