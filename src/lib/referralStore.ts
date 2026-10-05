@@ -54,17 +54,19 @@ export interface ReferralStats {
 }
 
 /**
- * Generates a clean, readable referral code from user name or email and ID
+ * Generates a clean, readable referral code from user name or email and ID (deterministic)
  */
 export function generateReferralCode(name?: string, email?: string, id?: string): string {
-  const base = (name || email?.split("@")[0] || "USER")
+  const base = (name || email?.split("@")[0] || "FARM")
     .replace(/[^a-zA-Z0-9]/g, "")
     .toUpperCase()
     .slice(0, 6);
-  const suffix = (id || Math.random().toString(36).slice(2, 6))
-    .replace(/[^a-zA-Z0-9]/g, "")
-    .slice(-4)
-    .toUpperCase();
+  let hash = 0;
+  const str = (id || email || name || "1001").toLowerCase();
+  for (let i = 0; i < str.length; i++) {
+    hash = (hash * 31 + str.charCodeAt(i)) % 10000;
+  }
+  const suffix = (id ? id.replace(/[^a-zA-Z0-9]/g, "").slice(-4).toUpperCase() : String(Math.abs(hash)).padStart(4, "0"));
   return `${base || "FARM"}-${suffix || "1001"}`;
 }
 
@@ -74,16 +76,33 @@ export function generateReferralCode(name?: string, email?: string, id?: string)
 export function getUserReferralCode(user: { id?: string; name?: string; email?: string; referralCode?: string } | null): string {
   if (!user) return "PONDTORA-REF";
   if (user.referralCode && user.referralCode.trim()) return user.referralCode.trim().toUpperCase();
+  if ((user as any)?.referral_code && String((user as any).referral_code).trim()) return String((user as any).referral_code).trim().toUpperCase();
+
+  const cleanEmail = (user.email || "").toLowerCase().trim();
+  
+  // Check localStorage cache
+  try {
+    const cachedCode = localStorage.getItem(`pondtora_${cleanEmail}_ref_code`) || localStorage.getItem("pondtora_user_referral_code");
+    if (cachedCode && cachedCode.trim()) return cachedCode.trim().toUpperCase();
+  } catch {}
 
   // Check in AdminUsers list
-  const cleanEmail = (user.email || "").toLowerCase().trim();
   const allUsers = loadAllAdminUsers();
-  const found = allUsers.find(u => (u.email || "").toLowerCase().trim() === cleanEmail);
+  const found = allUsers.find(u => (u.email || "").toLowerCase().trim() === cleanEmail || (user.id && u.id === user.id));
   if ((found as any)?.referralCode) {
     return (found as any).referralCode;
   }
+  if ((found as any)?.referral_code) {
+    return (found as any).referral_code;
+  }
 
   const generated = generateReferralCode(user.name, user.email, user.id);
+  
+  try {
+    if (cleanEmail) localStorage.setItem(`pondtora_${cleanEmail}_ref_code`, generated);
+    localStorage.setItem("pondtora_user_referral_code", generated);
+  } catch {}
+
   // Persist code if admin user exists
   if (found) {
     (found as any).referralCode = generated;
@@ -356,26 +375,84 @@ export function getUserReferralStats(user: { id?: string; name?: string; email?:
   const allUsers = loadAllAdminUsers();
   const allRewards = loadAllReferralRewards();
 
-  // Find all users referred by this user
-  const referredUsersList = allUsers.filter(u => {
-    const refBy = (((u as any).referredBy || (u as any).referred_by || "") as string).trim().toUpperCase();
-    if (!refBy) return false;
-    return (
-      refBy === cleanCode ||
-      (cleanEmail && refBy === cleanEmail.toUpperCase()) ||
-      (userId && refBy === userId)
-    );
-  });
+  // Collect all possible referral codes / aliases for this user
+  const userRefCodes = new Set<string>();
+  if (cleanCode) userRefCodes.add(cleanCode);
+  if (user?.referralCode) userRefCodes.add(user.referralCode.trim().toUpperCase());
+  if ((user as any)?.referral_code) userRefCodes.add(String((user as any).referral_code).trim().toUpperCase());
+  if (cleanEmail) {
+    userRefCodes.add(cleanEmail.toUpperCase());
+    userRefCodes.add(cleanEmail);
+  }
+  if (userId) {
+    userRefCodes.add(userId);
+    userRefCodes.add(userId.toLowerCase());
+  }
+  if (user?.name) userRefCodes.add(user.name.trim().toUpperCase());
+
+  try {
+    const c1 = localStorage.getItem(`pondtora_${cleanEmail}_ref_code`);
+    if (c1) userRefCodes.add(c1.trim().toUpperCase());
+    const c2 = localStorage.getItem("pondtora_user_referral_code");
+    if (c2) userRefCodes.add(c2.trim().toUpperCase());
+  } catch {}
+
+  const foundAdminUser = allUsers.find(u => (u.email || "").toLowerCase().trim() === cleanEmail || (userId && u.id.toUpperCase() === userId));
+  if ((foundAdminUser as any)?.referralCode) userRefCodes.add(String((foundAdminUser as any).referralCode).trim().toUpperCase());
+  if ((foundAdminUser as any)?.referral_code) userRefCodes.add(String((foundAdminUser as any).referral_code).trim().toUpperCase());
 
   // Rewards for this user
   let myRewards = allRewards.filter(r => {
     const rRef = (r.referrerCode || "").toUpperCase();
     const rEmail = (r.referrerEmail || "").toLowerCase().trim();
     return (
-      rRef === cleanCode ||
-      (userId && rRef === userId) ||
-      (cleanEmail && rEmail === cleanEmail)
+      userRefCodes.has(rRef) ||
+      (userId && (rRef === userId || rRef === userId.toLowerCase())) ||
+      (cleanEmail && rEmail === cleanEmail) ||
+      (cleanEmail && rRef === cleanEmail.toUpperCase()) ||
+      Array.from(userRefCodes).some(c => c && rRef.includes(c))
     );
+  });
+
+  // Find all users referred by this user from AdminUsers
+  const referredUsersList = allUsers.filter(u => {
+    const refBy = (((u as any).referredBy || (u as any).referred_by || "") as string).trim().toUpperCase();
+    if (!refBy) return false;
+    return (
+      userRefCodes.has(refBy) ||
+      (cleanEmail && refBy === cleanEmail.toUpperCase()) ||
+      (userId && (refBy === userId || refBy === userId.toLowerCase())) ||
+      Array.from(userRefCodes).some(c => c && (refBy.includes(c) || c.includes(refBy)))
+    );
+  });
+
+  // Ensure any referred user recorded in myRewards is present in referredUsersList
+  const existingReferredEmails = new Set(referredUsersList.map(u => (u.email || "").toLowerCase().trim()));
+  myRewards.forEach(r => {
+    const rEmail = (r.referredUserEmail || "").toLowerCase().trim();
+    if (rEmail && !existingReferredEmails.has(rEmail)) {
+      existingReferredEmails.add(rEmail);
+      referredUsersList.push({
+        id: r.referredUserId || "usr-" + rEmail.replace(/[^a-zA-Z0-9]/g, "").slice(0, 10),
+        name: r.referredUserName || rEmail.split("@")[0] || "Farmer",
+        email: rEmail,
+        farmName: (r as any).farmName || "Primary Farm",
+        phone: "",
+        city: "Lagos",
+        state: "Lagos",
+        country: "Nigeria",
+        role: "owner",
+        activePlan: r.planName || "Starter",
+        billingFrequency: "monthly",
+        subscriptionStatus: "Active",
+        hasPaid: true,
+        trialStartDate: r.createdAt,
+        paystackReference: r.paymentReference,
+        lastPaymentDate: r.createdAt,
+        referredBy: cleanCode,
+        createdAt: r.createdAt || new Date().toISOString().slice(0, 10),
+      });
+    }
   });
 
   // Check if any paid referred user is missing a reward in myRewards
@@ -558,6 +635,27 @@ export async function fetchLiveUserReferralStats(user: { id?: string; name?: str
   const cleanEmail = (user?.email || "").toLowerCase().trim();
   const userId = (user?.id || "").toLowerCase();
 
+  const userRefCodes = new Set<string>();
+  if (cleanCode) userRefCodes.add(cleanCode);
+  if (user?.referralCode) userRefCodes.add(user.referralCode.trim().toUpperCase());
+  if ((user as any)?.referral_code) userRefCodes.add(String((user as any).referral_code).trim().toUpperCase());
+  if (cleanEmail) {
+    userRefCodes.add(cleanEmail.toUpperCase());
+    userRefCodes.add(cleanEmail);
+  }
+  if (userId) {
+    userRefCodes.add(userId);
+    userRefCodes.add(userId.toUpperCase());
+  }
+  if (user?.name) userRefCodes.add(user.name.trim().toUpperCase());
+
+  try {
+    const c1 = localStorage.getItem(`pondtora_${cleanEmail}_ref_code`);
+    if (c1) userRefCodes.add(c1.trim().toUpperCase());
+    const c2 = localStorage.getItem("pondtora_user_referral_code");
+    if (c2) userRefCodes.add(c2.trim().toUpperCase());
+  } catch {}
+
   try {
     // 1. Fetch rewards directly from Supabase referral_rewards
     let dbRewards: any[] = [];
@@ -576,12 +674,20 @@ export async function fetchLiveUserReferralStats(user: { id?: string; name?: str
     // Direct table query fallback
     if (dbRewards.length === 0) {
       try {
-        const { data: directRewards } = await supabase
-          .from("referral_rewards")
-          .select("*")
-          .or(`referrer_code.ilike.${cleanCode},referrer_email.ilike.${cleanEmail}`);
-        if (Array.isArray(directRewards)) {
-          dbRewards = directRewards;
+        const rewardOrClauses: string[] = [];
+        userRefCodes.forEach(c => {
+          if (c) rewardOrClauses.push(`referrer_code.ilike.${c}`);
+        });
+        if (cleanEmail) rewardOrClauses.push(`referrer_email.ilike.${cleanEmail}`);
+
+        if (rewardOrClauses.length > 0) {
+          const { data: directRewards } = await supabase
+            .from("referral_rewards")
+            .select("*")
+            .or(rewardOrClauses.join(","));
+          if (Array.isArray(directRewards)) {
+            dbRewards = directRewards;
+          }
         }
       } catch {}
     }
@@ -634,15 +740,24 @@ export async function fetchLiveUserReferralStats(user: { id?: string; name?: str
       }
     } catch {}
 
-    // Fallback to direct query if RPC not present
+    // Fallback direct query on user_profiles
     if (dbReferredProfiles.length === 0) {
       try {
-        const { data: directProfiles } = await supabase
-          .from("user_profiles")
-          .select("*")
-          .or(`referred_by.ilike.${cleanCode},referred_by.ilike.${cleanEmail}${userId ? `,referred_by.eq.${userId}` : ""}`);
-        if (Array.isArray(directProfiles)) {
-          dbReferredProfiles = directProfiles;
+        const orClauses: string[] = [];
+        userRefCodes.forEach(c => {
+          if (c) orClauses.push(`referred_by.ilike.${c}`);
+        });
+        if (cleanEmail) orClauses.push(`referred_by.ilike.${cleanEmail}`);
+        if (userId) orClauses.push(`referred_by.eq.${userId}`);
+
+        if (orClauses.length > 0) {
+          const { data: directProfiles } = await supabase
+            .from("user_profiles")
+            .select("*")
+            .or(orClauses.join(","));
+          if (Array.isArray(directProfiles) && directProfiles.length > 0) {
+            dbReferredProfiles = directProfiles;
+          }
         }
       } catch {}
     }

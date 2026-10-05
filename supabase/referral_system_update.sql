@@ -108,8 +108,8 @@ BEGIN
     p.referred_by
   FROM user_profiles p
   WHERE (
-    (clean_code <> '' AND UPPER(TRIM(COALESCE(p.referred_by, ''))) = clean_code)
-    OR (clean_email <> '' AND LOWER(TRIM(COALESCE(p.referred_by, ''))) = clean_email)
+    (clean_code <> '' AND (UPPER(TRIM(COALESCE(p.referred_by, ''))) = clean_code OR UPPER(TRIM(COALESCE(p.referred_by, ''))) LIKE clean_code || '%'))
+    OR (clean_email <> '' AND (LOWER(TRIM(COALESCE(p.referred_by, ''))) = clean_email OR LOWER(TRIM(COALESCE(p.referred_by, ''))) LIKE clean_email || '%'))
   )
   ORDER BY p.created_at DESC;
 END;
@@ -135,8 +135,8 @@ BEGIN
   SELECT *
   FROM referral_rewards
   WHERE (
-    (clean_code <> '' AND UPPER(TRIM(referrer_code)) = clean_code)
-    OR (clean_email <> '' AND LOWER(TRIM(referrer_email)) = clean_email)
+    (clean_code <> '' AND (UPPER(TRIM(referrer_code)) = clean_code OR UPPER(TRIM(referrer_code)) LIKE clean_code || '%'))
+    OR (clean_email <> '' AND (LOWER(TRIM(referrer_email)) = clean_email OR LOWER(TRIM(referrer_email)) LIKE clean_email || '%'))
   )
   ORDER BY created_at DESC;
 END;
