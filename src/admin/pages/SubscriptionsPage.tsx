@@ -3,7 +3,7 @@ import { Search, Edit2, Gift, CreditCard, Sparkles, CheckCircle, Clock, DollarSi
 import { Card, Bdg, PBtn, Pagination, PER_PAGE, Modal, F, IC, SC, DateInput, ToggleCard, ToggleSwitch, toDateInputValue, getTodayDateStr, addDurationToDate } from "../../app/shared";
 import type { AdminUser, AdminPlan } from "../types";
 import { fmtDate, trialDaysLeft, fmtMoney, computeSubscriptionStatus, effectivePrice } from "../types";
-import { isStaffUser, clearAllPaymentDataInDbAndStorage, loadAllAdminUsers } from "../../lib/userSync";
+import { isStaffUser, clearAllPaymentDataInDbAndStorage, loadAllAdminUsers, isValidPaystackRef } from "../../lib/userSync";
 import { toast } from "sonner";
 
 interface Props {
@@ -51,7 +51,7 @@ export default function SubscriptionsPage({ users, plans, onUpdate }: Props) {
     let freeCount = 0;
 
     customerUsers.forEach(u => {
-      const isPaid = Boolean(u.hasPaid || u.paystackReference || u.lastPaymentDate) && !u.freeAccess;
+      const isPaid = Boolean(!u.freeAccess && u.hasPaid && isValidPaystackRef(u.paystackReference));
       if (isPaid) {
         paidCount++;
         const amt = typeof u.subscriptionAmount === "number" && u.subscriptionAmount > 0
@@ -60,7 +60,7 @@ export default function SubscriptionsPage({ users, plans, onUpdate }: Props) {
         totalRevenueCollected += Number(amt) || 0;
       } else if (u.freeAccess) {
         freeCount++;
-      } else if (u.subscriptionStatus === "Trial") {
+      } else if (u.subscriptionStatus === "Trial" || !u.subscriptionStatus) {
         trialCount++;
       }
     });
@@ -78,7 +78,7 @@ export default function SubscriptionsPage({ users, plans, onUpdate }: Props) {
     let list = [...customerUsers];
 
     if (filter === "Paid") {
-      list = list.filter(u => (u.hasPaid || u.paystackReference || u.lastPaymentDate) && !u.freeAccess);
+      list = list.filter(u => !u.freeAccess && u.hasPaid && isValidPaystackRef(u.paystackReference));
     } else if (filter === "Free Access") {
       list = list.filter(u => u.freeAccess);
     } else if (filter !== "All") {

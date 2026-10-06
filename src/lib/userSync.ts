@@ -80,6 +80,56 @@ function getFallbackPlanPrice(planTarget: string, freq: BillingFrequency): numbe
   return freq === "yearly" ? matched.yearlyPrice : matched.monthlyPrice;
 }
 
+export function isValidPaystackRef(ref: any): boolean {
+  if (!ref || typeof ref !== "string") return false;
+  const cleaned = ref.trim();
+  if (!cleaned) return false;
+  const lower = cleaned.toLowerCase();
+  if (
+    lower === "live-confirmed" ||
+    lower === "verified offline/admin" ||
+    lower === "offline" ||
+    lower === "admin" ||
+    lower === "test" ||
+    lower === "null" ||
+    lower === "undefined" ||
+    lower === "none"
+  ) {
+    return false;
+  }
+  return cleaned.length >= 6;
+}
+
+// Automatic initial clean-up of legacy mock payments from storage
+(function autoSanitizeStorage() {
+  try {
+    if (typeof window === "undefined" || !window.localStorage) return;
+    const overridesRaw = localStorage.getItem("pondtora_admin_user_overrides");
+    if (overridesRaw) {
+      try {
+        const parsed = JSON.parse(overridesRaw);
+        if (parsed && typeof parsed === "object") {
+          let modified = false;
+          for (const k of Object.keys(parsed)) {
+            const itm = parsed[k];
+            if (itm && (itm.hasPaid || !isValidPaystackRef(itm.paystackReference))) {
+              itm.hasPaid = false;
+              itm.paystackReference = null;
+              itm.lastPaymentDate = null;
+              itm.subscriptionAmount = null;
+              if (!itm.freeAccess) itm.subscriptionStatus = "Trial";
+              modified = true;
+            }
+          }
+          if (modified) {
+            localStorage.setItem("pondtora_admin_user_overrides", JSON.stringify(parsed));
+          }
+        }
+      } catch {}
+    }
+  } catch {}
+})();
+
 export function loadAllAdminUsers(): AdminUser[] {
   try {
     const raw = localStorage.getItem(USERS_STORAGE_KEY);
@@ -88,10 +138,21 @@ export function loadAllAdminUsers(): AdminUser[] {
       if (Array.isArray(parsed) && parsed.length > 0) {
         return parsed
           .filter(u => u && typeof u === "object" && typeof u.id === "string" && !isStaffUser(u))
-          .map(u => ({
-            ...u,
-            subscriptionStatus: computeSubscriptionStatus(u),
-          }));
+          .map(u => {
+            const hasValidRef = isValidPaystackRef(u.paystackReference);
+            const isFree = Boolean(u.freeAccess);
+            const hasPaid = Boolean(!isFree && hasValidRef);
+            const cleanUser: AdminUser = {
+              ...u,
+              hasPaid,
+              paystackReference: hasValidRef ? u.paystackReference : null,
+              lastPaymentDate: hasPaid ? u.lastPaymentDate : null,
+              subscriptionAmount: hasPaid ? u.subscriptionAmount : null,
+              subscriptionExpiry: hasPaid ? u.subscriptionExpiry : null,
+              subscriptionStatus: isFree ? "Active" : (hasPaid ? "Active" : (u.subscriptionStatus === "Expired" ? "Expired" : "Trial")),
+            };
+            return cleanUser;
+          });
       }
     }
   } catch {}
@@ -175,22 +236,18 @@ export async function fetchLiveAdminUsers(): Promise<{
         );
         const override = globalOverrides[pEmail] || (p.id ? globalOverrides[p.id] : null);
 
-        const rawStatus = (p.subscription_status || override?.subscriptionStatus || local?.subscriptionStatus || "").trim();
-        const hasPaid = Boolean(
-          !p.free_access &&
-          !override?.freeAccess &&
-          ((p.paystack_reference && p.paystack_reference.trim() !== "") ||
-           (override?.paystackReference && override.paystackReference.trim() !== ""))
-        );
+        const hasValidRef = isValidPaystackRef(p.paystack_reference) || isValidPaystackRef(override?.paystackReference);
+        const isFree = Boolean(p.free_access || override?.freeAccess);
+        const hasPaid = Boolean(!isFree && hasValidRef);
 
         const roleStr = (p.role || override?.role || local?.role || "owner").toLowerCase().trim();
         const activePlan = override?.activePlan || p.active_plan || local?.activePlan || "Starter";
         const billingFreq = (override?.billingFrequency || p.billing_frequency || local?.billingFrequency || "monthly") as BillingFrequency;
 
-        let subAmount = parseAmount(override?.subscriptionAmount) ??
+        let subAmount = hasPaid ? (parseAmount(override?.subscriptionAmount) ??
           parseAmount(p.subscription_amount) ??
           parseAmount(p.raw_data?.subscription_amount) ??
-          parseAmount(local?.subscriptionAmount);
+          parseAmount(local?.subscriptionAmount)) : null;
 
         // If user is paid but amount not explicitly in DB, resolve from plan price
         if (hasPaid && (!subAmount || subAmount <= 0)) {
@@ -324,21 +381,17 @@ export async function fetchLiveAdminUsers(): Promise<{
           const userInvoices = rawInvoices.filter((inv: any) => inv.user_id === p.id);
           const invoicesCount = userInvoices.length || local?.invoicesCount || 0;
 
-          const rawStatus = (p.subscription_status || override?.subscriptionStatus || local?.subscriptionStatus || "").trim();
-          const hasPaid = Boolean(
-            !p.free_access &&
-            !override?.freeAccess &&
-            ((p.paystack_reference && p.paystack_reference.trim() !== "") ||
-             (override?.paystackReference && override.paystackReference.trim() !== ""))
-          );
+          const hasValidRef = isValidPaystackRef(p.paystack_reference) || isValidPaystackRef(override?.paystackReference);
+          const isFree = Boolean(p.free_access || p.raw_data?.free_access || override?.freeAccess || local?.freeAccess);
+          const hasPaid = Boolean(!isFree && hasValidRef);
 
           const activePlan = override?.activePlan || p.active_plan || local?.activePlan || "Starter";
           const billingFreq = (override?.billingFrequency || p.billing_frequency || local?.billingFrequency || "monthly") as BillingFrequency;
 
-          let subAmount = parseAmount(override?.subscriptionAmount) ??
+          let subAmount = hasPaid ? (parseAmount(override?.subscriptionAmount) ??
             parseAmount(p.subscription_amount) ??
             parseAmount(p.raw_data?.subscription_amount) ??
-            parseAmount(local?.subscriptionAmount);
+            parseAmount(local?.subscriptionAmount)) : null;
 
           if (hasPaid && (!subAmount || subAmount <= 0)) {
             const planTarget = activePlan.toLowerCase().trim();
