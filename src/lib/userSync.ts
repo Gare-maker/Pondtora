@@ -100,36 +100,6 @@ export function isValidPaystackRef(ref: any): boolean {
   return cleaned.length >= 6;
 }
 
-// Automatic initial clean-up of legacy mock payments from storage
-(function autoSanitizeStorage() {
-  try {
-    if (typeof window === "undefined" || !window.localStorage) return;
-    const overridesRaw = localStorage.getItem("pondtora_admin_user_overrides");
-    if (overridesRaw) {
-      try {
-        const parsed = JSON.parse(overridesRaw);
-        if (parsed && typeof parsed === "object") {
-          let modified = false;
-          for (const k of Object.keys(parsed)) {
-            const itm = parsed[k];
-            if (itm && (itm.hasPaid || !isValidPaystackRef(itm.paystackReference))) {
-              itm.hasPaid = false;
-              itm.paystackReference = null;
-              itm.lastPaymentDate = null;
-              itm.subscriptionAmount = null;
-              if (!itm.freeAccess) itm.subscriptionStatus = "Trial";
-              modified = true;
-            }
-          }
-          if (modified) {
-            localStorage.setItem("pondtora_admin_user_overrides", JSON.stringify(parsed));
-          }
-        }
-      } catch {}
-    }
-  } catch {}
-})();
-
 export function loadAllAdminUsers(): AdminUser[] {
   try {
     const raw = localStorage.getItem(USERS_STORAGE_KEY);
@@ -138,21 +108,10 @@ export function loadAllAdminUsers(): AdminUser[] {
       if (Array.isArray(parsed) && parsed.length > 0) {
         return parsed
           .filter(u => u && typeof u === "object" && typeof u.id === "string" && !isStaffUser(u))
-          .map(u => {
-            const hasValidRef = isValidPaystackRef(u.paystackReference);
-            const isFree = Boolean(u.freeAccess);
-            const hasPaid = Boolean(!isFree && hasValidRef);
-            const cleanUser: AdminUser = {
-              ...u,
-              hasPaid,
-              paystackReference: hasValidRef ? u.paystackReference : null,
-              lastPaymentDate: hasPaid ? u.lastPaymentDate : null,
-              subscriptionAmount: hasPaid ? u.subscriptionAmount : null,
-              subscriptionExpiry: hasPaid ? u.subscriptionExpiry : null,
-              subscriptionStatus: isFree ? "Active" : (hasPaid ? "Active" : (u.subscriptionStatus === "Expired" ? "Expired" : "Trial")),
-            };
-            return cleanUser;
-          });
+          .map(u => ({
+            ...u,
+            subscriptionStatus: computeSubscriptionStatus(u),
+          }));
       }
     }
   } catch {}

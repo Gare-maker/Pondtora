@@ -412,13 +412,21 @@ export default function AdminApp({ onExit }: { onExit?: () => void } = {}) {
     setPage("dashboard");
   }, []);
 
-  function handleUpdateUser(u: AdminUser) {
+  async function handleUpdateUser(u: AdminUser) {
+    const cleanEmail = (u.email || "").toLowerCase().trim();
     setUsers(prev => {
-      const next = prev.map(x => (x.id === u.id ? u : x));
+      const next = prev.map(x => {
+        const xEmail = (x.email || "").toLowerCase().trim();
+        return (x.id === u.id || (cleanEmail && xEmail === cleanEmail)) ? u : x;
+      });
       saveAllAdminUsers(next);
       return next;
     });
-    updateAdminUserInDb(u).catch(console.warn);
+    try {
+      await updateAdminUserInDb(u);
+    } catch (err) {
+      console.warn("Error persisting user update to DB:", err);
+    }
     logAction("User Profile Updated", "user", `Updated account details for ${u.name} (${u.email})`);
   }
 
