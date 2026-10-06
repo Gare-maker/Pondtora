@@ -6741,7 +6741,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
           if (resolvedPlan) setActivePlan(resolvedPlan);
           if (resolvedTrialStart) setTrialStartDate(resolvedTrialStart);
 
-          setUserProfile({
+          const userObj = {
             id: session.user.id,
             name: prof?.name || staffMemberRecord?.name || meta.name || session.user.email?.split("@")[0] || "User",
             farmName: prof?.farm_name || meta.farm_name || "My Fish Farm",
@@ -6768,7 +6768,9 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
             lastPaymentDate: resolvedLastPayment,
             referralCode: prof?.referral_code || meta.referral_code || meta.referralCode || (prof as any)?.referralCode,
             referredBy: prof?.referred_by || meta.referred_by || meta.referredBy || (prof as any)?.referredBy,
-          });
+          };
+          setUserProfile(userObj);
+          fetchLiveUserReferralStats(userObj).catch(() => {});
           if(meta.active_farm_id){
             setActiveFarmId(meta.active_farm_id);
           }
@@ -7011,6 +7013,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
           return newProfile;
         });
         syncUserProfileToAdmin(newProfile, activePlanStr, 1);
+        fetchLiveUserReferralStats(newProfile).catch(() => {});
         if(meta.active_farm_id){
           setActiveFarmId(meta.active_farm_id);
         }

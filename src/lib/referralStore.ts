@@ -57,14 +57,16 @@ export interface ReferralStats {
  * Generates a clean, readable referral code from user name or email and ID (deterministic)
  */
 export function generateReferralCode(name?: string, email?: string, id?: string): string {
-  const base = (name || email?.split("@")[0] || "FARM")
-    .replace(/[^a-zA-Z0-9]/g, "")
-    .toUpperCase()
-    .slice(0, 6);
+  const cleanEmail = (email || "").toLowerCase().trim();
+  const emailPrefix = cleanEmail ? cleanEmail.split("@")[0].replace(/[^a-zA-Z0-9]/g, "").toUpperCase().slice(0, 6) : "";
+  const namePrefix = (name || "").replace(/[^a-zA-Z0-9]/g, "").toUpperCase().slice(0, 6);
+  const base = emailPrefix || namePrefix || "FARM";
+
+  // Use email or id as fixed seed so the code is 100% consistent across all devices & browsers
+  const seed = (cleanEmail || id || name || "1001").toLowerCase();
   let hash = 0;
-  const str = (id || email || name || "1001").toLowerCase();
-  for (let i = 0; i < str.length; i++) {
-    hash = (hash * 31 + str.charCodeAt(i)) % 10000;
+  for (let i = 0; i < seed.length; i++) {
+    hash = (hash * 31 + seed.charCodeAt(i)) % 10000;
   }
   const suffix = (id ? id.replace(/[^a-zA-Z0-9]/g, "").slice(-4).toUpperCase() : String(Math.abs(hash)).padStart(4, "0"));
   return `${base || "FARM"}-${suffix || "1001"}`;
@@ -82,18 +84,18 @@ export function getUserReferralCode(user: { id?: string; name?: string; email?: 
   
   // Check localStorage cache
   try {
-    const cachedCode = localStorage.getItem(`pondtora_${cleanEmail}_ref_code`) || localStorage.getItem("pondtora_user_referral_code");
+    const cachedCode = (cleanEmail ? localStorage.getItem(`pondtora_${cleanEmail}_ref_code`) : null) || localStorage.getItem("pondtora_user_referral_code");
     if (cachedCode && cachedCode.trim()) return cachedCode.trim().toUpperCase();
   } catch {}
 
   // Check in AdminUsers list
   const allUsers = loadAllAdminUsers();
   const found = allUsers.find(u => (u.email || "").toLowerCase().trim() === cleanEmail || (user.id && u.id === user.id));
-  if ((found as any)?.referralCode) {
-    return (found as any).referralCode;
+  if ((found as any)?.referralCode && String((found as any).referralCode).trim()) {
+    return String((found as any).referralCode).trim().toUpperCase();
   }
-  if ((found as any)?.referral_code) {
-    return (found as any).referral_code;
+  if ((found as any)?.referral_code && String((found as any).referral_code).trim()) {
+    return String((found as any).referral_code).trim().toUpperCase();
   }
 
   const generated = generateReferralCode(user.name, user.email, user.id);
@@ -374,22 +376,31 @@ export function getUserReferralStats(user: { id?: string; name?: string; email?:
   const code = getUserReferralCode(user);
   const cleanCode = code.toUpperCase().trim();
   const cleanEmail = (user?.email || "").toLowerCase().trim();
-  const userId = (user?.id || "").toUpperCase().trim();
+  const userId = (user?.id || "").trim();
 
   const allUsers = loadAllAdminUsers();
   const allRewards = loadAllReferralRewards();
 
-  // ONLY collect specific, unique identifiers for THIS user (NO first names, NO fuzzy substring matching)
+  // ONLY collect specific, unique identifiers for THIS user across all possible aliases
   const userRefCodes = new Set<string>();
   if (cleanCode) userRefCodes.add(cleanCode);
   if (user?.referralCode && user.referralCode.trim()) userRefCodes.add(user.referralCode.trim().toUpperCase());
   if ((user as any)?.referral_code && String((user as any).referral_code).trim()) userRefCodes.add(String((user as any).referral_code).trim().toUpperCase());
+  
+  const codeFromEmail = generateReferralCode(undefined, cleanEmail, userId);
+  if (codeFromEmail) userRefCodes.add(codeFromEmail.toUpperCase());
+  if (user?.name) {
+    const codeFromName = generateReferralCode(user.name, cleanEmail, userId);
+    if (codeFromName) userRefCodes.add(codeFromName.toUpperCase());
+  }
+
   if (cleanEmail) {
     userRefCodes.add(cleanEmail.toUpperCase());
     userRefCodes.add(cleanEmail);
   }
   if (userId) {
     userRefCodes.add(userId);
+    userRefCodes.add(userId.toUpperCase());
     userRefCodes.add(userId.toLowerCase());
   }
 
@@ -398,9 +409,11 @@ export function getUserReferralStats(user: { id?: string; name?: string; email?:
       const c1 = localStorage.getItem(`pondtora_${cleanEmail}_ref_code`);
       if (c1 && c1.trim()) userRefCodes.add(c1.trim().toUpperCase());
     }
+    const c2 = localStorage.getItem("pondtora_user_referral_code");
+    if (c2 && c2.trim()) userRefCodes.add(c2.trim().toUpperCase());
   } catch {}
 
-  const foundAdminUser = allUsers.find(u => (u.email || "").toLowerCase().trim() === cleanEmail || (userId && u.id && u.id.toUpperCase() === userId));
+  const foundAdminUser = allUsers.find(u => (u.email || "").toLowerCase().trim() === cleanEmail || (userId && u.id && u.id.toLowerCase() === userId.toLowerCase()));
   if ((foundAdminUser as any)?.referralCode && String((foundAdminUser as any).referralCode).trim()) {
     userRefCodes.add(String((foundAdminUser as any).referralCode).trim().toUpperCase());
   }
@@ -416,7 +429,7 @@ export function getUserReferralStats(user: { id?: string; name?: string; email?:
       (rRef && userRefCodes.has(rRef)) ||
       (cleanEmail && rEmail === cleanEmail) ||
       (cleanEmail && rRef === cleanEmail.toUpperCase()) ||
-      (userId && (rRef === userId || rRef === userId.toLowerCase()))
+      (userId && (rRef === userId || rRef === userId.toLowerCase() || rRef === userId.toUpperCase()))
     );
   });
 
@@ -424,7 +437,7 @@ export function getUserReferralStats(user: { id?: string; name?: string; email?:
   const referredUsersList = allUsers.filter(u => {
     const uEmail = (u.email || "").toLowerCase().trim();
     if (uEmail && cleanEmail && uEmail === cleanEmail) return false;
-    if (u.id && userId && (u.id.toUpperCase() === userId || u.id.toLowerCase() === userId.toLowerCase())) return false;
+    if (u.id && userId && (u.id.toUpperCase() === userId.toUpperCase() || u.id.toLowerCase() === userId.toLowerCase())) return false;
 
     const refBy = (((u as any).referredBy || (u as any).referred_by || "") as string).trim().toUpperCase();
     if (!refBy) return false;
@@ -432,7 +445,7 @@ export function getUserReferralStats(user: { id?: string; name?: string; email?:
     return (
       userRefCodes.has(refBy) ||
       (cleanEmail && refBy === cleanEmail.toUpperCase()) ||
-      (userId && (refBy === userId || refBy === userId.toLowerCase()))
+      (userId && (refBy === userId.toUpperCase() || refBy === userId.toLowerCase()))
     );
   });
 
@@ -660,6 +673,10 @@ export async function fetchLiveUserReferralStats(user: { id?: string; name?: str
       const { data: selfProf } = await query.maybeSingle();
       if (selfProf?.referral_code && typeof selfProf.referral_code === "string" && selfProf.referral_code.trim()) {
         dbStoredCode = selfProf.referral_code.trim().toUpperCase();
+        try {
+          if (cleanEmail) localStorage.setItem(`pondtora_${cleanEmail}_ref_code`, dbStoredCode);
+          localStorage.setItem("pondtora_user_referral_code", dbStoredCode);
+        } catch {}
       }
     } catch {}
   }
@@ -672,6 +689,14 @@ export async function fetchLiveUserReferralStats(user: { id?: string; name?: str
   if (dbStoredCode) userRefCodes.add(dbStoredCode);
   if (user?.referralCode && user.referralCode.trim()) userRefCodes.add(user.referralCode.trim().toUpperCase());
   if ((user as any)?.referral_code && String((user as any).referral_code).trim()) userRefCodes.add(String((user as any).referral_code).trim().toUpperCase());
+  
+  const codeFromEmail = generateReferralCode(undefined, cleanEmail, userId);
+  if (codeFromEmail) userRefCodes.add(codeFromEmail.toUpperCase());
+  if (user?.name) {
+    const codeFromName = generateReferralCode(user.name, cleanEmail, userId);
+    if (codeFromName) userRefCodes.add(codeFromName.toUpperCase());
+  }
+
   if (cleanEmail) {
     userRefCodes.add(cleanEmail.toUpperCase());
     userRefCodes.add(cleanEmail);
@@ -680,9 +705,6 @@ export async function fetchLiveUserReferralStats(user: { id?: string; name?: str
     userRefCodes.add(userId);
     userRefCodes.add(userId.toLowerCase());
     userRefCodes.add(userId.toUpperCase());
-  }
-  if (user?.name && user.name.trim()) {
-    userRefCodes.add(user.name.trim().toUpperCase());
   }
 
   try {
@@ -814,10 +836,11 @@ export async function fetchLiveUserReferralStats(user: { id?: string; name?: str
       }
     } catch {}
 
-    if (Array.isArray(dbReferredProfiles) && dbReferredProfiles.length > 0) {
-      const allLocalUsers = loadAllAdminUsers();
-      let hasChanges = false;
+    const allLocalUsers = loadAllAdminUsers();
+    let hasChanges = false;
 
+    // A. Merge records from dbReferredProfiles
+    if (Array.isArray(dbReferredProfiles) && dbReferredProfiles.length > 0) {
       dbReferredProfiles.forEach(p => {
         const pEmail = (p.email || "").toLowerCase().trim();
         // Prevent counting the user themselves as a referral
@@ -924,10 +947,43 @@ export async function fetchLiveUserReferralStats(user: { id?: string; name?: str
           }
         }
       });
+    }
 
-      if (hasChanges) {
-        saveAllAdminUsers(allLocalUsers);
-      }
+    // B. Also ensure any referred user found in dbRewards is represented in allLocalUsers
+    if (Array.isArray(dbRewards) && dbRewards.length > 0) {
+      dbRewards.forEach(r => {
+        const rEmail = (r.referred_user_email || "").toLowerCase().trim();
+        if (rEmail && cleanEmail && rEmail !== cleanEmail) {
+          const existingIdx = allLocalUsers.findIndex(u => (u.email || "").toLowerCase().trim() === rEmail);
+          if (existingIdx === -1) {
+            allLocalUsers.push({
+              id: r.referred_user_id || "usr-" + rEmail.replace(/[^a-zA-Z0-9]/g, "").slice(0, 10),
+              name: r.referred_user_name || rEmail.split("@")[0] || "Farmer",
+              email: rEmail,
+              farmName: "Primary Farm",
+              phone: "",
+              city: "Lagos",
+              state: "Lagos",
+              country: "Nigeria",
+              role: "owner",
+              activePlan: r.plan_name || "Starter",
+              billingFrequency: "monthly",
+              subscriptionStatus: "Active",
+              hasPaid: true,
+              trialStartDate: r.created_at ? String(r.created_at).slice(0, 10) : new Date().toISOString().slice(0, 10),
+              paystackReference: r.payment_reference,
+              lastPaymentDate: r.created_at ? String(r.created_at).slice(0, 10) : new Date().toISOString().slice(0, 10),
+              referredBy: cleanCode,
+              createdAt: r.created_at ? String(r.created_at).slice(0, 10) : new Date().toISOString().slice(0, 10),
+            });
+            hasChanges = true;
+          }
+        }
+      });
+    }
+
+    if (hasChanges) {
+      saveAllAdminUsers(allLocalUsers);
     }
   } catch (err) {
     console.warn("Live referral fetch from Supabase:", err);
