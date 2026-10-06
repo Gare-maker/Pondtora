@@ -762,8 +762,6 @@ export function getUserReferralStats(user: { id?: string; name?: string; email?:
     referredUsers,
     rewards: myRewards,
   };
-}ds,
-  };
 }
 
 /**
