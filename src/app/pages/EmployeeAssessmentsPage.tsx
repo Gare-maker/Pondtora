@@ -827,7 +827,7 @@ export default function EmployeeAssessmentsPage({
   return(
     <div className="p-4 sm:p-6 space-y-6 w-full">
       {/* Header */}
-      <div className="sticky top-0 z-20 bg-[#f5f7fa]/95 backdrop-blur-sm -mx-4 -mt-4 sm:-mx-6 sm:-mt-6 px-4 py-3 sm:px-6 sm:py-4 border-b border-slate-200/80 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4 transition-all">
+      <div className="lg:sticky lg:top-0 lg:z-20 lg:bg-[#f5f7fa] lg:-mx-6 lg:-mt-6 lg:px-6 lg:py-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
         <div>
           <h1 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Staff Assessments</h1>
           <p className="text-xs text-slate-400 mt-0.5">Manage assessment questions, distribute links, and review candidate results.</p>

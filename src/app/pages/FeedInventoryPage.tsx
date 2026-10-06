@@ -271,7 +271,7 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
 
   return(
     <div className="p-4 sm:p-6 space-y-5 w-full pb-20 sm:pb-8">
-      <div className="sticky top-0 z-20 bg-[#f5f7fa]/95 backdrop-blur-sm -mx-4 -mt-4 sm:-mx-6 sm:-mt-6 px-4 py-3 sm:px-6 sm:py-4 border-b border-slate-200/80 flex flex-wrap items-center justify-between gap-3 transition-all">
+      <div className="lg:sticky lg:top-0 lg:z-20 lg:bg-[#f5f7fa] lg:-mx-6 lg:-mt-6 lg:px-6 lg:py-4 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Feed Stock</h1>
           <p className="text-xs text-slate-400 mt-0.5">Manage purchased feed stock, track daily bags opened, and view usage.</p>
