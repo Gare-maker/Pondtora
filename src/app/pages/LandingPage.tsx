@@ -2929,24 +2929,42 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
             })}
           </div>
 
-          <div className="mt-10 p-5 sm:p-6 bg-emerald-50/80 border border-emerald-200/90 rounded-2xl flex flex-col sm:flex-row items-center justify-between gap-4 text-center sm:text-left shadow-xs">
-            <div className="flex items-center gap-3.5">
-              <div className="w-11 h-11 rounded-xl bg-red-600 text-white flex items-center justify-center shrink-0 shadow-sm text-base font-bold">
-                ▶
+          {/* ── Prominent "Learn How to Use Pondtora" Tutorial Card ── */}
+          <div className="mt-12 p-6 sm:p-8 bg-gradient-to-br from-emerald-950 via-[#063326] to-slate-950 border-2 border-emerald-500/40 rounded-3xl shadow-2xl flex flex-col md:flex-row items-center justify-between gap-6 text-center md:text-left relative overflow-hidden">
+            <div className="absolute -right-10 -bottom-10 w-56 h-56 bg-emerald-500/15 rounded-full blur-3xl pointer-events-none" />
+            <div className="absolute left-1/3 -top-10 w-40 h-40 bg-red-500/10 rounded-full blur-2xl pointer-events-none" />
+
+            <div className="flex flex-col sm:flex-row items-center gap-5 relative z-10">
+              <div className="w-16 h-16 rounded-2xl bg-red-600 text-white flex items-center justify-center shrink-0 shadow-xl shadow-red-600/30 hover:scale-105 transition-transform">
+                <svg className="w-9 h-9 fill-white" viewBox="0 0 24 24">
+                  <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
+                </svg>
               </div>
               <div>
-                <p className="text-sm sm:text-base font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Want step-by-step video guides?</p>
-                <p className="text-xs text-slate-600 mt-0.5">Watch our official video tutorials and complete aquaculture management walkthroughs.</p>
+                <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/20 border border-emerald-400/30 text-emerald-300 text-[11px] uppercase tracking-wider font-bold mb-2">
+                  <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                  Official Video Tutorials & Guides
+                </div>
+                <h3 className="text-2xl sm:text-3xl font-bold text-white font-['Barlow_Condensed',sans-serif] tracking-wide">
+                  Learn How to Use Pondtora Step-by-Step
+                </h3>
+                <p className="text-xs sm:text-sm text-slate-300 mt-1 max-w-xl leading-relaxed">
+                  Watch beginner-to-advanced video guides showing how to set up ponds, log daily feeding, track feed inventory, invoice buyers, and manage staff with confidence.
+                </p>
               </div>
             </div>
+
             <a
               href="https://youtube.com/@pondtora?si=u7-SbqHRs-PPAKD9"
               target="_blank"
               rel="noopener noreferrer"
-              className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl transition-colors shrink-0 inline-flex items-center gap-1.5 shadow-xs"
+              className="px-6 py-4 bg-red-600 hover:bg-red-700 text-white text-sm font-black uppercase tracking-wider rounded-2xl transition-all shrink-0 inline-flex items-center gap-2.5 shadow-xl shadow-red-600/30 hover:scale-105 active:scale-95 relative z-10"
             >
+              <svg className="w-4 h-4 fill-white shrink-0" viewBox="0 0 24 24">
+                <path d="M8 5v14l11-7z" />
+              </svg>
               <span>Learn How to Use Pondtora</span>
-              <ExternalLink size={12} />
+              <ExternalLink size={15} className="shrink-0" />
             </a>
           </div>
         </div>
@@ -3025,7 +3043,7 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
 
             <div>
               <p className="text-xs uppercase tracking-widest font-black text-emerald-400 mb-3">System & Resources</p>
-              <ul className="space-y-2 text-xs text-slate-300">
+              <ul className="space-y-2.5 text-xs text-slate-300">
                 <li><button onClick={() => scrollTo("fields")} className="hover:text-white">Pond Types & Systems</button></li>
                 <li><button onClick={() => scrollTo("testimonials")} className="hover:text-white">Farmer Stories</button></li>
                 <li><button onClick={() => scrollTo("pricing")} className="hover:text-white">Pricing & Plans</button></li>
@@ -3035,9 +3053,13 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
                     href="https://youtube.com/@pondtora?si=u7-SbqHRs-PPAKD9"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="hover:text-white text-emerald-400 font-semibold inline-flex items-center gap-1.5 transition-colors"
+                    className="inline-flex items-center gap-2 text-emerald-400 hover:text-emerald-300 font-bold transition-colors group"
                   >
-                    <span className="text-red-500 font-bold">▶</span>
+                    <div className="w-5 h-5 rounded bg-red-600 text-white flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform">
+                      <svg className="w-3 h-3 fill-white" viewBox="0 0 24 24">
+                        <path d="M8 5v14l11-7z" />
+                      </svg>
+                    </div>
                     <span>Learn How to Use Pondtora</span>
                   </a>
                 </li>
@@ -3074,9 +3096,13 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
                     href="https://www.facebook.com/share/19kEpHht6y/"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 text-slate-300 hover:text-white font-medium transition-colors"
+                    className="inline-flex items-center gap-2 text-slate-300 hover:text-white font-medium transition-colors group"
                   >
-                    <span className="text-[#1877F2]">📘</span>
+                    <div className="w-5 h-5 rounded-md bg-[#1877F2] text-white flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform">
+                      <svg className="w-3.5 h-3.5 fill-white" viewBox="0 0 24 24">
+                        <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+                      </svg>
+                    </div>
                     <span>Facebook: Pondtora</span>
                   </a>
                 </li>

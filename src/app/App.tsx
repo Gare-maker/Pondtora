@@ -185,9 +185,13 @@ function Sidebar({active,onNav,collapsed,onToggle,farms,activeFarmId,onSwitchFar
             target="_blank"
             rel="noopener noreferrer"
             title="Learn How to Use Pondtora"
-            className={`w-full flex items-center gap-2 py-2 px-2.5 rounded-xl text-emerald-400 hover:text-white hover:bg-emerald-950/40 transition-colors text-xs font-semibold ${collapsed ? "justify-center px-0" : ""}`}
+            className={`w-full flex items-center gap-2 py-2 px-2.5 rounded-xl bg-slate-800/60 hover:bg-slate-800 border border-slate-700/50 text-emerald-400 hover:text-emerald-300 transition-colors text-xs font-semibold shadow-xs ${collapsed ? "justify-center px-0" : ""}`}
           >
-            <span className="text-red-500 font-bold shrink-0">▶</span>
+            <div className="w-5 h-5 rounded-md bg-red-600 text-white flex items-center justify-center shrink-0">
+              <svg className="w-3 h-3 fill-current ml-0.5" viewBox="0 0 24 24">
+                <path d="M8 5v14l11-7z" />
+              </svg>
+            </div>
             {!collapsed && <span className="truncate">Learn How to Use Pondtora</span>}
           </a>
         </div>
@@ -3699,32 +3703,39 @@ function SettingsPage({farms,onAddFarm,onEditFarm,onDeleteFarm,userProfile,onUpd
                 href="https://youtube.com/@pondtora?si=u7-SbqHRs-PPAKD9"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex items-center gap-3 p-3 rounded-xl border border-emerald-200/80 bg-emerald-50/50 hover:bg-emerald-100/60 transition-colors group"
+                className="flex items-center gap-3.5 p-3.5 rounded-xl border border-emerald-300 bg-emerald-50/70 hover:bg-emerald-100 hover:border-emerald-400 transition-all group shadow-xs"
               >
-                <div className="w-9 h-9 rounded-lg bg-red-600 text-white flex items-center justify-center font-bold text-sm shrink-0 shadow-xs">
-                  ▶
+                <div className="w-10 h-10 rounded-xl bg-red-600 text-white flex items-center justify-center font-bold text-sm shrink-0 shadow-sm group-hover:scale-105 transition-transform">
+                  <svg className="w-5 h-5 fill-white" viewBox="0 0 24 24">
+                    <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
+                  </svg>
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="text-xs font-bold text-slate-900 group-hover:text-emerald-900">Learn How to Use Pondtora</p>
-                  <p className="text-[11px] text-slate-500 truncate">Watch full video guides on YouTube</p>
+                  <div className="flex items-center gap-1.5">
+                    <p className="text-xs font-bold text-slate-900 group-hover:text-emerald-950">Learn How to Use Pondtora</p>
+                    <span className="text-[9px] uppercase tracking-wider font-extrabold px-1.5 py-0.5 rounded bg-emerald-200/90 text-emerald-800">Tutorials</span>
+                  </div>
+                  <p className="text-[11px] text-slate-600 truncate mt-0.5">Watch official video guides on YouTube</p>
                 </div>
-                <ExternalLink size={13} className="text-slate-400 group-hover:text-emerald-700 shrink-0" />
+                <ExternalLink size={14} className="text-slate-400 group-hover:text-emerald-700 shrink-0" />
               </a>
 
               <a
                 href="https://www.facebook.com/share/19kEpHht6y/"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex items-center gap-3 p-3 rounded-xl border border-slate-200 bg-slate-50/70 hover:bg-slate-100 transition-colors group"
+                className="flex items-center gap-3.5 p-3.5 rounded-xl border border-slate-200 bg-slate-50/80 hover:bg-blue-50/60 hover:border-blue-300 transition-all group shadow-xs"
               >
-                <div className="w-9 h-9 rounded-lg bg-[#1877F2] text-white flex items-center justify-center font-bold text-sm shrink-0 shadow-xs">
-                  f
+                <div className="w-10 h-10 rounded-xl bg-[#1877F2] text-white flex items-center justify-center font-bold text-sm shrink-0 shadow-sm group-hover:scale-105 transition-transform">
+                  <svg className="w-5 h-5 fill-white" viewBox="0 0 24 24">
+                    <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+                  </svg>
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="text-xs font-bold text-slate-900 group-hover:text-blue-900">Facebook Page</p>
-                  <p className="text-[11px] text-slate-500 truncate">Follow & connect on Facebook</p>
+                  <p className="text-xs font-bold text-slate-900 group-hover:text-blue-950">Facebook Page</p>
+                  <p className="text-[11px] text-slate-500 truncate mt-0.5">Follow & connect on Facebook</p>
                 </div>
-                <ExternalLink size={13} className="text-slate-400 group-hover:text-blue-700 shrink-0" />
+                <ExternalLink size={14} className="text-slate-400 group-hover:text-blue-700 shrink-0" />
               </a>
             </div>
           </div>
