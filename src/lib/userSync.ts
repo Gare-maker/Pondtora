@@ -455,31 +455,74 @@ export async function fetchLiveAdminUsers(): Promise<{
     }
   }
 
-  // ── 3. Intelligent Non-Destructive Merge (Guaranteed Zero Data Loss) ──
-  // Fetch remote overrides from platform_settings to ensure price overrides apply
+  // Fetch remote overrides and remote referral registry from platform_settings
   let remoteOverrides: Record<string, any> = {};
+  let remoteReferrals: any[] = [];
   try {
-    const { data: settingData } = await supabase
-      .from("platform_settings")
-      .select("value")
-      .eq("key", "admin_user_overrides")
-      .maybeSingle();
+    const [overrideRes, refDataRes] = await Promise.all([
+      supabase.from("platform_settings").select("value").eq("key", "admin_user_overrides").maybeSingle(),
+      supabase.from("platform_settings").select("value").eq("key", "referral_registry").maybeSingle(),
+    ]);
 
-    if (settingData?.value && typeof settingData.value === "object") {
-      remoteOverrides = settingData.value;
+    if (overrideRes.data?.value && typeof overrideRes.data.value === "object") {
+      remoteOverrides = overrideRes.data.value;
       try {
         localStorage.setItem("pondtora_admin_user_overrides", JSON.stringify(remoteOverrides));
       } catch {}
     }
+
+    if (refDataRes.data?.value && Array.isArray(refDataRes.data.value)) {
+      remoteReferrals = refDataRes.data.value;
+    }
   } catch {}
 
-  if (dbUsers.length > 0) {
+  if (dbUsers.length > 0 || remoteReferrals.length > 0 || existingLocal.length > 0) {
     const userMap = new Map<string, AdminUser>();
 
     // Start with existing cached users (strictly farm owners!)
     existingLocal.filter(u => !isStaffUser(u)).forEach(u => {
       if (u && (u.id || u.email)) {
         userMap.set((u.email || u.id).toLowerCase(), u);
+      }
+    });
+
+    // Merge in remote referrals from platform_settings
+    remoteReferrals.forEach((ref: any) => {
+      if (ref && (ref.id || ref.email)) {
+        const key = (ref.email || ref.id).toLowerCase();
+        const existing = userMap.get(key) || (ref.id ? userMap.get(ref.id.toLowerCase()) : null);
+        const hasPaid = Boolean(ref.hasPaid || ref.paymentAmount > 0 || existing?.hasPaid);
+        const merged: AdminUser = {
+          id: ref.id || existing?.id || "usr-" + Math.random().toString(36).slice(2, 8),
+          name: ref.name || existing?.name || (ref.email ? ref.email.split("@")[0] : "Farmer"),
+          email: ref.email || existing?.email || "",
+          farmName: ref.farmName || existing?.farmName || "Primary Farm",
+          phone: existing?.phone || "",
+          city: existing?.city || "Lagos",
+          state: existing?.state || "Lagos",
+          country: existing?.country || "Nigeria",
+          role: existing?.role || "owner",
+          activePlan: ref.activePlan || existing?.activePlan || "Starter",
+          trialStartDate: ref.trialStartDate || existing?.trialStartDate || new Date().toISOString().slice(0, 10),
+          billingFrequency: ref.billingFrequency || existing?.billingFrequency || "monthly",
+          subscriptionAmount: ref.paymentAmount || existing?.subscriptionAmount || null,
+          hasPaid: hasPaid,
+          subscriptionStatus: hasPaid ? "Active" : "Trial",
+          subscriptionStart: existing?.subscriptionStart || null,
+          subscriptionExpiry: existing?.subscriptionExpiry || null,
+          accountStatus: "Active",
+          freeAccess: Boolean(existing?.freeAccess),
+          farmCount: existing?.farmCount || 1,
+          pondCount: existing?.pondCount || 0,
+          staffCount: existing?.staffCount || 0,
+          paystackReference: ref.paystackReference || existing?.paystackReference,
+          lastPaymentDate: existing?.lastPaymentDate,
+          referralCode: existing?.referralCode,
+          referredBy: ref.referrerCode || existing?.referredBy,
+          createdAt: ref.createdAt || existing?.createdAt || new Date().toISOString().slice(0, 10),
+        };
+        merged.subscriptionStatus = computeSubscriptionStatus(merged);
+        userMap.set(key, merged);
       }
     });
 
