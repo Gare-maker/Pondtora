@@ -35,7 +35,7 @@ import PondReportsComponent from "./pages/PondReportsComponent";
 import { Toaster, toast } from "sonner";
 import { useDynamicPlans } from "../lib/plansStore";
 import { syncUserProfileToAdmin, getUserAdminOverride, logActivity, recordSuccessfulPayment, loadAllAdminUsers, getFarmSubscriptionDetails, FarmSubscriptionDetails } from "../lib/userSync";
-import { initializePaystackCheckout, getActivePaystackPublicKey, loadPaystackConfig, getPendingPaystackTransaction, clearPendingPaystackTransaction } from "../lib/paystack";
+import { initializePaystackCheckout, getActivePaystackPublicKey, loadPaystackConfig, getPendingPaystackTransaction, clearPendingPaystackTransaction, verifyPaystackPayment } from "../lib/paystack";
 import { getUserReferralStats, fetchLiveUserReferralStats, captureReferralParam, getReferralLink, getUserReferralCode } from "../lib/referralStore";
 
 /* Map nav id → permission name (undefined = always visible) */
@@ -2913,58 +2913,80 @@ function SubscriptionPage({
     };
   }, []);
 
-  const confirmPendingTransfer = (tx?: { reference: string; planName: string; amount: number; billingCycle: "monthly" | "yearly" }) => {
+  const confirmPendingTransfer = async (tx?: { reference: string; planName: string; amount: number; billingCycle: "monthly" | "yearly" }) => {
     const targetTx = tx || pendingTransfer;
     if (!targetTx) return;
 
-    recordSuccessfulPayment({
-      email: effectiveProfile?.email || "",
-      planName: targetTx.planName,
-      billingFrequency: targetTx.billingCycle,
-      amount: targetTx.amount,
-      reference: targetTx.reference,
-    });
-
-    setActivePlan(targetTx.planName);
-    setTrialStartDate(null);
-
-    const todayStr = new Date().toISOString().slice(0, 10);
-    const expDate = new Date();
-    expDate.setDate(expDate.getDate() + (targetTx.billingCycle === "yearly" ? 365 : 30));
-    const expStr = expDate.toISOString().slice(0, 10);
-
-    api.profile.recordPayment({
-      plan: targetTx.planName,
-      amount: targetTx.amount,
-      billingFrequency: targetTx.billingCycle,
-      reference: targetTx.reference,
-      subscriptionStart: todayStr,
-      subscriptionExpiry: expStr,
-    }).catch(console.warn);
-
-    const updatedProf: Partial<UserProfile> = {
-      activePlan: targetTx.planName,
-      trialStartDate: null,
-      subscriptionStatus: "Active",
-      subscriptionAmount: targetTx.amount,
-      subscriptionExpiry: expStr,
-      subscriptionStart: todayStr,
-      paystackReference: targetTx.reference,
-      lastPaymentDate: todayStr,
-      billingFrequency: targetTx.billingCycle,
-    };
-
-    setLiveProfile(prev => ({ ...(prev || {}), ...updatedProf } as UserProfile));
-    if (onProfileUpdated) onProfileUpdated(updatedProf);
-
-    clearPendingPaystackTransaction();
-    setPendingTransfer(null);
-    (window as any).__pondtora_payment_in_progress = false;
+    toast.loading("Verifying payment with Paystack...", { id: "verify-ps" });
 
     try {
-      confetti({ particleCount: 120, spread: 80, origin: { y: 0.6 } });
-    } catch {}
-    toast.success(`🎉 Subscription confirmed! Activated ${targetTx.planName}. Ref: ${targetTx.reference}`);
+      const verifyResult = await verifyPaystackPayment(targetTx.reference, {
+        expectedPlan: targetTx.planName,
+        expectedAmount: targetTx.amount,
+        billingCycle: targetTx.billingCycle,
+      });
+
+      if (!verifyResult.verified) {
+        toast.error(
+          verifyResult.message || "Paystack has not confirmed this payment yet. If you completed a bank transfer, please allow a moment and try again.",
+          { id: "verify-ps", duration: 6000 }
+        );
+        return;
+      }
+
+      toast.success(`🎉 Subscription verified & activated for ${targetTx.planName}! Ref: ${targetTx.reference}`, { id: "verify-ps" });
+
+      recordSuccessfulPayment({
+        email: effectiveProfile?.email || "",
+        planName: targetTx.planName,
+        billingFrequency: targetTx.billingCycle,
+        amount: targetTx.amount,
+        reference: targetTx.reference,
+      });
+
+      setActivePlan(targetTx.planName);
+      setTrialStartDate(null);
+
+      const todayStr = new Date().toISOString().slice(0, 10);
+      const expDate = new Date();
+      expDate.setDate(expDate.getDate() + (targetTx.billingCycle === "yearly" ? 365 : 30));
+      const expStr = expDate.toISOString().slice(0, 10);
+
+      api.profile.recordPayment({
+        plan: targetTx.planName,
+        amount: targetTx.amount,
+        billingFrequency: targetTx.billingCycle,
+        reference: targetTx.reference,
+        subscriptionStart: todayStr,
+        subscriptionExpiry: expStr,
+      }).catch(console.warn);
+
+      const updatedProf: Partial<UserProfile> = {
+        activePlan: targetTx.planName,
+        trialStartDate: null,
+        subscriptionStatus: "Active",
+        subscriptionAmount: targetTx.amount,
+        subscriptionExpiry: expStr,
+        subscriptionStart: todayStr,
+        paystackReference: targetTx.reference,
+        lastPaymentDate: todayStr,
+        billingFrequency: targetTx.billingCycle,
+      };
+
+      setLiveProfile(prev => ({ ...(prev || {}), ...updatedProf } as UserProfile));
+      if (onProfileUpdated) onProfileUpdated(updatedProf);
+
+      clearPendingPaystackTransaction();
+      setPendingTransfer(null);
+      (window as any).__pondtora_payment_in_progress = false;
+
+      try {
+        confetti({ particleCount: 120, spread: 80, origin: { y: 0.6 } });
+      } catch {}
+    } catch (err: any) {
+      console.error("Verification error:", err);
+      toast.error("Unable to verify payment with Paystack. Please try again.", { id: "verify-ps" });
+    }
   };
 
   const handlePaystackPayment = async (plan: any, isYearly: boolean) => {
@@ -7017,7 +7039,6 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
         if(meta.active_farm_id){
           setActiveFarmId(meta.active_farm_id);
         }
-        setActive("financial");
         setIsAuth(true);
         setShowLanding(false);
         loadFromBackend();

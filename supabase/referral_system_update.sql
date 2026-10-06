@@ -1,6 +1,5 @@
 -- ============================================================================
--- Pondtora Referral System & Instant Reflection Migration
--- Run this in Supabase SQL Editor: https://supabase.com/dashboard/project/fegtvgfkxueorybefthj/sql/new
+-- Pondtora Referral System & Data Isolation Migration
 -- ============================================================================
 
 -- 1. Ensure user_profiles columns exist
@@ -32,18 +31,32 @@ CREATE TABLE IF NOT EXISTS referral_rewards (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Ensure strict idempotency: each payment reference can only produce ONE commission reward
+CREATE UNIQUE INDEX IF NOT EXISTS idx_referral_rewards_payment_ref_unique 
+  ON referral_rewards (payment_reference) 
+  WHERE payment_reference IS NOT NULL AND payment_reference <> '';
+
 CREATE INDEX IF NOT EXISTS idx_referral_rewards_referrer_code ON referral_rewards (referrer_code);
 CREATE INDEX IF NOT EXISTS idx_referral_rewards_referrer_email ON referral_rewards (referrer_email);
 CREATE INDEX IF NOT EXISTS idx_referral_rewards_referred_email ON referral_rewards (referred_user_email);
 CREATE INDEX IF NOT EXISTS idx_referral_rewards_status ON referral_rewards (status);
 
--- 4. Enable RLS on referral_rewards
+-- 4. Enable RLS on referral_rewards with strict ownership isolation
 ALTER TABLE IF EXISTS referral_rewards ENABLE ROW LEVEL SECURITY;
 
--- Allow authenticated users and anon to select and insert referral rewards
 DROP POLICY IF EXISTS "Allow select referral_rewards" ON referral_rewards;
-CREATE POLICY "Allow select referral_rewards" ON referral_rewards
-  FOR SELECT USING (true);
+DROP POLICY IF EXISTS "Users view own referral rewards" ON referral_rewards;
+
+CREATE POLICY "Users view own referral rewards" ON referral_rewards
+  FOR SELECT USING (
+    LOWER(TRIM(referrer_email)) = LOWER(TRIM(COALESCE(auth.jwt()->>'email', '')))
+    OR referred_user_id = auth.uid()
+    OR EXISTS (
+      SELECT 1 FROM user_profiles up 
+      WHERE up.id = auth.uid() 
+        AND (up.role = 'admin' OR up.role = 'superadmin' OR up.email = 'edafejesugarec@gmail.com')
+    )
+  );
 
 DROP POLICY IF EXISTS "Allow insert referral_rewards" ON referral_rewards;
 CREATE POLICY "Allow insert referral_rewards" ON referral_rewards
@@ -51,10 +64,16 @@ CREATE POLICY "Allow insert referral_rewards" ON referral_rewards
 
 DROP POLICY IF EXISTS "Allow update referral_rewards" ON referral_rewards;
 CREATE POLICY "Allow update referral_rewards" ON referral_rewards
-  FOR UPDATE USING (true);
+  FOR UPDATE USING (
+    LOWER(TRIM(referrer_email)) = LOWER(TRIM(COALESCE(auth.jwt()->>'email', '')))
+    OR EXISTS (
+      SELECT 1 FROM user_profiles up 
+      WHERE up.id = auth.uid() 
+        AND (up.role = 'admin' OR up.role = 'superadmin' OR up.email = 'edafejesugarec@gmail.com')
+    )
+  );
 
--- 5. RPC function: get_user_referrals
--- SECURITY DEFINER allows a user to query profiles they referred without being blocked by RLS
+-- 5. RPC function: get_user_referrals (STRICT EXACT MATCHING — NO LEAKAGE)
 CREATE OR REPLACE FUNCTION get_user_referrals(
   p_referrer_code TEXT,
   p_referrer_email TEXT
@@ -86,6 +105,10 @@ DECLARE
   clean_code TEXT := UPPER(TRIM(COALESCE(p_referrer_code, '')));
   clean_email TEXT := LOWER(TRIM(COALESCE(p_referrer_email, '')));
 BEGIN
+  IF clean_code = '' AND clean_email = '' THEN
+    RETURN;
+  END IF;
+
   RETURN QUERY
   SELECT
     p.id,
@@ -108,17 +131,16 @@ BEGIN
     p.referred_by
   FROM user_profiles p
   WHERE (
-    (clean_code <> '' AND (UPPER(TRIM(COALESCE(p.referred_by, ''))) = clean_code OR UPPER(TRIM(COALESCE(p.referred_by, ''))) LIKE clean_code || '%'))
-    OR (clean_email <> '' AND (LOWER(TRIM(COALESCE(p.referred_by, ''))) = clean_email OR LOWER(TRIM(COALESCE(p.referred_by, ''))) LIKE clean_email || '%'))
+    (clean_code <> '' AND UPPER(TRIM(COALESCE(p.referred_by, ''))) = clean_code)
+    OR (clean_email <> '' AND LOWER(TRIM(COALESCE(p.referred_by, ''))) = clean_email)
   )
   ORDER BY p.created_at DESC;
 END;
 $$;
 
--- Grant execution permissions
 GRANT EXECUTE ON FUNCTION get_user_referrals(TEXT, TEXT) TO authenticated, anon;
 
--- 6. RPC function: get_user_referral_rewards
+-- 6. RPC function: get_user_referral_rewards (STRICT EXACT MATCHING)
 CREATE OR REPLACE FUNCTION get_user_referral_rewards(
   p_referrer_code TEXT,
   p_referrer_email TEXT
@@ -131,12 +153,16 @@ DECLARE
   clean_code TEXT := UPPER(TRIM(COALESCE(p_referrer_code, '')));
   clean_email TEXT := LOWER(TRIM(COALESCE(p_referrer_email, '')));
 BEGIN
+  IF clean_code = '' AND clean_email = '' THEN
+    RETURN;
+  END IF;
+
   RETURN QUERY
   SELECT *
   FROM referral_rewards
   WHERE (
-    (clean_code <> '' AND (UPPER(TRIM(referrer_code)) = clean_code OR UPPER(TRIM(referrer_code)) LIKE clean_code || '%'))
-    OR (clean_email <> '' AND (LOWER(TRIM(referrer_email)) = clean_email OR LOWER(TRIM(referrer_email)) LIKE clean_email || '%'))
+    (clean_code <> '' AND UPPER(TRIM(referrer_code)) = clean_code)
+    OR (clean_email <> '' AND LOWER(TRIM(referrer_email)) = clean_email)
   )
   ORDER BY created_at DESC;
 END;
@@ -162,6 +188,11 @@ DECLARE
   v_count INT := 0;
   v_amount NUMERIC := 0;
 BEGIN
+  IF clean_code = '' AND clean_email = '' THEN
+    RETURN QUERY SELECT 0, 0::NUMERIC;
+    RETURN;
+  END IF;
+
   -- Sum available amount
   SELECT COALESCE(SUM(commission_amount), 0), COUNT(*)
   INTO v_amount, v_count

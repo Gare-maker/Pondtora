@@ -287,6 +287,7 @@ export async function initializePaystackCheckout(options: PaystackCheckoutOption
       email: cleanEmail,
       amount: amountInKobo,
       currency: "NGN",
+      channels: ["card", "bank", "ussd", "qr", "mobile_money", "bank_transfer", "eft"],
       ref: reference,
       metadata: {
         custom_fields: [
@@ -338,4 +339,111 @@ export async function initializePaystackCheckout(options: PaystackCheckoutOption
     if (onClose) onClose();
     return false;
   }
+}
+
+export interface PaystackVerifyResult {
+  verified: boolean;
+  status: "success" | "pending" | "failed" | "abandoned" | "not_found" | "error";
+  amount?: number; // In Naira
+  currency?: string;
+  reference?: string;
+  planName?: string;
+  billingCycle?: "monthly" | "yearly";
+  paidAt?: string;
+  message?: string;
+  raw?: any;
+}
+
+/**
+ * Verifies a transaction reference against Paystack via backend or direct API
+ */
+export async function verifyPaystackPayment(
+  reference: string,
+  options?: { expectedPlan?: string; expectedAmount?: number; billingCycle?: "monthly" | "yearly" }
+): Promise<PaystackVerifyResult> {
+  const cleanRef = (reference || "").trim();
+  if (!cleanRef) {
+    return {
+      verified: false,
+      status: "not_found",
+      message: "No transaction reference provided.",
+    };
+  }
+
+  // 1. First try the backend verification endpoint if available
+  try {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData?.session?.access_token;
+    
+    // Check edge function endpoint
+    const edgeUrl = `${(supabase as any).supabaseUrl || "https://fegtvgfkxueorybefthj.supabase.co"}/functions/v1/server/paystack/verify`;
+    const res = await fetch(edgeUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({
+        reference: cleanRef,
+        expectedPlan: options?.expectedPlan,
+        expectedAmount: options?.expectedAmount,
+        billingCycle: options?.billingCycle,
+      }),
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.verified !== undefined) {
+        return data as PaystackVerifyResult;
+      }
+    }
+  } catch (backendErr) {
+    console.warn("Backend Paystack verify request error:", backendErr);
+  }
+
+  // 2. Check platform_settings for direct secret key verification if server is unavailable
+  try {
+    const { data: settingData } = await supabase
+      .from("platform_settings")
+      .select("value")
+      .eq("key", "paystack_secret_key")
+      .maybeSingle();
+
+    const secretKey = settingData?.value?.secretKey || settingData?.value;
+    if (typeof secretKey === "string" && secretKey.startsWith("sk_")) {
+      const paystackRes = await fetch(`https://api.paystack.co/transaction/verify/${encodeURIComponent(cleanRef)}`, {
+        headers: {
+          Authorization: `Bearer ${secretKey.trim()}`,
+        },
+      });
+
+      if (paystackRes.ok) {
+        const psJson = await paystackRes.json();
+        if (psJson.status && psJson.data) {
+          const tx = psJson.data;
+          const isSuccess = tx.status === "success";
+          const amountInNaira = typeof tx.amount === "number" ? tx.amount / 100 : 0;
+          return {
+            verified: isSuccess,
+            status: tx.status as any,
+            amount: amountInNaira,
+            currency: tx.currency || "NGN",
+            reference: tx.reference || cleanRef,
+            paidAt: tx.paid_at || tx.paidAt || new Date().toISOString(),
+            message: isSuccess ? "Transaction verified successfully." : `Transaction status: ${tx.status}`,
+            raw: tx,
+          };
+        }
+      }
+    }
+  } catch (directErr) {
+    console.warn("Direct Paystack verify error:", directErr);
+  }
+
+  // 3. If no server or secret key available (e.g. offline or unconfigured), check if an inline callback already verified it
+  return {
+    verified: false,
+    status: "pending",
+    message: "Paystack has not confirmed this payment yet. If you made a bank transfer, please allow 1-2 minutes for your bank and Paystack to confirm, then try again.",
+  };
 }

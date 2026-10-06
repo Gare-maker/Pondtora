@@ -384,6 +384,7 @@ function getStandardPlanPrice(planName: string, freq?: string): number {
  * Processes commission when a payment occurs
  * - 30% for First Payment
  * - 10% for Recurring Payments
+ * - Idempotent: same payment reference will NEVER create duplicate rewards
  */
 export function processReferralCommission(params: {
   payerEmail: string;
@@ -393,14 +394,23 @@ export function processReferralCommission(params: {
   amount: number;
   reference: string;
 }): ReferralReward | null {
-  if (!params.payerEmail || params.amount <= 0) return null;
+  if (!params.payerEmail || params.amount <= 0 || !params.reference) return null;
 
+  const cleanRef = params.reference.trim();
   const cleanPayerEmail = params.payerEmail.toLowerCase().trim();
+  const allRewards = loadAllReferralRewards();
+
+  // 1. Strict Idempotency Check: if reward for this reference already exists, return it
+  const existingReward = allRewards.find(r => r.paymentReference && r.paymentReference.trim() === cleanRef);
+  if (existingReward) {
+    return existingReward;
+  }
+
   const allUsers = loadAllAdminUsers();
   const payerUser = allUsers.find(u => (u.email || "").toLowerCase().trim() === cleanPayerEmail);
 
   const referrerCode = (payerUser as any)?.referredBy || (payerUser as any)?.referred_by || getPendingReferrerCode();
-  if (!referrerCode) return null;
+  if (!referrerCode || !referrerCode.trim()) return null;
 
   const cleanRefCode = referrerCode.trim().toUpperCase();
 
@@ -411,8 +421,6 @@ export function processReferralCommission(params: {
     const uId = (u.id || "").toUpperCase().trim();
     return uCode === cleanRefCode || uId === cleanRefCode || uEmail === cleanRefCode;
   });
-
-  const allRewards = loadAllReferralRewards();
 
   // Check how many times this referred user has already generated commission
   const previousRewardsForPayer = allRewards.filter(
@@ -432,7 +440,7 @@ export function processReferralCommission(params: {
     referredUserId: payerUser?.id,
     referredUserEmail: cleanPayerEmail,
     referredUserName: resolvedUserName,
-    paymentReference: params.reference,
+    paymentReference: cleanRef,
     planName: params.planName,
     paymentAmount: params.amount,
     paymentType: isFirstPayment ? "first" : "recurring",
@@ -453,7 +461,7 @@ export function processReferralCommission(params: {
       referred_user_id: reward.referredUserId || null,
       referred_user_email: cleanPayerEmail,
       referred_user_name: resolvedUserName,
-      payment_reference: params.reference,
+      payment_reference: cleanRef,
       plan_name: params.planName,
       payment_amount: params.amount,
       payment_type: isFirstPayment ? "first" : "recurring",
@@ -480,7 +488,7 @@ export function processReferralCommission(params: {
       hasPaid: true,
       paymentAmount: params.amount,
       totalCommission: commissionAmount,
-      paystackReference: params.reference,
+      paystackReference: cleanRef,
       createdAt: new Date().toISOString().slice(0, 10),
       updatedAt: new Date().toISOString(),
     };
@@ -501,7 +509,7 @@ export function processReferralCommission(params: {
   logActivity(
     "Referral Commission Earned",
     "subscription",
-    `${referrerUser?.email || cleanRefCode} earned ₦${commissionAmount.toLocaleString()} (${isFirstPayment ? "30% 1st payment" : "10% recurring"}) from ${cleanPayerEmail}'s ${params.planName} payment (₦${params.amount.toLocaleString()})`,
+    `${referrerUser?.email || cleanRefCode} earned ₦${commissionAmount.toLocaleString()} (${isFirstPayment ? "30% 1st payment" : "10% recurring"}) from ${cleanPayerEmail}'s ${params.planName} payment (₦${params.amount.toLocaleString()}) — Ref: ${cleanRef}`,
     referrerUser?.email || "system"
   );
 
@@ -512,6 +520,21 @@ export function processReferralCommission(params: {
  * Calculates user's referral summary & list of referred farmers (strictly scoped to this user only)
  */
 export function getUserReferralStats(user: { id?: string; name?: string; email?: string; referralCode?: string } | null): ReferralStats {
+  if (!user || (!user.id && !user.email && !user.referralCode)) {
+    return {
+      referralCode: "PONDTORA-REF",
+      referralLink: getReferralLink("PONDTORA-REF"),
+      totalReferralsCount: 0,
+      paidReferralsCount: 0,
+      trialReferralsCount: 0,
+      totalEarnings: 0,
+      availableEarnings: 0,
+      paidOutEarnings: 0,
+      referredUsers: [],
+      rewards: [],
+    };
+  }
+
   const code = getUserReferralCode(user);
   const cleanCode = code.toUpperCase().trim();
   const cleanEmail = (user?.email || "").toLowerCase().trim();
@@ -520,19 +543,12 @@ export function getUserReferralStats(user: { id?: string; name?: string; email?:
   const allUsers = loadAllAdminUsers();
   const allRewards = loadAllReferralRewards();
 
-  // ONLY collect specific, unique identifiers for THIS user across all possible aliases
+  // ONLY collect specific, unique identifiers for THIS authenticated user (exact matches only)
   const userRefCodes = new Set<string>();
-  if (cleanCode) userRefCodes.add(cleanCode);
+  if (cleanCode && cleanCode !== "PONDTORA-REF") userRefCodes.add(cleanCode);
   if (user?.referralCode && user.referralCode.trim()) userRefCodes.add(user.referralCode.trim().toUpperCase());
   if ((user as any)?.referral_code && String((user as any).referral_code).trim()) userRefCodes.add(String((user as any).referral_code).trim().toUpperCase());
   
-  const codeFromEmail = generateReferralCode(undefined, cleanEmail, userId);
-  if (codeFromEmail) userRefCodes.add(codeFromEmail.toUpperCase());
-  if (user?.name) {
-    const codeFromName = generateReferralCode(user.name, cleanEmail, userId);
-    if (codeFromName) userRefCodes.add(codeFromName.toUpperCase());
-  }
-
   if (cleanEmail) {
     userRefCodes.add(cleanEmail.toUpperCase());
     userRefCodes.add(cleanEmail);
@@ -543,15 +559,6 @@ export function getUserReferralStats(user: { id?: string; name?: string; email?:
     userRefCodes.add(userId.toLowerCase());
   }
 
-  try {
-    if (cleanEmail) {
-      const c1 = localStorage.getItem(`pondtora_${cleanEmail}_ref_code`);
-      if (c1 && c1.trim()) userRefCodes.add(c1.trim().toUpperCase());
-    }
-    const c2 = localStorage.getItem("pondtora_user_referral_code");
-    if (c2 && c2.trim()) userRefCodes.add(c2.trim().toUpperCase());
-  } catch {}
-
   const foundAdminUser = allUsers.find(u => (u.email || "").toLowerCase().trim() === cleanEmail || (userId && u.id && u.id.toLowerCase() === userId.toLowerCase()));
   if ((foundAdminUser as any)?.referralCode && String((foundAdminUser as any).referralCode).trim()) {
     userRefCodes.add(String((foundAdminUser as any).referralCode).trim().toUpperCase());
@@ -560,8 +567,8 @@ export function getUserReferralStats(user: { id?: string; name?: string; email?:
     userRefCodes.add(String((foundAdminUser as any).referral_code).trim().toUpperCase());
   }
 
-  // Strict reward matching for this user
-  let myRewards = allRewards.filter(r => {
+  // Strict reward matching for THIS user only
+  const myRewards = allRewards.filter(r => {
     const rRef = (r.referrerCode || "").toUpperCase().trim();
     const rEmail = (r.referrerEmail || "").toLowerCase().trim();
     return (
@@ -632,6 +639,8 @@ export function getUserReferralStats(user: { id?: string; name?: string; email?:
       }
     }
   } catch {}
+
+  // Also add referred users from myRewards if not already in list
   myRewards.forEach(r => {
     const rEmail = (r.referredUserEmail || "").toLowerCase().trim();
     if (rEmail && cleanEmail && rEmail !== cleanEmail && !existingReferredEmails.has(rEmail)) {
@@ -659,85 +668,12 @@ export function getUserReferralStats(user: { id?: string; name?: string; email?:
     }
   });
 
-  // Check if any paid referred user is missing a reward in myRewards
-  let newRewardsAdded = false;
-  referredUsersList.forEach(u => {
-    const uEmail = (u.email || "").toLowerCase().trim();
-    const uRewards = myRewards.filter(r => (r.referredUserEmail || "").toLowerCase().trim() === uEmail);
-    const hasPaid = Boolean(
-      u.hasPaid ||
-      u.paystackReference ||
-      u.lastPaymentDate ||
-      uRewards.length > 0 ||
-      (u.subscriptionStatus && (u.subscriptionStatus.toLowerCase() === "active" || u.subscriptionStatus.toLowerCase() === "paid") && (u.paystackReference || u.lastPaymentDate || u.subscriptionExpiry || uRewards.length > 0))
-    );
-
-    if (hasPaid && uRewards.length === 0) {
-      const planPrice = (typeof u.subscriptionAmount === "number" && u.subscriptionAmount > 0)
-        ? u.subscriptionAmount
-        : getStandardPlanPrice(u.activePlan || "Starter", (u as any).billingFrequency);
-      const commRate = 0.30;
-      const commAmt = Math.round(planPrice * commRate);
-
-      const synthReward: ReferralReward = {
-        id: "ref-rew-" + (u.id ? String(u.id).replace(/[^a-zA-Z0-9]/g, "").slice(-8) : Math.random().toString(36).slice(2, 10)),
-        referrerCode: cleanCode,
-        referrerEmail: user?.email || cleanCode,
-        referredUserId: u.id,
-        referredUserEmail: uEmail,
-        referredUserName: u.name || uEmail.split("@")[0],
-        paymentReference: u.paystackReference || "LIVE-CONFIRMED",
-        planName: u.activePlan || "Starter Plan",
-        paymentAmount: planPrice,
-        paymentType: "first",
-        commissionRate: commRate,
-        commissionAmount: commAmt,
-        status: "Available",
-        createdAt: u.lastPaymentDate || u.createdAt || new Date().toISOString().slice(0, 10),
-      };
-
-      myRewards.unshift(synthReward);
-      allRewards.unshift(synthReward);
-      newRewardsAdded = true;
-
-      // Sync to Supabase asynchronously
-      try {
-        supabase.from("referral_rewards").insert({
-          referrer_code: cleanCode,
-          referrer_email: user?.email || cleanCode,
-          referred_user_id: u.id || null,
-          referred_user_email: uEmail,
-          referred_user_name: u.name || uEmail.split("@")[0],
-          payment_reference: synthReward.paymentReference,
-          plan_name: synthReward.planName,
-          payment_amount: planPrice,
-          payment_type: "first",
-          commission_rate: commRate,
-          commission_amount: commAmt,
-          status: "Available",
-        }).then(() => {}).catch(() => {});
-      } catch {}
-    }
-  });
-
-  if (newRewardsAdded) {
-    try {
-      localStorage.setItem(REFERRALS_STORAGE_KEY, JSON.stringify(allRewards));
-    } catch {}
-  }
-
   const referredUsers: ReferredUserRecord[] = referredUsersList.map(u => {
     const uEmail = (u.email || "").toLowerCase().trim();
     const userRewards = myRewards.filter(r => (r.referredUserEmail || "").toLowerCase().trim() === uEmail);
     const commTotal = userRewards.reduce((s, r) => s + (r.commissionAmount || 0), 0);
-
-    const hasPaid = Boolean(
-      u.hasPaid ||
-      u.paystackReference ||
-      u.lastPaymentDate ||
-      userRewards.length > 0 ||
-      (u.subscriptionStatus && (u.subscriptionStatus.toLowerCase() === "active" || u.subscriptionStatus.toLowerCase() === "paid") && (u.paystackReference || u.lastPaymentDate || u.subscriptionExpiry || userRewards.length > 0))
-    );
+    const hasVerifiedReward = userRewards.length > 0;
+    const hasPaid = Boolean(hasVerifiedReward || (u.hasPaid && u.paystackReference));
 
     // Calculate trial days left (30-day free trial window)
     let trialDaysLeft = 0;
@@ -762,23 +698,16 @@ export function getUserReferralStats(user: { id?: string; name?: string; email?:
       }
     }
 
-    // Payment Amount
+    // Payment Amount strictly from verified rewards or confirmed payment
     let paymentAmount = 0;
     if (userRewards.length > 0) {
       paymentAmount = userRewards.reduce((sum, r) => sum + (r.paymentAmount || 0), 0);
-    } else if (hasPaid) {
-      paymentAmount = (typeof u.subscriptionAmount === "number" && u.subscriptionAmount > 0)
-        ? u.subscriptionAmount
-        : getStandardPlanPrice(u.activePlan || "Starter", (u as any).billingFrequency);
+    } else if (hasPaid && typeof u.subscriptionAmount === "number" && u.subscriptionAmount > 0) {
+      paymentAmount = u.subscriptionAmount;
     }
 
-    // Actual Commission Amount: 30% first payment, 10% renewals
-    let calculatedCommission = 0;
-    if (userRewards.length > 0) {
-      calculatedCommission = commTotal;
-    } else if (hasPaid && paymentAmount > 0) {
-      calculatedCommission = Math.round(paymentAmount * 0.30);
-    }
+    // Actual Commission Amount: strictly from verified rewards
+    const calculatedCommission = commTotal;
 
     // Breakdown text
     let commissionBreakdown = "";
@@ -792,8 +721,6 @@ export function getUserReferralStats(user: { id?: string; name?: string; email?:
         parts.push(`10% renewals (₦${recTotal.toLocaleString()})`);
       }
       commissionBreakdown = parts.join(" + ");
-    } else if (hasPaid && calculatedCommission > 0) {
-      commissionBreakdown = `30% 1st (₦${calculatedCommission.toLocaleString()})`;
     }
 
     return {
@@ -809,15 +736,15 @@ export function getUserReferralStats(user: { id?: string; name?: string; email?:
       trialDaysLeft,
       trialStatusText,
       totalCommission: calculatedCommission,
-      paymentCount: userRewards.length || (hasPaid ? 1 : 0),
+      paymentCount: userRewards.length,
       commissionBreakdown,
     };
   });
 
-  const paidReferralsCount = referredUsers.filter(u => u.hasPaid || u.totalCommission > 0).length;
-  const trialReferralsCount = referredUsers.filter(u => !u.hasPaid && u.totalCommission === 0).length;
+  const paidReferralsCount = referredUsers.filter(u => u.hasPaid && u.totalCommission > 0).length;
+  const trialReferralsCount = referredUsers.filter(u => !u.hasPaid || u.totalCommission === 0).length;
 
-  const totalEarnings = referredUsers.reduce((sum, u) => sum + (u.totalCommission || 0), 0);
+  const totalEarnings = myRewards.reduce((sum, r) => sum + (r.commissionAmount || 0), 0);
   const paidOutEarnings = myRewards
     .filter(r => r.status === "Paid")
     .reduce((sum, r) => sum + (r.commissionAmount || 0), 0);
@@ -834,6 +761,8 @@ export function getUserReferralStats(user: { id?: string; name?: string; email?:
     paidOutEarnings,
     referredUsers,
     rewards: myRewards,
+  };
+}ds,
   };
 }
 

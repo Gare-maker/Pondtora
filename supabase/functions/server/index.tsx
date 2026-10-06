@@ -89,7 +89,7 @@ function dbErr(c: any, error: any, status = 500) {
 // ── Auth middleware ───────────────────────────────────────────────────────────
 app.use(`${P}/*`, async (c, next) => {
   const path = c.req.path;
-  const unprotected = ["/health", "/public/", "/admin/delete-user", "/admin/overview", "/admin/platform-stats", "/admin/users", "/admin/register-profile"];
+  const unprotected = ["/health", "/public/", "/admin/delete-user", "/admin/overview", "/admin/platform-stats", "/admin/users", "/admin/register-profile", "/paystack/verify", "/paystack/webhook"];
   if (unprotected.some(u => path.includes(u))) return next();
 
   const token = c.req.header("Authorization")?.replace("Bearer ", "") ?? "";
@@ -102,6 +102,181 @@ app.use(`${P}/*`, async (c, next) => {
   c.set("userId", user.id);
   c.set("token", token);
   return next();
+});
+
+// ── Paystack Transaction Verification ─────────────────────────────────────────
+app.post(`${P}/paystack/verify`, async (c) => {
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const reference = (body.reference || "").trim();
+    if (!reference) {
+      return c.json({ verified: false, status: "not_found", message: "Transaction reference is required." }, 400);
+    }
+
+    // 1. Resolve Paystack Secret Key from environment or platform_settings
+    let secretKey = Deno.env.get("PAYSTACK_SECRET_KEY") || "";
+    if (!secretKey) {
+      const { data: setting } = await adminDb()
+        .from("platform_settings")
+        .select("value")
+        .eq("key", "paystack_secret_key")
+        .maybeSingle();
+      if (setting?.value) {
+        secretKey = typeof setting.value === "string" ? setting.value : (setting.value.secretKey || "");
+      }
+    }
+
+    if (!secretKey) {
+      // Fallback check if public key config exists
+      const { data: cfgSetting } = await adminDb()
+        .from("platform_settings")
+        .select("value")
+        .eq("key", "paystack_config")
+        .maybeSingle();
+      if (cfgSetting?.value?.secretKey) {
+        secretKey = cfgSetting.value.secretKey;
+      }
+    }
+
+    if (!secretKey) {
+      return c.json({
+        verified: false,
+        status: "error",
+        message: "Paystack secret key is not configured on server. Please verify via Paystack dashboard.",
+      });
+    }
+
+    // 2. Query Paystack REST API
+    const psRes = await fetch(`https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`, {
+      headers: {
+        Authorization: `Bearer ${secretKey.trim()}`,
+      },
+    });
+
+    if (!psRes.ok) {
+      return c.json({
+        verified: false,
+        status: "failed",
+        message: "Unable to verify transaction with Paystack.",
+      });
+    }
+
+    const psJson = await psRes.json();
+    if (!psJson.status || !psJson.data) {
+      return c.json({
+        verified: false,
+        status: "not_found",
+        message: psJson.message || "Transaction not found on Paystack.",
+      });
+    }
+
+    const tx = psJson.data;
+    const isSuccess = tx.status === "success";
+    const amountInNaira = typeof tx.amount === "number" ? tx.amount / 100 : 0;
+    const payerEmail = (tx.customer?.email || "").toLowerCase().trim();
+
+    if (!isSuccess) {
+      return c.json({
+        verified: false,
+        status: tx.status,
+        amount: amountInNaira,
+        reference: tx.reference || reference,
+        message: `Payment status is ${tx.status}. Subscription cannot be activated.`,
+      });
+    }
+
+    // 3. Payment is VERIFIED SUCCESSFUL. Apply subscription activation and idempotent referral reward.
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const billingCycle = body.billingCycle === "yearly" ? "yearly" : "monthly";
+    const expDate = new Date();
+    expDate.setDate(expDate.getDate() + (billingCycle === "yearly" ? 365 : 30));
+    const expStr = expDate.toISOString().slice(0, 10);
+    const planName = body.expectedPlan || tx.metadata?.plan_name || "Starter";
+
+    if (payerEmail) {
+      // Find payer user profile
+      const { data: payerProf } = await adminDb()
+        .from("user_profiles")
+        .select("id, name, email, farm_name, referred_by")
+        .ilike("email", payerEmail)
+        .maybeSingle();
+
+      if (payerProf) {
+        // Update user profile
+        await adminDb()
+          .from("user_profiles")
+          .update({
+            active_plan: planName,
+            subscription_status: "Active",
+            subscription_amount: amountInNaira,
+            paystack_reference: tx.reference || reference,
+            last_payment_date: todayStr,
+            subscription_start: todayStr,
+            subscription_expiry: expStr,
+            billing_frequency: billingCycle,
+            trial_start_date: null,
+            status: "Active",
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", payerProf.id);
+
+        // Process referral reward strictly once (idempotent on payment_reference)
+        const referrerCode = payerProf.referred_by;
+        if (referrerCode) {
+          const { data: existingReward } = await adminDb()
+            .from("referral_rewards")
+            .select("id")
+            .eq("payment_reference", tx.reference || reference)
+            .maybeSingle();
+
+          if (!existingReward) {
+            // Check previous rewards for this referred user to determine 30% first vs 10% recurring
+            const { data: prevRewards } = await adminDb()
+              .from("referral_rewards")
+              .select("id")
+              .ilike("referred_user_email", payerEmail);
+
+            const isFirst = !prevRewards || prevRewards.length === 0;
+            const rate = isFirst ? 0.30 : 0.10;
+            const commission = Math.round(amountInNaira * rate);
+
+            await adminDb().from("referral_rewards").insert({
+              referrer_code: referrerCode.trim().toUpperCase(),
+              referrer_email: referrerCode.includes("@") ? referrerCode.toLowerCase() : referrerCode,
+              referred_user_id: payerProf.id,
+              referred_user_email: payerEmail,
+              referred_user_name: payerProf.name || payerEmail.split("@")[0],
+              payment_reference: tx.reference || reference,
+              plan_name: planName,
+              payment_amount: amountInNaira,
+              payment_type: isFirst ? "first" : "recurring",
+              commission_rate: rate,
+              commission_amount: commission,
+              status: "Available",
+            });
+          }
+        }
+      }
+    }
+
+    return c.json({
+      verified: true,
+      status: "success",
+      amount: amountInNaira,
+      reference: tx.reference || reference,
+      planName,
+      billingCycle,
+      paidAt: tx.paid_at || todayStr,
+      message: "Payment successfully verified through Paystack.",
+    });
+  } catch (err: any) {
+    console.error("Paystack verification endpoint error:", err);
+    return c.json({
+      verified: false,
+      status: "error",
+      message: err?.message || "Failed to verify transaction.",
+    }, 500);
+  }
 });
 
 // ── Health ────────────────────────────────────────────────────────────────────
