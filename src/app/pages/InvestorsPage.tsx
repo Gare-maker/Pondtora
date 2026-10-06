@@ -997,7 +997,7 @@ export default function InvestorsPage({
   return (
     <div className="p-4 sm:p-6 space-y-5 w-full font-['Barlow',sans-serif]">
       {/* ── Top Header / Breadcrumbs ── */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="sticky top-0 z-20 bg-[#f5f7fa]/95 backdrop-blur-sm -mx-4 -mt-4 sm:-mx-6 sm:-mt-6 px-4 py-3 sm:px-6 sm:py-4 border-b border-slate-200/80 flex flex-wrap items-center justify-between gap-3 transition-all">
         <div className="flex items-center gap-2 min-w-0">
           {selectedInvestorId ? (
             <div className="flex items-center gap-2 min-w-0">

@@ -588,8 +588,50 @@ export function getUserReferralStats(user: { id?: string; name?: string; email?:
     );
   });
 
-  // Ensure any referred user recorded in myRewards is present in referredUsersList
   const existingReferredEmails = new Set(referredUsersList.map(u => (u.email || "").toLowerCase().trim()));
+
+  // Also check pondtora_cached_referral_registry for immediate rendering before async fetch
+  try {
+    const rawReg = localStorage.getItem("pondtora_cached_referral_registry");
+    if (rawReg) {
+      const parsedReg: ReferralRegistryEntry[] = JSON.parse(rawReg);
+      if (Array.isArray(parsedReg)) {
+        parsedReg.forEach(reg => {
+          const regRef = (reg.referrerCode || "").toUpperCase().trim();
+          const regRefEmail = (reg.referrerEmail || "").toLowerCase().trim();
+          const isMatch = (regRef && userRefCodes.has(regRef)) ||
+            (cleanEmail && regRefEmail === cleanEmail) ||
+            (cleanEmail && regRef === cleanEmail.toUpperCase()) ||
+            (userId && (regRef === userId.toUpperCase() || regRef === userId.toLowerCase()));
+
+          const regEmail = (reg.email || "").toLowerCase().trim();
+          if (isMatch && regEmail && (!cleanEmail || regEmail !== cleanEmail) && !existingReferredEmails.has(regEmail)) {
+            existingReferredEmails.add(regEmail);
+            referredUsersList.push({
+              id: reg.id || "usr-" + regEmail.replace(/[^a-zA-Z0-9]/g, "").slice(0, 10),
+              name: reg.name || regEmail.split("@")[0] || "Farmer",
+              email: regEmail,
+              farmName: reg.farmName || reg.name || "Primary Farm",
+              phone: "",
+              city: "Lagos",
+              state: "Lagos",
+              country: "Nigeria",
+              role: "owner",
+              activePlan: reg.activePlan || "Starter",
+              billingFrequency: reg.billingFrequency || "monthly",
+              subscriptionStatus: reg.hasPaid ? "Active" : "Trial",
+              hasPaid: Boolean(reg.hasPaid),
+              trialStartDate: reg.trialStartDate || reg.createdAt,
+              paystackReference: reg.paystackReference,
+              lastPaymentDate: reg.hasPaid ? reg.createdAt : undefined,
+              referredBy: cleanCode,
+              createdAt: reg.createdAt || new Date().toISOString().slice(0, 10),
+            });
+          }
+        });
+      }
+    }
+  } catch {}
   myRewards.forEach(r => {
     const rEmail = (r.referredUserEmail || "").toLowerCase().trim();
     if (rEmail && cleanEmail && rEmail !== cleanEmail && !existingReferredEmails.has(rEmail)) {
