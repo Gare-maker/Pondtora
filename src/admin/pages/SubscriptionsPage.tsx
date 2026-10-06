@@ -158,7 +158,8 @@ export default function SubscriptionsPage({ users, plans, onUpdate }: Props) {
 
   function fmtEffective(u: AdminUser) {
     if (u.freeAccess) return <span className="text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded font-bold text-xs">Free VIP ✦</span>;
-    if (typeof u.subscriptionAmount === "number" && !isNaN(u.subscriptionAmount)) {
+    const isPaid = Boolean(!u.freeAccess && u.hasPaid && isValidPaystackRef(u.paystackReference));
+    if (isPaid && typeof u.subscriptionAmount === "number" && !isNaN(u.subscriptionAmount)) {
       return (
         <div>
           <span className="font-bold text-emerald-700">{fmtMoney(u.subscriptionAmount)}</span>
@@ -343,7 +344,7 @@ export default function SubscriptionsPage({ users, plans, onUpdate }: Props) {
                 </tr>
               )}
               {paged.map(u => {
-                const isPaid = Boolean(u.hasPaid || u.paystackReference || u.lastPaymentDate) && !u.freeAccess;
+                const isPaid = Boolean(!u.freeAccess && u.hasPaid && isValidPaystackRef(u.paystackReference));
                 return (
                   <tr key={u.id} className="hover:bg-slate-50/80 transition-colors group">
                     <td className="px-4 py-3 max-w-[200px] sticky left-0 bg-white group-hover:bg-slate-50 z-10 border-r border-slate-100 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.06)]">
