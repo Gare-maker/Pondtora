@@ -85,6 +85,16 @@ BEGIN
     SET value = '{}'::jsonb
     WHERE key = 'admin_user_overrides';
 
+    -- Reset referral_registry payment states if present
+    UPDATE public.platform_settings
+    SET value = (
+      SELECT jsonb_agg(
+        elem || '{"hasPaid": false, "paymentAmount": 0, "paystackReference": null, "paidDate": null}'::jsonb
+      )
+      FROM jsonb_array_elements(value) elem
+    )
+    WHERE key = 'referral_registry' AND jsonb_typeof(value) = 'array';
+
     RAISE NOTICE 'Reset payment-related platform_settings records.';
   END IF;
 END $$;

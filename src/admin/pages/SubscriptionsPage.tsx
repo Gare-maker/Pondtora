@@ -1,9 +1,9 @@
 import React, { useState, useMemo } from "react";
-import { Search, Edit2, Gift, CreditCard, Sparkles, CheckCircle, Clock, DollarSign, Calendar, TrendingUp, ShieldCheck, Check, RotateCcw, CalendarDays, RefreshCw } from "lucide-react";
+import { Search, Edit2, Gift, CreditCard, Sparkles, CheckCircle, Clock, DollarSign, Calendar, TrendingUp, ShieldCheck, Check, RotateCcw, CalendarDays, RefreshCw, Trash2, AlertTriangle } from "lucide-react";
 import { Card, Bdg, PBtn, Pagination, PER_PAGE, Modal, F, IC, SC, DateInput, ToggleCard, ToggleSwitch, toDateInputValue, getTodayDateStr, addDurationToDate } from "../../app/shared";
 import type { AdminUser, AdminPlan } from "../types";
 import { fmtDate, trialDaysLeft, fmtMoney, computeSubscriptionStatus, effectivePrice } from "../types";
-import { isStaffUser } from "../../lib/userSync";
+import { isStaffUser, clearAllPaymentDataInDbAndStorage, loadAllAdminUsers } from "../../lib/userSync";
 import { toast } from "sonner";
 
 interface Props {
@@ -27,6 +27,8 @@ export default function SubscriptionsPage({ users, plans, onUpdate }: Props) {
   const [filter, setFilter] = useState("All");
   const [page, setPage] = useState(1);
   const [editing, setEditing] = useState<AdminUser | null>(null);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [isClearing, setIsClearing] = useState(false);
   const [form, setForm] = useState({
     activePlan: "",
     billingFrequency: "monthly" as "monthly" | "yearly",
@@ -181,6 +183,28 @@ export default function SubscriptionsPage({ users, plans, onUpdate }: Props) {
     }));
   };
 
+  async function handleClearAllPayments() {
+    setIsClearing(true);
+    try {
+      const ok = await clearAllPaymentDataInDbAndStorage();
+      if (ok) {
+        toast.success("All payment & subscription records cleared. Users reset to clean trial status.");
+        setShowClearConfirm(false);
+        // Refresh users state
+        const refreshed = loadAllAdminUsers();
+        if (refreshed.length > 0 && onUpdate) {
+          refreshed.forEach(u => onUpdate(u));
+        }
+      } else {
+        toast.error("Failed to clear some payment records. Check console for details.");
+      }
+    } catch (err) {
+      toast.error("Error clearing payment records");
+    } finally {
+      setIsClearing(false);
+    }
+  }
+
   return (
     <div className="space-y-4">
       {/* Header */}
@@ -197,6 +221,18 @@ export default function SubscriptionsPage({ users, plans, onUpdate }: Props) {
           <p className="text-xs text-slate-500 mt-0.5">
             Manage subscriber pricing overrides, view real-time Paystack payments, and configure subscription access.
           </p>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setShowClearConfirm(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-xl transition-colors cursor-pointer shadow-xs"
+            title="Reset all payment records and restore trial state for all users"
+          >
+            <RotateCcw size={13} />
+            <span>Reset / Clear All Payments</span>
+          </button>
         </div>
       </div>
 
@@ -596,6 +632,55 @@ export default function SubscriptionsPage({ users, plans, onUpdate }: Props) {
                 Cancel
               </PBtn>
               <PBtn onClick={handleSave}>Save Changes</PBtn>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Confirmation Modal for Resetting All Payments */}
+      {showClearConfirm && (
+        <Modal title="Clear All Payment & Subscription Data" onClose={() => !isClearing && setShowClearConfirm(false)} size="sm">
+          <div className="space-y-4">
+            <div className="p-3.5 bg-red-50 border border-red-200 rounded-xl flex items-start gap-3">
+              <AlertTriangle className="text-red-600 shrink-0 mt-0.5" size={20} />
+              <div className="text-xs text-red-900 space-y-1.5">
+                <p className="font-bold">Are you sure you want to clear all payment records?</p>
+                <p className="text-red-700 leading-relaxed">
+                  This action will:
+                </p>
+                <ul className="list-disc pl-4 space-y-1 text-red-700">
+                  <li>Reset all user subscriptions back to clean <strong>Trial</strong> state.</li>
+                  <li>Clear all Paystack payment references and transaction history.</li>
+                  <li>Reset collected revenue stat to <strong>₦0</strong>.</li>
+                </ul>
+                <p className="font-semibold text-emerald-800 bg-emerald-50 p-2 rounded border border-emerald-200 mt-2">
+                  ✓ User accounts, farms, ponds, feeding records, and Paystack integration keys will <strong>NOT</strong> be deleted.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <PBtn outline onClick={() => setShowClearConfirm(false)} disabled={isClearing}>
+                Cancel
+              </PBtn>
+              <button
+                type="button"
+                onClick={handleClearAllPayments}
+                disabled={isClearing}
+                className="px-4 py-2 text-xs font-bold text-white bg-red-600 hover:bg-red-700 rounded-xl flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+              >
+                {isClearing ? (
+                  <>
+                    <RefreshCw size={13} className="animate-spin" />
+                    <span>Clearing Database...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 size={13} />
+                    <span>Yes, Clear All Payments</span>
+                  </>
+                )}
+              </button>
             </div>
           </div>
         </Modal>

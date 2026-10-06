@@ -177,16 +177,10 @@ export async function fetchLiveAdminUsers(): Promise<{
 
         const rawStatus = (p.subscription_status || override?.subscriptionStatus || local?.subscriptionStatus || "").trim();
         const hasPaid = Boolean(
-          local?.hasPaid ||
-          local?.paystackReference ||
-          local?.lastPaymentDate ||
-          p.paystack_reference ||
-          p.last_payment_date ||
-          override?.paystackReference ||
-          override?.lastPaymentDate ||
-          override?.hasPaid ||
-          rawStatus === "Paid" ||
-          (rawStatus === "Active" && Boolean(p.subscription_expiry || override?.subscriptionExpiry || p.paystack_reference || local?.paystackReference || override?.paystackReference))
+          !p.free_access &&
+          !override?.freeAccess &&
+          ((p.paystack_reference && p.paystack_reference.trim() !== "") ||
+           (override?.paystackReference && override.paystackReference.trim() !== ""))
         );
 
         const roleStr = (p.role || override?.role || local?.role || "owner").toLowerCase().trim();
@@ -332,16 +326,10 @@ export async function fetchLiveAdminUsers(): Promise<{
 
           const rawStatus = (p.subscription_status || override?.subscriptionStatus || local?.subscriptionStatus || "").trim();
           const hasPaid = Boolean(
-            local?.hasPaid ||
-            local?.paystackReference ||
-            local?.lastPaymentDate ||
-            p.paystack_reference ||
-            p.last_payment_date ||
-            override?.paystackReference ||
-            override?.lastPaymentDate ||
-            override?.hasPaid ||
-            rawStatus === "Paid" ||
-            (rawStatus === "Active" && Boolean(p.subscription_expiry || override?.subscriptionExpiry || p.paystack_reference || local?.paystackReference || override?.paystackReference))
+            !p.free_access &&
+            !override?.freeAccess &&
+            ((p.paystack_reference && p.paystack_reference.trim() !== "") ||
+             (override?.paystackReference && override.paystackReference.trim() !== ""))
           );
 
           const activePlan = override?.activePlan || p.active_plan || local?.activePlan || "Starter";
@@ -491,7 +479,9 @@ export async function fetchLiveAdminUsers(): Promise<{
       if (ref && (ref.id || ref.email)) {
         const key = (ref.email || ref.id).toLowerCase();
         const existing = userMap.get(key) || (ref.id ? userMap.get(ref.id.toLowerCase()) : null);
-        const hasPaid = Boolean(ref.hasPaid || ref.paymentAmount > 0 || existing?.hasPaid);
+        const refPayRef = (ref.paystackReference || existing?.paystackReference || "").trim();
+        const isFree = Boolean(ref.freeAccess || existing?.freeAccess);
+        const hasPaid = Boolean(!isFree && refPayRef !== "");
         const merged: AdminUser = {
           id: ref.id || existing?.id || "usr-" + Math.random().toString(36).slice(2, 8),
           name: ref.name || existing?.name || (ref.email ? ref.email.split("@")[0] : "Farmer"),
@@ -503,20 +493,20 @@ export async function fetchLiveAdminUsers(): Promise<{
           country: existing?.country || "Nigeria",
           role: existing?.role || "owner",
           activePlan: ref.activePlan || existing?.activePlan || "Starter",
-          trialStartDate: ref.trialStartDate || existing?.trialStartDate || new Date().toISOString().slice(0, 10),
+          trialStartDate: hasPaid ? null : (ref.trialStartDate || existing?.trialStartDate || new Date().toISOString().slice(0, 10)),
           billingFrequency: ref.billingFrequency || existing?.billingFrequency || "monthly",
-          subscriptionAmount: ref.paymentAmount || existing?.subscriptionAmount || null,
+          subscriptionAmount: hasPaid ? (ref.paymentAmount || existing?.subscriptionAmount || null) : null,
           hasPaid: hasPaid,
-          subscriptionStatus: hasPaid ? "Active" : "Trial",
-          subscriptionStart: existing?.subscriptionStart || null,
-          subscriptionExpiry: existing?.subscriptionExpiry || null,
+          subscriptionStatus: hasPaid ? "Active" : (isFree ? "Active" : "Trial"),
+          subscriptionStart: hasPaid ? (existing?.subscriptionStart || null) : null,
+          subscriptionExpiry: hasPaid ? (existing?.subscriptionExpiry || null) : null,
           accountStatus: "Active",
-          freeAccess: Boolean(existing?.freeAccess),
+          freeAccess: isFree,
           farmCount: existing?.farmCount || 1,
           pondCount: existing?.pondCount || 0,
           staffCount: existing?.staffCount || 0,
-          paystackReference: ref.paystackReference || existing?.paystackReference,
-          lastPaymentDate: existing?.lastPaymentDate,
+          paystackReference: hasPaid ? refPayRef : null,
+          lastPaymentDate: hasPaid ? (existing?.lastPaymentDate || null) : null,
           referralCode: existing?.referralCode,
           referredBy: ref.referrerCode || existing?.referredBy,
           createdAt: ref.createdAt || existing?.createdAt || new Date().toISOString().slice(0, 10),
@@ -1141,17 +1131,9 @@ export function syncUserProfileToAdmin(
   if (existingIdx >= 0) {
     const current = users[existingIdx];
     const hasPaid = Boolean(
-      current.hasPaid ||
-      current.paystackReference ||
-      current.lastPaymentDate ||
-      (profile as any).hasPaid ||
-      profile.paystackReference ||
-      (profile as any).paystack_reference ||
-      profile.lastPaymentDate ||
-      (profile as any).last_payment_date ||
-      (profile.subscriptionStatus === "Paid") ||
-      ((profile as any).subscription_status === "Paid") ||
-      ((profile.subscriptionStatus === "Active" || (profile as any).subscription_status === "Active") && Boolean(profile.subscriptionExpiry || (profile as any).subscription_expiry || profile.paystackReference || (profile as any).paystack_reference))
+      !resolvedFreeAccess &&
+      ((profile.paystackReference && profile.paystackReference.trim() !== "") ||
+       ((profile as any).paystack_reference && (profile as any).paystack_reference.trim() !== ""))
     );
 
     let resolvedCustomAmount = profileCustomAmount !== null ? profileCustomAmount : (typeof current.subscriptionAmount === "number" ? current.subscriptionAmount : null);
@@ -1201,14 +1183,9 @@ export function syncUserProfileToAdmin(
     users[existingIdx] = userObj;
   } else {
     const hasPaid = Boolean(
-      (profile as any).hasPaid ||
-      profile.paystackReference ||
-      (profile as any).paystack_reference ||
-      profile.lastPaymentDate ||
-      (profile as any).last_payment_date ||
-      (profile.subscriptionStatus === "Paid") ||
-      ((profile as any).subscription_status === "Paid") ||
-      ((profile.subscriptionStatus === "Active" || (profile as any).subscription_status === "Active") && Boolean(profile.subscriptionExpiry || (profile as any).subscription_expiry || profile.paystackReference || (profile as any).paystack_reference))
+      !profileFreeAccess &&
+      ((profile.paystackReference && profile.paystackReference.trim() !== "") ||
+       ((profile as any).paystack_reference && (profile as any).paystack_reference.trim() !== ""))
     );
 
     const resolvedPlan = activePlan || profile.activePlan || "Starter";
@@ -1844,3 +1821,139 @@ export function recordSuccessfulPayment(params: {
 
   return userObj;
 }
+
+/**
+ * Purges all historical payment records, Paystack references, and referral ledger entries
+ * from both Supabase and local caches, restoring all accounts to clean initial trial state.
+ */
+export async function clearAllPaymentDataInDbAndStorage(): Promise<boolean> {
+  try {
+    // 1. Reset all non-admin user profiles in Supabase
+    try {
+      await supabase
+        .from("user_profiles")
+        .update({
+          paystack_reference: null,
+          last_payment_date: null,
+          subscription_amount: null,
+          subscription_start: null,
+          subscription_expiry: null,
+          subscription_status: "Trial",
+          billing_frequency: "monthly",
+          updated_at: new Date().toISOString(),
+        })
+        .neq("role", "admin")
+        .neq("role", "superadmin");
+    } catch (profErr) {
+      console.warn("user_profiles reset warning:", profErr);
+    }
+
+    // 2. Clear referral rewards table
+    try {
+      await supabase
+        .from("referral_rewards")
+        .delete()
+        .neq("id", "00000000-0000-0000-0000-000000000000");
+    } catch (refErr) {
+      console.warn("referral_rewards delete warning:", refErr);
+    }
+
+    // 3. Clear platform_settings payment records
+    try {
+      await supabase
+        .from("platform_settings")
+        .upsert({
+          key: "admin_user_overrides",
+          value: {},
+          updated_at: new Date().toISOString(),
+        }, { onConflict: "key" });
+
+      await supabase
+        .from("platform_settings")
+        .delete()
+        .in("key", ["admin_referral_rewards", "paystack_payments"]);
+
+      // Reset referral_registry payment states in platform_settings
+      const { data: refReg } = await supabase
+        .from("platform_settings")
+        .select("value")
+        .eq("key", "referral_registry")
+        .maybeSingle();
+
+      if (refReg?.value && Array.isArray(refReg.value)) {
+        const cleanedRegistry = refReg.value.map((r: any) => ({
+          ...r,
+          hasPaid: false,
+          paymentAmount: 0,
+          paystackReference: null,
+          paidDate: null,
+        }));
+        await supabase
+          .from("platform_settings")
+          .upsert({
+            key: "referral_registry",
+            value: cleanedRegistry,
+            updated_at: new Date().toISOString(),
+          }, { onConflict: "key" });
+      }
+    } catch (setErr) {
+      console.warn("platform_settings reset warning:", setErr);
+    }
+
+    // 4. Clear all payment-related local and session storage caches
+    try {
+      localStorage.removeItem("pondtora_admin_user_overrides");
+      localStorage.removeItem("pondtora_admin_platform_stats");
+      localStorage.removeItem("pondtora_pending_paystack_tx");
+      sessionStorage.removeItem("pondtora_pending_paystack_tx");
+
+      // Clean scoped localStorage keys
+      for (let i = localStorage.length - 1; i >= 0; i--) {
+        const k = localStorage.key(i);
+        if (k && (k.endsWith("_user_profile") || k.includes("admin_user"))) {
+          try {
+            const raw = localStorage.getItem(k);
+            if (raw) {
+              const obj = JSON.parse(raw);
+              if (obj && typeof obj === "object") {
+                if (obj.hasPaid !== undefined || obj.paystackReference !== undefined || obj.lastPaymentDate !== undefined) {
+                  obj.hasPaid = false;
+                  obj.paystackReference = null;
+                  obj.lastPaymentDate = null;
+                  obj.subscriptionAmount = null;
+                  obj.subscriptionExpiry = null;
+                  if (!obj.freeAccess && obj.subscriptionStatus === "Active") {
+                    obj.subscriptionStatus = "Trial";
+                  }
+                  localStorage.setItem(k, JSON.stringify(obj));
+                }
+              }
+            }
+          } catch {}
+        }
+      }
+
+      const users = loadAllAdminUsers().map(u => ({
+        ...u,
+        hasPaid: false,
+        paystackReference: null,
+        lastPaymentDate: null,
+        subscriptionAmount: null,
+        subscriptionExpiry: null,
+        subscriptionStatus: u.freeAccess ? "Active" : "Trial",
+      }));
+      saveAllAdminUsers(users);
+
+      window.dispatchEvent(new CustomEvent("pondtora:users_updated", { detail: users }));
+      window.dispatchEvent(new CustomEvent("pondtora:referrals_updated", { detail: {} }));
+    } catch (locErr) {
+      console.warn("local storage cleanup warning:", locErr);
+    }
+
+    return true;
+  } catch (err) {
+    console.error("clearAllPaymentDataInDbAndStorage error:", err);
+    return false;
+  }
+}
+
