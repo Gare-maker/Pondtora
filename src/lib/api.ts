@@ -230,7 +230,7 @@ const TABLE_ALLOWED_COLUMNS: Record<string, Set<string>> = {
     "id", "user_id", "farm_id", "name", "type", "species", "size_m2", "initial_stock",
     "current_count", "avg_weight", "stocking_date", "stock_month", "total_cost",
     "status", "notes", "default_pellet", "category", "max_kg_by_pallet", "supplier",
-    "transfer_note", "length_ft", "width_ft", "created_at"
+    "transfer_note", "length_ft", "width_ft", "fish_stock", "created_at"
   ]),
   expenses: new Set([
     "id", "user_id", "farm_id", "category", "amount", "date", "month", "year",
@@ -255,7 +255,7 @@ const TABLE_ALLOWED_COLUMNS: Record<string, Set<string>> = {
   ]),
   stock_events: new Set([
     "id", "user_id", "pond_id", "farm_id", "pond_name", "date", "species",
-    "count", "avg_weight", "cost", "sale_price", "type", "from_pond", "cleared_date", "supplier", "created_at"
+    "count", "avg_weight", "cost", "sale_price", "type", "from_pond", "cleared_date", "supplier", "batch", "created_at"
   ]),
   mortality_entries: new Set([
     "id", "user_id", "pond_id", "farm_id", "date", "count", "cause", "notes", "created_at"
@@ -968,9 +968,6 @@ async function dbUpdate<T extends { id?: string }>(table: string, item: T, cache
   try {
     if (targetId) {
       let updateQuery = supabase.from(table).update(snake).eq("id", targetId);
-      if (TABLE_ALLOWED_COLUMNS[table]?.has("user_id")) {
-        updateQuery = updateQuery.eq("user_id", effectiveUserId);
-      }
       let { data, error } = await updateQuery.select().maybeSingle();
       let healAttempts = 0;
       while (error && error.message && healAttempts < 8) {
@@ -980,9 +977,6 @@ async function dbUpdate<T extends { id?: string }>(table: string, item: T, cache
           console.warn(`Column ${missingCol} does not exist on ${table}, stripping and retrying update...`);
           delete snake[missingCol];
           let retryQuery = supabase.from(table).update(snake).eq("id", targetId);
-          if (TABLE_ALLOWED_COLUMNS[table]?.has("user_id")) {
-            retryQuery = retryQuery.eq("user_id", effectiveUserId);
-          }
           const retry = await retryQuery.select().maybeSingle();
           data = retry.data;
           error = retry.error;
@@ -992,7 +986,7 @@ async function dbUpdate<T extends { id?: string }>(table: string, item: T, cache
       }
       if (!data && !error) {
         // Row might not exist in Supabase yet (saved locally) — insert/upsert it with ownership
-        snake.user_id = effectiveUserId;
+        if (effectiveUserId) snake.user_id = effectiveUserId;
         const upsertRes = await supabase.from(table).upsert({ ...snake, id: targetId }).select().maybeSingle();
         data = upsertRes.data;
         error = upsertRes.error;

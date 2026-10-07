@@ -5318,7 +5318,16 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     }
     const pondId = (p.id && isUuid(p.id)) ? p.id : crypto.randomUUID();
     const np:Pond={...p,id:pondId,name:trimmed,farmId:fid};
-    setPonds(prev=>[...prev,np]);
+    const nextPonds = [...ponds, np];
+    setPonds(nextPonds);
+    if (userProfile?.id) {
+      try {
+        saveUserLocal(userProfile.id, "ponds", "ponds", nextPonds);
+        if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
+          saveUserLocal(userProfile.ownerId, "ponds", "ponds", nextPonds);
+        }
+      } catch {}
+    }
     try {
       const saved=await api.ponds.create(np);
       if(saved?.id&&saved.id!==np.id){
@@ -5355,7 +5364,16 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
 
     const { id: _ignoreId, ...safeUpdates } = updates;
     const updatedPond:Pond={...oldPond,...safeUpdates,id};
-    setPonds(prev=>prev.map(p=>p.id===id?updatedPond:p));
+    const nextPonds = ponds.map(p=>p.id===id?updatedPond:p);
+    setPonds(nextPonds);
+    if (userProfile?.id) {
+      try {
+        saveUserLocal(userProfile.id, "ponds", "ponds", nextPonds);
+        if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
+          saveUserLocal(userProfile.ownerId, "ponds", "ponds", nextPonds);
+        }
+      } catch {}
+    }
 
     // Cascade name updates across feeding, stock events, expenses, revenues, and invoices
     if(updates.name&&updates.name!==oldPond.name){
@@ -5429,21 +5447,63 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     const fid=p.farmId||activeFarmId||farms[0]?.id||"";
     const stockLabel = p.fishStock || (p.stockingDate && p.stockingDate !== "—" ? fmtStockingDate(p.stockingDate) : (p.species !== "—" ? p.species : "Previous Stock"));
     const stockingDateVal = p.stockingDate && p.stockingDate !== "—" ? p.stockingDate : TODAY;
-    const closed={...p,status:"Empty" as const,currentCount:0,initialStock:0,avgWeight:undefined,stockingDate:"—",stockMonth:"",totalCost:0,species:"—",fishStock:undefined,transferNote:undefined,maxKgByPallet:{},farmId:fid};
-    setPonds(prev=>prev.map(x=>x.id===id?closed:x));
+    const closed: Pond = {
+      ...p,
+      status:"Empty" as const,
+      currentCount:0,
+      initialStock:0,
+      avgWeight:undefined,
+      stockingDate:"—",
+      stockMonth:"",
+      totalCost:0,
+      species:"—",
+      fishStock:undefined,
+      transferNote:undefined,
+      maxKgByPallet:{},
+      farmId:fid,
+    };
+    const nextPonds = ponds.map(x=>x.id===id?closed:x);
+    setPonds(nextPonds);
+
+    if (userProfile?.id) {
+      try {
+        saveUserLocal(userProfile.id, "ponds", "ponds", nextPonds);
+        if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
+          saveUserLocal(userProfile.ownerId, "ponds", "ponds", nextPonds);
+        }
+      } catch {}
+    }
+
     const se:StockEvent={id:crypto.randomUUID(),pondId:id,pondName:p.name,date:stockingDateVal,species:p.species!=="—"?p.species:stockLabel,count:p.initialStock||p.currentCount,cost:p.totalCost,type:"Closed" as const,clearedDate:TODAY,farmId:fid,batch:stockLabel,supplier:p.supplier};
-    setStockEvents(prev=>[...prev,se]);
+    const nextStockEvents = [...stockEvents, se];
+    setStockEvents(nextStockEvents);
+
+    if (userProfile?.id) {
+      try {
+        saveUserLocal(userProfile.id, "stock_events", "stockEvents", nextStockEvents);
+        if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
+          saveUserLocal(userProfile.ownerId, "stock_events", "stockEvents", nextStockEvents);
+        }
+      } catch {}
+    }
 
     // Ensure all existing feeding records for this pond retain the fishStock batch identifier
-    setFeeding(prev=>prev.map(r=>r.pond===p.name?{...r,fishStock:r.fishStock||stockLabel}:r));
+    const nextFeeding = feeding.map(r=>r.pond===p.name?{...r,fishStock:r.fishStock||stockLabel}:r);
+    setFeeding(nextFeeding);
+    if (userProfile?.id) {
+      try {
+        saveUserLocal(userProfile.id, "feeding", "feedingRecords", nextFeeding);
+      } catch {}
+    }
 
-    // Historical feeding, treatments, and mortality records are preserved for reporting and stock history
     toast.success("Pond cleared — stock history preserved in Fish Stock History");
     try {
-      await Promise.all([
-        api.ponds.update(closed),
-        api.stockEvents.create(se)
-      ]);
+      await api.ponds.update(closed);
+      try {
+        await api.stockEvents.create(se);
+      } catch (errStock) {
+        console.warn("Stock event creation note:", errStock);
+      }
     } catch(err) {
       console.warn("Error closing pond:", err);
     }
@@ -5454,18 +5514,64 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     if(!p)return;
     const fid=p.farmId||activeFarmId||farms[0]?.id||"";
     const fs = data.fishStock || data.species;
-    const updated={...p,...data,fishStock:fs,currentCount:data.initialStock,totalCost:0,status:"Active" as const,transferNote:undefined,maxKgByPallet:{},farmId:fid};
-    setPonds(prev=>prev.map(x=>x.id===id?updated:x));
-    const se:StockEvent={id:crypto.randomUUID(),pondId:id,pondName:p.name,date:data.stockingDate,species:data.species,count:data.initialStock,cost:0,type:"Restock" as const,supplier:data.supplier,farmId:fid};
-    setStockEvents(prev=>[...prev,se]);
+    const updated: Pond = {
+      ...p,
+      ...data,
+      fishStock: fs,
+      currentCount: data.initialStock,
+      totalCost: 0,
+      status: "Active" as const,
+      transferNote: undefined,
+      maxKgByPallet: {},
+      farmId: fid,
+    };
+    const nextPonds = ponds.map(x=>x.id===id?updated:x);
+    setPonds(nextPonds);
+
+    if (userProfile?.id) {
+      try {
+        saveUserLocal(userProfile.id, "ponds", "ponds", nextPonds);
+        if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
+          saveUserLocal(userProfile.ownerId, "ponds", "ponds", nextPonds);
+        }
+      } catch {}
+    }
+
+    const se:StockEvent={
+      id:crypto.randomUUID(),
+      pondId:id,
+      pondName:p.name,
+      date:data.stockingDate,
+      species:data.species,
+      count:data.initialStock,
+      cost:0,
+      type:"Restock" as const,
+      supplier:data.supplier,
+      farmId:fid,
+    };
+    const nextStockEvents = [...stockEvents, se];
+    setStockEvents(nextStockEvents);
+
+    if (userProfile?.id) {
+      try {
+        saveUserLocal(userProfile.id, "stock_events", "stockEvents", nextStockEvents);
+        if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
+          saveUserLocal(userProfile.ownerId, "stock_events", "stockEvents", nextStockEvents);
+        }
+      } catch {}
+    }
+
     toast.success("Fish stock added");
     try {
-      await Promise.all([
-        api.ponds.update(updated),
-        api.stockEvents.create(se)
-      ]);
-    } catch(err) {
-      console.warn("Error restocking pond:", err);
+      await api.ponds.update(updated);
+      try {
+        await api.stockEvents.create(se);
+      } catch (errStock) {
+        console.warn("Stock event creation note:", errStock);
+      }
+    } catch(err: any) {
+      console.error("Error restocking pond in backend:", err);
+      toast.error("Stock saved locally — database sync error");
     }
   };
   const addExp=async(e:Expense)=>{
