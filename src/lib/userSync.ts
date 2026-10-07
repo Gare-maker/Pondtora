@@ -1142,6 +1142,7 @@ export function syncUserProfileToAdmin(
 
   if (existingIdx >= 0) {
     const current = users[existingIdx];
+    const resolvedFreeAccess = profileFreeAccess || Boolean(current.freeAccess);
     const hasPaid = Boolean(
       !resolvedFreeAccess &&
       ((profile.paystackReference && profile.paystackReference.trim() !== "") ||
@@ -1149,7 +1150,6 @@ export function syncUserProfileToAdmin(
     );
 
     let resolvedCustomAmount = profileCustomAmount !== null ? profileCustomAmount : (typeof current.subscriptionAmount === "number" ? current.subscriptionAmount : null);
-    const resolvedFreeAccess = profileFreeAccess || Boolean(current.freeAccess);
     const resolvedPlan = activePlan || profile.activePlan || current.activePlan || "Starter";
     const resolvedFreq = (profile.billingFrequency || (profile as any).billing_frequency || current.billingFrequency || "monthly") as BillingFrequency;
 
