@@ -251,7 +251,11 @@ export default function AdminApp({ onExit }: { onExit?: () => void } = {}) {
     }
   }, [loggedIn, page]);
 
+  const isSyncingRef = React.useRef(false);
+
   async function handleSyncLiveUsers(showToast = true) {
+    if (isSyncingRef.current) return;
+    isSyncingRef.current = true;
     setIsSyncing(true);
     try {
       const res = await fetchLiveAdminUsers();
@@ -273,6 +277,7 @@ export default function AdminApp({ onExit }: { onExit?: () => void } = {}) {
         toast.error("Database sync failed: " + (err?.message || "Check network connection"));
       }
     } finally {
+      isSyncingRef.current = false;
       setIsSyncing(false);
     }
   }
@@ -408,9 +413,6 @@ export default function AdminApp({ onExit }: { onExit?: () => void } = {}) {
     logAction("Admin Sign In", "auth", `Successfully signed into admin panel`);
   }
 
-  useEffect(() => {
-    setPage("dashboard");
-  }, []);
 
   async function handleUpdateUser(u: AdminUser) {
     const cleanEmail = (u.email || "").toLowerCase().trim();

@@ -619,35 +619,32 @@ export async function fetchPlatformOperationalStats(): Promise<PlatformOperation
  * Subscribes to real-time changes in Supabase and window events
  */
 export function subscribeToPlatformUpdates(onUpdate: () => void): () => void {
-  const handleEvent = () => {
-    onUpdate();
+  let debounceTimer: any = null;
+  const debouncedUpdate = () => {
+    if (debounceTimer) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(() => {
+      onUpdate();
+    }, 1200);
   };
-
-  window.addEventListener("pondtora:users_updated", handleEvent);
-  window.addEventListener("pondtora:platform_updated", handleEvent);
-  window.addEventListener("pondtora:logs_updated", handleEvent);
-  window.addEventListener("pondtora:plans_updated", handleEvent);
 
   let channel: any = null;
   try {
     channel = supabase.channel("pondtora_admin_realtime_" + Math.random().toString(36).slice(2, 8))
-      .on("postgres_changes", { event: "*", schema: "public", table: "user_profiles" }, handleEvent)
-      .on("postgres_changes", { event: "*", schema: "public", table: "farms" }, handleEvent)
-      .on("postgres_changes", { event: "*", schema: "public", table: "ponds" }, handleEvent)
-      .on("postgres_changes", { event: "*", schema: "public", table: "staff_members" }, handleEvent)
-      .on("postgres_changes", { event: "*", schema: "public", table: "invoices" }, handleEvent)
-      .on("postgres_changes", { event: "*", schema: "public", table: "revenues" }, handleEvent)
-      .on("postgres_changes", { event: "*", schema: "public", table: "expenses" }, handleEvent)
+      .on("postgres_changes", { event: "*", schema: "public", table: "user_profiles" }, debouncedUpdate)
+      .on("postgres_changes", { event: "*", schema: "public", table: "farms" }, debouncedUpdate)
+      .on("postgres_changes", { event: "*", schema: "public", table: "ponds" }, debouncedUpdate)
+      .on("postgres_changes", { event: "*", schema: "public", table: "staff_members" }, debouncedUpdate)
+      .on("postgres_changes", { event: "*", schema: "public", table: "invoices" }, debouncedUpdate)
+      .on("postgres_changes", { event: "*", schema: "public", table: "revenues" }, debouncedUpdate)
+      .on("postgres_changes", { event: "*", schema: "public", table: "expenses" }, debouncedUpdate)
+      .on("postgres_changes", { event: "*", schema: "public", table: "platform_settings" }, debouncedUpdate)
       .subscribe();
   } catch (e) {
     console.warn("Supabase realtime subscription:", e);
   }
 
   return () => {
-    window.removeEventListener("pondtora:users_updated", handleEvent);
-    window.removeEventListener("pondtora:platform_updated", handleEvent);
-    window.removeEventListener("pondtora:logs_updated", handleEvent);
-    window.removeEventListener("pondtora:plans_updated", handleEvent);
+    if (debounceTimer) clearTimeout(debounceTimer);
     if (channel) {
       try { supabase.removeChannel(channel); } catch {}
     }
@@ -1308,18 +1305,6 @@ export function getUserAdminOverride(
   hasPaid: boolean;
   subscriptionStatus: string;
 } {
-  const fallback = {
-    isSuspended: false,
-    hasFreeAccess: false,
-    customAmount: null,
-    activePlan: null,
-    billingFrequency: "monthly" as BillingFrequency,
-    subscriptionStart: null,
-    subscriptionExpiry: null,
-    hasPaid: false,
-    subscriptionStatus: "Trial",
-  };
-
   const parseAmount = (val: any): number | null => {
     if (typeof val === "number" && !isNaN(val) && val > 0) return val;
     if (typeof val === "string" && val.trim() !== "" && !isNaN(Number(val)) && Number(val) > 0) return Number(val);
@@ -1329,7 +1314,41 @@ export function getUserAdminOverride(
   const cleanEmail = (email || profile?.email || "").trim().toLowerCase();
   const profileId = (profile?.id || "").trim().toLowerCase();
 
-  // 1. Direct profile object inspection
+  // 1. Check platform_settings stored overrides in localStorage first (Top Authority from Admin Control Center)
+  let hasOverrideEntry = false;
+  let overrideFreeAccess: boolean | undefined = undefined;
+  let overrideAmount: number | null | undefined = undefined;
+  let overridePlan: string | null | undefined = undefined;
+  let overrideFreq: BillingFrequency | null | undefined = undefined;
+  let overrideSuspended: boolean | undefined = undefined;
+
+  try {
+    const rawOverrides = localStorage.getItem("pondtora_admin_user_overrides");
+    if (rawOverrides) {
+      const parsed = JSON.parse(rawOverrides);
+      const entry = (cleanEmail ? parsed[cleanEmail] : null) || (profileId ? parsed[profileId] : null);
+      if (entry && typeof entry === "object") {
+        hasOverrideEntry = true;
+        if (entry.freeAccess !== undefined) {
+          overrideFreeAccess = Boolean(entry.freeAccess);
+        }
+        if (entry.subscriptionAmount !== undefined) {
+          overrideAmount = parseAmount(entry.subscriptionAmount);
+        }
+        if (entry.activePlan !== undefined) {
+          overridePlan = entry.activePlan || null;
+        }
+        if (entry.billingFrequency !== undefined) {
+          overrideFreq = entry.billingFrequency;
+        }
+        if (entry.accountStatus !== undefined || entry.status !== undefined) {
+          overrideSuspended = entry.accountStatus === "Suspended" || entry.status === "Suspended";
+        }
+      }
+    }
+  } catch {}
+
+  // 2. Direct profile properties
   const directCustomAmount =
     parseAmount(profile?.subscriptionAmount) !== null
       ? parseAmount(profile?.subscriptionAmount)
@@ -1343,47 +1362,22 @@ export function getUserAdminOverride(
       ? parseAmount(profile?.customAmount)
       : null;
 
-  const directFreeAccess = Boolean(
-    profile?.freeAccess ||
-    profile?.free_access ||
-    profile?.raw_data?.free_access ||
-    profile?.raw_data?.freeAccess ||
-    cleanEmail === "edafejesugarec@gmail.com"
-  );
+  const directFreeAccess =
+    profile?.freeAccess !== undefined
+      ? Boolean(profile.freeAccess)
+      : profile?.free_access !== undefined
+      ? Boolean(profile.free_access)
+      : profile?.raw_data?.free_access !== undefined
+      ? Boolean(profile.raw_data.free_access)
+      : profile?.raw_data?.freeAccess !== undefined
+      ? Boolean(profile.raw_data.freeAccess)
+      : undefined;
 
   const directSuspended = profile?.status === "Suspended" || profile?.accountStatus === "Suspended";
   const directPlan = profile?.activePlan || profile?.active_plan || profile?.raw_data?.active_plan || null;
   const directFreq: BillingFrequency = profile?.billingFrequency || profile?.billing_frequency || "monthly";
 
-  // 2. Check platform_settings stored overrides in localStorage if available
-  let remoteOverrideAmount: number | null = null;
-  let remoteFreeAccess = false;
-  let remoteActivePlan: string | null = null;
-  let remoteFreq: BillingFrequency | null = null;
-
-  try {
-    const rawOverrides = localStorage.getItem("pondtora_admin_user_overrides");
-    if (rawOverrides) {
-      const parsed = JSON.parse(rawOverrides);
-      const entry = (cleanEmail ? parsed[cleanEmail] : null) || (profileId ? parsed[profileId] : null);
-      if (entry) {
-        if (parseAmount(entry.subscriptionAmount) !== null) {
-          remoteOverrideAmount = parseAmount(entry.subscriptionAmount);
-        }
-        if (entry.freeAccess !== undefined) {
-          remoteFreeAccess = Boolean(entry.freeAccess);
-        }
-        if (entry.activePlan) {
-          remoteActivePlan = entry.activePlan;
-        }
-        if (entry.billingFrequency) {
-          remoteFreq = entry.billingFrequency;
-        }
-      }
-    }
-  } catch {}
-
-  // 3. Check admin users cache in localStorage
+  // 3. Admin user cache
   let adminCachedUser: AdminUser | undefined;
   try {
     const allUsers = loadAllAdminUsers();
@@ -1393,7 +1387,7 @@ export function getUserAdminOverride(
     );
   } catch {}
 
-  // 4. Check scoped user profile in localStorage
+  // 4. Local scoped storage
   let localScopedAmount: number | null = null;
   let localScopedPlan: string | null = null;
   if (cleanEmail || profileId) {
@@ -1410,18 +1404,52 @@ export function getUserAdminOverride(
     } catch {}
   }
 
-  const cachedCustomAmount = parseAmount(adminCachedUser?.subscriptionAmount);
-  const finalCustomAmount =
-    directCustomAmount !== null
-      ? directCustomAmount
-      : (remoteOverrideAmount !== null
-          ? remoteOverrideAmount
-          : (cachedCustomAmount !== null ? cachedCustomAmount : localScopedAmount));
+  // Master admin email always has free access
+  const isMasterAdmin = cleanEmail === "edafejesugarec@gmail.com";
 
-  const finalFreeAccess = directFreeAccess || remoteFreeAccess || Boolean(adminCachedUser?.freeAccess);
-  const finalSuspended = directSuspended || (adminCachedUser?.accountStatus === "Suspended");
-  const finalPlan = directPlan || remoteActivePlan || adminCachedUser?.activePlan || localScopedPlan || null;
-  const finalFreq: BillingFrequency = directFreq || remoteFreq || adminCachedUser?.billingFrequency || "monthly";
+  // Resolve Free Access
+  let finalFreeAccess = false;
+  if (isMasterAdmin) {
+    finalFreeAccess = true;
+  } else if (overrideFreeAccess !== undefined) {
+    finalFreeAccess = overrideFreeAccess;
+  } else if (directFreeAccess !== undefined) {
+    finalFreeAccess = directFreeAccess;
+  } else if (adminCachedUser?.freeAccess !== undefined) {
+    finalFreeAccess = Boolean(adminCachedUser.freeAccess);
+  }
+
+  // Resolve Custom Pricing
+  let finalCustomAmount: number | null = null;
+  if (finalFreeAccess) {
+    // Free VIP accounts do not require custom payment
+    finalCustomAmount = null;
+  } else if (overrideAmount !== undefined) {
+    finalCustomAmount = overrideAmount;
+  } else if (directCustomAmount !== null) {
+    finalCustomAmount = directCustomAmount;
+  } else if (parseAmount(adminCachedUser?.subscriptionAmount) !== null) {
+    finalCustomAmount = parseAmount(adminCachedUser?.subscriptionAmount);
+  } else if (localScopedAmount !== null) {
+    finalCustomAmount = localScopedAmount;
+  }
+
+  // Resolve Suspended
+  const finalSuspended =
+    overrideSuspended !== undefined
+      ? overrideSuspended
+      : (directSuspended || adminCachedUser?.accountStatus === "Suspended");
+
+  // Resolve Plan & Frequency
+  const finalPlan =
+    overridePlan !== undefined
+      ? overridePlan
+      : (directPlan || adminCachedUser?.activePlan || localScopedPlan || null);
+
+  const finalFreq: BillingFrequency =
+    overrideFreq !== undefined
+      ? overrideFreq
+      : (directFreq || adminCachedUser?.billingFrequency || "monthly");
 
   return {
     isSuspended: finalSuspended,

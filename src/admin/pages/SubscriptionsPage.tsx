@@ -158,8 +158,7 @@ export default function SubscriptionsPage({ users, plans, onUpdate }: Props) {
 
   function fmtEffective(u: AdminUser) {
     if (u.freeAccess) return <span className="text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded font-bold text-xs">Free VIP ✦</span>;
-    const isPaid = Boolean(!u.freeAccess && u.hasPaid && isValidPaystackRef(u.paystackReference));
-    if (isPaid && typeof u.subscriptionAmount === "number" && !isNaN(u.subscriptionAmount)) {
+    if (typeof u.subscriptionAmount === "number" && !isNaN(u.subscriptionAmount) && u.subscriptionAmount > 0) {
       return (
         <div>
           <span className="font-bold text-emerald-700">{fmtMoney(u.subscriptionAmount)}</span>
