@@ -305,8 +305,6 @@ function AuthScreen({
     }
   }, [createStep, view]);
 
-  const cur = COUNTRY_CURRENCIES[cCountry] ?? COUNTRY_CURRENCIES["Nigeria"];
-
   // ── Supabase Login ─────────────────────────────────────────────────────────
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
