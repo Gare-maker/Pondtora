@@ -1,9 +1,8 @@
-import React, { useState, Component, ErrorInfo, ReactNode, Suspense, lazy } from "react";
+import React, { useState, Component, ErrorInfo, ReactNode } from "react";
 import ReactDOM from "react-dom/client";
 import "./styles/index.css";
 import App from "./app/App";
-
-const AdminApp = lazy(() => import("./admin/AdminApp"));
+import AdminApp from "./admin/AdminApp";
 
 // Listen for Vite chunk preload errors and automatically reload to fetch fresh assets
 if (typeof window !== "undefined") {
@@ -18,8 +17,9 @@ const ADMIN_STORAGE_KEY = "pondtora_admin_mode";
 
 function detectAdmin(): boolean {
   try {
-    const pathname = window.location.pathname.toLowerCase();
+    const pathname = window.location.pathname.toLowerCase().replace(/\/+$/, "");
     const hash = window.location.hash.toLowerCase();
+    const search = window.location.search.toLowerCase();
     if (
       pathname.startsWith("/reset-password") ||
       pathname.startsWith("/create-password") ||
@@ -29,9 +29,13 @@ function detectAdmin(): boolean {
       return false;
     }
     return (
-      pathname.startsWith("/admin") ||
+      pathname === "/admin" ||
+      pathname.startsWith("/admin/") ||
       new URLSearchParams(window.location.search).has("admin") ||
+      search.includes("admin") ||
       hash === "#admin" ||
+      hash === "#/admin" ||
+      hash.startsWith("#admin") ||
       hash.startsWith("#/admin") ||
       localStorage.getItem(ADMIN_STORAGE_KEY) === "1"
     );
@@ -232,15 +236,7 @@ function Root() {
   }
 
   if (isAdmin) {
-    return (
-      <Suspense fallback={
-        <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", backgroundColor: "#0f172a", color: "#ffffff", fontSize: "14px", fontFamily: "sans-serif" }}>
-          Loading Admin Control Center...
-        </div>
-      }>
-        <AdminApp onExit={exitAdmin} />
-      </Suspense>
-    );
+    return <AdminApp onExit={exitAdmin} />;
   }
 
   return <App onAdmin={enterAdmin} />;
