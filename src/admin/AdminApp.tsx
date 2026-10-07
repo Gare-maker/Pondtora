@@ -197,6 +197,31 @@ export default function AdminApp({ onExit }: { onExit?: () => void } = {}) {
   const [isLiveDb, setIsLiveDb] = useState(false);
   const [lastSynced, setLastSynced] = useState<Date | null>(null);
 
+  // Persistent Admin State (Live Supabase users, platform stats, and managed accounts)
+  const [users, setUsers] = useState<AdminUser[]>(() => {
+    return loadAllAdminUsers();
+  });
+  const [platformStats, setPlatformStats] = useState<PlatformOperationalStats>(() => {
+    return loadCachedPlatformStats();
+  });
+  const [plans, setPlans] = useState<AdminPlan[]>(() => {
+    const loaded = loadLocal("pondtora_admin_plans", []);
+    return loaded.length > 0 ? loaded : (DEFAULT_PLANS || []);
+  });
+  const [logs, setLogs] = useState<AdminActivityLog[]>(() => {
+    const loaded = loadLocal("pondtora_admin_logs", []);
+    return loaded.length > 0 ? loaded : INITIAL_LOGS;
+  });
+
+  const NAV = React.useMemo<{ id: Page; label: string; icon: React.ElementType }[]>(() => [
+    { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+    { id: "users", label: "Users & Farms", icon: Users },
+    { id: "subscriptions", label: "Subscriptions", icon: CreditCard },
+    { id: "plans", label: "Pricing & Plans", icon: Package },
+    { id: "logs", label: "Activity Logs", icon: Activity },
+    { id: "settings", label: "Settings", icon: Settings },
+  ], []);
+
   useEffect(() => {
     const handleHash = () => {
       const hash = window.location.hash.toLowerCase();
@@ -225,31 +250,6 @@ export default function AdminApp({ onExit }: { onExit?: () => void } = {}) {
       }
     }
   }, [loggedIn, page]);
-
-  const NAV = React.useMemo<{ id: Page; label: string; icon: React.ElementType }[]>(() => [
-    { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
-    { id: "users", label: "Users & Farms", icon: Users },
-    { id: "subscriptions", label: "Subscriptions", icon: CreditCard },
-    { id: "plans", label: "Pricing & Plans", icon: Package },
-    { id: "logs", label: "Activity Logs", icon: Activity },
-    { id: "settings", label: "Settings", icon: Settings },
-  ], []);
-
-  // Persistent Admin State (Live Supabase users, platform stats, and managed accounts)
-  const [users, setUsers] = useState<AdminUser[]>(() => {
-    return loadAllAdminUsers();
-  });
-  const [platformStats, setPlatformStats] = useState<PlatformOperationalStats>(() => {
-    return loadCachedPlatformStats();
-  });
-  const [plans, setPlans] = useState<AdminPlan[]>(() => {
-    const loaded = loadLocal("pondtora_admin_plans", []);
-    return loaded.length > 0 ? loaded : (DEFAULT_PLANS || []);
-  });
-  const [logs, setLogs] = useState<AdminActivityLog[]>(() => {
-    const loaded = loadLocal("pondtora_admin_logs", []);
-    return loaded.length > 0 ? loaded : INITIAL_LOGS;
-  });
 
   async function handleSyncLiveUsers(showToast = true) {
     setIsSyncing(true);

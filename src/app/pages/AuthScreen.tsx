@@ -77,6 +77,71 @@ function AuthScreen({
   const [verificationError, setVerificationError] = useState<string | null>(null);
   const [verifyingSession, setVerifyingSession] = useState(false);
 
+  // ── Login state ────────────────────────────────────────────────────────────
+  const [lEmail, setLEmail] = useState("");
+  const [lPass, setLPass] = useState("");
+  const [lErr, setLErr] = useState("");
+  const [lLoading, setLLoading] = useState(false);
+  const [showLPass, setShowLPass] = useState(false);
+
+  // ── Resend Confirmation Email State ────────────────────────────────────────
+  const [unconfirmedEmail, setUnconfirmedEmail] = useState("");
+  const [resendingEmail, setResendingEmail] = useState(false);
+  const [resendSuccess, setResendSuccess] = useState(false);
+  const [resendCooldown, setResendCooldown] = useState(0);
+
+  // ── Create account state ───────────────────────────────────────────────────
+  const [createStep, setCreateStep] = useState<"details" | "plan">("details");
+  const [selectedTrialPlan, setSelectedTrialPlan] = useState<string>("Starter");
+  const [trialBilling, setTrialBilling] = useState<"monthly" | "yearly">("monthly");
+  const [trialFarmType, setTrialFarmType] = useState<"single" | "multi">("single");
+
+  const [cName, setCName] = useState("");
+  const [cEmail, setCEmail] = useState("");
+  const [cPass, setCPass] = useState("");
+  const [cDialC, setCDialC] = useState("Nigeria");
+  const [cPhone, setCPhone] = useState("");
+  const [cFarm, setCFarm] = useState("");
+  const [cCountry, setCCountry] = useState("Nigeria");
+  const [cState, setCState] = useState("");
+  const [cCity, setCCity] = useState("");
+  const [cReferralCode, setCReferralCode] = useState(() => getPendingReferrerCode() || "");
+  const [cErr, setCErr] = useState("");
+  const [cLoading, setCLoading] = useState(false);
+  const [checkingEmail, setCheckingEmail] = useState(false);
+  const [cAgreed, setCAgreed] = useState(false);
+  const [showCPass, setShowCPass] = useState(false);
+  const [signupSent, setSignupSent] = useState(false);
+
+  // ── Forgot password state ──────────────────────────────────────────────────
+  const [fEmail, setFEmail] = useState("");
+  const [fSent, setFSent] = useState(false);
+  const [fLoading, setFLoading] = useState(false);
+
+  // ── Recovery (set new password after email link) ───────────────────────────
+  const [recPass, setRecPass] = useState("");
+  const [recConfirm, setRecConfirm] = useState("");
+  const [recErr, setRecErr] = useState("");
+  const [recLoading, setRecLoading] = useState(false);
+  const [showRecPass, setShowRecPass] = useState(false);
+  const [showRecConfirm, setShowRecConfirm] = useState(false);
+
+  // ── Invite (staff sets their own password) ─────────────────────────────────
+  const [invPass, setInvPass] = useState("");
+  const [invConfirm, setInvConfirm] = useState("");
+  const [invErr, setInvErr] = useState("");
+  const [invLoading, setInvLoading] = useState(false);
+  const [invName, setInvName] = useState("");
+  const [showInvPass, setShowInvPass] = useState(false);
+  const [showInvConfirm, setShowInvConfirm] = useState(false);
+  const [invDone, setInvDone] = useState(false);
+
+  const cur = COUNTRY_CURRENCIES[cCountry] ?? COUNTRY_CURRENCIES["Nigeria"];
+  const isCreate = view === "create";
+
+  const { singleFarmPlans = [], multiFarmPlans = [] } = useDynamicPlans();
+  const trialPlans = (trialFarmType === "single" ? singleFarmPlans : multiFarmPlans) || [];
+
   // Detect URL search/hash for email verification / invite / recovery flows on mount + listen for PASSWORD_RECOVERY
   useEffect(() => {
     captureReferralParam();
@@ -201,21 +266,6 @@ function AuthScreen({
     };
   }, []);
 
-  const isCreate = view === "create";
-
-  // ── Login state ────────────────────────────────────────────────────────────
-  const [lEmail, setLEmail] = useState("");
-  const [lPass, setLPass] = useState("");
-  const [lErr, setLErr] = useState("");
-  const [lLoading, setLLoading] = useState(false);
-  const [showLPass, setShowLPass] = useState(false);
-
-  // ── Resend Confirmation Email State ────────────────────────────────────────
-  const [unconfirmedEmail, setUnconfirmedEmail] = useState("");
-  const [resendingEmail, setResendingEmail] = useState(false);
-  const [resendSuccess, setResendSuccess] = useState(false);
-  const [resendCooldown, setResendCooldown] = useState(0);
-
   useEffect(() => {
     if (resendCooldown <= 0) return;
     const timer = setTimeout(() => setResendCooldown(c => c - 1), 1000);
@@ -246,12 +296,6 @@ function AuthScreen({
     }
   };
 
-  // ── Create account state ───────────────────────────────────────────────────
-  const [createStep, setCreateStep] = useState<"details" | "plan">("details");
-  const [selectedTrialPlan, setSelectedTrialPlan] = useState<string>("Starter");
-  const [trialBilling, setTrialBilling] = useState<"monthly" | "yearly">("monthly");
-  const [trialFarmType, setTrialFarmType] = useState<"single" | "multi">("single");
-
   // Always reset scroll to the very top whenever view or create step changes (e.g. going to subscription plan step)
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -260,49 +304,6 @@ function AuthScreen({
       document.body.scrollTo({ top: 0, left: 0, behavior: "instant" });
     }
   }, [createStep, view]);
-
-  const { singleFarmPlans = [], multiFarmPlans = [] } = useDynamicPlans();
-  const trialPlans = (trialFarmType === "single" ? singleFarmPlans : multiFarmPlans) || [];
-
-  const [cName, setCName] = useState("");
-  const [cEmail, setCEmail] = useState("");
-  const [cPass, setCPass] = useState("");
-  const [cDialC, setCDialC] = useState("Nigeria");
-  const [cPhone, setCPhone] = useState("");
-  const [cFarm, setCFarm] = useState("");
-  const [cCountry, setCCountry] = useState("Nigeria");
-  const [cState, setCState] = useState("");
-  const [cCity, setCCity] = useState("");
-  const [cReferralCode, setCReferralCode] = useState(() => getPendingReferrerCode() || "");
-  const [cErr, setCErr] = useState("");
-  const [cLoading, setCLoading] = useState(false);
-  const [checkingEmail, setCheckingEmail] = useState(false);
-  const [cAgreed, setCAgreed] = useState(false);
-  const [showCPass, setShowCPass] = useState(false);
-  const [signupSent, setSignupSent] = useState(false);
-
-  // ── Forgot password state ──────────────────────────────────────────────────
-  const [fEmail, setFEmail] = useState("");
-  const [fSent, setFSent] = useState(false);
-  const [fLoading, setFLoading] = useState(false);
-
-  // ── Recovery (set new password after email link) ───────────────────────────
-  const [recPass, setRecPass] = useState("");
-  const [recConfirm, setRecConfirm] = useState("");
-  const [recErr, setRecErr] = useState("");
-  const [recLoading, setRecLoading] = useState(false);
-  const [showRecPass, setShowRecPass] = useState(false);
-  const [showRecConfirm, setShowRecConfirm] = useState(false);
-
-  // ── Invite (staff sets their own password) ─────────────────────────────────
-  const [invPass, setInvPass] = useState("");
-  const [invConfirm, setInvConfirm] = useState("");
-  const [invErr, setInvErr] = useState("");
-  const [invLoading, setInvLoading] = useState(false);
-  const [invName, setInvName] = useState("");
-  const [showInvPass, setShowInvPass] = useState(false);
-  const [showInvConfirm, setShowInvConfirm] = useState(false);
-  const [invDone, setInvDone] = useState(false);
 
   const cur = COUNTRY_CURRENCIES[cCountry] ?? COUNTRY_CURRENCIES["Nigeria"];
 
