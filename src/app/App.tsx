@@ -6625,79 +6625,6 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     };
   },[loadFromBackend,userProfile?.id]);
 
-  /* ── Mobile Touch Drag-to-Refresh ── */
-  const [pullDistance, setPullDistance] = useState(0);
-  const [isPullRefreshing, setIsPullRefreshing] = useState(false);
-  const touchStartYRef = useRef(0);
-  const isPullingRef = useRef(false);
-
-  useEffect(() => {
-    const mainEl = mainRef.current;
-    if (!mainEl) return;
-
-    const handleTouchStart = (e: TouchEvent) => {
-      if (mainEl.scrollTop <= 2 && e.touches.length === 1) {
-        touchStartYRef.current = e.touches[0].clientY;
-        isPullingRef.current = true;
-      } else {
-        isPullingRef.current = false;
-      }
-    };
-
-    const handleTouchMove = (e: TouchEvent) => {
-      if (!isPullingRef.current || isPullRefreshing) return;
-      if (mainEl.scrollTop > 2) {
-        isPullingRef.current = false;
-        setPullDistance(0);
-        return;
-      }
-      const currentY = e.touches[0].clientY;
-      const diff = currentY - touchStartYRef.current;
-      if (diff > 0) {
-        // Damping factor for smooth natural pull feel
-        const damped = Math.min(diff * 0.45, 80);
-        setPullDistance(damped);
-      } else {
-        setPullDistance(0);
-      }
-    };
-
-    const handleTouchEnd = async () => {
-      if (!isPullingRef.current || isPullRefreshing) {
-        setPullDistance(0);
-        return;
-      }
-      isPullingRef.current = false;
-      if (pullDistance >= 50) {
-        setIsPullRefreshing(true);
-        setPullDistance(55);
-        try {
-          await loadFromBackend();
-          toast.success("Page refreshed!");
-        } catch {
-          window.location.reload();
-        } finally {
-          setTimeout(() => {
-            setIsPullRefreshing(false);
-            setPullDistance(0);
-          }, 500);
-        }
-      } else {
-        setPullDistance(0);
-      }
-    };
-
-    mainEl.addEventListener("touchstart", handleTouchStart, { passive: true });
-    mainEl.addEventListener("touchmove", handleTouchMove, { passive: true });
-    mainEl.addEventListener("touchend", handleTouchEnd, { passive: true });
-
-    return () => {
-      mainEl.removeEventListener("touchstart", handleTouchStart);
-      mainEl.removeEventListener("touchmove", handleTouchMove);
-      mainEl.removeEventListener("touchend", handleTouchEnd);
-    };
-  }, [isPullRefreshing, loadFromBackend, pullDistance]);
-
   /* ── Restore session via Supabase Auth ── */
   useEffect(()=>{
     const p = typeof window !== "undefined" ? window.location.pathname.toLowerCase() : "";
@@ -8097,7 +8024,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     }
 
     try {
-      await api.equipment.update(eq.id, eq);
+      await api.equipment.update(eq);
       toast.success("Equipment updated successfully");
     } catch (err: any) {
       console.error("Failed to update equipment:", err);
@@ -8416,9 +8343,9 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       <div className={`fixed lg:hidden inset-y-0 left-0 z-50 w-64 transition-transform duration-200 ${sideOpen?"translate-x-0":"-translate-x-full"}`}>
         <Sidebar active={active} onNav={nav} collapsed={false} onToggle={()=>setSideOpen(false)} farms={accessibleFarms} activeFarmId={activeFarmId} onSwitchFarm={id=>{handleSwitchFarm(id);setSideOpen(false);}} onAddFarm={()=>{setSideOpen(false);setShowAddFarm(true);}} sideOpen={sideOpen} staff={staff} unreadCount={unreadCount} onNotifications={()=>{nav("notifications");setSideOpen(false);}} onLogout={handleLogout} hasPerm={hasPerm} canView={canView} isOwner={isOwner} userProfile={userProfile} currentStaff={currentStaff}/>
       </div>
-      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
+      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden relative">
         {/* Mobile top bar — permanently pinned to the top */}
-        <header className="lg:hidden flex items-center justify-between px-4 h-14 bg-slate-900 border-b border-slate-800 shrink-0 sticky top-0 z-40 select-none">
+        <header className="lg:hidden flex items-center justify-between px-4 h-14 bg-slate-900 border-b border-slate-800 shrink-0 sticky top-0 z-40 select-none w-full shadow-sm">
           <div className="flex items-center gap-2.5">
             <button onClick={()=>setSideOpen(true)} className="p-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer" aria-label="Open menu">
               <Menu size={20}/>
@@ -8475,19 +8402,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
             )}
           </div>
         )}
-        <main ref={mainRef} className="flex-1 overflow-y-auto bg-[#f5f7fa] pb-28 lg:pb-8 touch-pan-y relative" style={{ WebkitOverflowScrolling: "touch" }}>
-          {/* Mobile Drag-to-Refresh Indicator */}
-          {pullDistance > 0 && (
-            <div
-              className="flex items-center justify-center transition-all duration-150 overflow-hidden sm:hidden py-1.5 select-none pointer-events-none sticky top-0 z-30 w-full"
-              style={{ height: `${pullDistance}px`, opacity: Math.min(pullDistance / 35, 1) }}
-            >
-              <div className="flex items-center gap-2 px-3.5 py-1.5 bg-white/95 backdrop-blur-sm border border-emerald-200/90 rounded-full shadow-lg text-xs font-bold text-slate-800">
-                <RotateCw size={13} className={`text-emerald-600 ${isPullRefreshing ? "animate-spin" : ""}`} style={{ transform: `rotate(${pullDistance * 4}deg)` }} />
-                <span>{isPullRefreshing ? "Refreshing…" : pullDistance >= 50 ? "Release to refresh" : "Pull down to refresh"}</span>
-              </div>
-            </div>
-          )}
+        <main ref={mainRef} className="flex-1 overflow-y-auto bg-[#f5f7fa] pb-28 lg:pb-8 touch-pan-y relative overscroll-y-contain" style={{ WebkitOverflowScrolling: "touch" }}>
           {isDataLoading ? (
             <div className="flex flex-col items-center justify-center min-h-[60vh] gap-3 p-6">
               <Loader2 size={36} className="text-green-600 animate-spin" />
@@ -8504,7 +8419,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
               {active==="sales_calculator"&&(hasPerm("Sales Calculator")||hasPerm("Invoices")?<SalesCalculatorPage priceGroups={farmPriceGroups} settings={invSettings} onAddPriceGroup={addPriceGroup} onEditPriceGroup={editPriceGroup} onDeletePriceGroup={delPriceGroup} currency={cs} canCreate={canCreate("Sales Calculator")||canCreate("Invoices")} canEdit={canEdit("Sales Calculator")||canEdit("Invoices")} canDelete={canDelete("Sales Calculator")||canDelete("Invoices")}/>:<AccessDenied/>)}
               {active==="staff"         &&(isOwner?<StaffPage staff={staff} onAdd={addStaff} onEdit={editStaff} onDelete={delStaff} farms={farms.filter(f => f.userId === userProfile?.id || isOwner)} activeFarmId={activeFarmId} ownerEmail={userProfile?.email}/>:<AccessDenied/>)}
               {active==="investors"     &&(hasPerm("Investors")?<InvestorsPage investors={farmInvestors} investments={farmInvestments} payments={farmPayments} farms={farms} ponds={farmPonds} stockEvents={stockEvents} activeFarmId={activeFarmId} currency={cs} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}} isOwner={isOwner} canManage={isOwner||hasPerm("Investors")} onAddInvestor={handleAddInvestor} onEditInvestor={handleEditInvestor} onEditInvestment={handleEditInvestment} onDeleteInvestor={handleDeleteInvestor} onRecordPayment={handleRecordPayment} onMarkPaymentPaid={handleMarkPaymentPaid} canCreate={canCreate("Investors")} canEdit={canEdit("Investors")} canDelete={canDelete("Investors")}/>:<AccessDenied/>)}
-              {active==="equipment"     &&(hasPerm("Farm Equipment")?<FarmEquipmentPage equipment={farmEquipments} onAdd={handleAddEquipment} onEdit={handleEditEquipment} onDelete={handleDeleteEquipment} currency={cs} farms={farms} activeFarmId={activeFarmId} canCreate={canCreate("Farm Equipment")} canEdit={canEdit("Farm Equipment")} canDelete={canDelete("Farm Equipment")}/>:<AccessDenied/>)}
+              {active==="equipment"     &&(hasPerm("Farm Equipment")?<FarmEquipmentPage equipment={farmEquipments} onAdd={handleAddEquipment} onAddEquipment={handleAddEquipment} onEdit={handleEditEquipment} onEditEquipment={handleEditEquipment} onDelete={handleDeleteEquipment} onDeleteEquipment={handleDeleteEquipment} currency={cs} farms={farms} activeFarmId={activeFarmId} canCreate={canCreate("Farm Equipment")} canEdit={canEdit("Farm Equipment")} canDelete={canDelete("Farm Equipment")} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}}/>:<AccessDenied/>)}
               {active==="reports"       &&(hasPerm("Reports")?<ReportsPage reports={farmReports} staff={staff} onAdd={addReport} onEdit={editReportFn} onDelete={deleteReport} pondReports={farmPondReports} treatments={farmTreatments} farms={farms} ponds={farmPonds} stockEvents={stockEvents} onAddPondReport={handleAddPondReport} onDeletePondReport={deletePondReport} activeFarmId={activeFarmId} canCreate={canCreate("Reports")} canEdit={canEdit("Reports")} canDelete={canDelete("Reports")} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}} isOwner={isOwner}/>:<AccessDenied/>)}
               {active==="assessments"   &&(hasPerm("Staff Assessments")?<EmployeeAssessmentsPage kQuestions={kQuestions} cQuestions={cQuestions} kResults={kResults} cResults={cResults} onSaveKQuestions={saveKQuestions} onSaveCQuestions={saveCQuestions} onAddKResult={addKResult} onAddCResult={addCResult} ownerId={userProfile?.id??""}/>:<AccessDenied/>)}
               {active==="pricing"       &&(isOwner?<SubscriptionPage farmCount={farms.length} activePlan={activePlan} setActivePlan={setActivePlan} trialStartDate={trialStartDate} setTrialStartDate={setTrialStartDate} currency={cs} convertPrice={cvt} userProfile={userProfile} onProfileUpdated={(p) => setUserProfile(prev => { const next = { ...(prev || {}), ...p }; if(prev?.id){ try{ localStorage.setItem(`pondtora_${prev.id}_user_profile`, JSON.stringify(next)); }catch{} } return next; })} activeFarmName={farms.find(f=>f.id===activeFarmId)?.name||userProfile?.farmName} onOpenReferrals={() => { setSettingsTab("referrals"); nav("settings"); }}/>:<AccessDenied/>)}

@@ -29,15 +29,19 @@ export const EQUIPMENT_CONDITIONS = [
 
 interface FarmEquipmentPageProps {
   equipment?: FarmEquipment[];
-  onAddEquipment: (item: FarmEquipment) => Promise<void> | void;
-  onEditEquipment: (item: FarmEquipment) => Promise<void> | void;
+  onAddEquipment?: (item: FarmEquipment) => Promise<void> | void;
+  onEditEquipment?: (item: FarmEquipment) => Promise<void> | void;
   onDeleteEquipment?: (id: string) => Promise<void> | void;
+  onAdd?: (item: FarmEquipment) => Promise<void> | void;
+  onEdit?: (item: FarmEquipment) => Promise<void> | void;
+  onDelete?: (id: string) => Promise<void> | void;
   activeFarmId: string;
   currency?: string;
   canCreate?: boolean;
   canEdit?: boolean;
   canDelete?: boolean;
   currentUser?: { name: string; email: string };
+  farms?: any[];
 }
 
 export default function FarmEquipmentPage({
@@ -45,6 +49,9 @@ export default function FarmEquipmentPage({
   onAddEquipment,
   onEditEquipment,
   onDeleteEquipment,
+  onAdd,
+  onEdit,
+  onDelete,
   activeFarmId,
   currency = "₦",
   canCreate = true,
@@ -52,6 +59,10 @@ export default function FarmEquipmentPage({
   canDelete = true,
   currentUser,
 }: FarmEquipmentPageProps) {
+  const addHandler = onAdd || onAddEquipment;
+  const editHandler = onEdit || onEditEquipment;
+  const deleteHandler = onDelete || onDeleteEquipment;
+
   const [search, setSearch] = useState("");
   const [catFilter, setCatFilter] = useState("All");
   const [condFilter, setCondFilter] = useState("All");
@@ -162,7 +173,7 @@ export default function FarmEquipmentPage({
           notes: form.notes.trim() || undefined,
           updatedAt: new Date().toISOString(),
         };
-        await onEditEquipment(updated);
+        if (editHandler) await editHandler(updated);
         setEditingItem(null);
       } else {
         const newItem: FarmEquipment = {
@@ -180,20 +191,20 @@ export default function FarmEquipmentPage({
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         };
-        await onAddEquipment(newItem);
+        if (addHandler) await addHandler(newItem);
         setShowAdd(false);
       }
     } catch (e) {
-      console.error(e);
+      console.error("Error saving equipment:", e);
     } finally {
       setSaving(false);
     }
   };
 
   const handleQuickQuantityAdjust = async (item: FarmEquipment, delta: number) => {
-    if (!canEdit) return;
+    if (!canEdit || !editHandler) return;
     const newQty = Math.max(0, (item.quantity || 0) + delta);
-    await onEditEquipment({
+    await editHandler({
       ...item,
       quantity: newQty,
       updatedAt: new Date().toISOString(),
@@ -210,57 +221,6 @@ export default function FarmEquipmentPage({
     }
   };
 
-  const exportCSV = () => {
-    const headers = ["Equipment Name", "Category", "Quantity", "Condition", "Location", "Purchase Date", "Cost", "Notes"];
-    const rows = filteredEquipment.map(item => [
-      item.name,
-      item.category,
-      item.quantity,
-      item.condition,
-      item.location || "—",
-      item.purchaseDate || "—",
-      item.cost ? `${currency}${item.cost}` : "—",
-      item.notes || "—"
-    ]);
-    downloadCSV("farm_equipment_inventory.csv", [headers, ...rows]);
-  };
-
-  const printReport = () => {
-    const content = `
-      <h2>Farm Equipment Inventory Report</h2>
-      <p>Generated: ${new Date().toLocaleDateString()}</p>
-      <table border="1" cellpadding="6" cellspacing="0" style="border-collapse:collapse;width:100%;text-align:left;font-size:12px;">
-        <thead>
-          <tr style="background:#f1f5f9;">
-            <th>#</th>
-            <th>Name</th>
-            <th>Category</th>
-            <th>Quantity</th>
-            <th>Condition</th>
-            <th>Location</th>
-            <th>Purchase Date</th>
-            <th>Cost</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${filteredEquipment.map((item, idx) => `
-            <tr>
-              <td>${idx + 1}</td>
-              <td><strong>${item.name}</strong></td>
-              <td>${item.category}</td>
-              <td>${item.quantity}</td>
-              <td>${item.condition}</td>
-              <td>${item.location || "—"}</td>
-              <td>${item.purchaseDate || "—"}</td>
-              <td>${item.cost ? `${currency}${item.cost.toLocaleString()}` : "—"}</td>
-            </tr>
-          `).join("")}
-        </tbody>
-      </table>
-    `;
-    openPrintWindow("Farm Equipment Inventory", content);
-  };
-
   return (
     <div className="p-4 sm:p-6 space-y-5 w-full pb-20 sm:pb-8">
       {/* Page Header */}
@@ -274,22 +234,6 @@ export default function FarmEquipmentPage({
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <button
-            type="button"
-            onClick={exportCSV}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 bg-white text-slate-600 hover:text-slate-900 hover:border-slate-300 text-xs font-semibold transition-colors shadow-2xs"
-            title="Export CSV"
-          >
-            <Download size={13} /> Export CSV
-          </button>
-          <button
-            type="button"
-            onClick={printReport}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 bg-white text-slate-600 hover:text-slate-900 hover:border-slate-300 text-xs font-semibold transition-colors shadow-2xs"
-            title="Print Report"
-          >
-            <FileText size={13} /> Print
-          </button>
           {canCreate && (
             <PBtn onClick={openAddModal} sm className="shadow-xs">
               <Plus size={14} /> Add Equipment
@@ -298,8 +242,16 @@ export default function FarmEquipmentPage({
         </div>
       </div>
 
-      {/* Summary Stat Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      {/* Mobile Stats (compact plain text to save screen space) */}
+      <div className="md:hidden flex flex-wrap items-center gap-x-4 gap-y-1.5 px-3.5 py-2.5 bg-white border border-slate-200/80 rounded-xl text-xs text-slate-700 shadow-2xs">
+        <div><span className="text-slate-400">Total Equipment:</span> <strong className="text-slate-900 font-bold ml-1">{totalItems}</strong></div>
+        <div><span className="text-slate-400">Total Units:</span> <strong className="text-slate-900 font-bold ml-1">{totalQuantity}</strong></div>
+        <div><span className="text-slate-400">Working:</span> <strong className="text-emerald-700 font-bold ml-1">{workingCount}</strong></div>
+        <div><span className="text-slate-400">Needs Attention:</span> <strong className="text-amber-700 font-bold ml-1">{repairCount}</strong></div>
+      </div>
+
+      {/* Desktop Summary Stat Cards */}
+      <div className="hidden md:grid md:grid-cols-4 gap-3">
         <StatCard label="Total Equipment" value={String(totalItems)} sub="cataloged types" icon={Wrench} />
         <StatCard label="Total Units" value={String(totalQuantity)} sub="available units" icon={Layers} hi />
         <StatCard label="Working Order" value={String(workingCount)} sub="operational" icon={CheckCircle} />
@@ -458,7 +410,7 @@ export default function FarmEquipmentPage({
                                 <Pencil size={13} />
                               </button>
                             )}
-                            {canDelete && onDeleteEquipment && (
+                            {canDelete && deleteHandler && (
                               <button
                                 type="button"
                                 onClick={() => setDeleteId(item.id)}
@@ -525,7 +477,7 @@ export default function FarmEquipmentPage({
                       <Pencil size={14} />
                     </button>
                   )}
-                  {canDelete && onDeleteEquipment && (
+                  {canDelete && deleteHandler && (
                     <button
                       type="button"
                       onClick={() => setDeleteId(item.id)}
@@ -725,8 +677,8 @@ export default function FarmEquipmentPage({
               <button
                 type="button"
                 onClick={async () => {
-                  if (onDeleteEquipment && deleteId) {
-                    await onDeleteEquipment(deleteId);
+                  if (deleteHandler && deleteId) {
+                    await deleteHandler(deleteId);
                   }
                   setDeleteId(null);
                 }}
