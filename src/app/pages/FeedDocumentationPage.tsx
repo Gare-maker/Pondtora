@@ -161,25 +161,32 @@ function FeedDocumentation({
   const [showBagsModal, setShowBagsModal] = useState(false);
   const [bagsErr, setBagsErr] = useState<Record<string, string>>({});
   const [deleteRecId, setDeleteRecId] = useState<string | null>(null);
-  const [docTab, setDocTab] = useState<"daily" | "bags">("daily");
+  const [docTab, setDocTab] = useState<"daily" | "bags" | "reconciliation">("daily");
+  const [mobileViewMode, setMobileViewMode] = useState<"card" | "table">("card");
+  const [bulkMobileView, setBulkMobileView] = useState<"table" | "card">("table");
+  const [isDailySearchOpen, setIsDailySearchOpen] = useState(false);
   const [bagsHighlight, setBagsHighlight] = useState<{
     stock: string;
     size: string;
     brand?: string;
     col?: "bags" | "remaining" | "all";
   } | null>(null);
+  const [reconExpanded, setReconExpanded] = useState<string | null>(null);
   const [feedMobileMenuOpen, setFeedMobileMenuOpen] = useState(false);
   const [feedMenuPlacement, setFeedMenuPlacement] = useState<"left" | "right">("left");
   const feedMobileMenuRef = useRef<HTMLDivElement>(null);
   const [viewBagDetail, setViewBagDetail] = useState<MergedBagRow | null>(null);
+  const [popupRecon, setPopupRecon] = useState<ReconRow | null>(null);
   const [activeDailyMenuId, setActiveDailyMenuId] = useState<string | null>(null);
   const [activeBagMenuId, setActiveBagMenuId] = useState<string | null>(null);
+  const [activeReconMenuId, setActiveReconMenuId] = useState<string | null>(null);
 
   /* ── Feeding Status Filter: all | fed | not_fed ── */
   const [feedStatusFilter, setFeedStatusFilter] = useState<"all" | "fed" | "not_fed">("all");
 
-  /* ── helper to navigate to bags tab with column highlight ── */
+  /* ── helper to navigate from recon to bags tab with column highlight ── */
   const goToOpenedBags = (fishStock: string, size: string, brand?: string, col: "bags" | "remaining" | "all" = "all") => {
+    setPopupRecon(null);
     setDocTab("bags");
     setBagsHighlight({ stock: fishStock, size, brand, col });
   };
@@ -200,6 +207,18 @@ function FeedDocumentation({
     return () => document.removeEventListener("click", h);
   }, []);
 
+  /* ── pellet size normalization helper ── */
+  const isSamePelletSize = (a?: string | null, b?: string | null): boolean => {
+    if (!a || !b) return false;
+    const cleanA = String(a).toLowerCase().replace(/\s+/g, "").trim();
+    const cleanB = String(b).toLowerCase().replace(/\s+/g, "").trim();
+    if (cleanA === cleanB) return true;
+    const numA = parseFloat(cleanA);
+    const numB = parseFloat(cleanB);
+    if (!isNaN(numA) && !isNaN(numB) && numA === numB) return true;
+    return false;
+  };
+
   /* ── derived ── */
   const activePonds = (ponds || []).filter(p => p && p.status === "Active");
   const allBrands = [...new Set((inventory || []).map(f => f?.brand).filter(Boolean))];
@@ -210,7 +229,13 @@ function FeedDocumentation({
     const fromBags = (bagLogs || []).map(b => b?.size).filter(Boolean);
     const combined = [...new Set([...fromInv, ...fromBags])];
     if (combined.length > 0) {
-      return combined.sort((a, b) => (parseFloat(a) || 0) - (parseFloat(b) || 0));
+      const uniqueSizes: string[] = [];
+      combined.forEach(s => {
+        if (!uniqueSizes.some(u => isSamePelletSize(u, s))) {
+          uniqueSizes.push(s);
+        }
+      });
+      return uniqueSizes.sort((a, b) => (parseFloat(a) || 0) - (parseFloat(b) || 0));
     }
     return FEED_SIZES;
   }, [inventory, bagLogs]);
@@ -231,12 +256,12 @@ function FeedDocumentation({
 
   /* Helper to check current available stock for a Brand + Pellet Size */
   const getStockAvailable = (brand: string, size: string, excludeBagLogId?: string) => {
-    const invItems = (inventory || []).filter(f => f && f.brand === brand && f.size === size);
+    const invItems = (inventory || []).filter(f => f && f.brand === brand && isSamePelletSize(f.size, size));
     const totalPurchasedKg = invItems.reduce((s, f) => s + (Number(f.totalKg) || (Number(f.bags) * (Number(f.weightPerBag) || 15))), 0);
     const totalPurchasedBags = invItems.reduce((s, f) => s + (Number(f.bags) || 0), 0);
     const weightPerBag = invItems[0]?.weightPerBag || 15;
 
-    const openedLogs = (bagLogs || []).filter(b => b && b.brand === brand && b.size === size && (excludeBagLogId ? b.id !== excludeBagLogId : true));
+    const openedLogs = (bagLogs || []).filter(b => b && b.brand === brand && isSamePelletSize(b.size, size) && (excludeBagLogId ? b.id !== excludeBagLogId : true));
     const totalOpenedBags = openedLogs.reduce((s, b) => s + (Number(b.bagsOpened) || 0), 0);
     const totalOpenedKg = openedLogs.reduce((s, b) => s + (Number(b.totalKg) || (Number(b.bagsOpened) * (Number(b.kgPerBag) || weightPerBag))), 0);
 
@@ -255,26 +280,26 @@ function FeedDocumentation({
     };
   };
 
-  /* Helper to check current available stock for a Pellet Size across inventory and feedings */
+  /* Helper to check current available stock for a Pellet Size across ALL brands in inventory and feedings */
   const getPelletStock = (size: string, excludeRecordId?: string) => {
     if (!size) return { availableQty: 0, availableKg: 0, inStockBags: 0, totalPurchasedBags: 0, totalPurchasedKg: 0, totalFedKg: 0, exists: false };
-    const invItems = (inventory || []).filter(f => f && f.size === size);
+    const invItems = (inventory || []).filter(f => f && isSamePelletSize(f.size, size));
     const totalPurchasedBags = invItems.reduce((s, f) => s + (Number(f.bags) || 0), 0);
     const weightPerBag = invItems[0]?.weightPerBag || 15;
     const totalPurchasedKg = invItems.reduce((s, f) => s + (Number(f.totalKg) || (Number(f.bags) * (Number(f.weightPerBag) || weightPerBag))), 0);
     const exists = invItems.length > 0 && (totalPurchasedBags > 0 || totalPurchasedKg > 0);
 
-    const openedLogs = (bagLogs || []).filter(b => b && b.size === size);
+    const openedLogs = (bagLogs || []).filter(b => b && isSamePelletSize(b.size, size));
     const totalOpenedBags = openedLogs.reduce((s, b) => s + (Number(b.bagsOpened) || 0), 0);
     const inStockBags = Math.max(0, totalPurchasedBags - totalOpenedBags);
 
-    const relevantFeeding = (feedingRecords || []).filter(fr => fr && fr.size === size && (excludeRecordId ? fr.id !== excludeRecordId : true));
+    const relevantFeeding = (feedingRecords || []).filter(fr => fr && isSamePelletSize(fr.size, size) && (excludeRecordId ? fr.id !== excludeRecordId : true));
     const totalFedKg = relevantFeeding.reduce((s, fr) => s + (Number(fr.total) || ((Number(fr.morning) || 0) + (Number(fr.evening) || 0))), 0);
     const totalOpenedKg = openedLogs.reduce((s, b) => s + (Number(b.totalKg) || (Number(b.bagsOpened) * (Number(b.kgPerBag) || weightPerBag))), 0);
     const remainingOpenedKg = Math.max(0, totalOpenedKg - totalFedKg);
     const availableKg = Math.max(0, (inStockBags * weightPerBag) + remainingOpenedKg);
 
-    // Available pallet quantity dynamically reflects actual Feed Stock inventory
+    // Available pallet quantity dynamically reflects total available across all brands
     const availableQty = inStockBags;
 
     return {
@@ -446,7 +471,7 @@ function FeedDocumentation({
       const parts = reconFocus.date.split(" ");
       m = MIDX_GLOBAL[parts[0]] ?? viewMonth;
     }
-    setViewMonth(m); setDocTab("bags"); setSelDate(reconFocus.date);
+    setViewMonth(m); setDocTab("reconciliation"); setSelDate(reconFocus.date); setReconExpanded(reconFocus.key);
   }, [reconFocus]);
 
   /* ── activeFishStockOptions for Bags Opened & Tracking ── */
@@ -1750,14 +1775,15 @@ function FeedDocumentation({
       {/* ── Sticky Tab bar ── */}
       <div className="sticky top-0 z-20 bg-[#f5f7fa] -mx-4 -mt-2 px-4 py-2 sm:-mx-6 sm:px-6 flex flex-wrap items-center justify-between gap-3">
         <div className="flex gap-1 bg-slate-200/80 p-1 rounded-xl w-fit">
-          {(["daily", "bags"] as const).map(t => (
+          {(["daily", "bags", "reconciliation"] as const).map(t => (
             <button key={t} onClick={() => setDocTab(t)} className={`relative px-4 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${docTab === t ? "bg-white text-green-700 font-bold" : "text-slate-600 hover:text-slate-900"}`}>
-              {t === "daily" ? "Daily Feed" : "Opened Bags"}
+              {t === "daily" ? "Daily Feed" : t === "bags" ? "Opened Bags" : "Reconciliation"}
+              {t === "reconciliation" && hasMismatchOnSelDate && <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse ring-2 ring-white" />}
             </button>
           ))}
         </div>
       </div>
-      <p className="text-xs text-slate-400 mt-1 mb-3">{docTab === "daily" ? "Daily feed records for the selected date." : "Bags opened and remaining feed for the selected date."}</p>
+      <p className="text-xs text-slate-400 mt-1 mb-3">{docTab === "daily" ? "Daily feed records for the selected date." : docTab === "bags" ? "Bags opened and remaining feed for the selected date." : "Compare expected vs recorded feed usage."}</p>
 
       {/* ── Daily Feed tab ── */}
       {docTab === "daily" && (
@@ -1894,173 +1920,316 @@ function FeedDocumentation({
             </Card>
           </div>
 
-          {/* Mobile Isolated Cards View */}
+          {/* Mobile Feeding Records: Table / Card View with Toggle */}
           <div className="md:hidden space-y-3">
-            {/* Feeding Status Filter */}
-            <div className="flex items-center gap-1 bg-slate-100/90 border border-slate-200/80 p-1 rounded-xl w-fit">
-              {(["all", "fed", "not_fed"] as const).map(st => {
-                const count = st === "all" ? totalPonds : st === "fed" ? pondsFedToday : pondsRemaining;
-                const name = st === "all" ? "All" : st === "fed" ? "Fed" : "Remaining";
-                const isSelected = feedStatusFilter === st;
-                return (
+            {/* Mobile Controls Toolbar: Filter + Table/Card Toggle + Search */}
+            <div className="flex items-center justify-between gap-2 flex-wrap bg-white border border-slate-200/80 rounded-2xl p-2 shadow-2xs">
+              {/* Feeding Status Filter */}
+              <div className="flex items-center gap-1 bg-slate-100 p-0.5 rounded-xl border border-slate-200/60">
+                {(["all", "fed", "not_fed"] as const).map(st => {
+                  const count = st === "all" ? totalPonds : st === "fed" ? pondsFedToday : pondsRemaining;
+                  const name = st === "all" ? "All" : st === "fed" ? "Fed" : "Remaining";
+                  const isSelected = feedStatusFilter === st;
+                  return (
+                    <button
+                      key={st}
+                      type="button"
+                      onClick={() => setFeedStatusFilter(st)}
+                      className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs transition-all ${
+                        isSelected
+                          ? "bg-white text-slate-900 font-bold shadow-xs border border-slate-200/80"
+                          : "text-slate-500 hover:text-slate-800 font-medium"
+                      }`}
+                    >
+                      <span>{name}</span>
+                      <span
+                        className={`text-[10px] font-bold px-1.5 py-0.2 rounded-full leading-none ${
+                          isSelected
+                            ? st === "fed" ? "bg-emerald-100 text-emerald-800" : st === "not_fed" ? "bg-amber-100 text-amber-800" : "bg-slate-100 text-slate-700"
+                            : "bg-slate-200/60 text-slate-500"
+                        }`}
+                      >
+                        {count}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Mobile Table/Card Toggle & Search */}
+              <div className="flex items-center gap-1.5 ml-auto">
+                <div className="flex items-center gap-0.5 bg-slate-100 p-0.5 rounded-xl border border-slate-200/60">
                   <button
-                    key={st}
                     type="button"
-                    onClick={() => setFeedStatusFilter(st)}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs transition-all ${
-                      isSelected
-                        ? "bg-white text-slate-900 font-bold shadow-xs border border-slate-200/80"
+                    onClick={() => setMobileViewMode("card")}
+                    className={`px-2.5 py-1 rounded-lg text-xs transition-all ${
+                      mobileViewMode === "card"
+                        ? "bg-white text-green-700 font-bold shadow-xs border border-slate-200/80"
                         : "text-slate-500 hover:text-slate-800 font-medium"
                     }`}
                   >
-                    <span>{name}</span>
-                    <span
-                      className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none ${
-                        isSelected
-                          ? st === "fed" ? "bg-emerald-100 text-emerald-800" : st === "not_fed" ? "bg-amber-100 text-amber-800" : "bg-slate-100 text-slate-700"
-                          : "bg-slate-200/60 text-slate-500"
-                      }`}
-                    >
-                      {count}
-                    </span>
+                    Cards
                   </button>
-                );
-              })}
+                  <button
+                    type="button"
+                    onClick={() => setMobileViewMode("table")}
+                    className={`px-2.5 py-1 rounded-lg text-xs transition-all ${
+                      mobileViewMode === "table"
+                        ? "bg-white text-green-700 font-bold shadow-xs border border-slate-200/80"
+                        : "text-slate-500 hover:text-slate-800 font-medium"
+                    }`}
+                  >
+                    Table
+                  </button>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setIsDailySearchOpen(p => !p)}
+                  className={`p-1.5 rounded-xl border transition-colors ${
+                    dailySearch || isDailySearchOpen
+                      ? "bg-green-50 border-green-300 text-green-700"
+                      : "bg-slate-50 border-slate-200 text-slate-500 hover:text-slate-800"
+                  }`}
+                  title="Search ponds"
+                >
+                  <Search size={14} />
+                </button>
+              </div>
             </div>
 
-            {filteredDayRows.length === 0 ? (
-              <div className="py-10 text-center bg-white border border-slate-200/80 rounded-2xl p-4 shadow-xs">
-                <Droplets size={28} className="text-slate-300 mx-auto mb-2" />
-                <p className="text-xs font-semibold text-slate-500">{dailySearch ? "No ponds match search" : `No feeding recorded on ${selDate}`}</p>
-                <p className="text-[11px] text-slate-400 mt-1">Select a date or log feeding</p>
+            {/* Collapsible Mobile Search Input */}
+            {(isDailySearchOpen || dailySearch) && (
+              <div className="relative animate-in fade-in slide-in-from-top-1 duration-150">
+                <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  value={dailySearch}
+                  onChange={e => setDailySearch(e.target.value)}
+                  placeholder="Search pond, stock, or size…"
+                  className={`${IC} pl-8 pr-8 w-full text-xs py-2 bg-white`}
+                  autoFocus
+                />
+                {dailySearch && (
+                  <button
+                    type="button"
+                    onClick={() => { setDailySearch(""); setIsDailySearchOpen(false); }}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 p-0.5 rounded"
+                  >
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* View rendering: Card View OR Table View */}
+            {mobileViewMode === "table" ? (
+              <div className="bg-white border border-slate-200/80 rounded-2xl overflow-hidden shadow-xs">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs min-w-[560px]">
+                    <thead>
+                      <tr className="bg-slate-50 border-b border-slate-100">
+                        <th className="px-3 py-2.5 text-[10px] font-bold text-slate-500 uppercase tracking-wider text-left sticky left-0 z-20 bg-slate-50 min-w-[100px] border-r border-slate-100">Pond</th>
+                        <th className="px-3 py-2.5 text-[10px] font-bold text-slate-500 uppercase tracking-wider text-left">Pellet</th>
+                        <th className="px-3 py-2.5 text-[10px] font-bold text-slate-500 uppercase tracking-wider text-left">Morning</th>
+                        <th className="px-3 py-2.5 text-[10px] font-bold text-slate-500 uppercase tracking-wider text-left">Evening</th>
+                        <th className="px-3 py-2.5 text-[10px] font-bold text-slate-500 uppercase tracking-wider text-left">Total</th>
+                        <th className="px-2 py-2.5 w-8" />
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                      {filteredDayRows.length === 0 ? (
+                        <tr><td colSpan={6} className="py-8 text-center text-xs text-slate-400">No feeding recorded on {selDate}</td></tr>
+                      ) : (
+                        filteredDayRows.map(({ pond, rec }, i) => {
+                          const hasFeed = !!rec;
+                          const pondMaxKgMap = pond.maxKgByPallet;
+                          const atMax = hasFeed && pondMaxKgMap && rec!.size in pondMaxKgMap && (feedingRecords || []).filter(r => r && r.pond === pond.name && r.size === rec!.size).reduce((s, r) => s + (Number(r.total) || 0), 0) >= (pondMaxKgMap[rec!.size] || Infinity);
+                          const isEdited = (rec?.editHistory?.length || 0) > 0;
+                          return (
+                            <tr key={pond.id} onClick={() => rec && setViewFeedRec(rec)} className={`transition-colors ${hasFeed ? "hover:bg-green-50/30 cursor-pointer" : "opacity-40 hover:opacity-60"}`}>
+                              <td className="px-3 py-3 sticky left-0 z-10 bg-white border-r border-slate-100 min-w-[100px]">
+                                <p className="font-bold text-slate-900 leading-tight truncate max-w-[95px]">{pond.name}</p>
+                                <p className="text-[10px] text-slate-400 mt-0.5">{pond.currentCount} fish</p>
+                              </td>
+                              <td className="px-3 py-3">
+                                {rec ? <Bdg label={rec.size} color={atMax ? "red" : "blue"} /> : <span className="text-slate-300">—</span>}
+                              </td>
+                              <td className="px-3 py-3">
+                                {rec ? <div><span className="font-semibold text-slate-800">{rec.morning}kg</span>{rec.morningTime && <p className="text-[9px] text-slate-400 font-mono">{rec.morningTime}</p>}</div> : <span className="text-slate-300">—</span>}
+                              </td>
+                              <td className="px-3 py-3">
+                                {rec ? <div><span className="font-semibold text-slate-800">{rec.evening}kg</span>{rec.eveningTime && <p className="text-[9px] text-slate-400 font-mono">{rec.eveningTime}</p>}</div> : <span className="text-slate-300">—</span>}
+                              </td>
+                              <td className="px-3 py-3">
+                                {rec ? (
+                                  <div className="flex items-center gap-1">
+                                    <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-green-100 text-green-800 font-bold font-['Barlow_Condensed',sans-serif] text-xs">{rec.total}kg</span>
+                                    {isEdited && <span className="px-1 py-0.2 rounded text-[8px] font-bold bg-amber-100 text-amber-700">Ed</span>}
+                                  </div>
+                                ) : <span className="text-slate-300 text-[11px]">Not fed</span>}
+                              </td>
+                              <td className="px-2 py-3 text-right" onClick={e => e.stopPropagation()}>
+                                {rec && (isRecordEditable(rec.date) ? (
+                                  <div className="flex items-center gap-0.5">
+                                    {canEdit && <button onClick={() => openEditRec(rec)} className="p-1 rounded text-slate-400 hover:text-green-600 hover:bg-green-50" title="Edit"><Pencil size={12} /></button>}
+                                    {canDelete && onDeleteRecord && <button onClick={() => setDeleteRecId(rec.id)} className="p-1 rounded text-slate-400 hover:text-red-600 hover:bg-red-50" title="Delete"><Trash2 size={12} /></button>}
+                                  </div>
+                                ) : <Lock size={11} className="text-slate-300 ml-auto" />)}
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                    {dayGrand > 0 && (
+                      <tfoot>
+                        <tr className="bg-slate-50 border-t-2 border-slate-200">
+                          <td colSpan={4} className="px-3 py-2.5 text-right text-[11px] font-bold text-slate-500 uppercase">Total</td>
+                          <td colSpan={2} className="px-3 py-2.5">
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-lg bg-green-600 text-white font-bold text-xs font-['Barlow_Condensed',sans-serif]">{dayGrand}kg</span>
+                          </td>
+                        </tr>
+                      </tfoot>
+                    )}
+                  </table>
+                </div>
               </div>
             ) : (
-              filteredDayRows.map(({ pond, rec }, i) => {
-                const hasFeed = !!rec;
-                const pondMaxKgMap = pond.maxKgByPallet;
-                const atMax = hasFeed && pondMaxKgMap && rec!.size in pondMaxKgMap && (feedingRecords || []).filter(r => r && r.pond === pond.name && r.size === rec!.size).reduce((s, r) => s + (Number(r.total) || 0), 0) >= (pondMaxKgMap[rec!.size] || Infinity);
-                const isEdited = (rec?.editHistory?.length || 0) > 0;
-                const stockDateFormatted = pond.stockingDate && pond.stockingDate !== "—" ? formatFishStockDate(pond.stockingDate) : "—";
-                const isMenuOpen = activeDailyMenuId === pond.id;
+              /* Minimalistic Card View */
+              filteredDayRows.length === 0 ? (
+                <div className="py-10 text-center bg-white border border-slate-200/80 rounded-2xl p-4 shadow-xs">
+                  <Droplets size={28} className="text-slate-300 mx-auto mb-2" />
+                  <p className="text-xs font-semibold text-slate-500">{dailySearch ? "No ponds match search" : `No feeding recorded on ${selDate}`}</p>
+                  <p className="text-[11px] text-slate-400 mt-1">Select a date or log feeding</p>
+                </div>
+              ) : (
+                filteredDayRows.map(({ pond, rec }, i) => {
+                  const hasFeed = !!rec;
+                  const pondMaxKgMap = pond.maxKgByPallet;
+                  const atMax = hasFeed && pondMaxKgMap && rec!.size in pondMaxKgMap && (feedingRecords || []).filter(r => r && r.pond === pond.name && r.size === rec!.size).reduce((s, r) => s + (Number(r.total) || 0), 0) >= (pondMaxKgMap[rec!.size] || Infinity);
+                  const isEdited = (rec?.editHistory?.length || 0) > 0;
+                  const stockDateFormatted = pond.stockingDate && pond.stockingDate !== "—" ? formatFishStockDate(pond.stockingDate) : "—";
+                  const isMenuOpen = activeDailyMenuId === pond.id;
 
-                return (
-                  <div
-                    key={pond.id}
-                    onClick={() => rec && setViewFeedRec(rec)}
-                    className={`bg-white border border-slate-200/80 rounded-2xl p-4 shadow-xs transition-all relative ${hasFeed ? "hover:border-green-300 hover:shadow-sm cursor-pointer" : "opacity-70"}`}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-1.5 flex-wrap min-w-0">
-                          <h3 className="font-bold text-slate-900 text-sm sm:text-base truncate max-w-[140px] xs:max-w-[180px] sm:max-w-[220px]" title={pond.name}>
-                            {pond.name}
-                          </h3>
-                          {stockDateFormatted !== "—" && (
-                            <span className="text-[10px] text-teal-700 bg-teal-50 px-2 py-0.5 rounded border border-teal-200 font-medium shrink-0">
-                              {stockDateFormatted}
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-[11px] text-slate-500 mt-0.5 truncate">
-                          Stock: <strong className="text-slate-700">{pond.currentCount.toLocaleString()}</strong> fish
-                          {pond.initialStock > 0 && <span className="text-slate-400"> (Initial: {pond.initialStock.toLocaleString()})</span>}
-                        </p>
-                      </div>
-
-                      <div className="flex items-center gap-1.5 shrink-0" onClick={e => e.stopPropagation()}>
-                        {hasFeed && (
-                          <span className="font-bold text-green-700 font-['Barlow_Condensed',sans-serif] text-base">
-                            {rec.total} kg
-                          </span>
-                        )}
-                        {hasFeed && (
-                          <div className="relative">
-                            <button
-                              type="button"
-                              onClick={() => setActiveDailyMenuId(isMenuOpen ? null : pond.id)}
-                              className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
-                              title="Actions"
-                            >
-                              <MoreVertical size={16} />
-                            </button>
-                            {isMenuOpen && (
-                              <div className="absolute right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl z-30 py-1 min-w-[130px] animate-in fade-in zoom-in-95 duration-100">
-                                <button
-                                  type="button"
-                                  onClick={() => { setActiveDailyMenuId(null); setViewFeedRec(rec); }}
-                                  className="w-full px-3 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2"
-                                >
-                                  <Eye size={13} className="text-slate-400" /> View Details
-                                </button>
-                                {isRecordEditable(rec.date) ? (
-                                  <>
-                                    {canEdit && (
-                                      <button
-                                        type="button"
-                                        onClick={() => { setActiveDailyMenuId(null); openEditRec(rec); }}
-                                        className="w-full px-3 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2"
-                                      >
-                                        <Pencil size={13} className="text-green-600" /> Edit Record
-                                      </button>
-                                    )}
-                                    {canDelete && onDeleteRecord && (
-                                      <button
-                                        type="button"
-                                        onClick={() => { setActiveDailyMenuId(null); setDeleteRecId(rec.id); }}
-                                        className="w-full px-3 py-2 text-left text-xs font-medium text-red-600 hover:bg-red-50 flex items-center gap-2"
-                                      >
-                                        <Trash2 size={13} className="text-red-500" /> Delete Record
-                                      </button>
-                                    )}
-                                  </>
-                                ) : (
-                                  <div className="px-3 py-1.5 text-[11px] text-slate-400 flex items-center gap-1.5">
-                                    <Lock size={12} /> Locked
-                                  </div>
-                                )}
-                              </div>
+                  return (
+                    <div
+                      key={pond.id}
+                      onClick={() => rec && setViewFeedRec(rec)}
+                      className={`bg-white border border-slate-200/80 rounded-2xl p-4 shadow-xs transition-all relative ${hasFeed ? "hover:border-green-300 hover:shadow-sm cursor-pointer" : "opacity-70"}`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                            <h3 className="font-bold text-slate-900 text-sm sm:text-base truncate max-w-[140px] xs:max-w-[180px] sm:max-w-[220px]" title={pond.name}>
+                              {pond.name}
+                            </h3>
+                            {stockDateFormatted !== "—" && (
+                              <span className="text-[10px] text-teal-700 bg-teal-50 px-2 py-0.5 rounded border border-teal-200 font-medium shrink-0">
+                                {stockDateFormatted}
+                              </span>
                             )}
                           </div>
-                        )}
-                      </div>
-                    </div>
+                          <p className="text-[11px] text-slate-500 mt-0.5 truncate">
+                            Stock: <strong className="text-slate-700">{pond.currentCount.toLocaleString()}</strong> fish
+                            {pond.initialStock > 0 && <span className="text-slate-400"> (Initial: {pond.initialStock.toLocaleString()})</span>}
+                          </p>
+                        </div>
 
-                    {hasFeed ? (
-                      <div className="mt-3 pt-2.5 border-t border-slate-100 grid grid-cols-3 gap-2">
-                        <div className="bg-slate-50/90 border border-slate-100 rounded-xl p-2 sm:p-2.5 flex flex-col justify-between">
-                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-0.5">Pellet Size</span>
-                          <div className="flex items-center gap-1 mt-0.5">
-                            <Bdg label={rec.size} color={atMax ? "red" : "blue"} />
-                            {atMax && <span className="text-[10px] font-bold text-red-500">⚠ Limit</span>}
-                          </div>
-                        </div>
-                        <div className="bg-slate-50/90 border border-slate-100 rounded-xl p-2 sm:p-2.5 flex flex-col justify-between">
-                          <div className="flex items-center justify-between">
-                            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Morning</span>
-                            {rec.morningTime && <span className="text-[9px] text-slate-400 font-mono">{rec.morningTime}</span>}
-                          </div>
-                          <div className="mt-0.5">
-                            <span className="text-base sm:text-lg font-extrabold text-slate-900 font-['Barlow_Condensed',sans-serif] tracking-tight">{rec.morning}</span>
-                            <span className="text-xs font-bold text-slate-500 ml-1">kg</span>
-                          </div>
-                        </div>
-                        <div className="bg-slate-50/90 border border-slate-100 rounded-xl p-2 sm:p-2.5 flex flex-col justify-between">
-                          <div className="flex items-center justify-between">
-                            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Evening</span>
-                            {rec.eveningTime && <span className="text-[9px] text-slate-400 font-mono">{rec.eveningTime}</span>}
-                          </div>
-                          <div className="mt-0.5">
-                            <span className="text-base sm:text-lg font-extrabold text-slate-900 font-['Barlow_Condensed',sans-serif] tracking-tight">{rec.evening}</span>
-                            <span className="text-xs font-bold text-slate-500 ml-1">kg</span>
-                          </div>
+                        <div className="flex items-center gap-1.5 shrink-0" onClick={e => e.stopPropagation()}>
+                          {hasFeed && (
+                            <span className="font-bold text-green-700 font-['Barlow_Condensed',sans-serif] text-base">
+                              {rec.total} kg
+                            </span>
+                          )}
+                          {hasFeed && (
+                            <div className="relative">
+                              <button
+                                type="button"
+                                onClick={() => setActiveDailyMenuId(isMenuOpen ? null : pond.id)}
+                                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+                                title="Actions"
+                              >
+                                <MoreVertical size={16} />
+                              </button>
+                              {isMenuOpen && (
+                                <div className="absolute right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl z-30 py-1 min-w-[130px] animate-in fade-in zoom-in-95 duration-100">
+                                  <button
+                                    type="button"
+                                    onClick={() => { setActiveDailyMenuId(null); setViewFeedRec(rec); }}
+                                    className="w-full px-3 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                                  >
+                                    <Eye size={13} className="text-slate-400" /> View Details
+                                  </button>
+                                  {isRecordEditable(rec.date) ? (
+                                    <>
+                                      {canEdit && (
+                                        <button
+                                          type="button"
+                                          onClick={() => { setActiveDailyMenuId(null); openEditRec(rec); }}
+                                          className="w-full px-3 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                                        >
+                                          <Pencil size={13} className="text-green-600" /> Edit Record
+                                        </button>
+                                      )}
+                                      {canDelete && onDeleteRecord && (
+                                        <button
+                                          type="button"
+                                          onClick={() => { setActiveDailyMenuId(null); setDeleteRecId(rec.id); }}
+                                          className="w-full px-3 py-2 text-left text-xs font-medium text-red-600 hover:bg-red-50 flex items-center gap-2"
+                                        >
+                                          <Trash2 size={13} className="text-red-500" /> Delete Record
+                                        </button>
+                                      )}
+                                    </>
+                                  ) : (
+                                    <div className="px-3 py-1.5 text-[11px] text-slate-400 flex items-center gap-1.5">
+                                      <Lock size={12} /> Locked
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </div>
                       </div>
-                    ) : (
-                      <p className="text-xs text-slate-400 mt-2 italic">Not fed on {selDate}</p>
-                    )}
-                  </div>
-                );
-              })
+
+                      {hasFeed ? (
+                        <div className="mt-3 pt-2.5 border-t border-slate-100 grid grid-cols-3 gap-2">
+                          <div className="bg-slate-50/90 border border-slate-100 rounded-xl p-2 sm:p-2.5 flex flex-col justify-between">
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-0.5">Pellet Size</span>
+                            <div className="flex items-center gap-1 mt-0.5">
+                              <Bdg label={rec.size} color={atMax ? "red" : "blue"} />
+                              {atMax && <span className="text-[10px] font-bold text-red-500">⚠ Limit</span>}
+                            </div>
+                          </div>
+                          <div className="bg-slate-50/90 border border-slate-100 rounded-xl p-2 sm:p-2.5 flex flex-col justify-between">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Morning</span>
+                              {rec.morningTime && <span className="text-[9px] text-slate-400 font-mono">{rec.morningTime}</span>}
+                            </div>
+                            <div className="mt-0.5">
+                              <span className="text-base sm:text-lg font-extrabold text-slate-900 font-['Barlow_Condensed',sans-serif] tracking-tight">{rec.morning}</span>
+                              <span className="text-xs font-bold text-slate-500 ml-1">kg</span>
+                            </div>
+                          </div>
+                          <div className="bg-slate-50/90 border border-slate-100 rounded-xl p-2 sm:p-2.5 flex flex-col justify-between">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Evening</span>
+                              {rec.eveningTime && <span className="text-[9px] text-slate-400 font-mono">{rec.eveningTime}</span>}
+                            </div>
+                            <div className="mt-0.5">
+                              <span className="text-base sm:text-lg font-extrabold text-slate-900 font-['Barlow_Condensed',sans-serif] tracking-tight">{rec.evening}</span>
+                              <span className="text-xs font-bold text-slate-500 ml-1">kg</span>
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="text-xs text-slate-400 mt-2 italic">Not fed on {selDate}</p>
+                      )}
+                    </div>
+                  );
+                })
+              )
             )}
 
             {dayGrand > 0 && (
@@ -2402,23 +2571,559 @@ function FeedDocumentation({
         </>
       )}
 
+      {/* ── Reconciliation tab (Clean, Streamlined & Uncluttered) ── */}
+      {docTab === "reconciliation" && (() => {
+        const issues = filteredReconRows.filter(r => r.status !== "matched").length;
+        return (
+          <>
+            {/* Desktop Table View */}
+            <div className="hidden md:block">
+              <Card className="overflow-hidden">
+                <div className="px-5 py-3.5 border-b border-slate-100 bg-white flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h2 className="text-base font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Feed Reconciliation — {selDate}</h2>
+                    <p className="text-xs text-slate-400 mt-0.5">Summary of feed usage and balance. Tap any row for full calculation breakdown.</p>
+                  </div>
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <div className="relative">
+                      <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" />
+                      <input value={reconSearch} onChange={e => setReconSearch(e.target.value)} placeholder="Search stock, brand, or pond…" className={`${IC} pl-8 w-52 text-xs py-1.5`} />
+                    </div>
+                    {issues > 0 ? (
+                      <span className="px-2.5 py-1 rounded-full bg-red-50 border border-red-200/80 text-red-600 text-xs font-semibold">{issues} discrepancy needing review</span>
+                    ) : (
+                      <span className="px-2.5 py-1 rounded-full bg-emerald-50 border border-emerald-200/80 text-emerald-700 text-xs font-semibold">All Balanced</span>
+                    )}
+                  </div>
+                </div>
+
+                {filteredReconRows.length === 0 ? (
+                  <div className="px-5 py-10 text-center">
+                    <p className="text-sm text-slate-400">No feeding data to reconcile for {selDate}.</p>
+                    <p className="text-xs text-slate-300 mt-1">Log feeding sessions and opened bags to see reconciliation.</p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm min-w-[720px]">
+                      <thead>
+                        <tr className="bg-slate-50/80 border-b border-slate-100">
+                          <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left sticky left-0 z-30 bg-slate-50 border-r border-slate-200 min-w-[140px] shadow-[2px_0_5px_-2px_rgba(0,0,0,0.08)]">
+                            Fish Stock &amp; Brand
+                          </th>
+                          <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left">Feed Given</th>
+                          <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left">Bags Opened</th>
+                          <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left">Leftover Feed</th>
+                          <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left">Status</th>
+                          <th className="px-4 py-3 w-8" />
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 bg-white">
+                        {filteredReconRows.map(r => {
+                          const rowKey = `${r.fishStock}||${r.size}||${r.brand}`;
+                          const highlighted = !!(reconFocus && (reconFocus.key === `${r.fishStock}__${r.size}` || reconFocus.key === `${r.fishStock}__${r.brand}__${r.size}`));
+                          const sc = STATUS_CFG[r.status] || STATUS_CFG.matched;
+                          const hasBagMismatch = r.status === "bag_mismatch" || r.status === "multiple_mismatches";
+                          const hasRemainMismatch = r.status === "remaining_mismatch" || r.status === "multiple_mismatches";
+
+                          return (
+                            <tr
+                              key={rowKey}
+                              onClick={() => setPopupRecon(r)}
+                              className={`group cursor-pointer transition-colors hover:bg-slate-50/80 ${highlighted ? "outline outline-2 outline-green-400" : ""}`}
+                              title="Click to view full reconciliation breakdown"
+                            >
+                              {/* Fish Stock & Brand / Pellet Size */}
+                              <td className="px-4 py-3.5 sticky left-0 z-20 bg-white group-hover:bg-slate-50/80 border-r border-slate-100 min-w-[140px] shadow-[2px_0_5px_-2px_rgba(0,0,0,0.08)]">
+                                <p className="text-xs font-bold text-slate-800 leading-tight truncate">{getStockDisplayName(r.fishStock, r.stockDate)}</p>
+                                <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                                  <Bdg label={r.size} color="blue" />
+                                  <span className="text-[11px] text-slate-500 font-medium">{r.brand}</span>
+                                </div>
+                              </td>
+
+                              {/* Feed Given */}
+                              <td className="px-4 py-3.5 whitespace-nowrap">
+                                <span className="font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] text-base">{r.totalFed} kg</span>
+                                <p className="text-[11px] text-slate-400 mt-0.5 truncate max-w-[160px]">
+                                  {r.ponds.length === 0 ? "No ponds" : r.ponds.length === 1 ? r.ponds[0] : `${r.ponds.length} ponds: ${r.ponds.join(", ")}`}
+                                </p>
+                              </td>
+
+                              {/* Bags Opened */}
+                              <td className="px-4 py-3.5 whitespace-nowrap">
+                                {hasBagMismatch ? (
+                                  <div>
+                                    <span className="text-xs font-bold text-orange-700">{r.recordedBags} bag{r.recordedBags !== 1 ? "s" : ""}</span>
+                                    <span className="text-[11px] text-slate-400 font-medium block mt-0.5">Exp: {r.expectedBags} bag{r.expectedBags !== 1 ? "s" : ""}</span>
+                                  </div>
+                                ) : (
+                                  <div>
+                                    <span className="text-xs font-semibold text-slate-800">{r.recordedBags} bag{r.recordedBags !== 1 ? "s" : ""}</span>
+                                    <span className="text-[11px] text-slate-400 font-medium block mt-0.5">Exp: {r.expectedBags}</span>
+                                  </div>
+                                )}
+                              </td>
+
+                              {/* Leftover Feed */}
+                              <td className="px-4 py-3.5 whitespace-nowrap">
+                                {hasRemainMismatch ? (
+                                  <div>
+                                    <span className="text-xs font-bold text-amber-700">{r.recordedRemaining} kg</span>
+                                    <span className="text-[11px] text-slate-400 font-medium block mt-0.5">Exp: {r.expectedRemaining} kg</span>
+                                  </div>
+                                ) : (
+                                  <div>
+                                    <span className="text-xs font-semibold text-slate-700">{r.recordedRemaining} kg</span>
+                                    <span className="text-[11px] text-slate-400 font-medium block mt-0.5">Exp: {r.expectedRemaining} kg</span>
+                                  </div>
+                                )}
+                              </td>
+
+                              {/* Status */}
+                              <td className="px-4 py-3.5 whitespace-nowrap">
+                                <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold ${sc.cls}`}>
+                                  {sc.label}
+                                </span>
+                              </td>
+
+                              {/* Action Arrow */}
+                              <td className="px-4 py-3.5 text-right">
+                                <span className="text-slate-300 group-hover:text-green-600 transition-colors inline-block text-xs font-bold">
+                                  <ChevronRight size={15} />
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </Card>
+            </div>
+
+            {/* Mobile Isolated Cards View */}
+            <div className="md:hidden space-y-3">
+              {issues > 0 ? (
+                <div className="flex items-center justify-between">
+                  <span className="px-2.5 py-1 rounded-full bg-red-50 border border-red-200/80 text-red-600 text-xs font-semibold">
+                    {issues} discrepancy
+                  </span>
+                </div>
+              ) : (
+                <div className="flex items-center justify-between">
+                  <span className="px-2.5 py-1 rounded-full bg-emerald-50 border border-emerald-200/80 text-emerald-700 text-xs font-semibold">
+                    All Balanced
+                  </span>
+                </div>
+              )}
+
+              {filteredReconRows.length === 0 ? (
+                <div className="px-5 py-10 text-center bg-white border border-slate-200/80 rounded-2xl shadow-xs">
+                  <p className="text-sm text-slate-400">No feeding data to reconcile for {selDate}.</p>
+                  <p className="text-xs text-slate-300 mt-1">Log feeding sessions and opened bags to see reconciliation.</p>
+                </div>
+              ) : (
+                filteredReconRows.map(r => {
+                  const rowKey = `${r.fishStock}||${r.size}||${r.brand}`;
+                  const highlighted = !!(reconFocus && (reconFocus.key === `${r.fishStock}__${r.size}` || reconFocus.key === `${r.fishStock}__${r.brand}__${r.size}`));
+                  const sc = STATUS_CFG[r.status] || STATUS_CFG.matched;
+                  const hasBagMismatch = r.status === "bag_mismatch" || r.status === "multiple_mismatches";
+                  const hasRemainMismatch = r.status === "remaining_mismatch" || r.status === "multiple_mismatches";
+                  const isMenuOpen = activeReconMenuId === rowKey;
+
+                  return (
+                    <div
+                      key={rowKey}
+                      onClick={() => setPopupRecon(r)}
+                      className={`bg-white border border-slate-200/80 rounded-2xl p-4 shadow-xs transition-all cursor-pointer hover:border-green-300 hover:shadow-sm relative ${highlighted ? "outline outline-2 outline-green-400" : ""}`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <h3 className="font-bold text-slate-900 text-sm sm:text-base truncate">
+                            {getStockDisplayName(r.fishStock, r.stockDate)}
+                          </h3>
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className="text-xs font-semibold text-slate-600">{r.brand}</span>
+                            <Bdg label={r.size} color="blue" />
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 shrink-0" onClick={e => e.stopPropagation()}>
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold ${sc.cls}`}>
+                            {sc.label}
+                          </span>
+                          {/* 3-dots Menu Button */}
+                          <div className="relative">
+                            <button
+                              type="button"
+                              onClick={() => setActiveReconMenuId(isMenuOpen ? null : rowKey)}
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+                              title="Actions"
+                            >
+                              <MoreVertical size={16} />
+                            </button>
+                            {isMenuOpen && (
+                              <div className="absolute right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl z-30 py-1 min-w-[140px] animate-in fade-in zoom-in-95 duration-100">
+                                <button
+                                  type="button"
+                                  onClick={() => { setActiveReconMenuId(null); setPopupRecon(r); }}
+                                  className="w-full px-3 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                                >
+                                  <Eye size={13} className="text-slate-400" /> View Breakdown
+                                </button>
+                                {r.status !== "matched" && (
+                                  <button
+                                    type="button"
+                                    onClick={() => { setActiveReconMenuId(null); goToOpenedBags(r.fishStock, r.size, r.brand); }}
+                                    className="w-full px-3 py-2 text-left text-xs font-medium text-blue-600 hover:bg-blue-50 flex items-center gap-2"
+                                  >
+                                    <Layers size={13} className="text-blue-500" /> Go to Opened Bags
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Metrics Grid */}
+                      <div className="mt-3 pt-2.5 border-t border-slate-100 grid grid-cols-3 gap-2 text-xs">
+                        {/* Feed Given */}
+                        <div className="bg-slate-50 rounded-lg p-2">
+                          <span className="text-[10px] text-slate-400 block mb-0.5">Feed Given</span>
+                          <span className="font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] text-sm">
+                            {r.totalFed} kg
+                          </span>
+                          <p className="text-[10px] text-slate-400 mt-0.5 truncate">
+                            {r.ponds.length} pond{r.ponds.length !== 1 ? "s" : ""}
+                          </p>
+                        </div>
+
+                        {/* Bags Opened */}
+                        <div className="bg-slate-50 rounded-lg p-2">
+                          <span className="text-[10px] text-slate-400 block mb-0.5">Bags Opened</span>
+                          <span className={`text-xs font-bold ${hasBagMismatch ? "text-orange-700" : "text-slate-800"}`}>
+                            {r.recordedBags} bag{r.recordedBags !== 1 ? "s" : ""}
+                          </span>
+                          <p className="text-[10px] text-slate-400 mt-0.5">
+                            Exp: {r.expectedBags}
+                          </p>
+                        </div>
+
+                        {/* Leftover Feed */}
+                        <div className="bg-slate-50 rounded-lg p-2">
+                          <span className="text-[10px] text-slate-400 block mb-0.5">Leftover Feed</span>
+                          <span className={`text-xs font-semibold ${hasRemainMismatch ? "text-amber-700 font-bold" : "text-slate-700"}`}>
+                            {r.recordedRemaining} kg
+                          </span>
+                          <p className="text-[10px] text-slate-400 mt-0.5">
+                            Exp: {r.expectedRemaining} kg
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </>
+        );
+      })()}
+
+      {/* ── Reconciliation Popup (Desktop & Mobile Clean Step Flow + Reduced Text Weights) ── */}
+      {popupRecon && (() => {
+        const pr = popupRecon;
+        const bagErr = pr.status === "bag_mismatch" || pr.status === "multiple_mismatches";
+        const remErr = pr.status === "remaining_mismatch" || pr.status === "multiple_mismatches";
+        const qtyErr = pr.status === "feed_qty_mismatch";
+        const pondsForRow = (feedingRecords || []).filter(r =>
+          r && isSameDate(r.date, selDate) &&
+          r.size === pr.size &&
+          (!pr.brand || pr.brand === "—" || !r.brand || r.brand === pr.brand) &&
+          (pr.ponds.includes(r.pond) || pondToStock(r.pond) === pr.fishStock) &&
+          (Number(r.total) > 0 || Number(r.morning) > 0 || Number(r.evening) > 0)
+        );
+        const ratio = pr.bagWeight > 0 ? (pr.netNeeded / pr.bagWeight).toFixed(2) : "—";
+        const sc = STATUS_CFG[pr.status] || STATUS_CFG.matched;
+
+        // Diagnostic summary text
+        const getDiagnosticNote = () => {
+          if (pr.status === "matched") {
+            return {
+              title: "Everything Balanced & Reconciled",
+              body: `All figures match! Your ponds consumed ${pr.totalFed} kg of feed today. Factoring in ${pr.carryover} kg carried over from yesterday, the ${pr.recordedBags} opened bag(s) (${pr.bagWeight} kg each) and ${pr.recordedRemaining} kg recorded remaining balance out with zero discrepancy.`,
+              color: "emerald",
+            };
+          }
+          if (pr.status === "bag_mismatch") {
+            if (pr.expectedBags > pr.recordedBags) {
+              return {
+                title: "Bag Count Under-Reported",
+                body: `Your ponds consumed ${pr.totalFed} kg of feed today, which mathematically requires ${pr.expectedBags} bag(s) (${pr.bagWeight} kg/bag), but only ${pr.recordedBags} bag(s) were logged in Opened Bags. Attendants likely opened ${pr.expectedBags} bags but only recorded ${pr.recordedBags}.`,
+                color: "orange",
+              };
+            } else {
+              return {
+                title: "Bag Count Over-Reported",
+                body: `You logged ${pr.recordedBags} bags opened (${pr.recordedBags * pr.bagWeight} kg), but your fish only consumed ${pr.totalFed} kg (which only required ${pr.expectedBags} bag(s)).`,
+                color: "orange",
+              };
+            }
+          }
+          if (pr.status === "remaining_mismatch") {
+            const diffKg = Math.abs(pr.expectedRemaining - pr.recordedRemaining).toFixed(1);
+            return {
+              title: "Remaining Feed Weight Discrepancy",
+              body: `After feeding ${pr.totalFed} kg from ${pr.expectedBags} opened bag(s) (${pr.carryover} kg yesterday carryover + ${pr.expectedBags * pr.bagWeight} kg in bags), the opened bag should mathematically have ${pr.expectedRemaining} kg remaining. However, attendants recorded ${pr.recordedRemaining} kg (difference of ${diffKg} kg).`,
+              color: "amber",
+            };
+          }
+          if (pr.status === "feed_qty_mismatch") {
+            return {
+              title: "Feed Given Exceeds Available Feed",
+              body: `Total feed fed to ponds (${pr.totalFed} kg) is greater than the total available feed (${pr.carryover} kg carryover + ${pr.recordedBags * pr.bagWeight} kg from ${pr.recordedBags} opened bags = ${pr.carryover + (pr.recordedBags * pr.bagWeight)} kg).`,
+              color: "red",
+            };
+          }
+          return {
+            title: "Multiple Discrepancies Detected",
+            body: `Both the opened bag count (${pr.recordedBags} recorded vs ${pr.expectedBags} expected) and the remaining feed (${pr.recordedRemaining} kg recorded vs ${pr.expectedRemaining} kg expected) have mismatches.`,
+            color: "red",
+          };
+        };
+
+        const diagnostic = getDiagnosticNote();
+
+        return (
+          <div className="fixed inset-0 bg-slate-950/60 z-50 flex items-center justify-center p-3 sm:p-6" onClick={e => e.target === e.currentTarget && setPopupRecon(null)}>
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl flex flex-col overflow-hidden" style={{ maxHeight: "92vh" }}>
+              {/* Header */}
+              <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-100 sticky top-0 bg-white z-10 shrink-0">
+                <div>
+                  <h2 className="text-base sm:text-lg font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Reconciliation Breakdown</h2>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    {selDate} · <span className="font-semibold text-slate-800">{formatFishStock(pr.fishStock)}</span> {pr.stockDate !== "—" && `(${pr.stockDate})`} · {pr.brand} <span className="font-semibold text-blue-600 font-mono">({pr.size})</span>
+                  </p>
+                </div>
+                <button onClick={() => setPopupRecon(null)} className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"><X size={18} /></button>
+              </div>
+
+              {/* Body */}
+              <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4 space-y-4 text-xs">
+                {/* Top Diagnostic Banner */}
+                <div className={`rounded-xl p-4 border ${
+                  diagnostic.color === "emerald" ? "bg-emerald-50/70 border-emerald-200 text-emerald-950" :
+                  diagnostic.color === "orange" ? "bg-orange-50/70 border-orange-200 text-orange-950" :
+                  diagnostic.color === "amber" ? "bg-amber-50/70 border-amber-200 text-amber-950" :
+                  "bg-red-50/70 border-red-200 text-red-950"
+                }`}>
+                  {/* Header: Title and Status Badge */}
+                  <div className="flex items-center justify-between gap-2 mb-1.5">
+                    <h3 className="font-bold text-sm text-slate-900 tracking-tight">{diagnostic.title}</h3>
+                    <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${sc.cls}`}>{sc.label}</span>
+                  </div>
+
+                  {/* Stock Context Line */}
+                  <div className="text-[11px] text-slate-600 flex flex-wrap items-center gap-1.5">
+                    <span className="font-medium text-slate-500">Fish Stock:</span>
+                    <span className="font-bold text-slate-800">{formatFishStock(pr.fishStock)}</span>
+                    {pr.stockDate !== "—" && (
+                      <span className="text-teal-700 bg-teal-50 px-1.5 py-0.2 rounded border border-teal-200 font-medium">
+                        {pr.stockDate}
+                      </span>
+                    )}
+                    <span className="text-slate-300">•</span>
+                    <span className="font-semibold text-slate-700">{pr.brand}</span>
+                    <span className="text-slate-300">•</span>
+                    <span className="font-mono font-bold text-blue-700 bg-blue-50 px-1.5 py-0.2 rounded border border-blue-200">{pr.size}</span>
+                  </div>
+                </div>
+
+                {/* Steps Flow — Clean Divided List (Clean, Light Typography) */}
+                <div className="divide-y divide-slate-100 border-y border-slate-100">
+                  {/* Step 1 */}
+                  <div className="py-2.5 flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-semibold text-slate-800">Step 1 — Total Feed Given</span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 mt-0.5">Sum of feed fed to this stock today</p>
+                      {pondsForRow.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 mt-1">
+                          {pondsForRow.map(r => (
+                            <span key={r.id} className="text-[10px] text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded">
+                              {r.pond}: <span className="font-semibold text-slate-800">{r.total} kg</span>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <span className="font-semibold text-blue-700 text-sm font-mono shrink-0">{pr.totalFed} kg</span>
+                  </div>
+
+                  {/* Step 2 */}
+                  <div className="py-2.5 flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <span className="text-xs font-semibold text-slate-800">Step 2 — Yesterday's Carryover</span>
+                      <p className="text-[11px] text-slate-500 mt-0.5">Unfinished feed from open bags carried over</p>
+                    </div>
+                    <span className="font-semibold text-amber-700 text-sm font-mono shrink-0">{pr.carryover} kg</span>
+                  </div>
+
+                  {/* Step 3 */}
+                  <div className="py-2.5 flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-semibold text-slate-800">Step 3 — Required New Feed</span>
+                        {qtyErr && <span className="text-[10px] text-red-600 font-semibold">⚠ Exceeds available</span>}
+                      </div>
+                      <p className="text-[11px] text-slate-500 font-mono mt-0.5">{pr.totalFed}kg − {pr.carryover}kg = {pr.netNeeded}kg</p>
+                    </div>
+                    <span className={`font-semibold text-sm font-mono shrink-0 ${qtyErr ? "text-red-600" : "text-slate-800"}`}>{pr.netNeeded} kg</span>
+                  </div>
+
+                  {/* Step 4 */}
+                  <div className="py-2.5 flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <span className="text-xs font-semibold text-slate-800">Step 4 — Expected Bags Opened</span>
+                      <p className="text-[11px] text-slate-500 font-mono mt-0.5">{pr.netNeeded}kg ÷ {pr.bagWeight}kg/bag = {ratio} (round up)</p>
+                    </div>
+                    <span className="font-semibold text-slate-800 text-sm font-mono shrink-0">{pr.expectedBags} bag{pr.expectedBags !== 1 ? "s" : ""}</span>
+                  </div>
+
+                  {/* Step 5 */}
+                  <div className={`py-2.5 ${bagErr ? "bg-orange-50/50 -mx-4 sm:-mx-6 px-4 sm:px-6 rounded-lg" : ""}`}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs font-semibold text-slate-800">Step 5 — Recorded Bags Opened</span>
+                          {bagErr && <span className="text-[10px] text-orange-600 font-semibold">⚠ Bag Mismatch</span>}
+                        </div>
+                        <p className="text-[11px] text-slate-500 mt-0.5">Logged by attendants in Opened Bags</p>
+                      </div>
+                      <span className={`font-semibold text-sm font-mono shrink-0 ${bagErr ? "text-orange-600 font-bold" : "text-emerald-700 font-bold"}`}>
+                        {pr.recordedBags} bag{pr.recordedBags !== 1 ? "s" : ""} {bagErr ? "✗" : "✓"}
+                      </span>
+                    </div>
+                    {bagErr && (
+                      <p className="text-[11px] text-orange-900 mt-1.5 bg-orange-100/60 p-2 rounded leading-relaxed">
+                        <span className="font-semibold">Note:</span> Expected bag count ({pr.expectedBags} bag{pr.expectedBags !== 1 ? "s" : ""}) is {pr.expectedBags > pr.recordedBags ? "more than" : "different from"} the bags logged ({pr.recordedBags} bag{pr.recordedBags !== 1 ? "s" : ""}).
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Step 6 */}
+                  <div className="py-2.5 flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <span className="text-xs font-semibold text-slate-800">Step 6 — Expected Remaining Feed</span>
+                      <p className="text-[11px] text-slate-500 font-mono mt-0.5">{pr.carryover + (pr.expectedBags * pr.bagWeight)}kg opened − {pr.totalFed}kg fed</p>
+                    </div>
+                    <span className="font-semibold text-slate-800 text-sm font-mono shrink-0">{pr.expectedRemaining} kg</span>
+                  </div>
+
+                  {/* Step 7 */}
+                  <div className={`py-2.5 ${remErr ? "bg-amber-50/50 -mx-4 sm:-mx-6 px-4 sm:px-6 rounded-lg" : ""}`}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs font-semibold text-slate-800">Step 7 — Recorded Remaining Feed</span>
+                          {remErr && <span className="text-[10px] text-amber-700 font-semibold">⚠ Weight Mismatch</span>}
+                        </div>
+                        <p className="text-[11px] text-slate-500 mt-0.5">Logged by attendants in Remaining Log</p>
+                      </div>
+                      <span className={`font-semibold text-sm font-mono shrink-0 ${remErr ? "text-amber-700 font-bold" : "text-emerald-700 font-bold"}`}>
+                        {pr.recordedRemaining} kg {remErr ? "✗" : "✓"}
+                      </span>
+                    </div>
+                    {remErr && (
+                      <p className="text-[11px] text-amber-950 mt-1.5 bg-amber-100/60 p-2 rounded leading-relaxed">
+                        <span className="font-semibold">Note:</span> Expected {pr.expectedRemaining} kg remaining in the open bag, but attendants recorded {pr.recordedRemaining} kg (difference of {Math.abs(pr.expectedRemaining - pr.recordedRemaining).toFixed(1)} kg).
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Footer Actions */}
+              <div className="px-4 sm:px-6 py-3 border-t border-slate-100 bg-slate-50 flex flex-wrap items-center justify-between gap-2 shrink-0">
+                <div className="flex items-center gap-2">
+                  {bagErr && (
+                    <button
+                      type="button"
+                      onClick={() => goToOpenedBags(pr.fishStock, pr.size, pr.brand, "bags")}
+                      className="px-3.5 py-1.5 bg-orange-600 hover:bg-orange-700 text-white font-semibold text-xs rounded-lg transition-colors shadow-xs"
+                    >
+                      Go to Opened Bags Tab →
+                    </button>
+                  )}
+                  {remErr && !bagErr && (
+                    <button
+                      type="button"
+                      onClick={() => goToOpenedBags(pr.fishStock, pr.size, pr.brand, "remaining")}
+                      className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-semibold text-xs rounded-lg transition-colors shadow-xs"
+                    >
+                      Go to Opened Bags Tab →
+                    </button>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPopupRecon(null)}
+                  className="px-4 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold text-xs rounded-lg transition-colors"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {showLog && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-3 sm:p-6" onClick={e => e.target === e.currentTarget && setShowLog(false)}>
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-6xl flex flex-col overflow-hidden" style={{ maxHeight: "92vh" }}>
             <div className="flex items-start justify-between px-5 sm:px-6 py-4 border-b border-slate-200 bg-white shrink-0 z-30 shadow-xs">
-              <div>
-                <h2 className="text-lg font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Log Feeding — All Ponds</h2>
+              <div className="min-w-0 flex-1 mr-3">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <h2 className="text-lg font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Log Feeding — All Ponds</h2>
+                  {/* Mobile Table / Card Toggle (Mobile Only) */}
+                  <div className="flex md:hidden items-center gap-0.5 bg-slate-100 p-0.5 rounded-xl border border-slate-200/80">
+                    <button
+                      type="button"
+                      onClick={() => setBulkMobileView("table")}
+                      className={`px-2.5 py-1 rounded-lg text-xs transition-all ${
+                        bulkMobileView === "table"
+                          ? "bg-white text-green-700 font-bold shadow-xs border border-slate-200/80"
+                          : "text-slate-500 hover:text-slate-800 font-medium"
+                      }`}
+                    >
+                      Table
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setBulkMobileView("card")}
+                      className={`px-2.5 py-1 rounded-lg text-xs transition-all ${
+                        bulkMobileView === "card"
+                          ? "bg-white text-green-700 font-bold shadow-xs border border-slate-200/80"
+                          : "text-slate-500 hover:text-slate-800 font-medium"
+                      }`}
+                    >
+                      Cards
+                    </button>
+                  </div>
+                </div>
                 <p className="text-xs text-slate-400 mt-0.5">
                   Enter morning &amp; evening amounts for each pond for <span className="font-semibold text-slate-700">{toDateLabel(bulkDate)}</span>.
                 </p>
               </div>
-              <button onClick={() => setShowLog(false)} className="text-slate-400 hover:text-slate-700 p-1 ml-4 shrink-0"><X size={20} /></button>
+              <button onClick={() => setShowLog(false)} className="text-slate-400 hover:text-slate-700 p-1 shrink-0"><X size={20} /></button>
             </div>
 
             {/* Modal scrollable body - scrolls vertically up and down */}
             <div className="flex-1 overflow-y-auto min-h-0 bg-slate-50">
-              {/* ONLY the table scrolls sideways */}
-              <div className="overflow-x-auto w-full">
+              {/* Desktop Table or Mobile Table View */}
+              <div className={bulkMobileView === "card" ? "hidden md:block overflow-x-auto w-full" : "overflow-x-auto w-full"}>
                 <table className="w-full text-sm">
                   <thead className="sticky top-0 z-20 shadow-xs bg-slate-100">
                     <tr className="bg-slate-100 border-b border-slate-200">
@@ -2548,6 +3253,122 @@ function FeedDocumentation({
                 )}
               </table>
             </div>
+
+            {/* Mobile Card View (Mobile Only when Card toggle selected) */}
+            {bulkMobileView === "card" && (
+              <div className="md:hidden p-3 space-y-3">
+                {bulkRows.map((row, i) => {
+                  const m = Number(row.morning) || 0;
+                  const e = Number(row.evening) || 0;
+                  const total = m + e;
+                  const hasFeed = m > 0 || e > 0;
+                  const pondObj = ponds.find(p => p.id === row.pondId || p.name === row.pondName);
+                  const rowMaxKg = pondObj?.maxKgByPallet?.[row.size];
+                  const cumFed = (feedingRecords || []).filter(r => r && r.pond === row.pondName && r.size === row.size).reduce((s, r) => s + (Number(r.total) || 0), 0);
+                  const rowAtMax = !!rowMaxKg && cumFed >= rowMaxKg;
+
+                  return (
+                    <div
+                      key={row.pondId}
+                      className={`bg-white border rounded-2xl p-3.5 shadow-2xs transition-all ${
+                        hasFeed ? "border-green-300 bg-green-50/20 ring-1 ring-green-200/50" : "border-slate-200/80"
+                      }`}
+                    >
+                      {/* Card Header: Pond Name + Fish Count + Total badge */}
+                      <div className="flex items-start justify-between gap-2 pb-2.5 border-b border-slate-100">
+                        <div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="w-5 h-5 rounded-full bg-slate-100 text-slate-500 text-[11px] font-bold flex items-center justify-center font-mono">
+                              {i + 1}
+                            </span>
+                            <h3 className="font-bold text-slate-900 text-sm leading-tight">{row.pondName}</h3>
+                          </div>
+                          {row.stockDate && row.stockDate !== "—" ? (
+                            <p className="text-[11px] font-medium text-teal-700 mt-0.5 ml-6.5">Stocked: {row.stockDate}</p>
+                          ) : (
+                            <p className="text-[10px] text-slate-400 mt-0.5 ml-6.5">{row.fishStock || "No stock"}</p>
+                          )}
+                        </div>
+                        <div className="text-right">
+                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-lg text-xs font-bold font-['Barlow_Condensed',sans-serif] ${
+                            total > 0 ? "bg-green-600 text-white" : "bg-slate-100 text-slate-400"
+                          }`}>
+                            {total > 0 ? `${total} kg` : "0 kg"}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Pellet Size Selection */}
+                      <div className="mt-2.5">
+                        <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">Pellet Size</label>
+                        <select
+                          value={row.size}
+                          onChange={ev => updateRow(row.pondId, "size", ev.target.value)}
+                          className={`${TS} text-xs py-1.5`}
+                        >
+                          {availablePelletSizes.map(s => {
+                            const stock = getPelletStock(s);
+                            const bagCount = stock.inStockBags || 0;
+                            const label = !stock.exists || bagCount <= 0
+                              ? `${s} (0 bags available)`
+                              : `${s} (${bagCount} bag${bagCount !== 1 ? "s" : ""} available)`;
+                            return <option key={s} value={s}>{label}</option>;
+                          })}
+                          {row.size && !availablePelletSizes.includes(row.size) && <option value={row.size}>{row.size}</option>}
+                        </select>
+                        {rowAtMax && <p className="text-[10px] font-bold mt-0.5 text-red-600">⚠ Max weight reached for this size</p>}
+                      </div>
+
+                      {/* Morning & Evening Inputs */}
+                      <div className="grid grid-cols-2 gap-2 mt-2.5">
+                        {/* Morning */}
+                        <div className="bg-slate-50/80 rounded-xl p-2 border border-slate-100">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1">Morning (kg)</span>
+                          <input
+                            type="number"
+                            value={row.morning}
+                            onChange={ev => updateRow(row.pondId, "morning", ev.target.value)}
+                            className={`${TI} text-xs py-1.5`}
+                            placeholder="0"
+                            min="0"
+                            step="0.5"
+                          />
+                          <input
+                            type="time"
+                            value={row.morningTime}
+                            onChange={ev => updateRow(row.pondId, "morningTime", ev.target.value)}
+                            className={`${TI} text-[11px] py-1 mt-1`}
+                            style={{ colorScheme: "light" }}
+                          />
+                        </div>
+
+                        {/* Evening */}
+                        <div className="bg-slate-50/80 rounded-xl p-2 border border-slate-100">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1">Evening (kg)</span>
+                          <input
+                            type="number"
+                            value={row.evening}
+                            onChange={ev => updateRow(row.pondId, "evening", ev.target.value)}
+                            className={`${TI} text-xs py-1.5`}
+                            placeholder="0"
+                            min="0"
+                            step="0.5"
+                          />
+                          <input
+                            type="time"
+                            value={row.eveningTime}
+                            onChange={ev => updateRow(row.pondId, "eveningTime", ev.target.value)}
+                            className={`${TI} text-[11px] py-1 mt-1`}
+                            style={{ colorScheme: "light" }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
           </div>
           <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 shrink-0 flex flex-wrap items-center justify-between gap-3 rounded-b-2xl z-30">
               <div>

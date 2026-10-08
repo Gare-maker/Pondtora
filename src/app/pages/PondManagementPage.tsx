@@ -1211,6 +1211,7 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
     setEditPondId(null);
   };
   const [fStatus,setFStatus]=useState("All"); const [fMonth,setFMonth]=useState("All"); const [search,setSearch]=useState("");
+  const [isMobileSearchOpen, setIsMobileSearchOpen] = useState(false);
   const [deletePondId,setDeletePondId]=useState<string|null>(null);
   const [pondMobileMenu,setPondMobileMenu]=useState<string|null>(null);
   const pondMenuRef=useRef<HTMLDivElement>(null);
@@ -1446,7 +1447,7 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
         <StatCard label="Active" value={String(activePonds)} icon={CheckCircle} hi/>
         <StatCard label="Total Fish" value={totalFish.toLocaleString()} icon={Fish}/>
       </div>
-      {/* List of Ponds Heading */}
+      {/* List of Ponds Heading & Mobile Search Toggle */}
       <div className="flex items-center justify-between px-1 mt-4">
         <div className="flex items-center gap-2 flex-wrap">
           <p className="text-xs font-bold uppercase tracking-wider text-slate-700">
@@ -1459,11 +1460,52 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
             </span>
           </p>
         </div>
+
+        {/* Mobile Search Toggle Button */}
+        <div className="md:hidden flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => setIsMobileSearchOpen(p => !p)}
+            className={`p-1.5 rounded-xl border transition-colors ${
+              search || isMobileSearchOpen
+                ? "bg-green-50 border-green-300 text-green-700"
+                : "bg-white border-slate-200 text-slate-500 hover:text-slate-800"
+            }`}
+            title="Search ponds"
+          >
+            <Search size={14} />
+          </button>
+        </div>
       </div>
 
-      {/* Search and Filter */}
-      <div className="flex flex-wrap gap-2.5 items-center px-1 mt-3">
-        <div className="relative w-full md:w-56">
+      {/* Collapsible Mobile Search Input */}
+      <div className="md:hidden">
+        {(isMobileSearchOpen || search) && (
+          <div className="relative mt-2 animate-in fade-in slide-in-from-top-1 duration-150">
+            <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/>
+            <input
+              value={search}
+              onChange={e=>setSearch(e.target.value)}
+              placeholder="Search ponds…"
+              className={`${IC} pl-8 pr-8 w-full text-xs py-2 bg-white`}
+              autoFocus
+            />
+            {search && (
+              <button
+                type="button"
+                onClick={() => { setSearch(""); setIsMobileSearchOpen(false); }}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 p-0.5 rounded"
+              >
+                <X size={14} />
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Desktop Search and Filter */}
+      <div className="hidden md:flex flex-wrap gap-2.5 items-center px-1 mt-3">
+        <div className="relative w-56">
           <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300"/>
           <input
             value={search}
@@ -1472,7 +1514,7 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
             className={`${IC} pl-8 w-full text-xs py-1.5`}
           />
         </div>
-        <div className="hidden md:flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5">
           <span className="text-xs text-slate-400">Status:</span>
           <select value={fStatus} onChange={e=>setFStatus(e.target.value)} className={`${SC} py-1.5 text-xs w-auto`}>
             {["All","Active","Empty"].map(o=><option key={o}>{o}</option>)}

@@ -225,6 +225,92 @@ function Sidebar({active,onNav,collapsed,onToggle,farms,activeFarmId,onSwitchFar
   );
 }
 
+/* ─── Mobile Bottom Navigation (Permission-Aware, Max 4 items) ──────────────── */
+function MobileBottomNav({
+  active,
+  onNav,
+  onOpenMore,
+  hasPerm,
+  isOwner,
+}: {
+  active: View;
+  onNav: (v: View) => void;
+  onOpenMore: () => void;
+  hasPerm?: (p: string) => boolean;
+  isOwner?: boolean;
+}) {
+  const ALL_CANDIDATES: { id: View; icon: React.ElementType; label: string }[] = [
+    { id: "financial", icon: LayoutDashboard, label: "Financial" },
+    { id: "ponds", icon: Droplets, label: "Ponds" },
+    { id: "documentation", icon: BookOpen, label: "Feed Records" },
+    { id: "inventory", icon: Package, label: "Feed Stock" },
+    { id: "reports", icon: FileText, label: "Reports" },
+    { id: "invoices", icon: Receipt, label: "Invoices" },
+    { id: "sales_calculator", icon: Calculator, label: "Sales Calc" },
+    { id: "investors", icon: Landmark, label: "Investors" },
+    { id: "assessments", icon: ClipboardList, label: "Assessments" },
+    { id: "staff", icon: Users, label: "Staff" },
+    { id: "pricing", icon: Crown, label: "Plans" },
+    { id: "settings", icon: Settings, label: "Settings" },
+  ];
+
+  // Filter accessible modules based on existing permissions
+  const accessibleCandidates = ALL_CANDIDATES.filter(({ id }) => {
+    if (id === "staff" || id === "pricing" || id === "settings") return isOwner === true;
+    const perm = NAV_PERM[id];
+    if (!perm) return isOwner === true;
+    return hasPerm ? hasPerm(perm) : (isOwner === true);
+  });
+
+  // Maximum of 3 direct accessible pages + More
+  const directPages = accessibleCandidates.slice(0, 3);
+  const isMoreActive = !directPages.some(p => p.id === active);
+
+  return (
+    <nav aria-label="Mobile bottom navigation" className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-slate-200/90 shadow-[0_-4px_20px_rgba(0,0,0,0.06)] select-none">
+      <div className="grid h-16 w-full max-w-lg mx-auto" style={{ gridTemplateColumns: `repeat(${directPages.length + 1}, minmax(0, 1fr))` }}>
+        {directPages.map(({ id, icon: Icon, label }) => {
+          const isA = active === id;
+          return (
+            <button
+              key={id}
+              type="button"
+              onClick={() => onNav(id)}
+              className={`flex flex-col items-center justify-center gap-0.5 transition-all relative py-1 px-1 cursor-pointer ${
+                isA ? "text-[#00BB58]" : "text-slate-500 hover:text-slate-800"
+              }`}
+            >
+              {isA && (
+                <span className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-1 bg-[#00BB58] rounded-b-full shadow-xs" />
+              )}
+              <Icon size={19} strokeWidth={isA ? 2.5 : 1.9} className={isA ? "text-[#00BB58]" : "text-slate-400"} />
+              <span className={`text-[10px] leading-tight truncate max-w-[72px] ${isA ? "font-bold text-[#00BB58]" : "font-medium text-slate-500"}`}>
+                {label}
+              </span>
+            </button>
+          );
+        })}
+        {/* More Button */}
+        <button
+          type="button"
+          onClick={onOpenMore}
+          className={`flex flex-col items-center justify-center gap-0.5 transition-all relative py-1 px-1 cursor-pointer ${
+            isMoreActive ? "text-[#00BB58]" : "text-slate-500 hover:text-slate-800"
+          }`}
+        >
+          {isMoreActive && (
+            <span className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-1 bg-[#00BB58] rounded-b-full shadow-xs" />
+          )}
+          <Menu size={19} strokeWidth={isMoreActive ? 2.5 : 1.9} className={isMoreActive ? "text-[#00BB58]" : "text-slate-400"} />
+          <span className={`text-[10px] leading-tight truncate ${isMoreActive ? "font-bold text-[#00BB58]" : "font-medium text-slate-500"}`}>
+            More
+          </span>
+        </button>
+      </div>
+    </nav>
+  );
+}
+
 /* ─── Access Denied ─────────────────────────────────────────── */
 function AccessDenied(){
   return(
@@ -8381,7 +8467,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
             )}
           </div>
         )}
-        <main ref={mainRef} className="flex-1 overflow-y-auto bg-[#f5f7fa] pb-24 sm:pb-8 touch-pan-y relative" style={{ WebkitOverflowScrolling: "touch" }}>
+        <main ref={mainRef} className="flex-1 overflow-y-auto bg-[#f5f7fa] pb-28 lg:pb-8 touch-pan-y relative" style={{ WebkitOverflowScrolling: "touch" }}>
           {/* Mobile Drag-to-Refresh Indicator */}
           {pullDistance > 0 && (
             <div
@@ -8418,6 +8504,14 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
             </AppErrorBoundary>
           )}
         </main>
+        {/* Mobile Bottom Navigation (Permission-Aware) */}
+        <MobileBottomNav
+          active={active}
+          onNav={nav}
+          onOpenMore={() => setSideOpen(true)}
+          hasPerm={hasPerm}
+          isOwner={isOwner}
+        />
         {showScrollTop && (
           <button
             type="button"
@@ -8427,7 +8521,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
               document.documentElement.scrollTo({ top: 0, behavior: "smooth" });
             }}
             aria-label="Scroll to top"
-            className="fixed bottom-20 sm:bottom-8 left-1/2 -translate-x-1/2 z-50 bg-emerald-600 hover:bg-emerald-700 active:scale-90 text-white w-12 h-12 rounded-full shadow-2xl border-2 border-white ring-4 ring-emerald-500/20 flex items-center justify-center transition-all duration-300 animate-in fade-in zoom-in-95 cursor-pointer"
+            className="fixed bottom-20 lg:bottom-8 left-1/2 -translate-x-1/2 z-50 bg-emerald-600 hover:bg-emerald-700 active:scale-90 text-white w-12 h-12 rounded-full shadow-2xl border-2 border-white ring-4 ring-emerald-500/20 flex items-center justify-center transition-all duration-300 animate-in fade-in zoom-in-95 cursor-pointer"
             title="Scroll to top"
           >
             <ChevronUp size={24} strokeWidth={3} className="text-white drop-shadow-xs" />
