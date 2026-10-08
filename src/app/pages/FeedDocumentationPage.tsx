@@ -176,7 +176,6 @@ function FeedDocumentation({
   const [feedMenuPlacement, setFeedMenuPlacement] = useState<"left" | "right">("left");
   const feedMobileMenuRef = useRef<HTMLDivElement>(null);
   const [viewBagDetail, setViewBagDetail] = useState<MergedBagRow | null>(null);
-  const [popupRecon, setPopupRecon] = useState<ReconRow | null>(null);
   const [activeDailyMenuId, setActiveDailyMenuId] = useState<string | null>(null);
   const [activeBagMenuId, setActiveBagMenuId] = useState<string | null>(null);
   const [activeReconMenuId, setActiveReconMenuId] = useState<string | null>(null);
@@ -3368,7 +3367,6 @@ function FeedDocumentation({
                 })}
               </div>
             )}
-          </div>
           </div>
           <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 shrink-0 flex flex-wrap items-center justify-between gap-3 rounded-b-2xl z-30">
               <div>
