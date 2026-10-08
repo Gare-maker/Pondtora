@@ -7,6 +7,7 @@ import type {
   BagOpenLog, FeedRemainingLog, Expense, Revenue, MortalityEntry,
   TreatmentRecord, StaffMember, Report, Customer, PriceGroup,
   Invoice, InvSettings, Investor, Investment, InvestmentPayment, PondReport,
+  FarmEquipment,
 } from "../app/types";
 import { INIT_K, INIT_C } from "../app/questionsData";
 
@@ -1159,6 +1160,7 @@ export const api = {
         invoices: [], invoiceSettings: null, knowledgeQuestions: [],
         compatibilityQuestions: [], knowledgeResults: [], compatibilityResults: [],
         investors: [], investments: [], investmentPayments: [], pondReports: [],
+        farmEquipment: [],
         staffInfo: null, isStaff: false,
       };
     }
@@ -1289,7 +1291,7 @@ export const api = {
         bagRes, remainRes, expRes, revRes, mortRes, treatRes,
         staffRes, farmAssignRes, staffPermRes, repRes, custRes, pgRes, invsRes, setRes,
         kqRes, cqRes, krRes, crRes,
-        investorsRes, investmentsRes, invPayRes, pondRepRes
+        investorsRes, investmentsRes, invPayRes, pondRepRes, eqRes
       ] = await Promise.all([
         canStaffView("Pond Management") ? farmScope("ponds") : Promise.resolve({ data: [] }),
         canStaffView("Pond Management") ? farmScope("stock_events") : Promise.resolve({ data: [] }),
@@ -1317,6 +1319,7 @@ export const api = {
         canStaffView("Investors") ? farmScope("investments") : Promise.resolve({ data: [] }),
         canStaffView("Investors") ? farmScope("investment_payments") : Promise.resolve({ data: [] }),
         canStaffView("Reports") ? farmScope("pond_reports") : Promise.resolve({ data: [] }),
+        canStaffView("Farm Equipment") ? farmScope("farm_equipment") : Promise.resolve({ data: [] }),
       ]);
 
       const extract = <T,>(res: any, cacheKey: string, mapper: (r: any) => T): T[] => {
@@ -1396,7 +1399,7 @@ export const api = {
         const tablesToHeal = [
           "ponds", "stock_events", "feed_inventory", "feeding_records", "bag_open_logs",
           "feed_remaining_logs", "expenses", "revenues", "mortality_entries", "treatment_records",
-          "reports", "customers", "price_groups", "invoices", "investors", "investments", "pond_reports"
+          "reports", "customers", "price_groups", "invoices", "investors", "investments", "pond_reports", "farm_equipment"
         ];
         Promise.all(tablesToHeal.map(tbl =>
           supabase.from(tbl).update({ farm_id: pFid }).eq("user_id", effectiveOwnerId).is("farm_id", null).then()
@@ -1465,6 +1468,7 @@ export const api = {
             return r;
           });
         })(),
+        farmEquipment: extract<FarmEquipment>(eqRes, "farmEquipment", (r: any) => objToCamel<FarmEquipment>(r)),
         staffInfo: staffMember || null,
         isStaff: !!staffMember,
       };
@@ -2565,6 +2569,14 @@ export const api = {
       return dbUpdate<Invoice>("invoices", dbInv as Invoice, "invoices");
     },
     remove: (id: string) => dbDelete("invoices", id, "invoices"),
+  },
+
+  // ── Farm Equipment ────────────────────────────────────────────────────────
+  equipment: {
+    list: () => dbList<FarmEquipment>("farm_equipment", "farmEquipment"),
+    create: (e: Partial<FarmEquipment>) => dbInsert<FarmEquipment>("farm_equipment", e as FarmEquipment, "farmEquipment"),
+    update: (e: FarmEquipment) => dbUpdate<FarmEquipment>("farm_equipment", e, "farmEquipment"),
+    remove: (id: string) => dbDelete("farm_equipment", id, "farmEquipment"),
   },
 
   // ── Invoice settings ───────────────────────────────────────────────────────

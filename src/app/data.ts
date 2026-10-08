@@ -381,6 +381,7 @@ export const STAFF_PERMISSIONS = [
   "Invoices",
   "Sales Calculator",
   "Investors",
+  "Farm Equipment",
   "Staff Assessments",
   "Notifications",
 ];

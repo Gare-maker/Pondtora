@@ -10,13 +10,13 @@ import {
   Layers, Droplets, Trash2, Menu, ChevronDown,
   ChevronUp, ChevronsLeft, ChevronsRight, ChevronLeft, ChevronRight, ChevronRight as ChevronRightIcon, Eye, Search,
   Download, FileText, BadgeCheck, Pencil, Users, Mail, Phone, ArrowRightLeft, History, Filter, Crown, Receipt, MoreVertical, AlertCircle, Bell, LogOut, ClipboardList, Lock, Loader2, Copy, Link, Database, ExternalLink, Settings, EyeOff,
-  Sparkles, CreditCard, Landmark, Gift, Share2, PhoneCall, MessageCircle, Check, ShieldAlert, Clock, AlertTriangle, RotateCw
+  Sparkles, CreditCard, Landmark, Gift, Share2, PhoneCall, MessageCircle, Check, ShieldAlert, Clock, AlertTriangle, RotateCw, Wrench
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell, Legend
 } from "recharts";
-import type { View, SortDir, MonthData, FeedItem, Pond, Expense, Revenue, FeedingRecord, FeedEditEntry, MortalityEntry, BagOpenLog, FeedRemainingLog, StaffMember, Report, UserProfile, StockEvent, PriceGroup, Customer, InvSettings, InvoiceLineItem, Invoice, Farm, TreatmentRecord, WItem, EditEntry, Investor, Investment, InvestmentPayment, PondReport } from "./types";
+import type { View, SortDir, MonthData, FeedItem, Pond, Expense, Revenue, FeedingRecord, FeedEditEntry, MortalityEntry, BagOpenLog, FeedRemainingLog, StaffMember, Report, UserProfile, StockEvent, PriceGroup, Customer, InvSettings, InvoiceLineItem, Invoice, Farm, TreatmentRecord, WItem, EditEntry, Investor, Investment, InvestmentPayment, PondReport, FarmEquipment } from "./types";
 import { EXPENSE_CATS, REVENUE_SRCS, POND_TYPES, POND_SPECIES, MORT_CAUSES, TODAY, getTodayStr, fmt, yFmt, uid, toMon, toYr, PAYMENT_METHODS, INV_STATUSES, STAFF_PERMISSIONS, STAFF_ROLES_ALL, INIT_INV_SETTINGS, ADMIN_NAME, downloadCSV, openPrintWindow, COUNTRY_CURRENCIES, COUNTRIES, DIAL_CODES, FLAG_EMOJI, convertNGN, fmtStockingDate, formatFishStockDate, formatFishStock, isSameDate, isStockMatch } from "./data";
 import { Card, Bdg, PBtn, Pagination, PER_PAGE, StatCard, Tip, Modal, F, IC, SC, SearchableSelect, SelDrop, DMONTHS_S, DateFilter, SearchableCountrySelect, SH, useSort, DateInput, NumInput } from "./shared";
 import InvoicesPage from "./pages/InvoicesPage";
@@ -24,6 +24,7 @@ import SalesCalculatorPage from "./pages/SalesCalculatorPage";
 import FeedDocumentationPage from "./pages/FeedDocumentationPage";
 import PondManagementPage from "./pages/PondManagementPage";
 import FeedInventoryPage from "./pages/FeedInventoryPage";
+import FarmEquipmentPage from "./pages/FarmEquipmentPage";
 import AuthScreenPage from "./pages/AuthScreen";
 import LandingPage from "./pages/LandingPage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
@@ -41,7 +42,7 @@ import { getUserReferralStats, fetchLiveUserReferralStats, captureReferralParam,
 /* Map nav id → permission name (undefined = always visible) */
 const NAV_PERM:Partial<Record<View,string>>={
   financial:"Financial Dashboard",ponds:"Pond Management",inventory:"Feed Stock",
-  documentation:"Feeding Records",invoices:"Invoices",sales_calculator:"Sales Calculator",reports:"Reports",investors:"Investors",assessments:"Staff Assessments",notifications:"Notifications",
+  documentation:"Feeding Records",invoices:"Invoices",sales_calculator:"Sales Calculator",reports:"Reports",investors:"Investors",equipment:"Farm Equipment",assessments:"Staff Assessments",notifications:"Notifications",
 };
 function Sidebar({active,onNav,collapsed,onToggle,farms,activeFarmId,onSwitchFarm,onAddFarm,sideOpen,staff,unreadCount,onNotifications,onLogout,hasPerm,canView,isOwner,userProfile,currentStaff}:{active:View;onNav:(v:View)=>void;collapsed:boolean;onToggle:()=>void;farms:Farm[];activeFarmId:string;onSwitchFarm:(id:string)=>void;onAddFarm:()=>void;sideOpen:boolean;staff?:StaffMember[];unreadCount?:number;onNotifications?:()=>void;onLogout?:()=>void;hasPerm?:(p:string)=>boolean;canView?:(p:string)=>boolean;isOwner?:boolean;userProfile?:UserProfile|null;currentStaff?:StaffMember|null;}){
   const NAV = useMemo<{id:View;icon:React.ElementType;label:string}[]>(() => [
@@ -54,6 +55,7 @@ function Sidebar({active,onNav,collapsed,onToggle,farms,activeFarmId,onSwitchFar
     {id:"sales_calculator", icon:Calculator,      label:"Sales Calculator"},
     {id:"staff",            icon:Users,           label:"Staff"},
     {id:"investors",        icon:Landmark,        label:"Investors"},
+    {id:"equipment",        icon:Wrench,          label:"Farm Equipment"},
     {id:"assessments",      icon:ClipboardList,   label:"Staff Assessments"},
     {id:"pricing",          icon:Crown,           label:"Subscription"},
     {id:"settings",         icon:Settings,        label:"Settings"},
@@ -222,92 +224,6 @@ function Sidebar({active,onNav,collapsed,onToggle,farms,activeFarmId,onSwitchFar
         </div>
       )}
     </div>
-  );
-}
-
-/* ─── Mobile Bottom Navigation (Permission-Aware, Max 4 items) ──────────────── */
-function MobileBottomNav({
-  active,
-  onNav,
-  onOpenMore,
-  hasPerm,
-  isOwner,
-}: {
-  active: View;
-  onNav: (v: View) => void;
-  onOpenMore: () => void;
-  hasPerm?: (p: string) => boolean;
-  isOwner?: boolean;
-}) {
-  const ALL_CANDIDATES: { id: View; icon: React.ElementType; label: string }[] = [
-    { id: "financial", icon: LayoutDashboard, label: "Financial" },
-    { id: "ponds", icon: Droplets, label: "Ponds" },
-    { id: "documentation", icon: BookOpen, label: "Feed Records" },
-    { id: "inventory", icon: Package, label: "Feed Stock" },
-    { id: "reports", icon: FileText, label: "Reports" },
-    { id: "invoices", icon: Receipt, label: "Invoices" },
-    { id: "sales_calculator", icon: Calculator, label: "Sales Calc" },
-    { id: "investors", icon: Landmark, label: "Investors" },
-    { id: "assessments", icon: ClipboardList, label: "Assessments" },
-    { id: "staff", icon: Users, label: "Staff" },
-    { id: "pricing", icon: Crown, label: "Plans" },
-    { id: "settings", icon: Settings, label: "Settings" },
-  ];
-
-  // Filter accessible modules based on existing permissions
-  const accessibleCandidates = ALL_CANDIDATES.filter(({ id }) => {
-    if (id === "staff" || id === "pricing" || id === "settings") return isOwner === true;
-    const perm = NAV_PERM[id];
-    if (!perm) return isOwner === true;
-    return hasPerm ? hasPerm(perm) : (isOwner === true);
-  });
-
-  // Maximum of 3 direct accessible pages + More
-  const directPages = accessibleCandidates.slice(0, 3);
-  const isMoreActive = !directPages.some(p => p.id === active);
-
-  return (
-    <nav aria-label="Mobile bottom navigation" className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-slate-200/90 shadow-[0_-4px_20px_rgba(0,0,0,0.06)] select-none">
-      <div className="grid h-16 w-full max-w-lg mx-auto" style={{ gridTemplateColumns: `repeat(${directPages.length + 1}, minmax(0, 1fr))` }}>
-        {directPages.map(({ id, icon: Icon, label }) => {
-          const isA = active === id;
-          return (
-            <button
-              key={id}
-              type="button"
-              onClick={() => onNav(id)}
-              className={`flex flex-col items-center justify-center gap-0.5 transition-all relative py-1 px-1 cursor-pointer ${
-                isA ? "text-[#00BB58]" : "text-slate-500 hover:text-slate-800"
-              }`}
-            >
-              {isA && (
-                <span className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-1 bg-[#00BB58] rounded-b-full shadow-xs" />
-              )}
-              <Icon size={19} strokeWidth={isA ? 2.5 : 1.9} className={isA ? "text-[#00BB58]" : "text-slate-400"} />
-              <span className={`text-[10px] leading-tight truncate max-w-[72px] ${isA ? "font-bold text-[#00BB58]" : "font-medium text-slate-500"}`}>
-                {label}
-              </span>
-            </button>
-          );
-        })}
-        {/* More Button */}
-        <button
-          type="button"
-          onClick={onOpenMore}
-          className={`flex flex-col items-center justify-center gap-0.5 transition-all relative py-1 px-1 cursor-pointer ${
-            isMoreActive ? "text-[#00BB58]" : "text-slate-500 hover:text-slate-800"
-          }`}
-        >
-          {isMoreActive && (
-            <span className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-1 bg-[#00BB58] rounded-b-full shadow-xs" />
-          )}
-          <Menu size={19} strokeWidth={isMoreActive ? 2.5 : 1.9} className={isMoreActive ? "text-[#00BB58]" : "text-slate-400"} />
-          <span className={`text-[10px] leading-tight truncate ${isMoreActive ? "font-bold text-[#00BB58]" : "font-medium text-slate-500"}`}>
-            More
-          </span>
-        </button>
-      </div>
-    </nav>
   );
 }
 
@@ -5088,6 +5004,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   const [investments,setInvestments]=useState<Investment[]>(()=>readInit("investments","investments",[]));
   const [investmentPayments,setInvestmentPayments]=useState<InvestmentPayment[]>(()=>readInit("investment_payments","investmentPayments",[]));
   const [pondReports,setPondReports]=useState<PondReport[]>(()=>readInit("pond_reports","pondReports",[]));
+  const [farmEquipment,setFarmEquipment]=useState<FarmEquipment[]>(()=>readInit("farm_equipment","farmEquipment",[]));
   const [settingsTab,setSettingsTab_]=useState<"profile"|"farms"|"referrals">(()=>{
     try {
       const saved = localStorage.getItem("pondtora_settings_tab");
@@ -6553,6 +6470,15 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       setPondReports(finalPr);
     }
 
+    const serverEq: FarmEquipment[] = Array.isArray(d.farmEquipment) ? d.farmEquipment : [];
+    const localEq: FarmEquipment[] = userProfile?.id ? loadUserLocal(userProfile.id, "farm_equipment", "farmEquipment", []) : [];
+    const serverEqIds = new Set(serverEq.map(eq => eq.id));
+    const pendingLocalEq = localEq.filter(leq => leq?.id && !serverEqIds.has(leq.id) && !isDeletedId(leq.id));
+    const finalEq = [...serverEq.filter((eq: any) => !isDeletedId(eq.id)), ...pendingLocalEq].map((eq: any) => ({ ...eq, farmId: normFid(eq.farmId) }));
+    if (finalEq.length > 0 || Array.isArray(d.farmEquipment)) {
+      setFarmEquipment(finalEq);
+    }
+
     if (d.knowledgeQuestions?.length > 0) setKQuestions_(d.knowledgeQuestions);
     if (d.compatibilityQuestions?.length > 0) setCQuestions_(d.compatibilityQuestions);
     if (d.knowledgeResults) setKResults_(d.knowledgeResults);
@@ -6667,6 +6593,8 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
         if(cpay.length>0)setInvestmentPayments(cpay);
         const cpr=loadUserLocal(uid,"pond_reports","pondReports",[]).filter((x: any) => !isDeletedId(x.id));
         if(cpr.length>0)setPondReports(cpr);
+        const ceq=loadUserLocal(uid,"farm_equipment","farmEquipment",[]).filter((x: any) => !isDeletedId(x.id));
+        if(ceq.length>0)setFarmEquipment(ceq);
       }
     } finally {
       setIsDataLoading(false);
@@ -7702,6 +7630,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     farmInvestments.some(inv => inv.id === p.investmentId) && (!p.farmId || matchesFarm(p.farmId))
   );
   const farmPondReports=pondReports.filter(r=>matchesFarm(r.farmId));
+  const farmEquipments=farmEquipment.filter(eq=>matchesFarm(eq.farmId));
 
   const handleAddInvestor = async (inv: Investor, investment: Investment, payments: InvestmentPayment[]) => {
     if (!checkSubscriptionActive()) return;
@@ -8122,6 +8051,85 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     }
   };
 
+  const handleAddEquipment = async (eq: FarmEquipment) => {
+    if (!checkSubscriptionActive()) return;
+    if (!canCreate("Farm Equipment")) {
+      toast.error("You do not have permission to add equipment.");
+      return;
+    }
+    const fid = eq.farmId || activeFarmId || farms[0]?.id || "";
+    const clean: FarmEquipment = {
+      ...eq,
+      id: isUuid(eq.id) ? eq.id : crypto.randomUUID(),
+      farmId: fid,
+    };
+    const nextEq = [clean, ...farmEquipment];
+    setFarmEquipment(nextEq);
+
+    if (userProfile?.id) {
+      const uids = [userProfile.id];
+      if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) uids.push(userProfile.ownerId);
+      uids.forEach(u => saveUserLocal(u, "farm_equipment", "farmEquipment", nextEq));
+    }
+
+    try {
+      await api.equipment.create(clean);
+      toast.success("Equipment added successfully");
+    } catch (err: any) {
+      console.error("Failed to add equipment:", err);
+      toast.error("Equipment saved locally — sync error");
+    }
+  };
+
+  const handleEditEquipment = async (eq: FarmEquipment) => {
+    if (!checkSubscriptionActive()) return;
+    if (!canEdit("Farm Equipment")) {
+      toast.error("You do not have permission to edit equipment.");
+      return;
+    }
+    const nextEq = farmEquipment.map(item => item.id === eq.id ? eq : item);
+    setFarmEquipment(nextEq);
+
+    if (userProfile?.id) {
+      const uids = [userProfile.id];
+      if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) uids.push(userProfile.ownerId);
+      uids.forEach(u => saveUserLocal(u, "farm_equipment", "farmEquipment", nextEq));
+    }
+
+    try {
+      await api.equipment.update(eq.id, eq);
+      toast.success("Equipment updated successfully");
+    } catch (err: any) {
+      console.error("Failed to update equipment:", err);
+      toast.error("Equipment saved locally — sync error");
+    }
+  };
+
+  const handleDeleteEquipment = async (id: string) => {
+    if (!checkSubscriptionActive()) return;
+    if (!canDelete("Farm Equipment")) {
+      toast.error("You do not have permission to delete equipment.");
+      return;
+    }
+    const nextEq = farmEquipment.filter(item => item.id !== id);
+    setFarmEquipment(nextEq);
+    markDeletedId(id);
+
+    if (userProfile?.id) {
+      const uids = [userProfile.id];
+      if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) uids.push(userProfile.ownerId);
+      uids.forEach(u => saveUserLocal(u, "farm_equipment", "farmEquipment", nextEq));
+    }
+
+    try {
+      await api.equipment.remove(id);
+      toast.success("Equipment deleted successfully");
+    } catch (err: any) {
+      console.error("Failed to delete equipment:", err);
+      toast.error("Equipment deleted locally — sync error");
+    }
+  };
+
   const notifications = useMemo(() => {
     if (!canView("Notifications")) return [];
     const notifs: AppNotification[] = [];
@@ -8496,6 +8504,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
               {active==="sales_calculator"&&(hasPerm("Sales Calculator")||hasPerm("Invoices")?<SalesCalculatorPage priceGroups={farmPriceGroups} settings={invSettings} onAddPriceGroup={addPriceGroup} onEditPriceGroup={editPriceGroup} onDeletePriceGroup={delPriceGroup} currency={cs} canCreate={canCreate("Sales Calculator")||canCreate("Invoices")} canEdit={canEdit("Sales Calculator")||canEdit("Invoices")} canDelete={canDelete("Sales Calculator")||canDelete("Invoices")}/>:<AccessDenied/>)}
               {active==="staff"         &&(isOwner?<StaffPage staff={staff} onAdd={addStaff} onEdit={editStaff} onDelete={delStaff} farms={farms.filter(f => f.userId === userProfile?.id || isOwner)} activeFarmId={activeFarmId} ownerEmail={userProfile?.email}/>:<AccessDenied/>)}
               {active==="investors"     &&(hasPerm("Investors")?<InvestorsPage investors={farmInvestors} investments={farmInvestments} payments={farmPayments} farms={farms} ponds={farmPonds} stockEvents={stockEvents} activeFarmId={activeFarmId} currency={cs} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}} isOwner={isOwner} canManage={isOwner||hasPerm("Investors")} onAddInvestor={handleAddInvestor} onEditInvestor={handleEditInvestor} onEditInvestment={handleEditInvestment} onDeleteInvestor={handleDeleteInvestor} onRecordPayment={handleRecordPayment} onMarkPaymentPaid={handleMarkPaymentPaid} canCreate={canCreate("Investors")} canEdit={canEdit("Investors")} canDelete={canDelete("Investors")}/>:<AccessDenied/>)}
+              {active==="equipment"     &&(hasPerm("Farm Equipment")?<FarmEquipmentPage equipment={farmEquipments} onAdd={handleAddEquipment} onEdit={handleEditEquipment} onDelete={handleDeleteEquipment} currency={cs} farms={farms} activeFarmId={activeFarmId} canCreate={canCreate("Farm Equipment")} canEdit={canEdit("Farm Equipment")} canDelete={canDelete("Farm Equipment")}/>:<AccessDenied/>)}
               {active==="reports"       &&(hasPerm("Reports")?<ReportsPage reports={farmReports} staff={staff} onAdd={addReport} onEdit={editReportFn} onDelete={deleteReport} pondReports={farmPondReports} treatments={farmTreatments} farms={farms} ponds={farmPonds} stockEvents={stockEvents} onAddPondReport={handleAddPondReport} onDeletePondReport={deletePondReport} activeFarmId={activeFarmId} canCreate={canCreate("Reports")} canEdit={canEdit("Reports")} canDelete={canDelete("Reports")} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}} isOwner={isOwner}/>:<AccessDenied/>)}
               {active==="assessments"   &&(hasPerm("Staff Assessments")?<EmployeeAssessmentsPage kQuestions={kQuestions} cQuestions={cQuestions} kResults={kResults} cResults={cResults} onSaveKQuestions={saveKQuestions} onSaveCQuestions={saveCQuestions} onAddKResult={addKResult} onAddCResult={addCResult} ownerId={userProfile?.id??""}/>:<AccessDenied/>)}
               {active==="pricing"       &&(isOwner?<SubscriptionPage farmCount={farms.length} activePlan={activePlan} setActivePlan={setActivePlan} trialStartDate={trialStartDate} setTrialStartDate={setTrialStartDate} currency={cs} convertPrice={cvt} userProfile={userProfile} onProfileUpdated={(p) => setUserProfile(prev => { const next = { ...(prev || {}), ...p }; if(prev?.id){ try{ localStorage.setItem(`pondtora_${prev.id}_user_profile`, JSON.stringify(next)); }catch{} } return next; })} activeFarmName={farms.find(f=>f.id===activeFarmId)?.name||userProfile?.farmName} onOpenReferrals={() => { setSettingsTab("referrals"); nav("settings"); }}/>:<AccessDenied/>)}
@@ -8504,14 +8513,6 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
             </AppErrorBoundary>
           )}
         </main>
-        {/* Mobile Bottom Navigation (Permission-Aware) */}
-        <MobileBottomNav
-          active={active}
-          onNav={nav}
-          onOpenMore={() => setSideOpen(true)}
-          hasPerm={hasPerm}
-          isOwner={isOwner}
-        />
         {showScrollTop && (
           <button
             type="button"
@@ -8521,7 +8522,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
               document.documentElement.scrollTo({ top: 0, behavior: "smooth" });
             }}
             aria-label="Scroll to top"
-            className="fixed bottom-20 lg:bottom-8 left-1/2 -translate-x-1/2 z-50 bg-emerald-600 hover:bg-emerald-700 active:scale-90 text-white w-12 h-12 rounded-full shadow-2xl border-2 border-white ring-4 ring-emerald-500/20 flex items-center justify-center transition-all duration-300 animate-in fade-in zoom-in-95 cursor-pointer"
+            className="fixed bottom-6 lg:bottom-8 left-1/2 -translate-x-1/2 z-50 bg-emerald-600 hover:bg-emerald-700 active:scale-90 text-white w-12 h-12 rounded-full shadow-2xl border-2 border-white ring-4 ring-emerald-500/20 flex items-center justify-center transition-all duration-300 animate-in fade-in zoom-in-95 cursor-pointer"
             title="Scroll to top"
           >
             <ChevronUp size={24} strokeWidth={3} className="text-white drop-shadow-xs" />
