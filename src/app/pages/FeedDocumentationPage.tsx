@@ -2076,8 +2076,8 @@ function FeedDocumentation({
             )}
 
             {/* Mobile Card View */}
-              filteredDayRows.length === 0 ? (
-                <div className="py-10 text-center bg-white border border-slate-200/80 rounded-2xl p-4 shadow-xs">
+            {filteredDayRows.length === 0 ? (
+              <div className="py-10 text-center bg-white border border-slate-200/80 rounded-2xl p-4 shadow-xs">
                   <Droplets size={28} className="text-slate-300 mx-auto mb-2" />
                   <p className="text-xs font-semibold text-slate-500">{dailySearch ? "No ponds match search" : `No feeding recorded on ${selDate}`}</p>
                   <p className="text-[11px] text-slate-400 mt-1">Select a date or log feeding</p>
