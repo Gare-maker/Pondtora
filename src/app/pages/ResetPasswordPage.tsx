@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import pondtoraLogo from "../../imports/loo-2.svg";
 import { supabase, getAppUrl } from "../../lib/supabase";
 import { auth } from "../../lib/api";
+import { resolveFullUserProfile } from "../../lib/userSync";
 import type { UserProfile } from "../types";
 
 interface ResetPasswordPageProps {
@@ -103,21 +104,7 @@ export default function ResetPasswordPage({ onSuccess, onGoToLogin }: ResetPassw
         window.history.replaceState(null, "", "/");
       }
 
-      const meta = user.user_metadata ?? {};
-      const profile: UserProfile = {
-        id: user.id,
-        name: meta.name ?? user.email?.split("@")[0] ?? "User",
-        farmName: meta.farm_name ?? "",
-        city: meta.city ?? "",
-        state: meta.state ?? "",
-        country: meta.country ?? "Nigeria",
-        email: user.email ?? "",
-        phone: meta.phone ?? "",
-        currencySymbol: meta.currency_symbol ?? "₦",
-        currencyCode: meta.currency_code ?? "NGN",
-        activePlan: meta.active_plan,
-        trialStartDate: meta.trial_start_date,
-      };
+      const profile = await resolveFullUserProfile(user);
 
       setTimeout(() => {
         if (onSuccess) {

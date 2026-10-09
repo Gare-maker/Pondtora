@@ -3,6 +3,7 @@ import { UserPlus, Eye, EyeOff, CheckCircle2, AlertCircle, ArrowRight, RefreshCw
 import { toast } from "sonner";
 import pondtoraLogo from "../../imports/loo-2.svg";
 import { supabase } from "../../lib/supabase";
+import { resolveFullUserProfile } from "../../lib/userSync";
 import type { UserProfile } from "../types";
 
 interface CreatePasswordPageProps {
@@ -243,22 +244,7 @@ export default function CreatePasswordPage({ onSuccess, onGoToLogin }: CreatePas
         window.history.replaceState(null, "", "/");
       }
 
-      const profile: UserProfile = {
-        id: user.id,
-        name: name.trim() || meta.name || cleanEmail.split("@")[0] || "Staff",
-        farmName: meta.farm_name ?? farmName ?? "",
-        city: meta.city ?? "",
-        state: meta.state ?? "",
-        country: meta.country ?? "Nigeria",
-        email: cleanEmail,
-        phone: meta.phone ?? "",
-        currencySymbol: meta.currency_symbol ?? "₦",
-        currencyCode: meta.currency_code ?? "NGN",
-        role: "staff",
-        permissions: staffPerms,
-        ownerId: staffOwnerId,
-        farms: staffFarms,
-      };
+      const profile = await resolveFullUserProfile(user);
 
       setTimeout(() => {
         if (onSuccess) {

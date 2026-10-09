@@ -135,9 +135,9 @@ function Sidebar({active,onNav,collapsed,onToggle,farms,activeFarmId,onSwitchFar
       )}
       <nav className="flex-1 py-3 px-2 overflow-y-auto space-y-0.5">
         {NAV.filter(({id})=>{
-          if(id==="staff"||id==="pricing"||id==="settings") return isOwner === true;
+          if(id==="staff"||id==="pricing"||id==="settings") return isOwner === true || userProfile?.role === "owner" || !userProfile?.ownerId;
           const perm=NAV_PERM[id];
-          if(!perm) return isOwner === true;
+          if(!perm) return isOwner === true || userProfile?.role === "owner" || !userProfile?.ownerId;
           return hasPerm ? hasPerm(perm) : (isOwner === true);
         }).map(({id,icon:Icon,label})=>{
           const isA=active===id;
@@ -3022,56 +3022,80 @@ function SubscriptionPage({
         userName: effectiveProfile?.name || "",
         phone: effectiveProfile?.phone || "",
         farmName: activeFarmName || effectiveProfile?.farmName || "Primary Farm",
-        onSuccess: res => {
+        onSuccess: async res => {
           clearTimeout(safetyTimer);
-          (window as any).__pondtora_payment_in_progress = false;
-          clearPendingPaystackTransaction();
-          setPendingTransfer(null);
-
-          const todayStr = new Date().toISOString().slice(0, 10);
-          const expDate = new Date();
-          expDate.setDate(expDate.getDate() + (isYearly ? 365 : 30));
-          const expStr = expDate.toISOString().slice(0, 10);
-
-          recordSuccessfulPayment({
-            email: effectiveProfile?.email || "",
-            planName: plan.name,
-            billingFrequency: isYearly ? "yearly" : "monthly",
-            amount: calculatedPrice,
-            reference: res.reference,
-          });
-          setActivePlan(plan.name);
-          setTrialStartDate(null);
-
-          api.profile.recordPayment({
-            plan: plan.name,
-            amount: calculatedPrice,
-            billingFrequency: isYearly ? "yearly" : "monthly",
-            reference: res.reference,
-            subscriptionStart: todayStr,
-            subscriptionExpiry: expStr,
-          }).catch(console.warn);
-
-          const updatedProf: Partial<UserProfile> = {
-            activePlan: plan.name,
-            trialStartDate: null,
-            subscriptionStatus: "Active",
-            subscriptionAmount: calculatedPrice,
-            subscriptionExpiry: expStr,
-            subscriptionStart: todayStr,
-            paystackReference: res.reference,
-            lastPaymentDate: todayStr,
-            billingFrequency: isYearly ? "yearly" : "monthly",
-          };
-
-          setLiveProfile(prev => ({ ...(prev || {}), ...updatedProf } as UserProfile));
-          if (onProfileUpdated) onProfileUpdated(updatedProf);
+          setCheckoutLoading(plan.name || "plan");
+          toast.loading("Verifying payment with Paystack...", { id: "ps-verify-popup" });
 
           try {
-            confetti({ particleCount: 120, spread: 80, origin: { y: 0.6 } });
-          } catch {}
-          toast.success(`🎉 Payment Successful! You are now subscribed to ${plan.name}. Ref: ${res.reference}`);
-          setCheckoutLoading(null);
+            const verifyResult = await verifyPaystackPayment(res.reference, {
+              expectedPlan: plan.name,
+              expectedAmount: calculatedPrice,
+              billingCycle: isYearly ? "yearly" : "monthly",
+            });
+
+            if (!verifyResult.verified) {
+              toast.error(
+                verifyResult.message || "Payment verification pending or unconfirmed. If you completed a bank transfer, please click 'I Have Sent Money' once confirmed.",
+                { id: "ps-verify-popup", duration: 6000 }
+              );
+              setCheckoutLoading(null);
+              return;
+            }
+
+            (window as any).__pondtora_payment_in_progress = false;
+            clearPendingPaystackTransaction();
+            setPendingTransfer(null);
+
+            const todayStr = new Date().toISOString().slice(0, 10);
+            const expDate = new Date();
+            expDate.setDate(expDate.getDate() + (isYearly ? 365 : 30));
+            const expStr = expDate.toISOString().slice(0, 10);
+
+            recordSuccessfulPayment({
+              email: effectiveProfile?.email || "",
+              planName: plan.name,
+              billingFrequency: isYearly ? "yearly" : "monthly",
+              amount: calculatedPrice,
+              reference: res.reference,
+            });
+            setActivePlan(plan.name);
+            setTrialStartDate(null);
+
+            api.profile.recordPayment({
+              plan: plan.name,
+              amount: calculatedPrice,
+              billingFrequency: isYearly ? "yearly" : "monthly",
+              reference: res.reference,
+              subscriptionStart: todayStr,
+              subscriptionExpiry: expStr,
+            }).catch(console.warn);
+
+            const updatedProf: Partial<UserProfile> = {
+              activePlan: plan.name,
+              trialStartDate: null,
+              subscriptionStatus: "Active",
+              subscriptionAmount: calculatedPrice,
+              subscriptionExpiry: expStr,
+              subscriptionStart: todayStr,
+              paystackReference: res.reference,
+              lastPaymentDate: todayStr,
+              billingFrequency: isYearly ? "yearly" : "monthly",
+            };
+
+            setLiveProfile(prev => ({ ...(prev || {}), ...updatedProf } as UserProfile));
+            if (onProfileUpdated) onProfileUpdated(updatedProf);
+
+            try {
+              confetti({ particleCount: 120, spread: 80, origin: { y: 0.6 } });
+            } catch {}
+            toast.success(`🎉 Payment Verified! You are now subscribed to ${plan.name}. Ref: ${res.reference}`, { id: "ps-verify-popup" });
+          } catch (verErr: any) {
+            console.error("Paystack verification error:", verErr);
+            toast.error("Unable to verify payment with Paystack. Please try again.", { id: "ps-verify-popup" });
+          } finally {
+            setCheckoutLoading(null);
+          }
         },
         onClose: () => {
           clearTimeout(safetyTimer);

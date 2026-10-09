@@ -8,7 +8,7 @@ import { SearchableCountrySelect } from "../shared";
 import { supabase, getAppUrl } from "../../lib/supabase";
 import { auth, api } from "../../lib/api";
 import { useDynamicPlans, yearlyPrice, EVERY_PLAN_INCLUDES } from "../pricingData";
-import { syncUserProfileToAdmin } from "../../lib/userSync";
+import { syncUserProfileToAdmin, resolveFullUserProfile } from "../../lib/userSync";
 import { captureReferralParam, attachReferralToNewUser, getPendingReferrerCode } from "../../lib/referralStore";
 
 const AIC = "w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg bg-white text-slate-900 placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-green-300 transition";
@@ -318,74 +318,16 @@ function AuthScreen({
       const user = data.user;
       if (!user) throw new Error("Login failed — no user returned.");
 
-      // Check if user profile actually exists in database
-      const { data: existingProf, error: profCheckErr } = await supabase
-        .from("user_profiles")
-        .select("id, name, email, status, role")
-        .eq("id", user.id)
-        .maybeSingle();
+      const profile = await resolveFullUserProfile(user);
 
-      let currentProf = existingProf;
-
-      // Self-heal profile and primary farm from auth user metadata if missing
-      if (!currentProf && !profCheckErr) {
-        const meta = user.user_metadata ?? {};
-        const isStaff = meta.role === "staff" || Boolean(meta.owner_id);
-        const name = meta.name || cleanEmail.split("@")[0];
-        const farmName = meta.farm_name || "Primary Farm";
-        const role = isStaff ? "staff" : (cleanEmail === "edafejesugarec@gmail.com" ? "admin" : "owner");
-
-        try {
-          const { data: healedProf } = await supabase.from("user_profiles").upsert({
-            id: user.id,
-            name: name,
-            farm_name: farmName,
-            city: meta.city || "Lagos",
-            state: meta.state || "Lagos",
-            country: meta.country || "Nigeria",
-            email: cleanEmail,
-            phone: meta.phone || "",
-            currency_symbol: meta.currency_symbol || "₦",
-            currency_code: meta.currency_code || "NGN",
-            active_plan: meta.active_plan || "Starter",
-            trial_start_date: meta.trial_start_date || new Date().toISOString(),
-            role: role,
-            status: "Active",
-            updated_at: new Date().toISOString(),
-          }).select().maybeSingle();
-
-          if (healedProf) {
-            currentProf = healedProf;
-          }
-
-          if (!isStaff) {
-            const { data: existingFarms } = await supabase.from("farms").select("id").eq("user_id", user.id).limit(1);
-            if (!existingFarms || existingFarms.length === 0) {
-              await supabase.from("farms").insert({
-                user_id: user.id,
-                name: farmName || "Primary Farm",
-                city: meta.city || "Lagos",
-                state: meta.state || "Lagos",
-                country: meta.country || "Nigeria",
-              });
-            }
-          }
-        } catch (healErr) {
-          console.warn("Could not self-heal profile:", healErr);
-        }
-      }
-
-      if (currentProf?.status === "Suspended") {
+      if (profile.status === "Suspended") {
         await supabase.auth.signOut();
         setLErr("This account has been suspended by an administrator. Please contact support.");
         return;
       }
 
-      const meta = user.user_metadata ?? {};
-      const isStaffMeta = meta.role === "staff" || Boolean(meta.owner_id) || currentProf?.role === "staff" || currentProf?.role === "staff member";
-
       // Strict enforcement: block login until email is verified, unless user is staff provisioned by an owner
-      if (!user.email_confirmed_at && !isStaffMeta) {
+      if (!user.email_confirmed_at && profile.role !== "staff") {
         let isStaffRecord = false;
         try {
           const { data: smRow } = await supabase.from("staff_members").select("id").ilike("email", cleanEmail).maybeSingle();
@@ -400,56 +342,7 @@ function AuthScreen({
         }
       }
 
-      let staffPerms: string[] = meta.permissions || [];
-      let staffOwnerId: string = meta.owner_id || "";
-      let staffRole: string = meta.role || (existingProf?.role || "owner");
-      let staffFarms: string[] = meta.farms || [];
-
-      try {
-        const { data: staffRow } = await supabase
-          .from("staff_members")
-          .select("id, name, role, permissions, farms, user_id")
-          .ilike("email", cleanEmail)
-          .maybeSingle();
-
-        if (staffRow) {
-          if (staffRow.permissions && staffRow.permissions.length > 0) staffPerms = staffRow.permissions;
-          if (staffRow.user_id) staffOwnerId = staffRow.user_id;
-          if (staffRow.farms && staffRow.farms.length > 0) staffFarms = staffRow.farms;
-          staffRole = "staff";
-
-          try {
-            await supabase
-              .from("staff_members")
-              .update({ staff_auth_id: user.id, status: "Active" })
-              .eq("id", staffRow.id);
-          } catch {}
-        }
-      } catch (e) {
-        console.warn("Error checking staff_members table on login:", e);
-      }
-
-      const profile: UserProfile = {
-        id: user.id,
-        name: existingProf?.name || meta.name || user.email?.split("@")[0] || "",
-        farmName: meta.farm_name ?? "",
-        city: meta.city ?? "",
-        state: meta.state ?? "",
-        country: meta.country ?? "Nigeria",
-        email: user.email ?? "",
-        phone: meta.phone ?? "",
-        currencySymbol: meta.currency_symbol ?? "₦",
-        currencyCode: meta.currency_code ?? "NGN",
-        activePlan: meta.active_plan,
-        trialStartDate: meta.trial_start_date,
-        role: staffRole,
-        permissions: staffPerms,
-        ownerId: staffOwnerId,
-        farms: staffFarms,
-        referralCode: existingProf?.referral_code || meta.referral_code || meta.referralCode,
-        referredBy: existingProf?.referred_by || meta.referred_by || meta.referredBy,
-      };
-      syncUserProfileToAdmin(profile, meta.active_plan, 1);
+      syncUserProfileToAdmin(profile, profile.activePlan, 1);
       onLogin(profile);
     } catch (err: any) {
       const msg = err?.message ?? "Login failed.";
@@ -672,21 +565,8 @@ function AuthScreen({
       const data = await auth.updatePassword(recPass);
       const user = data.user;
       if (!user) throw new Error("Failed to update password.");
-      const meta = user.user_metadata ?? {};
-      const profile: UserProfile = {
-        id: user.id,
-        name: meta.name ?? user.email?.split("@")[0] ?? "",
-        farmName: meta.farm_name ?? "",
-        city: meta.city ?? "",
-        state: meta.state ?? "",
-        country: meta.country ?? "Nigeria",
-        email: user.email ?? "",
-        phone: meta.phone ?? "",
-        currencySymbol: meta.currency_symbol ?? "₦",
-        currencyCode: meta.currency_code ?? "NGN",
-        activePlan: meta.active_plan,
-        trialStartDate: meta.trial_start_date,
-      };
+      const profile = await resolveFullUserProfile(user);
+      syncUserProfileToAdmin(profile, profile.activePlan, 1);
       onLogin(profile);
     } catch (err: any) {
       setRecErr(err?.message ?? "Failed to update password. The link may have expired.");
@@ -706,21 +586,8 @@ function AuthScreen({
       const { data: { session } } = await supabase.auth.getSession();
       if (session?.user) {
         const user = session.user;
-        const meta = user.user_metadata ?? {};
-        const profile: UserProfile = {
-          id: user.id,
-          name: meta.name ?? user.email?.split("@")[0] ?? "User",
-          farmName: meta.farm_name ?? "",
-          city: meta.city ?? "",
-          state: meta.state ?? "",
-          country: meta.country ?? "Nigeria",
-          email: user.email ?? "",
-          phone: meta.phone ?? "",
-          currencySymbol: meta.currency_symbol ?? "₦",
-          currencyCode: meta.currency_code ?? "NGN",
-          activePlan: meta.active_plan,
-          trialStartDate: meta.trial_start_date,
-        };
+        const profile = await resolveFullUserProfile(user);
+        syncUserProfileToAdmin(profile, profile.activePlan, 1);
         onLogin(profile);
       } else {
         setView("login");
@@ -772,19 +639,7 @@ function AuthScreen({
 
       toast.success("Password set successfully! Welcome to Pondtora.");
 
-      const profile: UserProfile = {
-        id: user.id,
-        name: invName.trim() || meta.name || userEmail.split("@")[0] || "Staff",
-        farmName: meta.farm_name ?? "",
-        city: meta.city ?? "",
-        state: meta.state ?? "",
-        country: meta.country ?? "Nigeria",
-        email: userEmail,
-        phone: meta.phone ?? "",
-        currencySymbol: meta.currency_symbol ?? "₦",
-        currencyCode: meta.currency_code ?? "NGN",
-        role: "staff",
-      };
+      const profile = await resolveFullUserProfile(user);
       onLogin(profile);
     } catch (err: any) {
       setInvErr(err?.message ?? "Failed to accept invitation. The link may have expired.");

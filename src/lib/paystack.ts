@@ -370,35 +370,46 @@ export async function verifyPaystackPayment(
     };
   }
 
-  // 1. First try the backend verification endpoint if available
+  // 1. Try all potential backend verification endpoints
+  const baseUrl = (supabase as any).supabaseUrl || import.meta.env.VITE_SUPABASE_URL || "https://fegtvgfkxueorybefthj.supabase.co";
+  const edgeUrls = [
+    `${baseUrl}/functions/v1/make-server-1da59a07/paystack/verify`,
+    `${baseUrl}/functions/v1/server/paystack/verify`,
+    `${baseUrl}/functions/v1/server/make-server-1da59a07/paystack/verify`,
+    `${baseUrl}/functions/v1/paystack/verify`,
+  ];
+
+  let sessionToken = "";
   try {
     const { data: sessionData } = await supabase.auth.getSession();
-    const token = sessionData?.session?.access_token;
-    
-    // Check edge function endpoint
-    const edgeUrl = `${(supabase as any).supabaseUrl || "https://fegtvgfkxueorybefthj.supabase.co"}/functions/v1/server/paystack/verify`;
-    const res = await fetch(edgeUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      body: JSON.stringify({
-        reference: cleanRef,
-        expectedPlan: options?.expectedPlan,
-        expectedAmount: options?.expectedAmount,
-        billingCycle: options?.billingCycle,
-      }),
-    });
+    sessionToken = sessionData?.session?.access_token || "";
+  } catch {}
 
-    if (res.ok) {
-      const data = await res.json();
-      if (data && data.verified !== undefined) {
-        return data as PaystackVerifyResult;
+  for (const edgeUrl of edgeUrls) {
+    try {
+      const res = await fetch(edgeUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {}),
+        },
+        body: JSON.stringify({
+          reference: cleanRef,
+          expectedPlan: options?.expectedPlan,
+          expectedAmount: options?.expectedAmount,
+          billingCycle: options?.billingCycle,
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data && typeof data.verified === "boolean") {
+          return data as PaystackVerifyResult;
+        }
       }
+    } catch (backendErr) {
+      // Continue to next endpoint or direct fallback
     }
-  } catch (backendErr) {
-    console.warn("Backend Paystack verify request error:", backendErr);
   }
 
   // 2. Check platform_settings for direct secret key verification if server is unavailable
@@ -409,7 +420,16 @@ export async function verifyPaystackPayment(
       .eq("key", "paystack_secret_key")
       .maybeSingle();
 
-    const secretKey = settingData?.value?.secretKey || settingData?.value;
+    let secretKey = settingData?.value?.secretKey || settingData?.value;
+    if (!secretKey) {
+      const { data: cfgSetting } = await supabase
+        .from("platform_settings")
+        .select("value")
+        .eq("key", "paystack_config")
+        .maybeSingle();
+      if (cfgSetting?.value?.secretKey) secretKey = cfgSetting.value.secretKey;
+    }
+
     if (typeof secretKey === "string" && secretKey.startsWith("sk_")) {
       const paystackRes = await fetch(`https://api.paystack.co/transaction/verify/${encodeURIComponent(cleanRef)}`, {
         headers: {
@@ -423,14 +443,28 @@ export async function verifyPaystackPayment(
           const tx = psJson.data;
           const isSuccess = tx.status === "success";
           const amountInNaira = typeof tx.amount === "number" ? tx.amount / 100 : 0;
+          const currency = (tx.currency || "").toUpperCase();
+
+          if (!isSuccess || currency !== "NGN") {
+            return {
+              verified: false,
+              status: tx.status as any,
+              amount: amountInNaira,
+              currency: tx.currency,
+              reference: tx.reference || cleanRef,
+              message: isSuccess ? "Currency mismatch." : `Transaction status: ${tx.status}`,
+              raw: tx,
+            };
+          }
+
           return {
-            verified: isSuccess,
-            status: tx.status as any,
+            verified: true,
+            status: "success",
             amount: amountInNaira,
             currency: tx.currency || "NGN",
             reference: tx.reference || cleanRef,
             paidAt: tx.paid_at || tx.paidAt || new Date().toISOString(),
-            message: isSuccess ? "Transaction verified successfully." : `Transaction status: ${tx.status}`,
+            message: "Transaction verified successfully through Paystack.",
             raw: tx,
           };
         }
@@ -440,7 +474,7 @@ export async function verifyPaystackPayment(
     console.warn("Direct Paystack verify error:", directErr);
   }
 
-  // 3. If no server or secret key available (e.g. offline or unconfigured), check if an inline callback already verified it
+  // 3. Fallback: Paystack has not confirmed this payment yet
   return {
     verified: false,
     status: "pending",

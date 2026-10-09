@@ -56,6 +56,14 @@ interface FishStockOption {
   label: string;
 }
 
+export interface MismatchStockRow {
+  stockKey: string;
+  stockName: string;
+  stockDate: string;
+  status: "Not Opened";
+  expectedBags: number;
+}
+
 export type ReconRow = {
   fishStock: string;
   stockDate: string;
@@ -161,7 +169,7 @@ function FeedDocumentation({
   const [showBagsModal, setShowBagsModal] = useState(false);
   const [bagsErr, setBagsErr] = useState<Record<string, string>>({});
   const [deleteRecId, setDeleteRecId] = useState<string | null>(null);
-  const [docTab, setDocTab] = useState<"daily" | "bags">("daily");
+  const [docTab, setDocTab] = useState<"daily" | "bags" | "mismatch">("daily");
   const [bulkMobileView, setBulkMobileView] = useState<"table" | "card">("table");
   const [isDailySearchOpen, setIsDailySearchOpen] = useState(false);
   const [bagsHighlight, setBagsHighlight] = useState<{
@@ -189,7 +197,6 @@ function FeedDocumentation({
       if (feedMobileMenuRef.current && !feedMobileMenuRef.current.contains(e.target as Node)) setFeedMobileMenuOpen(false);
       setActiveDailyMenuId(null);
       setActiveBagMenuId(null);
-      setActiveReconMenuId(null);
     };
     document.addEventListener("click", h);
     return () => document.removeEventListener("click", h);
@@ -459,7 +466,9 @@ function FeedDocumentation({
       const parts = reconFocus.date.split(" ");
       m = MIDX_GLOBAL[parts[0]] ?? viewMonth;
     }
-    setViewMonth(m); setDocTab("reconciliation"); setSelDate(reconFocus.date); setReconExpanded(reconFocus.key);
+    setViewMonth(m);
+    setDocTab("mismatch");
+    setSelDate(reconFocus.date);
   }, [reconFocus]);
 
   /* ── activeFishStockOptions for Bags Opened & Tracking ── */
@@ -489,184 +498,111 @@ function FeedDocumentation({
     }));
   }, [activePonds, ponds]);
 
-  /* ── reconRows (selDate only, grouped strictly by Fish Stock + Pellet Size + Brand across all ponds in that stock) ── */
-  const reconRows = useMemo((): ReconRow[] => {
+  /* ── mismatchRows (active fish stocks with no bag-opening record on selDate) ── */
+  const mismatchRows = useMemo((): MismatchStockRow[] => {
+    const activeStocksMap = new Map<string, { stockName: string; stockDate: string; pondNames: string[] }>();
+
+    (ponds || []).filter(p => p && p.status === "Active").forEach(p => {
+      const stockName = getPondFishStock(p);
+      if (!stockName || stockName === "—") return;
+      const stockDate = p.stockingDate && p.stockingDate !== "—" ? formatFishStockDate(p.stockingDate) : "—";
+      const key = normalizeFishStock(stockName);
+      const existing = activeStocksMap.get(key);
+      if (existing) {
+        if (!existing.pondNames.includes(p.name)) {
+          existing.pondNames.push(p.name);
+        }
+      } else {
+        activeStocksMap.set(key, {
+          stockName,
+          stockDate,
+          pondNames: [p.name]
+        });
+      }
+    });
+
     const mIdx = MIDX_GLOBAL[selMonLabel] ?? viewMonth;
     const prevDt = new Date(selYear || viewYear, mIdx, (selDay || 1) - 1);
     const prevDate = `${MON_NAMES[prevDt.getMonth()]} ${prevDt.getDate()}`;
-    const keySet = new Set<string>();
 
-    (feedingRecords || []).filter(r => r && isSameDate(r.date, selDate)).forEach(r => {
-      const fs = pondToStock(r.pond);
-      const brand = r.brand || "—";
-      const size = r.size || "—";
-      keySet.add(`${fs}||${size}||${brand}`);
-    });
-    (bagLogs || []).filter(b => b && isSameDate(b.date, selDate)).forEach(b => {
-      const fs = normalizeFishStock(b.fishStock);
-      const brand = b.brand || "—";
-      const size = b.size || "—";
-      if (fs && fs !== "—") keySet.add(`${fs}||${size}||${brand}`);
-    });
-    (remainLogs || []).filter(r => r && isSameDate(r.date, selDate)).forEach(r => {
-      const fs = normalizeFishStock(r.fishStock);
-      const brand = r.brand || "—";
-      const size = r.size || "—";
-      if (fs && fs !== "—") keySet.add(`${fs}||${size}||${brand}`);
-    });
+    const rows: MismatchStockRow[] = [];
 
-    const rows: ReconRow[] = [];
-    for (const compositeKey of Array.from(keySet)) {
-      const parts = compositeKey.split("||");
-      const fishStock = parts[0];
-      const size = parts[1];
-      let brand = parts[2] || "—";
+    activeStocksMap.forEach((stockInfo, key) => {
+      // Check if this active stock has any bag-opening record for the selected date (selDate)
+      const hasBagLogOnDate = (bagLogs || []).some(b => {
+        if (!b || !isSameDate(b.date, selDate)) return false;
+        const bFs = normalizeFishStock(b.fishStock);
+        const isMatch = isStockMatch(bFs, stockInfo.stockName) || bFs.toLowerCase().trim() === key.toLowerCase().trim();
+        const bags = Number(b.bagsOpened) || 0;
+        return isMatch && bags > 0;
+      });
 
-      // If brand is "—" or empty, try to resolve from bagLogs or remainLogs or inventory
-      if (!brand || brand === "—") {
-        const brandFromBag = (bagLogs || []).find(b => isSameDate(b.date, selDate) && b.size === size && isStockMatch(b.fishStock, fishStock) && b.brand)?.brand;
-        const brandFromRemain = (remainLogs || []).find(r => isSameDate(r.date, selDate) && r.size === size && isStockMatch(r.fishStock, fishStock) && r.brand)?.brand;
-        const brandFromFeed = (feedingRecords || []).find(r => isSameDate(r.date, selDate) && r.size === size && isStockMatch(r.pond, fishStock) && r.brand)?.brand;
-        const brandFromInv = (inventory || []).find(f => f && f.size === size && f.brand)?.brand;
-        brand = brandFromBag || brandFromRemain || brandFromFeed || brandFromInv || "—";
-      }
+      // If a valid bag-opening record exists for selDate, exclude from Mismatch
+      if (hasBagLogOnDate) return;
 
-      const pondsForStock = (ponds || []).filter(p => p && (isStockMatch(pondToStock(p.name), fishStock) || isStockMatch(p.name, fishStock))).map(p => p.name);
+      // Calculate Expected Bags for this stock across all its ponds for selDate
+      const pondsForStock = (ponds || []).filter(p => p && (isStockMatch(pondToStock(p.name), stockInfo.stockName) || isStockMatch(p.name, stockInfo.stockName))).map(p => p.name);
 
       const fedRecords = (feedingRecords || []).filter(r => {
         if (!r || !isSameDate(r.date, selDate)) return false;
-        if (r.size && size && r.size.toLowerCase().trim() !== size.toLowerCase().trim()) return false;
-        const matchesStock = isStockMatch(fishStock, r.fishStock) ||
-                             isStockMatch(fishStock, pondToStock(r.pond)) ||
-                             isStockMatch(fishStock, r.pond) ||
+        const matchesStock = isStockMatch(stockInfo.stockName, r.fishStock) ||
+                             isStockMatch(stockInfo.stockName, pondToStock(r.pond)) ||
+                             isStockMatch(stockInfo.stockName, r.pond) ||
+                             stockInfo.pondNames.some(pn => pn.toLowerCase().trim() === (r.pond || "").toLowerCase().trim()) ||
                              pondsForStock.some(pn => pn.toLowerCase().trim() === (r.pond || "").toLowerCase().trim());
         if (!matchesStock) return false;
         return (Number(r.total) > 0 || Number(r.morning) > 0 || Number(r.evening) > 0);
       });
-      const fedPonds = Array.from(new Set(fedRecords.map(r => r.pond).filter(Boolean)));
 
-      const totalFed = (feedingRecords || []).filter(r => {
-        if (!r || !isSameDate(r.date, selDate)) return false;
-        if (r.size && size && r.size.toLowerCase().trim() !== size.toLowerCase().trim()) return false;
-        return isStockMatch(fishStock, r.fishStock) ||
-               isStockMatch(fishStock, pondToStock(r.pond)) ||
-               isStockMatch(fishStock, r.pond) ||
-               pondsForStock.some(pn => pn.toLowerCase().trim() === (r.pond || "").toLowerCase().trim());
-      }).reduce((s, r) => s + (Number(r.total) || ((Number(r.morning) || 0) + (Number(r.evening) || 0))), 0);
+      const totalFedKg = fedRecords.reduce((s, r) => s + (Number(r.total) || ((Number(r.morning) || 0) + (Number(r.evening) || 0))), 0);
 
-      const matchingBagLogs = (bagLogs || []).filter(b =>
-        b && isSameDate(b.date, selDate) &&
-        (size === "—" || (b.size || "").toLowerCase().trim() === size.toLowerCase().trim()) &&
-        (brand === "—" || !b.brand || b.brand.toLowerCase().trim() === brand.toLowerCase().trim()) &&
-        (!b.fishStock || isStockMatch(b.fishStock, fishStock))
-      );
-      // If multiple duplicate bag logs exist for the same stock, brand, and pallet on this day, use the single session amount
-      const recordedBags = matchingBagLogs.length > 0 ? (Number(matchingBagLogs[matchingBagLogs.length - 1].bagsOpened) || 0) : 0;
-
+      // Carryover from previous date
       const carryoverLogs = (remainLogs || []).filter(r =>
-        r && isSameDate(r.date, prevDate) &&
-        (size === "—" || (r.size || "").toLowerCase().trim() === size.toLowerCase().trim()) &&
-        isStockMatch(r.fishStock, fishStock)
+        r && isSameDate(r.date, prevDate) && isStockMatch(r.fishStock, stockInfo.stockName)
       );
-      const carryover = carryoverLogs.length > 0 ? (Number(carryoverLogs[carryoverLogs.length - 1].remainingKg) || 0) : 0;
+      const carryoverKg = carryoverLogs.length > 0 ? (Number(carryoverLogs[carryoverLogs.length - 1].remainingKg) || 0) : 0;
 
-      const matchingRemainLogs = (remainLogs || []).filter(r =>
-        r && isSameDate(r.date, selDate) &&
-        (size === "—" || (r.size || "").toLowerCase().trim() === size.toLowerCase().trim()) &&
-        isStockMatch(r.fishStock, fishStock)
-      );
-      const recordedRemaining = matchingRemainLogs.length > 0 ? (Number(matchingRemainLogs[matchingRemainLogs.length - 1].remainingKg) || 0) : 0;
-
-      // If neither feed nor bags nor remaining was logged, skip
-      if (totalFed === 0 && recordedBags === 0 && recordedRemaining === 0) continue;
-
-      const invItem = (inventory || []).find(f => f && (brand !== "—" ? f.brand.toLowerCase().trim() === brand.toLowerCase().trim() : true) && f.size.toLowerCase().trim() === size.toLowerCase().trim()) || (inventory || []).find(f => f && f.size.toLowerCase().trim() === size.toLowerCase().trim());
+      // Find bag weight from inventory based on feed sizes used or default 15kg
+      const fedSizes = fedRecords.map(r => r.size).filter(Boolean);
+      const primarySize = fedSizes[0] || "";
+      const invItem = (inventory || []).find(f => f && (primarySize ? f.size.toLowerCase().trim() === primarySize.toLowerCase().trim() : true));
       const bagWeight = invItem?.weightPerBag || 15;
-      const kgOpened = recordedBags * bagWeight;
-      const kgConsumed = totalFed;
-      const netNeeded = Math.max(0, kgConsumed - carryover);
-      const expectedBags = netNeeded === 0 ? 0 : Math.ceil(netNeeded / bagWeight);
-      const totalAvailableFeed = carryover + kgOpened;
-      const expectedRemaining = (carryover === 0 && recordedBags === 0)
-        ? 0
-        : (carryover === 0 && kgOpened === 0 && kgConsumed === 0 && recordedRemaining > 0)
-        ? recordedRemaining
-        : Math.max(0, totalAvailableFeed - kgConsumed);
-      const remainingKg = (carryover === 0 && recordedBags === 0)
-        ? 0
-        : Math.max(0, totalAvailableFeed - kgConsumed);
-      const bagsDiff = Math.abs(expectedBags - recordedBags);
-      const remainDiff = Math.abs(expectedRemaining - recordedRemaining);
-      const feedQtyIssue = recordedBags > 0 && kgConsumed > carryover + kgOpened + 0.01;
 
-      let status: ReconStatus;
-      let reason = "";
-      if (feedQtyIssue) {
-        status = "feed_qty_mismatch";
-        reason = `Feed given (${kgConsumed}kg) exceeds opened (${carryover + kgOpened}kg) by ${(kgConsumed - (carryover + kgOpened)).toFixed(1)}kg.`;
-      } else if (kgConsumed === 0 && recordedBags > 0) {
-        status = "bag_mismatch";
-        reason = `${recordedBags} bag${recordedBags > 1 ? "s" : ""} opened (${kgOpened}kg); daily feeding session pending.`;
-      } else if (recordedBags === 0 && kgConsumed > 0 && carryover < kgConsumed) {
-        status = "bag_mismatch";
-        reason = `Feed given (${kgConsumed}kg) but 0 bags opened recorded. Expected ${expectedBags} bag${expectedBags > 1 ? "s" : ""}.`;
-      } else if (bagsDiff > 0 && recordedRemaining > 0 && remainDiff >= 1) {
-        status = "multiple_mismatches";
-        reason = `Bags: expected ${expectedBags}, recorded ${recordedBags}. Remaining: expected ${expectedRemaining}kg, recorded ${recordedRemaining}kg.`;
-      } else if (bagsDiff > 0 && recordedBags !== expectedBags) {
-        status = "bag_mismatch";
-        reason = `Expected ${expectedBags} bags opened (${expectedBags * bagWeight}kg), recorded ${recordedBags} bags (${kgOpened}kg). Difference: ${bagsDiff} bag${bagsDiff > 1 ? "s" : ""}.`;
-      } else if (recordedRemaining > 0 && remainDiff >= 1) {
-        status = "remaining_mismatch";
-        reason = `Expected ${expectedRemaining}kg remaining, recorded ${recordedRemaining}kg.`;
-      } else {
-        status = "matched";
-        reason = "Feed given matches bags opened.";
-      }
-
-      const stockDate = (ponds || []).find(p => p && (pondToStock(p.name) === fishStock || isStockMatch(p.name, fishStock)))?.stockingDate || fishStock;
+      const netNeeded = Math.max(0, totalFedKg - carryoverKg);
+      const expectedBags = netNeeded > 0 ? Math.ceil(netNeeded / bagWeight) : 0;
 
       rows.push({
-        fishStock,
-        stockDate: formatFishStockDate(stockDate),
-        brand,
-        size,
-        ponds: fedPonds.length > 0 ? fedPonds : (pondsForStock.length > 0 ? pondsForStock : []),
-        totalFed,
-        carryover,
-        netNeeded,
-        bagWeight,
-        expectedBags,
-        recordedBags,
-        kgOpened,
-        kgConsumed,
-        remainingKg,
-        expectedRemaining,
-        recordedRemaining,
-        status,
-        reason
+        stockKey: key,
+        stockName: stockInfo.stockName,
+        stockDate: stockInfo.stockDate,
+        status: "Not Opened",
+        expectedBags
       });
-    }
-    return rows;
-  }, [feedingRecords, bagLogs, inventory, remainLogs, selDate, selMonLabel, selDay, selYear, viewYear, viewMonth, ponds]);
+    });
 
-  /* ── reconciliation notifications ── */
+    return rows;
+  }, [ponds, bagLogs, feedingRecords, remainLogs, inventory, selDate, selMonLabel, selDay, selYear, viewYear, viewMonth]);
+
+  /* ── mismatch notifications ── */
   const onReconMismatchesRef = useRef(onReconMismatches);
   onReconMismatchesRef.current = onReconMismatches;
   const prevMismatchKeyRef = useRef<string>("");
   useEffect(() => {
     if (!onReconMismatchesRef.current) return;
-    const ms = reconRows.filter(r => r.status !== "matched").map(r => ({ date: selDate, brand: r.brand, size: r.size, fishStock: r.fishStock, key: `${r.fishStock}__${r.brand}__${r.size}`, status: r.status, reason: r.reason }));
+    const ms = mismatchRows.map(r => ({
+      date: selDate,
+      brand: "—",
+      size: "—",
+      fishStock: r.stockName,
+      key: r.stockKey,
+      status: r.status,
+      reason: `Fish stock ${r.stockName} has no bag-opening record for ${selDate}. Expected: ${r.expectedBags} bags.`
+    }));
     const key = ms.map(m => `${m.date}|${m.key}|${m.status}`).join(",");
     if (key === prevMismatchKeyRef.current) return;
     prevMismatchKeyRef.current = key;
     onReconMismatchesRef.current(ms);
-  }, [reconRows, selDate]);
-
-  const hasMismatchOnSelDate = reconRows.some(r => r.status !== "matched");
-
-  /* ── popup recon ── */
-  const [popupRecon, setPopupRecon] = useState<ReconRow | null>(null);
+  }, [mismatchRows, selDate]);
 
   /* ── day view ── */
   const dayRecords = (feedingRecords || []).filter(r => r && isSameDate(r.date, selDate));
@@ -899,36 +835,8 @@ function FeedDocumentation({
 
   /* ── helper: calculate expected bags and expected remaining for a fish stock, brand, and size on a date ── */
   const getExpectedFeedData = (targetDate: string, fishStock: string, brand: string, size: string, bagsOpenedOverride?: number) => {
-    if (!size || !targetDate) {
+    if (!targetDate) {
       return { hasFed: false, totalFed: 0, carryover: 0, bagWeight: 15, expectedBags: 0, expectedRemaining: 0 };
-    }
-
-    // When calculating for current selected date, use reconRows directly as the single source of truth
-    if (isSameDate(targetDate, selDate) && Array.isArray(reconRows)) {
-      const match = reconRows.find(r =>
-        isStockMatch(r.fishStock, fishStock) &&
-        (size === "—" || (r.size || "").toLowerCase().trim() === size.toLowerCase().trim()) &&
-        (!brand || brand === "—" || !r.brand || r.brand === "—" || r.brand.toLowerCase().trim() === brand.toLowerCase().trim())
-      ) || reconRows.find(r =>
-        isStockMatch(r.fishStock, fishStock) &&
-        (size === "—" || (r.size || "").toLowerCase().trim() === size.toLowerCase().trim())
-      );
-
-      if (match) {
-        let expectedRem = match.expectedRemaining;
-        if (bagsOpenedOverride !== undefined && bagsOpenedOverride !== match.recordedBags) {
-          const customAvailable = match.carryover + (bagsOpenedOverride * match.bagWeight);
-          expectedRem = Math.max(0, customAvailable - match.totalFed);
-        }
-        return {
-          hasFed: match.totalFed > 0,
-          totalFed: match.totalFed,
-          carryover: match.carryover,
-          bagWeight: match.bagWeight,
-          expectedBags: match.expectedBags,
-          expectedRemaining: expectedRem
-        };
-      }
     }
 
     const normStock = (fishStock && fishStock !== "—") ? normalizeFishStock(fishStock) : "";
@@ -1426,7 +1334,6 @@ function FeedDocumentation({
     return Array.from(map.values());
   }, [bagLogs, remainLogs, feedingRecords, selDate, ponds, invBrands]);
 
-  const [bagsSearch, setBagsSearch] = useState("");
   const filteredMergedBagRows = useMemo(() => {
     if (!bagsSearch.trim()) return mergedBagRows;
     const q = bagsSearch.toLowerCase().trim();
@@ -1842,14 +1749,26 @@ function FeedDocumentation({
       {/* ── Sticky Tab bar ── */}
       <div className="sticky top-0 z-20 bg-[#f5f7fa] -mx-4 -mt-2 px-4 py-2 sm:-mx-6 sm:px-6 flex flex-wrap items-center justify-between gap-3">
         <div className="flex gap-1 bg-slate-200/80 p-1 rounded-xl w-fit">
-          {(["daily", "bags"] as const).map(t => (
-            <button key={t} onClick={() => setDocTab(t)} className={`relative px-4 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${docTab === t ? "bg-white text-green-700 font-bold" : "text-slate-600 hover:text-slate-900"}`}>
-              {t === "daily" ? "Daily Feed" : "Opened Bags"}
+          {(["daily", "bags", "mismatch"] as const).map(t => (
+            <button
+              key={t}
+              onClick={() => setDocTab(t)}
+              className={`relative px-4 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
+                docTab === t ? "bg-white text-green-700 font-bold" : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              {t === "daily" ? "Daily Feed" : t === "bags" ? "Bags Open" : "Mismatch"}
             </button>
           ))}
         </div>
       </div>
-      <p className="text-xs text-slate-400 mt-1 mb-3">{docTab === "daily" ? "Daily feed records for the selected date." : "Bags opened and remaining feed for the selected date."}</p>
+      <p className="text-xs text-slate-400 mt-1 mb-3">
+        {docTab === "daily"
+          ? "Daily feed records for the selected date."
+          : docTab === "bags"
+          ? "Bags opened and remaining feed for the selected date."
+          : "Active fish stocks with missing bag opening records for the selected date."}
+      </p>
 
       {/* ── Daily Feed tab ── */}
       {docTab === "daily" && (
@@ -2210,7 +2129,7 @@ function FeedDocumentation({
         </>
       )}
 
-      {/* ── Opened Bags tab ── */}
+      {/* ── Bags Open tab ── */}
       {docTab === "bags" && (
         <>
           {/* Desktop Table View */}
@@ -2218,7 +2137,7 @@ function FeedDocumentation({
             <Card className="overflow-hidden">
               <div className="px-5 py-3 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <p className="text-xs font-bold uppercase tracking-wider text-slate-600">Opened Bags — {selDate}</p>
+                  <p className="text-xs font-bold uppercase tracking-wider text-slate-600">Bags Open — {selDate}</p>
                   <p className="text-[11px] text-slate-400">{filteredMergedBagRows.length} entries</p>
                 </div>
                 <div className="relative">
@@ -2227,13 +2146,13 @@ function FeedDocumentation({
                 </div>
               </div>
 
-              {/* Dismissible Highlighting Banner if navigated from reconciliation */}
+              {/* Dismissible Highlighting Banner if highlighted */}
               {bagsHighlight && (
                 <div className="mx-4 sm:mx-5 my-2.5 px-3.5 py-2.5 bg-orange-50/90 border border-orange-200 rounded-xl flex items-center justify-between text-xs text-orange-950 animate-in fade-in duration-200 shadow-2xs">
                   <div className="flex items-center gap-2">
                     <AlertCircle size={15} className="text-orange-600 shrink-0" />
                     <span>
-                      Showing discrepancy for <strong className="font-bold text-orange-950">{formatFishStock(bagsHighlight.stock)}</strong> ({bagsHighlight.size}). Update the highlighted cell below to reconcile.
+                      Showing discrepancy for <strong className="font-bold text-orange-950">{formatFishStock(bagsHighlight.stock)}</strong> ({bagsHighlight.size}). Update the highlighted cell below.
                     </span>
                   </div>
                   <button
@@ -2281,18 +2200,7 @@ function FeedDocumentation({
                       const isBagsColHighlighted = isHighlightedRow && (bagsHighlight?.col === "bags" || bagsHighlight?.col === "all" || !bagsHighlight?.col);
                       const isRemainColHighlighted = isHighlightedRow && (bagsHighlight?.col === "remaining" || bagsHighlight?.col === "all" || !bagsHighlight?.col);
 
-                      // Find reconciliation discrepancy for this stock & size
-                      const reconItem = reconRows.find(r =>
-                        normalizeFishStock(r.fishStock) === normalizeFishStock(row.fishStock) &&
-                        r.size === row.size &&
-                        (!row.brand || row.brand === "—" || !r.brand || r.brand === "—" || (typeof r.brand === "string" && typeof row.brand === "string" && r.brand.toLowerCase().trim() === row.brand.toLowerCase().trim()))
-                      ) || reconRows.find(r =>
-                        normalizeFishStock(r.fishStock) === normalizeFishStock(row.fishStock) &&
-                        r.size === row.size
-                      );
-
-                      const hasBagMismatch = Boolean(reconItem && reconItem.expectedBags !== row.bagsOpened);
-                      const hasRemainMismatch = Boolean(reconItem && Math.abs(reconItem.expectedRemaining - row.remainingKg) >= 0.1);
+                      const expData = getExpectedFeedData(selDate, row.fishStock, row.brand, row.size, row.bagsOpened);
 
                       return (
                         <tr
@@ -2312,16 +2220,16 @@ function FeedDocumentation({
                           {/* Pellet Size */}
                           <td className="px-4 py-3"><Bdg label={row.size} color="blue" /></td>
 
-                          {/* Bags Opened (with expected bags cleanly under it without boxed fields) */}
+                          {/* Bags Opened */}
                           <td className={`px-4 py-3 relative z-0 transition-all ${isBagsColHighlighted ? "bg-orange-50 ring-1 ring-orange-400 ring-inset rounded" : ""}`}>
                             <div className="font-bold text-slate-900 text-xs">
                               {row.bagsOpened > 0 ? `${row.bagsOpened} bag${row.bagsOpened !== 1 ? "s" : ""}` : <span className="text-slate-300">—</span>}
                             </div>
-                            {reconItem ? (
-                              <p className={`text-[11px] font-medium mt-0.5 leading-tight ${hasBagMismatch ? "text-amber-600 font-semibold" : "text-slate-400"}`}>
-                                Exp: {reconItem.expectedBags} bag{reconItem.expectedBags !== 1 ? "s" : ""}
+                            {expData.hasFed && (
+                              <p className="text-[11px] font-medium mt-0.5 leading-tight text-slate-400">
+                                Exp: {expData.expectedBags} bag{expData.expectedBags !== 1 ? "s" : ""}
                               </p>
-                            ) : null}
+                            )}
                           </td>
 
                           {/* Feed Deducted (kg) */}
@@ -2329,16 +2237,16 @@ function FeedDocumentation({
                             {row.totalKgOpened > 0 ? `${row.totalKgOpened} kg` : <span className="text-slate-300 text-xs font-normal">—</span>}
                           </td>
 
-                          {/* Leftover Feed (kg) (with expected leftover cleanly under it without boxed fields) */}
+                          {/* Leftover Feed (kg) */}
                           <td className={`px-4 py-3 relative z-0 transition-all ${isRemainColHighlighted ? "bg-amber-50 ring-1 ring-amber-400 ring-inset rounded" : ""}`}>
                             <div className="font-semibold text-xs">
                               {row.remainingKg > 0 ? <span className="text-slate-800 font-bold">{row.remainingKg} kg</span> : <span className="text-slate-300 text-xs">—</span>}
                             </div>
-                            {reconItem ? (
-                              <p className={`text-[11px] font-medium mt-0.5 leading-tight ${hasRemainMismatch ? "text-amber-600 font-semibold" : "text-slate-400"}`}>
-                                Exp: {reconItem.expectedRemaining} kg
+                            {expData.hasFed && (
+                              <p className="text-[11px] font-medium mt-0.5 leading-tight text-slate-400">
+                                Exp: {expData.expectedRemaining} kg
                               </p>
-                            ) : null}
+                            )}
                           </td>
 
                           {/* Edit Button */}
@@ -2366,7 +2274,7 @@ function FeedDocumentation({
 
           {/* Mobile Isolated Cards View */}
           <div className="md:hidden space-y-3">
-            {/* Dismissible Highlighting Banner if navigated from reconciliation */}
+            {/* Dismissible Highlighting Banner */}
             {bagsHighlight && (
               <div className="px-3.5 py-2.5 bg-orange-50 border border-orange-200 rounded-2xl flex items-center justify-between text-xs text-orange-950 shadow-xs">
                 <div className="flex items-center gap-2">
@@ -2408,17 +2316,7 @@ function FeedDocumentation({
                 const isBagsColHighlighted = isHighlightedRow && (bagsHighlight?.col === "bags" || bagsHighlight?.col === "all" || !bagsHighlight?.col);
                 const isRemainColHighlighted = isHighlightedRow && (bagsHighlight?.col === "remaining" || bagsHighlight?.col === "all" || !bagsHighlight?.col);
 
-                const reconItem = reconRows.find(r =>
-                  normalizeFishStock(r.fishStock) === normalizeFishStock(row.fishStock) &&
-                  r.size === row.size &&
-                  (!row.brand || row.brand === "—" || !r.brand || r.brand === "—" || (typeof r.brand === "string" && typeof row.brand === "string" && r.brand.toLowerCase().trim() === row.brand.toLowerCase().trim()))
-                ) || reconRows.find(r =>
-                  normalizeFishStock(r.fishStock) === normalizeFishStock(row.fishStock) &&
-                  r.size === row.size
-                );
-
-                const hasBagMismatch = Boolean(reconItem && reconItem.expectedBags !== row.bagsOpened);
-                const hasRemainMismatch = Boolean(reconItem && Math.abs(reconItem.expectedRemaining - row.remainingKg) >= 0.1);
+                const expData = getExpectedFeedData(selDate, row.fishStock, row.brand, row.size, row.bagsOpened);
                 const isMenuOpen = activeBagMenuId === `${row.fishStock}__${row.brand}__${row.size}`;
 
                 return (
@@ -2501,11 +2399,11 @@ function FeedDocumentation({
                         <span className="font-bold text-slate-900 text-xs">
                           {row.bagsOpened > 0 ? `${row.bagsOpened} bag${row.bagsOpened !== 1 ? "s" : ""}` : "—"}
                         </span>
-                        {reconItem ? (
-                          <p className={`text-[10px] font-medium mt-0.5 ${hasBagMismatch ? "text-amber-700 font-bold" : "text-slate-400"}`}>
-                            Exp: {reconItem.expectedBags}
+                        {expData.hasFed && (
+                          <p className="text-[10px] font-medium mt-0.5 text-slate-400">
+                            Exp: {expData.expectedBags}
                           </p>
-                        ) : null}
+                        )}
                       </div>
 
                       {/* Feed Deducted */}
@@ -2522,16 +2420,100 @@ function FeedDocumentation({
                         <span className="font-semibold text-slate-800 text-xs">
                           {row.remainingKg > 0 ? `${row.remainingKg} kg` : "—"}
                         </span>
-                        {reconItem ? (
-                          <p className={`text-[10px] font-medium mt-0.5 ${hasRemainMismatch ? "text-amber-700 font-bold" : "text-slate-400"}`}>
-                            Exp: {reconItem.expectedRemaining} kg
+                        {expData.hasFed && (
+                          <p className="text-[10px] font-medium mt-0.5 text-slate-400">
+                            Exp: {expData.expectedRemaining} kg
                           </p>
-                        ) : null}
+                        )}
                       </div>
                     </div>
                   </div>
                 );
               })
+            )}
+          </div>
+        </>
+      )}
+
+      {/* ── Mismatch tab ── */}
+      {docTab === "mismatch" && (
+        <>
+          {/* Desktop Table View */}
+          <div className="hidden md:block">
+            <Card className="overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-100 bg-slate-50">
+                      <th className="text-left px-5 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                        Fish Stock
+                      </th>
+                      <th className="text-left px-5 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                        Status
+                      </th>
+                      <th className="text-left px-5 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                        Expected Bags
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                    {mismatchRows.length === 0 ? (
+                      <tr>
+                        <td colSpan={3} className="text-center text-xs text-slate-400 py-8">
+                          No mismatches for {selDate}
+                        </td>
+                      </tr>
+                    ) : (
+                      mismatchRows.map(row => (
+                        <tr key={row.stockKey} className="hover:bg-slate-50/80 transition-colors">
+                          <td className="px-5 py-3.5">
+                            <p className="font-bold text-slate-800 text-xs">
+                              {getStockDisplayName(row.stockName, row.stockDate)}
+                            </p>
+                          </td>
+                          <td className="px-5 py-3.5">
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200/70">
+                              {row.status}
+                            </span>
+                          </td>
+                          <td className="px-5 py-3.5 font-bold text-slate-800 text-xs">
+                            {row.expectedBags} {row.expectedBags === 1 ? "bag" : "bags"}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          </div>
+
+          {/* Mobile Isolated Cards View */}
+          <div className="md:hidden space-y-3">
+            {mismatchRows.length === 0 ? (
+              <div className="py-8 text-center text-xs text-slate-400 bg-white border border-slate-200/80 rounded-2xl shadow-xs">
+                No mismatches for {selDate}
+              </div>
+            ) : (
+              mismatchRows.map(row => (
+                <div key={row.stockKey} className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-xs space-y-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <p className="text-[10px] uppercase font-bold text-slate-400 tracking-wider mb-0.5">Fish Stock</p>
+                      <h3 className="font-bold text-slate-900 text-sm">
+                        {getStockDisplayName(row.stockName, row.stockDate)}
+                      </h3>
+                    </div>
+                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200/70">
+                      {row.status}
+                    </span>
+                  </div>
+                  <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs">
+                    <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Expected Bags</span>
+                    <span className="font-bold text-slate-900 text-xs">{row.expectedBags} {row.expectedBags === 1 ? "bag" : "bags"}</span>
+                  </div>
+                </div>
+              ))
             )}
           </div>
         </>

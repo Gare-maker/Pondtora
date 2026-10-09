@@ -194,7 +194,10 @@ export function loadAllReferralRewards(): ReferralReward[] {
     const raw = localStorage.getItem(REFERRALS_STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) return parsed;
+      if (Array.isArray(parsed)) {
+        // Strictly filter out unverified/fabricated references
+        return parsed.filter(r => r && typeof r === "object" && isValidPaystackRef(r.paymentReference));
+      }
     }
   } catch {}
   return [];
@@ -394,7 +397,7 @@ export function processReferralCommission(params: {
   amount: number;
   reference: string;
 }): ReferralReward | null {
-  if (!params.payerEmail || params.amount <= 0 || !params.reference) return null;
+  if (!params.payerEmail || params.amount <= 0 || !params.reference || !isValidPaystackRef(params.reference)) return null;
 
   const cleanRef = params.reference.trim();
   const cleanPayerEmail = params.payerEmail.toLowerCase().trim();
@@ -994,13 +997,8 @@ export async function fetchLiveUserReferralStats(user: { id?: string; name?: str
         const existingIdx = allLocalUsers.findIndex(u => (u.email || "").toLowerCase().trim() === pEmail || (p.id && u.id === p.id));
         
         const hasPaid = Boolean(
-          p.paystack_reference ||
-          p.last_payment_date ||
-          p.hasPaid ||
-          p.subscription_status === "Paid" ||
-          p.subscription_status === "Active" ||
-          p.status === "Paid" ||
-          ((p.subscription_status === "Active" || p.status === "Active") && Boolean(p.subscription_expiry || p.paystack_reference || p.last_payment_date))
+          isValidPaystackRef(p.paystack_reference) ||
+          isValidPaystackRef(p.paystackReference)
         );
 
         const farmName = p.farm_name || p.farmName || (existingIdx >= 0 ? allLocalUsers[existingIdx].farmName : null) || p.name || "Primary Farm";
@@ -1040,58 +1038,6 @@ export async function fetchLiveUserReferralStats(user: { id?: string; name?: str
             createdAt: p.created_at ? String(p.created_at).slice(0, 10) : new Date().toISOString().slice(0, 10),
           });
           hasChanges = true;
-        }
-
-        // If the referred user has paid, ensure commission record exists in rewards
-        if (hasPaid) {
-          const currentRewards = loadAllReferralRewards();
-          const alreadyRecorded = currentRewards.some(
-            r => (r.referredUserEmail || "").toLowerCase().trim() === pEmail
-          );
-
-          if (!alreadyRecorded) {
-            const planPrice = Number(p.subscription_amount || p.subscriptionAmount) || getStandardPlanPrice(p.active_plan || p.activePlan || "Starter");
-            const commRate = 0.30; // 30% first payment
-            const commAmt = Math.round(planPrice * commRate);
-
-            const newReward: ReferralReward = {
-              id: "ref-rew-" + Math.random().toString(36).slice(2, 10),
-              referrerCode: cleanCode,
-              referrerEmail: user?.email || cleanCode,
-              referredUserId: p.id,
-              referredUserEmail: pEmail,
-              referredUserName: p.name || farmName || pEmail.split("@")[0],
-              paymentReference: p.paystack_reference || p.paystackReference || "LIVE-PAYMENT",
-              planName: p.active_plan || p.activePlan || "Starter Plan",
-              paymentAmount: planPrice,
-              paymentType: "first",
-              commissionRate: commRate,
-              commissionAmount: commAmt,
-              status: "Available",
-              createdAt: p.last_payment_date || p.lastPaymentDate || new Date().toISOString().slice(0, 10),
-            };
-
-            currentRewards.unshift(newReward);
-            saveAllReferralRewards(currentRewards);
-
-            // Persist to Supabase
-            try {
-              supabase.from("referral_rewards").insert({
-                referrer_code: cleanCode,
-                referrer_email: user?.email || cleanCode,
-                referred_user_id: p.id || null,
-                referred_user_email: pEmail,
-                referred_user_name: newReward.referredUserName,
-                payment_reference: newReward.paymentReference,
-                plan_name: newReward.planName,
-                payment_amount: planPrice,
-                payment_type: "first",
-                commission_rate: commRate,
-                commission_amount: commAmt,
-                status: "Available",
-              }).then(() => {}).catch(() => {});
-            } catch {}
-          }
         }
       });
     }

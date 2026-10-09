@@ -87,17 +87,164 @@ export function isValidPaystackRef(ref: any): boolean {
   const lower = cleaned.toLowerCase();
   if (
     lower === "live-confirmed" ||
+    lower === "live-payment" ||
     lower === "verified offline/admin" ||
     lower === "offline" ||
     lower === "admin" ||
     lower === "test" ||
     lower === "null" ||
     lower === "undefined" ||
-    lower === "none"
+    lower === "none" ||
+    lower === "mock" ||
+    lower === "pending" ||
+    lower === "unverified" ||
+    lower === "manual" ||
+    lower === "placeholder" ||
+    lower.startsWith("test-") ||
+    lower.startsWith("mock-")
   ) {
     return false;
   }
   return cleaned.length >= 6;
+}
+
+/**
+ * Resolves a complete, accurate UserProfile from Supabase user_profiles and staff_members.
+ * Self-heals missing user_profile rows from auth metadata if necessary.
+ */
+export async function resolveFullUserProfile(user: any): Promise<UserProfile> {
+  if (!user) throw new Error("No user provided");
+  const cleanEmail = (user.email || "").trim().toLowerCase();
+  const userId = user.id;
+
+  // 1. Query user_profiles table
+  let dbProf: any = null;
+  try {
+    const { data, error } = await supabase
+      .from("user_profiles")
+      .select("*")
+      .eq("id", userId)
+      .maybeSingle();
+    if (!error && data) {
+      dbProf = data;
+    }
+  } catch (err) {
+    console.warn("Error querying user_profiles:", err);
+  }
+
+  // 2. Query staff_members table to check if this user is a staff account
+  let staffRecord: any = null;
+  try {
+    const { data: staffRow, error: staffErr } = await supabase
+      .from("staff_members")
+      .select("id, name, role, permissions, farms, user_id, status")
+      .or(`staff_auth_id.eq.${userId},email.ilike.${cleanEmail}`)
+      .maybeSingle();
+    if (!staffErr && staffRow) {
+      staffRecord = staffRow;
+      if (staffRow.id) {
+        supabase
+          .from("staff_members")
+          .update({ staff_auth_id: userId, status: "Active" })
+          .eq("id", staffRow.id)
+          .then(() => {})
+          .catch(() => {});
+      }
+    }
+  } catch (err) {
+    console.warn("Error querying staff_members:", err);
+  }
+
+  const meta = user.user_metadata ?? {};
+  const isStaff = Boolean(staffRecord || meta.role === "staff" || meta.owner_id || dbProf?.role === "staff");
+
+  // 3. Self-heal user_profile if missing
+  if (!dbProf) {
+    const defaultName = meta.name || staffRecord?.name || cleanEmail.split("@")[0] || "User";
+    const defaultFarmName = meta.farm_name || "Primary Farm";
+    const defaultRole = isStaff ? "staff" : (cleanEmail === "edafejesugarec@gmail.com" ? "admin" : "owner");
+
+    try {
+      const { data: healed } = await supabase
+        .from("user_profiles")
+        .upsert({
+          id: userId,
+          name: defaultName,
+          farm_name: defaultFarmName,
+          city: meta.city || "Lagos",
+          state: meta.state || "Lagos",
+          country: meta.country || "Nigeria",
+          email: cleanEmail,
+          phone: meta.phone || "",
+          currency_symbol: meta.currency_symbol || "₦",
+          currency_code: meta.currency_code || "NGN",
+          active_plan: meta.active_plan || "Starter",
+          trial_start_date: meta.trial_start_date || new Date().toISOString(),
+          role: defaultRole,
+          status: "Active",
+          referred_by: meta.referred_by || meta.referredBy || null,
+          referral_code: meta.referral_code || meta.referralCode || null,
+          updated_at: new Date().toISOString(),
+        })
+        .select()
+        .maybeSingle();
+      if (healed) dbProf = healed;
+    } catch (healErr) {
+      console.warn("Self-heal error:", healErr);
+    }
+
+    if (!isStaff) {
+      try {
+        const { data: existingFarms } = await supabase.from("farms").select("id").eq("user_id", userId).limit(1);
+        if (!existingFarms || existingFarms.length === 0) {
+          await supabase.from("farms").insert({
+            user_id: userId,
+            name: defaultFarmName,
+            city: meta.city || "Lagos",
+            state: meta.state || "Lagos",
+            country: meta.country || "Nigeria",
+          });
+        }
+      } catch (farmErr) {
+        console.warn("Farm creation error:", farmErr);
+      }
+    }
+  }
+
+  const staffPerms: string[] = staffRecord?.permissions || meta.permissions || [];
+  const staffOwnerId: string = staffRecord?.user_id || meta.owner_id || "";
+  const staffRole: string = staffRecord?.role || meta.role || dbProf?.role || (isStaff ? "staff" : "owner");
+  const staffFarms: string[] = staffRecord?.farms || meta.farms || [];
+
+  const profile: UserProfile = {
+    id: userId,
+    name: dbProf?.name || meta.name || staffRecord?.name || cleanEmail.split("@")[0] || "User",
+    farmName: dbProf?.farm_name || meta.farm_name || "",
+    city: dbProf?.city || meta.city || "",
+    state: dbProf?.state || meta.state || "",
+    country: dbProf?.country || meta.country || "Nigeria",
+    email: cleanEmail,
+    phone: dbProf?.phone || meta.phone || "",
+    currencySymbol: dbProf?.currency_symbol || meta.currency_symbol || "₦",
+    currencyCode: dbProf?.currency_code || meta.currency_code || "NGN",
+    activePlan: dbProf?.active_plan || meta.active_plan || "Starter",
+    trialStartDate: dbProf?.trial_start_date || meta.trial_start_date,
+    role: staffRole,
+    permissions: staffPerms,
+    ownerId: staffOwnerId,
+    farms: staffFarms,
+    referralCode: dbProf?.referral_code || meta.referral_code || meta.referralCode,
+    referredBy: dbProf?.referred_by || meta.referred_by || meta.referredBy,
+    status: dbProf?.status || "Active",
+    freeAccess: dbProf?.free_access || meta.free_access,
+    paystackReference: dbProf?.paystack_reference,
+    subscriptionAmount: dbProf?.subscription_amount,
+    subscriptionExpiry: dbProf?.subscription_expiry,
+    subscriptionStart: dbProf?.subscription_start,
+    billingFrequency: dbProf?.billing_frequency || meta.plan_billing || "monthly",
+  };
+
+  return profile;
 }
 
 export function loadAllAdminUsers(): AdminUser[] {
@@ -1142,8 +1289,9 @@ export function syncUserProfileToAdmin(
     const resolvedFreeAccess = profileFreeAccess || Boolean(current.freeAccess);
     const hasPaid = Boolean(
       !resolvedFreeAccess &&
-      ((profile.paystackReference && profile.paystackReference.trim() !== "") ||
-       ((profile as any).paystack_reference && (profile as any).paystack_reference.trim() !== ""))
+      (isValidPaystackRef(profile.paystackReference) ||
+       isValidPaystackRef((profile as any).paystack_reference) ||
+       isValidPaystackRef(current.paystackReference))
     );
 
     let resolvedCustomAmount = profileCustomAmount !== null ? profileCustomAmount : (typeof current.subscriptionAmount === "number" ? current.subscriptionAmount : null);
@@ -1193,8 +1341,8 @@ export function syncUserProfileToAdmin(
   } else {
     const hasPaid = Boolean(
       !profileFreeAccess &&
-      ((profile.paystackReference && profile.paystackReference.trim() !== "") ||
-       ((profile as any).paystack_reference && (profile as any).paystack_reference.trim() !== ""))
+      (isValidPaystackRef(profile.paystackReference) ||
+       isValidPaystackRef((profile as any).paystack_reference))
     );
 
     const resolvedPlan = activePlan || profile.activePlan || "Starter";
@@ -1459,7 +1607,13 @@ export function getUserAdminOverride(
     billingFrequency: finalFreq,
     subscriptionStart: profile?.subscriptionStart || profile?.subscription_start || adminCachedUser?.subscriptionStart || null,
     subscriptionExpiry: profile?.subscriptionExpiry || profile?.subscription_expiry || adminCachedUser?.subscriptionExpiry || null,
-    hasPaid: Boolean(profile?.hasPaid || (profile as any)?.paystack_reference || (profile as any)?.paystackReference || adminCachedUser?.hasPaid || adminCachedUser?.paystackReference),
+    hasPaid: Boolean(
+      profile?.hasPaid ||
+      isValidPaystackRef((profile as any)?.paystack_reference) ||
+      isValidPaystackRef((profile as any)?.paystackReference) ||
+      adminCachedUser?.hasPaid ||
+      isValidPaystackRef(adminCachedUser?.paystackReference)
+    ),
     subscriptionStatus: adminCachedUser?.subscriptionStatus || profile?.subscriptionStatus || profile?.subscription_status || "Trial",
   };
 }
@@ -1548,14 +1702,12 @@ export function getFarmSubscriptionDetails(
     };
   }
 
-  // Real payment check: has the owner/user completed payment
+  // Real payment check: has the owner/user completed payment with valid reference
   const hasPaid = Boolean(
     override.hasPaid ||
     targetUser?.hasPaid ||
-    targetUser?.paystackReference ||
-    targetUser?.paystack_reference ||
-    targetUser?.lastPaymentDate ||
-    targetUser?.last_payment_date
+    isValidPaystackRef(targetUser?.paystackReference) ||
+    isValidPaystackRef(targetUser?.paystack_reference)
   );
 
   const expiryRaw =
@@ -1669,7 +1821,7 @@ export function recordSuccessfulPayment(params: {
   amount: number;
   reference: string;
 }): AdminUser | null {
-  if (!params?.email) return null;
+  if (!params?.email || !isValidPaystackRef(params?.reference)) return null;
 
   const cleanEmail = (params.email || "").trim().toLowerCase();
   if (!cleanEmail) return null;

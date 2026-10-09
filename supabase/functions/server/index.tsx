@@ -104,8 +104,8 @@ app.use(`${P}/*`, async (c, next) => {
   return next();
 });
 
-// ── Paystack Transaction Verification ─────────────────────────────────────────
-app.post(`${P}/paystack/verify`, async (c) => {
+// ── Paystack Transaction Verification & Webhook Handlers ───────────────────────
+async function handlePaystackVerify(c: any) {
   try {
     const body = await c.req.json().catch(() => ({}));
     const reference = (body.reference || "").trim();
@@ -127,7 +127,6 @@ app.post(`${P}/paystack/verify`, async (c) => {
     }
 
     if (!secretKey) {
-      // Fallback check if public key config exists
       const { data: cfgSetting } = await adminDb()
         .from("platform_settings")
         .select("value")
@@ -142,7 +141,7 @@ app.post(`${P}/paystack/verify`, async (c) => {
       return c.json({
         verified: false,
         status: "error",
-        message: "Paystack secret key is not configured on server. Please verify via Paystack dashboard.",
+        message: "Paystack secret key is not configured on server. Please configure in platform settings.",
       });
     }
 
@@ -174,14 +173,16 @@ app.post(`${P}/paystack/verify`, async (c) => {
     const isSuccess = tx.status === "success";
     const amountInNaira = typeof tx.amount === "number" ? tx.amount / 100 : 0;
     const payerEmail = (tx.customer?.email || "").toLowerCase().trim();
+    const currency = (tx.currency || "").toUpperCase();
 
-    if (!isSuccess) {
+    if (!isSuccess || currency !== "NGN") {
       return c.json({
         verified: false,
-        status: tx.status,
+        status: tx.status || "failed",
         amount: amountInNaira,
+        currency: tx.currency,
         reference: tx.reference || reference,
-        message: `Payment status is ${tx.status}. Subscription cannot be activated.`,
+        message: isSuccess ? "Currency mismatch." : `Payment status is ${tx.status}. Subscription cannot be activated.`,
       });
     }
 
@@ -263,6 +264,7 @@ app.post(`${P}/paystack/verify`, async (c) => {
       verified: true,
       status: "success",
       amount: amountInNaira,
+      currency: tx.currency || "NGN",
       reference: tx.reference || reference,
       planName,
       billingCycle,
@@ -277,10 +279,153 @@ app.post(`${P}/paystack/verify`, async (c) => {
       message: err?.message || "Failed to verify transaction.",
     }, 500);
   }
-});
+}
+
+async function handlePaystackWebhook(c: any) {
+  try {
+    const rawBody = await c.req.text();
+    const signature = c.req.header("x-paystack-signature") || "";
+
+    // 1. Resolve Paystack Secret Key
+    let secretKey = Deno.env.get("PAYSTACK_SECRET_KEY") || "";
+    if (!secretKey) {
+      const { data: setting } = await adminDb()
+        .from("platform_settings")
+        .select("value")
+        .eq("key", "paystack_secret_key")
+        .maybeSingle();
+      if (setting?.value) {
+        secretKey = typeof setting.value === "string" ? setting.value : (setting.value.secretKey || "");
+      }
+    }
+    if (!secretKey) {
+      const { data: cfgSetting } = await adminDb()
+        .from("platform_settings")
+        .select("value")
+        .eq("key", "paystack_config")
+        .maybeSingle();
+      if (cfgSetting?.value?.secretKey) secretKey = cfgSetting.value.secretKey;
+    }
+
+    // 2. Validate HMAC SHA-512 signature if secretKey and signature are present
+    if (secretKey && signature) {
+      try {
+        const enc = new TextEncoder();
+        const key = await crypto.subtle.importKey(
+          "raw",
+          enc.encode(secretKey.trim()),
+          { name: "HMAC", hash: "SHA-512" },
+          false,
+          ["sign", "verify"]
+        );
+        const signatureBytes = new Uint8Array(
+          signature.match(/.{1,2}/g)?.map((byte: string) => parseInt(byte, 16)) || []
+        );
+        const isValid = await crypto.subtle.verify(
+          "HMAC",
+          key,
+          signatureBytes,
+          enc.encode(rawBody)
+        );
+        if (!isValid) {
+          console.warn("Invalid Paystack webhook HMAC signature");
+          return c.json({ error: "Invalid signature" }, 401);
+        }
+      } catch (cryptoErr) {
+        console.warn("HMAC verification error:", cryptoErr);
+      }
+    }
+
+    // 3. Process event safely & idempotently
+    const event = JSON.parse(rawBody);
+    if (event.event === "charge.success" && event.data?.status === "success") {
+      const tx = event.data;
+      const reference = tx.reference;
+      const amountInNaira = typeof tx.amount === "number" ? tx.amount / 100 : 0;
+      const payerEmail = (tx.customer?.email || "").toLowerCase().trim();
+      const planName = tx.metadata?.plan_name || "Starter";
+      const billingCycle = tx.metadata?.billing_frequency === "yearly" ? "yearly" : "monthly";
+      const todayStr = new Date().toISOString().slice(0, 10);
+      const expDate = new Date();
+      expDate.setDate(expDate.getDate() + (billingCycle === "yearly" ? 365 : 30));
+      const expStr = expDate.toISOString().slice(0, 10);
+
+      if (payerEmail) {
+        const { data: payerProf } = await adminDb()
+          .from("user_profiles")
+          .select("id, name, email, farm_name, referred_by")
+          .ilike("email", payerEmail)
+          .maybeSingle();
+
+        if (payerProf) {
+          await adminDb().from("user_profiles").update({
+            active_plan: planName,
+            subscription_status: "Active",
+            subscription_amount: amountInNaira,
+            paystack_reference: reference,
+            last_payment_date: todayStr,
+            subscription_start: todayStr,
+            subscription_expiry: expStr,
+            billing_frequency: billingCycle,
+            trial_start_date: null,
+            status: "Active",
+            updated_at: new Date().toISOString(),
+          }).eq("id", payerProf.id);
+
+          const referrerCode = payerProf.referred_by;
+          if (referrerCode) {
+            const { data: existingReward } = await adminDb()
+              .from("referral_rewards")
+              .select("id")
+              .eq("payment_reference", reference)
+              .maybeSingle();
+
+            if (!existingReward) {
+              const { data: prevRewards } = await adminDb()
+                .from("referral_rewards")
+                .select("id")
+                .ilike("referred_user_email", payerEmail);
+
+              const isFirst = !prevRewards || prevRewards.length === 0;
+              const rate = isFirst ? 0.30 : 0.10;
+              const commission = Math.round(amountInNaira * rate);
+
+              await adminDb().from("referral_rewards").insert({
+                referrer_code: referrerCode.trim().toUpperCase(),
+                referrer_email: referrerCode.includes("@") ? referrerCode.toLowerCase() : referrerCode,
+                referred_user_id: payerProf.id,
+                referred_user_email: payerEmail,
+                referred_user_name: payerProf.name || payerEmail.split("@")[0],
+                payment_reference: reference,
+                plan_name: planName,
+                payment_amount: amountInNaira,
+                payment_type: isFirst ? "first" : "recurring",
+                commission_rate: rate,
+                commission_amount: commission,
+                status: "Available",
+              });
+            }
+          }
+        }
+      }
+    }
+
+    return c.json({ received: true });
+  } catch (err: any) {
+    console.error("Paystack webhook processing error:", err);
+    return c.json({ error: err?.message || "Webhook processing error" }, 500);
+  }
+}
+
+// Mount verify and webhook routes with and without prefix
+app.post(`${P}/paystack/verify`, handlePaystackVerify);
+app.post(`/paystack/verify`, handlePaystackVerify);
+app.post(`${P}/paystack/webhook`, handlePaystackWebhook);
+app.post(`/paystack/webhook`, handlePaystackWebhook);
 
 // ── Health ────────────────────────────────────────────────────────────────────
 app.get(`${P}/health`, (c) => c.json({ status: "ok", version: "2.1" }));
+app.get(`/health`, (c) => c.json({ status: "ok", version: "2.1" }));
 
 // ── Setup: returns DDL SQL for manual run (Admin only) ────────────────────────
 app.get(`${P}/setup`, async (c) => {
