@@ -85,9 +85,11 @@ export function isValidPaystackRef(ref: any): boolean {
   const cleaned = ref.trim();
   if (!cleaned) return false;
   const lower = cleaned.toLowerCase();
+  // Live admin/system verified payment markers are explicitly valid
+  if (lower === "live-confirmed" || lower === "live-payment") {
+    return true;
+  }
   if (
-    lower === "live-confirmed" ||
-    lower === "live-payment" ||
     lower === "verified offline/admin" ||
     lower === "offline" ||
     lower === "admin" ||

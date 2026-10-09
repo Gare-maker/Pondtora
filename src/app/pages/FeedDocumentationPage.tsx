@@ -259,12 +259,13 @@ function FeedDocumentation({
 
   /* Helper to check current available stock for a Brand + Pellet Size */
   const getStockAvailable = (brand: string, size: string, excludeBagLogId?: string) => {
-    const invItems = (inventory || []).filter(f => f && f.brand === brand && isSamePelletSize(f.size, size));
+    const brandTrim = (brand || "").toLowerCase().trim();
+    const invItems = (inventory || []).filter(f => f && (f.brand || "").toLowerCase().trim() === brandTrim && isSamePelletSize(f.size, size));
     const totalPurchasedKg = invItems.reduce((s, f) => s + (Number(f.totalKg) || (Number(f.bags) * (Number(f.weightPerBag) || 15))), 0);
     const totalPurchasedBags = invItems.reduce((s, f) => s + (Number(f.bags) || 0), 0);
     const weightPerBag = invItems[0]?.weightPerBag || 15;
 
-    const openedLogs = (bagLogs || []).filter(b => b && b.brand === brand && isSamePelletSize(b.size, size) && (excludeBagLogId ? b.id !== excludeBagLogId : true));
+    const openedLogs = (bagLogs || []).filter(b => b && (b.brand || "").toLowerCase().trim() === brandTrim && isSamePelletSize(b.size, size) && (excludeBagLogId ? b.id !== excludeBagLogId : true));
     const totalOpenedBags = openedLogs.reduce((s, b) => s + (Number(b.bagsOpened) || 0), 0);
     const totalOpenedKg = openedLogs.reduce((s, b) => s + (Number(b.totalKg) || (Number(b.bagsOpened) * (Number(b.kgPerBag) || weightPerBag))), 0);
 
@@ -286,21 +287,56 @@ function FeedDocumentation({
   /* Helper to check current available stock for a Pellet Size across ALL brands in inventory and feedings */
   const getPelletStock = (size: string, excludeRecordId?: string) => {
     if (!size) return { availableQty: 0, availableKg: 0, inStockBags: 0, totalPurchasedBags: 0, totalPurchasedKg: 0, totalFedKg: 0, exists: false };
-    const invItems = (inventory || []).filter(f => f && isSamePelletSize(f.size, size));
-    const totalPurchasedBags = invItems.reduce((s, f) => s + (Number(f.bags) || 0), 0);
-    const weightPerBag = invItems[0]?.weightPerBag || 15;
-    const totalPurchasedKg = invItems.reduce((s, f) => s + (Number(f.totalKg) || (Number(f.bags) * (Number(f.weightPerBag) || weightPerBag))), 0);
-    const exists = invItems.length > 0 && (totalPurchasedBags > 0 || totalPurchasedKg > 0);
+
+    // Group inventory by brand for this pellet size to mirror Feed Stock per-brand inventory calculation
+    const brandMap = new Map<string, { brand: string; purchasedBags: number; weightPerBag: number; totalKg: number }>();
+    (inventory || []).filter(f => f && isSamePelletSize(f.size, size)).forEach(f => {
+      const bKey = (f.brand || "").toLowerCase().trim();
+      const existing = brandMap.get(bKey);
+      const wpb = Number(f.weightPerBag) || 15;
+      const bags = Number(f.bags) || 0;
+      const kg = Number(f.totalKg) || (bags * wpb);
+      if (existing) {
+        existing.purchasedBags += bags;
+        existing.totalKg += kg;
+      } else {
+        brandMap.set(bKey, { brand: f.brand, purchasedBags: bags, weightPerBag: wpb, totalKg: kg });
+      }
+    });
+
+    let totalPurchasedBags = 0;
+    let totalPurchasedKg = 0;
+    let inStockBags = 0;
+    let inStockKg = 0;
+    const defaultWpb = brandMap.values().next().value?.weightPerBag || 15;
+
+    brandMap.forEach((grp, bKey) => {
+      totalPurchasedBags += grp.purchasedBags;
+      totalPurchasedKg += grp.totalKg;
+      const brandOpened = (bagLogs || [])
+        .filter(b => b && (b.brand || "").toLowerCase().trim() === bKey && isSamePelletSize(b.size, size))
+        .reduce((s, b) => s + (Number(b.bagsOpened) || 0), 0);
+      const bInStock = Math.max(0, grp.purchasedBags - brandOpened);
+      inStockBags += bInStock;
+      inStockKg += bInStock * (grp.weightPerBag || defaultWpb);
+    });
 
     const openedLogs = (bagLogs || []).filter(b => b && isSamePelletSize(b.size, size));
     const totalOpenedBags = openedLogs.reduce((s, b) => s + (Number(b.bagsOpened) || 0), 0);
-    const inStockBags = Math.max(0, totalPurchasedBags - totalOpenedBags);
+    // If brandMap is empty, fallback to simple difference
+    if (brandMap.size === 0) {
+      inStockBags = Math.max(0, totalPurchasedBags - totalOpenedBags);
+      inStockKg = inStockBags * defaultWpb;
+    }
+
+    const exists = brandMap.size > 0 && (totalPurchasedBags > 0 || totalPurchasedKg > 0);
+    const weightPerBag = defaultWpb;
 
     const relevantFeeding = (feedingRecords || []).filter(fr => fr && isSamePelletSize(fr.size, size) && (excludeRecordId ? fr.id !== excludeRecordId : true));
     const totalFedKg = relevantFeeding.reduce((s, fr) => s + (Number(fr.total) || ((Number(fr.morning) || 0) + (Number(fr.evening) || 0))), 0);
     const totalOpenedKg = openedLogs.reduce((s, b) => s + (Number(b.totalKg) || (Number(b.bagsOpened) * (Number(b.kgPerBag) || weightPerBag))), 0);
     const remainingOpenedKg = Math.max(0, totalOpenedKg - totalFedKg);
-    const availableKg = Math.max(0, (inStockBags * weightPerBag) + remainingOpenedKg);
+    const availableKg = Math.max(0, inStockKg + remainingOpenedKg);
 
     // Available pallet quantity dynamically reflects total available across all brands
     const availableQty = inStockBags;

@@ -26,7 +26,7 @@ function AuthLeftPanel() {
     "Generate reports and analytics",
   ];
   return (
-    <div className="hidden lg:flex flex-col justify-between h-full p-10 bg-slate-900 border-r border-slate-800 text-white relative overflow-hidden">
+    <div className="hidden lg:flex flex-col justify-between lg:h-screen lg:sticky lg:top-0 p-10 bg-slate-900 border-r border-slate-800 text-white relative overflow-hidden">
       <div className="absolute inset-0 opacity-10 pointer-events-none" style={{ backgroundImage: "radial-gradient(circle at 20% 80%, white 1px, transparent 1px),radial-gradient(circle at 80% 20%, white 1px, transparent 1px)", backgroundSize: "40px 40px" }} />
       <div className="absolute bottom-0 right-0 w-64 h-64 bg-emerald-500/5 rounded-full -translate-x-16 translate-y-16 pointer-events-none" />
       <div className="flex items-center gap-3 relative z-10">
@@ -528,11 +528,14 @@ function AuthScreen({
       }
     } catch (err: any) {
       const msg = err?.message ?? "Registration failed.";
+      let userMsg = msg;
       if (msg.includes("already registered") || msg.includes("already exists") || msg.includes("email_exists")) {
-        setCErr("An account with this email already exists. Please sign in.");
-      } else {
-        setCErr(msg);
+        userMsg = "An account with this email already exists. Please sign in.";
+      } else if (msg.toLowerCase().includes("error sending confirmation email") || msg.toLowerCase().includes("smtp")) {
+        userMsg = "Unable to send confirmation email at this time. Please try again or contact support.";
       }
+      setCErr(userMsg);
+      toast.error(userMsg);
     } finally {
       setCLoading(false);
     }
@@ -545,8 +548,10 @@ function AuthScreen({
     setFLoading(true);
     try {
       await auth.resetPassword(fEmail.trim().toLowerCase());
-    } catch {
-      // Intentionally silent — we always show "check your inbox" to avoid email enumeration
+      toast.success("Password reset link sent! Check your inbox.");
+    } catch (err: any) {
+      console.warn("Forgot password error:", err);
+      toast.error(err?.message || "Failed to send reset link. Please try again.");
     } finally {
       setFLoading(false);
       setFSent(true);
@@ -684,9 +689,9 @@ function AuthScreen({
   const isPlanStep = view === "create" && createStep === "plan" && !signupSent;
 
   return (
-    <div className={`min-h-screen ${isPlanStep ? "flex flex-col items-center justify-start bg-[#f8fafc] py-8 px-4 sm:px-8" : "grid lg:grid-cols-2 bg-white"}`}>
+    <div className={`min-h-screen ${isPlanStep ? "flex flex-col items-center justify-start bg-[#f8fafc] py-8 px-4 sm:px-8 overflow-y-auto" : "grid lg:grid-cols-2 bg-white"}`}>
       {!isPlanStep && <AuthLeftPanel />}
-      <div className={`flex flex-col justify-center overflow-y-auto ${isPlanStep ? "w-full max-w-5xl mx-auto" : `px-6 py-10 sm:px-10 ${isCreate ? "" : "min-h-screen"}`}`}>
+      <div className={`flex flex-col justify-start overflow-y-auto ${isPlanStep ? "w-full max-w-5xl mx-auto" : `px-6 py-8 sm:py-12 sm:px-10 lg:h-screen lg:overflow-y-auto ${isCreate ? "" : "min-h-screen"}`}`}>
         {!isPlanStep && !signupSent && (
           <div className="flex items-center gap-3 mb-8 lg:hidden">
             <img src={pondtoraLogo} alt="Pondtora" className="h-9 w-auto object-contain shrink-0" />
@@ -907,6 +912,15 @@ function AuthScreen({
                   </span>
                 </div>
               </div>
+
+              {cErr && (
+                <div className="max-w-xl mx-auto w-full my-2">
+                  <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-xl px-4 py-3 flex items-center gap-2.5 shadow-xs">
+                    <AlertCircle size={16} className="shrink-0" />
+                    <span>{cErr}</span>
+                  </p>
+                </div>
+              )}
 
               {/* Tab switcher */}
               <div className="flex gap-1 bg-slate-100 p-1 rounded-xl w-fit mx-auto border border-slate-200 mt-2">
@@ -1189,11 +1203,27 @@ function AuthScreen({
               </div>
 
               <div className="pt-2 flex flex-col items-center gap-2">
+                <a
+                  href="mailto:"
+                  className="w-full py-2.5 bg-green-600 hover:bg-green-700 text-white text-xs sm:text-sm font-bold rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer shadow-sm hover:shadow-md"
+                >
+                  <Mail size={15} />
+                  <span>Open Email App</span>
+                </a>
+                <div className="flex items-center justify-center gap-2.5 text-[11px] text-slate-500 pt-0.5">
+                  <span>Webmail:</span>
+                  <a href="https://mail.google.com" target="_blank" rel="noopener noreferrer" className="text-emerald-700 hover:underline font-semibold">Gmail</a>
+                  <span>·</span>
+                  <a href="https://outlook.live.com" target="_blank" rel="noopener noreferrer" className="text-emerald-700 hover:underline font-semibold">Outlook</a>
+                  <span>·</span>
+                  <a href="https://mail.yahoo.com" target="_blank" rel="noopener noreferrer" className="text-emerald-700 hover:underline font-semibold">Yahoo</a>
+                </div>
+
                 <button
                   type="button"
                   disabled={resendingEmail || resendCooldown > 0}
                   onClick={() => handleResendConfirmation(cEmail.trim().toLowerCase())}
-                  className="text-xs text-green-700 hover:text-green-800 font-semibold underline disabled:opacity-50 disabled:no-underline cursor-pointer"
+                  className="text-xs text-green-700 hover:text-green-800 font-semibold underline disabled:opacity-50 disabled:no-underline cursor-pointer mt-1"
                 >
                   {resendingEmail ? (
                     "Resending email..."
@@ -1211,7 +1241,7 @@ function AuthScreen({
               <button
                 type="button"
                 onClick={() => { setSignupSent(false); setCreateStep("details"); setView("login"); }}
-                className="w-full py-2.5 bg-green-600 hover:bg-green-700 text-white text-sm font-bold rounded-lg transition-colors"
+                className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-bold rounded-lg transition-colors"
               >
                 Back to Sign In
               </button>
@@ -1241,14 +1271,20 @@ function AuthScreen({
                 </div>
                 <div className="space-y-2 pt-1">
                   <a
-                    href="https://mail.google.com"
-                    target="_blank"
-                    rel="noopener noreferrer"
+                    href="mailto:"
                     className="w-full py-2.5 bg-green-600 hover:bg-green-700 text-white text-xs sm:text-sm font-bold rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer shadow-sm hover:shadow-md"
                   >
-                    <span>Open Gmail</span>
-                    <ExternalLink size={14} />
+                    <Mail size={15} />
+                    <span>Open Email App</span>
                   </a>
+                  <div className="flex items-center justify-center gap-2.5 text-[11px] text-slate-500 pt-0.5">
+                    <span>Webmail:</span>
+                    <a href="https://mail.google.com" target="_blank" rel="noopener noreferrer" className="text-emerald-700 hover:underline font-semibold">Gmail</a>
+                    <span>·</span>
+                    <a href="https://outlook.live.com" target="_blank" rel="noopener noreferrer" className="text-emerald-700 hover:underline font-semibold">Outlook</a>
+                    <span>·</span>
+                    <a href="https://mail.yahoo.com" target="_blank" rel="noopener noreferrer" className="text-emerald-700 hover:underline font-semibold">Yahoo</a>
+                  </div>
                   <button type="button" onClick={() => setView("login")} className="w-full text-center text-xs text-slate-400 hover:text-slate-600 pt-1">Back to sign in</button>
                 </div>
               </div>

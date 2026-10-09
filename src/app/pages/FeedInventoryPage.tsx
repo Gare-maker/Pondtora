@@ -41,7 +41,15 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
   const filtInv=sortedInv.filter(f=>(fBrand==="All"||f.brand===fBrand)&&(fSize==="All"||f.size===fSize)&&(fMonth==="All"||f.month===fMonth));
   const totalBagsPurchased=inventory.reduce((s,f)=>s+f.bags,0);
   const totalBagsOpened=bagLogs.reduce((s,b)=>s+(Number(b.bagsOpened)||0),0);
-  const totalBagsInStock=Math.max(0,totalBagsPurchased-totalBagsOpened);
+  const totalBagsInStock=Object.values(inventory.reduce<Record<string,{brand:string;size:string;bags:number}>>((acc,f)=>{
+    const k=`${(f.brand||"").toLowerCase().trim()}|${(f.size||"").toLowerCase().trim()}`;
+    if(!acc[k])acc[k]={brand:f.brand,size:f.size,bags:0};
+    acc[k].bags+=Number(f.bags)||0;
+    return acc;
+  },{})).reduce((s,row)=>{
+    const opened=bagLogs.filter(b=>(b.brand||"").toLowerCase().trim()===(row.brand||"").toLowerCase().trim()&&(b.size||"").toLowerCase().trim()===(row.size||"").toLowerCase().trim()).reduce((sb,b)=>sb+(Number(b.bagsOpened)||0),0);
+    return s+Math.max(0,row.bags-opened);
+  },0);
   const totalKgInStock=Object.values(inventory.reduce<Record<string,{brand:string;size:string;wpb:number;bags:number}>>((acc,f)=>{
     const k=`${f.brand}|${f.size}|${f.weightPerBag}`;
     if(!acc[k])acc[k]={brand:f.brand,size:f.size,wpb:f.weightPerBag||15,bags:0};

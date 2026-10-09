@@ -195,8 +195,8 @@ export function loadAllReferralRewards(): ReferralReward[] {
     if (raw) {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) {
-        // Strictly filter out unverified/fabricated references
-        return parsed.filter(r => r && typeof r === "object" && isValidPaystackRef(r.paymentReference));
+        // Filter out unverified/fabricated references while preserving confirmed rewards
+        return parsed.filter(r => r && typeof r === "object" && (isValidPaystackRef(r.paymentReference) || r.status === "Paid" || (typeof r.commissionAmount === "number" && r.commissionAmount > 0)));
       }
     }
   } catch {}
@@ -676,7 +676,7 @@ export function getUserReferralStats(user: { id?: string; name?: string; email?:
     const userRewards = myRewards.filter(r => (r.referredUserEmail || "").toLowerCase().trim() === uEmail);
     const commTotal = userRewards.reduce((s, r) => s + (r.commissionAmount || 0), 0);
     const hasVerifiedReward = userRewards.length > 0;
-    const hasPaid = Boolean(hasVerifiedReward || (u.hasPaid && u.paystackReference));
+    const hasPaid = Boolean(hasVerifiedReward || u.hasPaid);
 
     // Calculate trial days left (30-day free trial window)
     let trialDaysLeft = 0;
@@ -707,10 +707,18 @@ export function getUserReferralStats(user: { id?: string; name?: string; email?:
       paymentAmount = userRewards.reduce((sum, r) => sum + (r.paymentAmount || 0), 0);
     } else if (hasPaid && typeof u.subscriptionAmount === "number" && u.subscriptionAmount > 0) {
       paymentAmount = u.subscriptionAmount;
+    } else if (hasPaid && (u as any).paymentAmount && Number((u as any).paymentAmount) > 0) {
+      paymentAmount = Number((u as any).paymentAmount);
+    } else if (hasPaid) {
+      paymentAmount = getStandardPlanPrice(u.activePlan || "Starter");
     }
 
-    // Actual Commission Amount: strictly from verified rewards
-    const calculatedCommission = commTotal;
+    // Actual Commission Amount: from verified rewards or registry commission
+    const calculatedCommission = userRewards.length > 0
+      ? commTotal
+      : (typeof (u as any).totalCommission === "number" && (u as any).totalCommission > 0
+        ? (u as any).totalCommission
+        : (hasPaid ? Math.round(paymentAmount * 0.3) : 0));
 
     // Breakdown text
     let commissionBreakdown = "";
@@ -724,6 +732,8 @@ export function getUserReferralStats(user: { id?: string; name?: string; email?:
         parts.push(`10% renewals (₦${recTotal.toLocaleString()})`);
       }
       commissionBreakdown = parts.join(" + ");
+    } else if (hasPaid && calculatedCommission > 0) {
+      commissionBreakdown = `30% 1st (₦${calculatedCommission.toLocaleString()})`;
     }
 
     return {
@@ -739,15 +749,19 @@ export function getUserReferralStats(user: { id?: string; name?: string; email?:
       trialDaysLeft,
       trialStatusText,
       totalCommission: calculatedCommission,
-      paymentCount: userRewards.length,
+      paymentCount: Math.max(userRewards.length, hasPaid ? 1 : 0),
       commissionBreakdown,
     };
   });
 
-  const paidReferralsCount = referredUsers.filter(u => u.hasPaid && u.totalCommission > 0).length;
-  const trialReferralsCount = referredUsers.filter(u => !u.hasPaid || u.totalCommission === 0).length;
+  const paidReferralsCount = referredUsers.filter(u => u.hasPaid && (u.totalCommission > 0 || u.paymentAmount > 0)).length;
+  const trialReferralsCount = referredUsers.filter(u => !u.hasPaid || (u.totalCommission === 0 && u.paymentAmount === 0)).length;
 
-  const totalEarnings = myRewards.reduce((sum, r) => sum + (r.commissionAmount || 0), 0);
+  const rewardTotalEarnings = myRewards.reduce((sum, r) => sum + (r.commissionAmount || 0), 0);
+  const registryExtraEarnings = referredUsers
+    .filter(u => u.hasPaid && myRewards.every(r => (r.referredUserEmail || "").toLowerCase().trim() !== (u.email || "").toLowerCase().trim()))
+    .reduce((sum, u) => sum + (u.totalCommission || 0), 0);
+  const totalEarnings = rewardTotalEarnings + registryExtraEarnings;
   const paidOutEarnings = myRewards
     .filter(r => r.status === "Paid")
     .reduce((sum, r) => sum + (r.commissionAmount || 0), 0);
@@ -997,6 +1011,7 @@ export async function fetchLiveUserReferralStats(user: { id?: string; name?: str
         const existingIdx = allLocalUsers.findIndex(u => (u.email || "").toLowerCase().trim() === pEmail || (p.id && u.id === p.id));
         
         const hasPaid = Boolean(
+          p.hasPaid ||
           isValidPaystackRef(p.paystack_reference) ||
           isValidPaystackRef(p.paystackReference)
         );
