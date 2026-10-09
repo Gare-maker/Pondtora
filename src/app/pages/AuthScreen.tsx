@@ -290,7 +290,13 @@ function AuthScreen({
       setResendCooldown(60);
       toast.success("Confirmation email resent. Please check your inbox.");
     } catch (e: any) {
-      toast.error(e?.message || "Failed to resend confirmation email.");
+      const raw = e?.msg || e?.message || "";
+      const str = typeof raw === "string" ? raw.trim() : "";
+      if (str.toLowerCase().includes("email") || str.toLowerCase().includes("smtp") || str === "{}" || e?.status === 500) {
+        toast.error("Unable to resend confirmation email. Your project's email provider encountered an error.");
+      } else {
+        toast.error(str || "Failed to resend confirmation email.");
+      }
     } finally {
       setResendingEmail(false);
     }
@@ -527,12 +533,25 @@ function AuthScreen({
         setSignupSent(true);
       }
     } catch (err: any) {
-      const msg = err?.message ?? "Registration failed.";
-      let userMsg = msg;
-      if (msg.includes("already registered") || msg.includes("already exists") || msg.includes("email_exists")) {
+      console.error("Signup error:", err);
+      const raw = err?.msg || err?.message || err?.error_description || (typeof err === "string" ? err : "");
+      const str = typeof raw === "string" ? raw.trim() : "";
+      let userMsg = "Registration failed. Please try again.";
+
+      if (str.includes("already registered") || str.includes("already exists") || str.includes("email_exists") || err?.code === "user_already_exists") {
         userMsg = "An account with this email already exists. Please sign in.";
-      } else if (msg.toLowerCase().includes("error sending confirmation email") || msg.toLowerCase().includes("smtp")) {
-        userMsg = "Unable to send confirmation email at this time. Please try again or contact support.";
+      } else if (
+        str.toLowerCase().includes("confirmation email") ||
+        str.toLowerCase().includes("smtp") ||
+        str.toLowerCase().includes("error sending") ||
+        str === "{}" ||
+        str === "[]" ||
+        err?.status === 500 ||
+        err?.code === "unexpected_failure"
+      ) {
+        userMsg = "Unable to send confirmation email. Your Supabase project's email provider or SMTP configuration encountered an error. Please check your Supabase SMTP settings or enable Auto-Confirm in the Supabase Dashboard.";
+      } else if (str && str !== "{}" && str !== "[object Object]") {
+        userMsg = str;
       }
       setCErr(userMsg);
       toast.error(userMsg);
@@ -551,7 +570,13 @@ function AuthScreen({
       toast.success("Password reset link sent! Check your inbox.");
     } catch (err: any) {
       console.warn("Forgot password error:", err);
-      toast.error(err?.message || "Failed to send reset link. Please try again.");
+      const raw = err?.msg || err?.message || err?.error_description || "";
+      const str = typeof raw === "string" ? raw.trim() : "";
+      if (str.toLowerCase().includes("email") || str.toLowerCase().includes("smtp") || str === "{}" || err?.status === 500) {
+        toast.error("Unable to send reset email. Your project's email provider or SMTP configuration encountered an error.");
+      } else {
+        toast.error(str || "Failed to send reset link. Please try again.");
+      }
     } finally {
       setFLoading(false);
       setFSent(true);
@@ -691,7 +716,7 @@ function AuthScreen({
   return (
     <div className={`min-h-screen ${isPlanStep ? "flex flex-col items-center justify-start bg-[#f8fafc] py-8 px-4 sm:px-8 overflow-y-auto" : "grid lg:grid-cols-2 bg-white"}`}>
       {!isPlanStep && <AuthLeftPanel />}
-      <div className={`flex flex-col justify-start overflow-y-auto ${isPlanStep ? "w-full max-w-5xl mx-auto" : `px-6 py-8 sm:py-12 sm:px-10 lg:h-screen lg:overflow-y-auto ${isCreate ? "" : "min-h-screen"}`}`}>
+      <div className={`flex flex-col justify-start overflow-y-auto ${isPlanStep ? "w-full max-w-5xl mx-auto" : "px-6 py-8 sm:py-12 sm:px-10 lg:h-screen lg:overflow-y-auto min-h-screen"}`}>
         {!isPlanStep && !signupSent && (
           <div className="flex items-center gap-3 mb-8 lg:hidden">
             <img src={pondtoraLogo} alt="Pondtora" className="h-9 w-auto object-contain shrink-0" />
@@ -701,7 +726,7 @@ function AuthScreen({
             </div>
           </div>
         )}
-        <div className={`${isPlanStep ? "w-full" : "max-w-sm"} w-full mx-auto transition-all`}>
+        <div className={`${isPlanStep ? "w-full my-auto" : "max-w-sm my-auto"} w-full mx-auto transition-all`}>
           {!isPlanStep && !signupSent && (
             <>
               <h2 className="text-2xl font-extrabold text-slate-900 font-['Barlow_Condensed',sans-serif] mb-1">
@@ -1173,12 +1198,6 @@ function AuthScreen({
                   })
                 )}
               </div>
-
-              {cErr && (
-                <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2 flex items-center gap-2 mt-4">
-                  <AlertCircle size={13} />{cErr}
-                </p>
-              )}
 
               <p className="text-center text-xs text-slate-400 pt-4">
                 You will not be charged today. No credit card required. Cancel or change plan anytime.
