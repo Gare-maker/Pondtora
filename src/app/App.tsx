@@ -8304,7 +8304,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   const userCountry=userProfile?.country??"Nigeria";
   const cvt=(n:number)=>convertNGN(n,userCountry);
   return(
-    <div className="flex h-screen h-[100dvh] bg-white text-slate-900 overflow-hidden" style={{fontFamily:"'Barlow',sans-serif"}}>
+    <div className="fixed inset-0 w-full h-full flex bg-white text-slate-900 overflow-hidden" style={{fontFamily:"'Barlow',sans-serif"}}>
       <Toaster position="top-right" richColors duration={2500} visibleToasts={1} closeButton/>
       {/* ── Database Setup Wizard ── */}
       {showSetup&&(setupSql||setupRunning)&&(

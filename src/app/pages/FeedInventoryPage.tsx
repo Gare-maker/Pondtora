@@ -574,12 +574,12 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
         </div>
       )}
       {tab==="purchases"&&(
-        <Card>
-          <div className="px-5 py-3 border-b border-slate-100 flex flex-wrap items-center justify-between gap-2">
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-2 bg-white p-3.5 sm:p-4 rounded-xl border border-slate-200">
             <div className="flex flex-wrap items-center gap-2">
-              <p className="text-xs font-bold uppercase tracking-wider text-slate-600">Feed Purchase History</p>
+              <p className="text-xs font-bold uppercase tracking-wider text-slate-700">Feed Purchase History</p>
               <div className="flex items-center gap-1.5">
-                <span className="text-xs text-slate-400">Date (Month/Year):</span>
+                <span className="text-xs text-slate-400">Date:</span>
                 <input
                   type="month"
                   value={pMonthFilter}
@@ -612,77 +612,93 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
               </div>
             </div>
           </div>
-          {/* Desktop Table View */}
-          <div className="hidden md:block overflow-x-auto"><table className="w-full text-sm min-w-[750px]">
-            <thead><tr className="border-b border-slate-100 bg-slate-50">
-              <th className="px-4 py-3 text-[11px] text-slate-400 w-10 sticky left-0 z-20 bg-slate-50">#</th>
-              <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider sticky left-10 z-20 bg-slate-50 border-r border-slate-200 whitespace-nowrap">Purchased</th>
-              <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider">Brand</th>
-              <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider">Size</th>
-              <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider">Bags</th>
-              <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider">Wt/Bag</th>
-              <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider">Total Kg</th>
-              <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider">Cost/Bag</th>
-              <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider">Total Value</th>
-              <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider">Supplier</th>
-              <th className="px-4 py-3 w-8"/>
-            </tr></thead>
-            <tbody className="divide-y divide-slate-50">
-              {filtPurchases.length===0&&<tr><td colSpan={11} className="text-center text-xs text-slate-400 py-8">No purchases recorded yet</td></tr>}
-              {pagedPurchases.map((row,i)=>(
-                <tr key={row.id} className="hover:bg-slate-50 transition-colors">
-                  <td className="px-4 py-3.5 text-slate-300 text-xs font-mono text-center sticky left-0 z-10 bg-white">{i+1}</td>
-                  <td className="px-4 py-3.5 text-slate-500 whitespace-nowrap sticky left-10 z-10 bg-white border-r border-slate-100">{row.purchaseDate}</td>
-                  <td className="px-4 py-3.5 font-semibold text-slate-900">{row.brand}</td>
-                  <td className="px-4 py-3.5"><Bdg label={row.size} color="blue"/></td>
-                  <td className="px-4 py-3.5 font-bold text-slate-900">{row.bags}</td>
-                  <td className="px-4 py-3.5 text-slate-500">{row.weightPerBag}kg</td>
-                  <td className="px-4 py-3.5 text-slate-600">{row.totalKg}kg</td>
-                  <td className="px-4 py-3.5 text-slate-500">{fmt(row.costPerBag,cs)}</td>
-                  <td className="px-4 py-3.5 font-bold text-green-700 font-['Barlow_Condensed',sans-serif]">{fmt(row.bags*row.costPerBag,cs)}</td>
-                  <td className="px-4 py-3.5 text-slate-700 text-xs">
-                    {row.supplier || row.supplierPhone ? (
-                      <div>
-                        {row.supplier && <span className="font-semibold text-slate-900 block">{row.supplier}</span>}
-                        {row.supplierPhone && (
-                          <span className="text-[11px] text-slate-500 font-mono flex items-center gap-1 mt-0.5">
-                            <Phone size={10} className="text-slate-400 shrink-0" />
-                            {row.supplierPhone}
-                          </span>
-                        )}
-                      </div>
-                    ) : (
-                      <span className="text-slate-400">—</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3.5 whitespace-nowrap">
-                    <div className="flex items-center gap-1">
-                      {canEdit&&(isPurchaseEditable(row.purchaseDate)?<button onClick={()=>setEditPurchase({...row})} className="p-1.5 rounded-lg text-slate-300 hover:text-green-600 hover:bg-green-50 transition-colors" title="Edit"><Pencil size={13}/></button>:<button onClick={()=>alert("This record can only be edited by an Administrator or Manager after 24 hours.")} className="p-1.5 rounded-lg text-slate-200 cursor-not-allowed" title="Locked after 24 hours"><Lock size={13}/></button>)}
-                      {canDelete&&<button onClick={()=>{if(confirm(`Are you sure you want to delete this purchase record (${row.brand} ${row.size})?`))onDelete(row.id);}} className="p-1.5 rounded-lg text-slate-300 hover:text-red-600 hover:bg-red-50 transition-colors" title="Delete purchase"><Trash2 size={13}/></button>}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-            {filtPurchases.length>0&&(
-              <tfoot><tr className="bg-slate-50 border-t-2 border-slate-200">
-                <td colSpan={8} className="px-4 py-3 text-right text-xs font-bold text-slate-500 uppercase tracking-wider">Total Spend</td>
-                <td className="px-4 py-3 font-bold text-green-700 font-['Barlow_Condensed',sans-serif]">{fmt(filtPurchases.reduce((s,f)=>s+f.bags*f.costPerBag,0),cs)}</td>
-                <td colSpan={2}/>
-              </tr></tfoot>
-            )}
-          </table></div>
 
-          {/* Mobile Individual Cards List */}
-          <div className="md:hidden p-3 space-y-3">
+          {/* Desktop Table View */}
+          <Card className="hidden md:block overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm min-w-[750px]">
+                <thead>
+                  <tr className="border-b border-slate-100 bg-slate-50">
+                    <th className="px-4 py-3 text-[11px] text-slate-400 w-10 sticky left-0 z-20 bg-slate-50">#</th>
+                    <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider sticky left-10 z-20 bg-slate-50 border-r border-slate-200 whitespace-nowrap">Purchased</th>
+                    <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider">Brand</th>
+                    <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider">Size</th>
+                    <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider">Bags</th>
+                    <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider">Wt/Bag</th>
+                    <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider">Total Kg</th>
+                    <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider">Cost/Bag</th>
+                    <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider">Total Value</th>
+                    <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider">Supplier</th>
+                    <th className="px-4 py-3 w-8"/>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                  {filtPurchases.length===0&&<tr><td colSpan={11} className="text-center text-xs text-slate-400 py-8">No purchases recorded yet</td></tr>}
+                  {pagedPurchases.map((row,i)=>(
+                    <tr key={row.id} className="hover:bg-slate-50 transition-colors">
+                      <td className="px-4 py-3.5 text-slate-300 text-xs font-mono text-center sticky left-0 z-10 bg-white">{i+1}</td>
+                      <td className="px-4 py-3.5 text-slate-500 whitespace-nowrap sticky left-10 z-10 bg-white border-r border-slate-100">{row.purchaseDate}</td>
+                      <td className="px-4 py-3.5 font-semibold text-slate-900">{row.brand}</td>
+                      <td className="px-4 py-3.5"><Bdg label={row.size} color="blue"/></td>
+                      <td className="px-4 py-3.5 font-bold text-slate-900">{row.bags}</td>
+                      <td className="px-4 py-3.5 text-slate-500">{row.weightPerBag}kg</td>
+                      <td className="px-4 py-3.5 text-slate-600">{row.totalKg}kg</td>
+                      <td className="px-4 py-3.5 text-slate-500">{fmt(row.costPerBag,cs)}</td>
+                      <td className="px-4 py-3.5 font-bold text-green-700 font-['Barlow_Condensed',sans-serif]">{fmt(row.bags*row.costPerBag,cs)}</td>
+                      <td className="px-4 py-3.5 text-slate-700 text-xs">
+                        {row.supplier || row.supplierPhone ? (
+                          <div>
+                            {row.supplier && <span className="font-semibold text-slate-900 block">{row.supplier}</span>}
+                            {row.supplierPhone && (
+                              <span className="text-[11px] text-slate-500 font-mono flex items-center gap-1 mt-0.5">
+                                <Phone size={10} className="text-slate-400 shrink-0" />
+                                {row.supplierPhone}
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-slate-400">—</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3.5 whitespace-nowrap">
+                        <div className="flex items-center gap-1">
+                          {canEdit&&(isPurchaseEditable(row.purchaseDate)?<button onClick={()=>setEditPurchase({...row})} className="p-1.5 rounded-lg text-slate-300 hover:text-green-600 hover:bg-green-50 transition-colors" title="Edit"><Pencil size={13}/></button>:<button onClick={()=>alert("This record can only be edited by an Administrator or Manager after 24 hours.")} className="p-1.5 rounded-lg text-slate-200 cursor-not-allowed" title="Locked after 24 hours"><Lock size={13}/></button>)}
+                          {canDelete&&<button onClick={()=>{if(confirm(`Are you sure you want to delete this purchase record (${row.brand} ${row.size})?`))onDelete(row.id);}} className="p-1.5 rounded-lg text-slate-300 hover:text-red-600 hover:bg-red-50 transition-colors" title="Delete purchase"><Trash2 size={13}/></button>}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                {filtPurchases.length>0&&(
+                  <tfoot>
+                    <tr className="bg-slate-50 border-t-2 border-slate-200">
+                      <td colSpan={8} className="px-4 py-3 text-right text-xs font-bold text-slate-500 uppercase tracking-wider">Total Spend</td>
+                      <td className="px-4 py-3 font-bold text-green-700 font-['Barlow_Condensed',sans-serif]">{fmt(filtPurchases.reduce((s,f)=>s+f.bags*f.costPerBag,0),cs)}</td>
+                      <td colSpan={2}/>
+                    </tr>
+                  </tfoot>
+                )}
+              </table>
+            </div>
+          </Card>
+
+          {/* Mobile Standalone Cards List (Independent cards directly on page background) */}
+          <div className="md:hidden space-y-3">
+            <div className="flex items-center justify-between px-1">
+              <p className="text-xs font-bold uppercase tracking-wider text-slate-700">Purchases List</p>
+              <span className="text-[11px] text-slate-400">{filtPurchases.length} record{filtPurchases.length !== 1 ? "s" : ""}</span>
+            </div>
+
             {filtPurchases.length===0?(
-              <p className="text-center text-xs text-slate-400 py-8">No purchases recorded yet</p>
+              <div className="bg-white border border-slate-200/80 rounded-2xl p-6 text-center text-xs text-slate-400 shadow-xs">
+                No purchases recorded yet
+              </div>
             ):(
               pagedPurchases.map((row)=>(
-                <div key={row.id} className="bg-white border border-slate-200/90 rounded-2xl p-3.5 shadow-2xs space-y-3">
+                <div key={row.id} className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-xs space-y-3 transition-all">
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex items-start gap-2.5">
-                      {/* Month & Year in vertical badge column */}
+                      {/* Month & Year badge */}
                       <div className="flex flex-col items-center justify-center bg-slate-100 border border-slate-200/80 rounded-xl px-2.5 py-1.5 min-w-[54px] shrink-0 text-center">
                         <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 leading-tight">
                           {row.month || toMon(row.purchaseDate) || "Month"}
@@ -725,7 +741,7 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
                   </div>
 
                   {(row.supplier || row.supplierPhone) && (
-                    <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2 text-xs bg-slate-50/60 -mx-3.5 -mb-3.5 px-3.5 py-2 rounded-b-2xl">
+                    <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2 text-xs bg-slate-50/60 -mx-4 -mb-4 px-4 py-2.5 rounded-b-2xl">
                       <div className="min-w-0">
                         <span className="text-[10px] uppercase font-bold text-slate-400 block">Supplier</span>
                         <span className="font-semibold text-slate-800 truncate block">{row.supplier || "Supplier"}</span>
@@ -746,8 +762,8 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
             )}
           </div>
 
-          <div className="px-4 pb-2"><Pagination total={filtPurchases.length} page={purchasePage} perPage={PER_PAGE} onPage={setPurchasePage}/></div>
-        </Card>
+          <Pagination total={filtPurchases.length} page={purchasePage} perPage={PER_PAGE} onPage={setPurchasePage}/>
+        </div>
       )}
       {editPurchase&&<Modal title="Edit Purchase" onClose={()=>setEditPurchase(null)} wide>
         <div className="grid grid-cols-2 gap-3">

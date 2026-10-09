@@ -561,12 +561,14 @@ function FeedDocumentation({
 
       // Group feed by pellet size
       const fedSizes = [...new Set(fedRecords.map(r => r.size).filter(Boolean))];
-      const sizesToEvaluate = fedSizes.length > 0 ? fedSizes : ["—"];
+      const loggedBagSizes = (bagLogs || []).filter(b => b && isSameDate(b.date, selDate) && isStockMatch(b.fishStock, stockInfo.stockName)).map(b => b.size).filter(Boolean);
+      const loggedRemainSizes = (remainLogs || []).filter(r => r && isSameDate(r.date, selDate) && isStockMatch(r.fishStock, stockInfo.stockName)).map(r => r.size).filter(Boolean);
+      const allSizes = [...new Set([...fedSizes, ...loggedBagSizes, ...loggedRemainSizes])];
+      const sizesToEvaluate = allSizes.length > 0 ? allSizes : ["—"];
 
       sizesToEvaluate.forEach(size => {
         const sizeFedRecords = fedRecords.filter(r => size === "—" || isSamePelletSize(r.size, size));
         const sizeFedKg = sizeFedRecords.reduce((s, r) => s + (Number(r.total) || ((Number(r.morning) || 0) + (Number(r.evening) || 0))), 0);
-        if (sizeFedKg <= 0) return;
 
         const brand = sizeFedRecords[0]?.brand ||
           (bagLogs || []).find(b => isSameDate(b.date, selDate) && isStockMatch(b.fishStock, stockInfo.stockName) && (size === "—" || isSamePelletSize(b.size, size)))?.brand ||
@@ -606,18 +608,29 @@ function FeedDocumentation({
 
         // Determine discrepancies
         const isMissingBagLog = expectedBags > 0 && recordedBags === 0;
-        const isBagCountMismatch = recordedBags > 0 && recordedBags !== expectedBags;
-        const isRemainingMismatch = hasRemainLog && recordedRemaining !== null && Math.abs(recordedRemaining - expectedRemaining) > 0.05;
+        const isBagCountMismatch = (expectedBags > 0 || recordedBags > 0) && recordedBags !== expectedBags;
+        
+        // Leftover discrepancy: missing log when feed given or bags opened, or value doesn't match expected!
+        const isMissingRemainLog = (sizeFedKg > 0 || recordedBags > 0) && (!hasRemainLog || recordedRemaining === null);
+        const isRemainValueMismatch = recordedRemaining !== null && Math.abs(recordedRemaining - expectedRemaining) > 0.05;
+        const isRemainingMismatch = isMissingRemainLog || isRemainValueMismatch;
 
         let status: "Not Opened" | "Bag Mismatch" | "Remaining Mismatch" | "Multiple Mismatches" | null = null;
         let reason = "";
 
-        if (isMissingBagLog) {
+        if (isMissingBagLog && isMissingRemainLog) {
+          status = "Not Opened";
+          reason = `Missing opened bag and leftover logs. Expected ${expectedBags} bag${expectedBags !== 1 ? "s" : ""} (${sizeFedKg} kg fed) and ${expectedRemaining} kg leftover.`;
+        } else if (isMissingBagLog) {
           status = "Not Opened";
           reason = `Missing opened bag log. Expected ${expectedBags} bag${expectedBags !== 1 ? "s" : ""} (${sizeFedKg} kg fed, ${carryoverKg} kg carryover).`;
         } else if (isBagCountMismatch && isRemainingMismatch) {
           status = "Multiple Mismatches";
-          reason = `Recorded ${recordedBags} bag${recordedBags !== 1 ? "s" : ""} (expected ${expectedBags}) and leftover recorded as ${recordedRemaining} kg (expected ${expectedRemaining} kg).`;
+          if (isMissingRemainLog) {
+            reason = `Recorded ${recordedBags} bag${recordedBags !== 1 ? "s" : ""} (expected ${expectedBags}) and leftover feed not recorded (expected ${expectedRemaining} kg).`;
+          } else {
+            reason = `Recorded ${recordedBags} bag${recordedBags !== 1 ? "s" : ""} (expected ${expectedBags}) and leftover recorded as ${recordedRemaining} kg (expected ${expectedRemaining} kg).`;
+          }
         } else if (isBagCountMismatch) {
           status = "Bag Mismatch";
           if (recordedBags < expectedBags) {
@@ -627,7 +640,11 @@ function FeedDocumentation({
           }
         } else if (isRemainingMismatch) {
           status = "Remaining Mismatch";
-          reason = `Recorded leftover is ${recordedRemaining} kg, but calculated expected leftover is ${expectedRemaining} kg.`;
+          if (isMissingRemainLog) {
+            reason = `Leftover feed was not recorded. Calculated expected leftover is ${expectedRemaining} kg.`;
+          } else {
+            reason = `Recorded leftover is ${recordedRemaining} kg, but calculated expected leftover is ${expectedRemaining} kg.`;
+          }
         }
 
         if (status) {
@@ -2560,7 +2577,7 @@ function FeedDocumentation({
                             </td>
                             <td className="px-5 py-3.5 text-xs">
                               <div className="font-semibold text-slate-800">
-                                Rec: <span className={row.recordedBags !== row.expectedBags ? "font-bold text-orange-700" : ""}>{row.recordedBags}</span>
+                                Rec: <span className={row.recordedBags !== row.expectedBags ? "font-bold text-red-600" : ""}>{row.recordedBags}</span>
                                 <span className="text-slate-400 mx-1">/</span>
                                 Exp: <span className="font-bold text-slate-900">{row.expectedBags}</span> bag{row.expectedBags !== 1 ? "s" : ""}
                               </div>
@@ -2569,12 +2586,16 @@ function FeedDocumentation({
                               <div className="font-semibold text-slate-800">
                                 {row.recordedRemaining !== null ? (
                                   <>
-                                    Rec: <span className={Math.abs(row.recordedRemaining - row.expectedRemaining) > 0.05 ? "font-bold text-amber-700" : ""}>{row.recordedRemaining} kg</span>
+                                    Rec: <span className={Math.abs(row.recordedRemaining - row.expectedRemaining) > 0.05 ? "font-bold text-red-600" : ""}>{row.recordedRemaining} kg</span>
                                     <span className="text-slate-400 mx-1">/</span>
                                     Exp: <span className="font-bold text-slate-900">{row.expectedRemaining} kg</span>
                                   </>
                                 ) : (
-                                  <>Exp: <span className="font-bold text-slate-900">{row.expectedRemaining} kg</span></>
+                                  <>
+                                    Rec: <span className="font-bold text-red-600">None</span>
+                                    <span className="text-slate-400 mx-1">/</span>
+                                    Exp: <span className="font-bold text-slate-900">{row.expectedRemaining} kg</span>
+                                  </>
                                 )}
                               </div>
                             </td>
@@ -2604,8 +2625,8 @@ function FeedDocumentation({
               mismatchRows.map(row => {
                 const statusConfig = {
                   "Not Opened": { bg: "bg-red-50 text-red-700 border-red-200/80", dot: "bg-red-500", border: "border-red-300 ring-1 ring-red-200/60 bg-red-50/15" },
-                  "Bag Mismatch": { bg: "bg-orange-50 text-orange-700 border-orange-200/80", dot: "bg-orange-500", border: "border-orange-300 ring-1 ring-orange-200/60 bg-orange-50/15" },
-                  "Remaining Mismatch": { bg: "bg-amber-50 text-amber-700 border-amber-200/80", dot: "bg-amber-500", border: "border-amber-300 ring-1 ring-amber-200/60 bg-orange-50/15" },
+                  "Bag Mismatch": { bg: "bg-red-50 text-red-700 border-red-200/80", dot: "bg-red-500", border: "border-red-300 ring-1 ring-red-200/60 bg-red-50/15" },
+                  "Remaining Mismatch": { bg: "bg-red-50 text-red-700 border-red-200/80", dot: "bg-red-500", border: "border-red-300 ring-1 ring-red-200/60 bg-red-50/15" },
                   "Multiple Mismatches": { bg: "bg-red-50 text-red-700 border-red-200/80", dot: "bg-red-500", border: "border-red-300 ring-1 ring-red-200/60 bg-red-50/15" },
                 }[row.status] || { bg: "bg-red-50 text-red-700 border-red-200/80", dot: "bg-red-500", border: "border-red-300 ring-1 ring-red-200/60 bg-red-50/15" };
 
@@ -2633,7 +2654,7 @@ function FeedDocumentation({
                       <div className="bg-white/80 rounded-lg p-2 border border-slate-200/60">
                         <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Bags Opened</span>
                         <p className="font-semibold text-slate-800">
-                          Rec: <span className={row.recordedBags !== row.expectedBags ? "font-bold text-orange-700" : ""}>{row.recordedBags}</span>
+                          Rec: <span className={row.recordedBags !== row.expectedBags ? "font-bold text-red-600" : ""}>{row.recordedBags}</span>
                           <span className="text-slate-400 mx-1">/</span>
                           Exp: <span className="font-bold text-slate-900">{row.expectedBags}</span>
                         </p>
@@ -2643,12 +2664,16 @@ function FeedDocumentation({
                         <p className="font-semibold text-slate-800">
                           {row.recordedRemaining !== null ? (
                             <>
-                              Rec: <span className={Math.abs(row.recordedRemaining - row.expectedRemaining) > 0.05 ? "font-bold text-amber-700" : ""}>{row.recordedRemaining}kg</span>
+                              Rec: <span className={Math.abs(row.recordedRemaining - row.expectedRemaining) > 0.05 ? "font-bold text-red-600" : ""}>{row.recordedRemaining}kg</span>
                               <span className="text-slate-400 mx-1">/</span>
                               Exp: <span className="font-bold text-slate-900">{row.expectedRemaining}kg</span>
                             </>
                           ) : (
-                            <>Exp: <span className="font-bold text-slate-900">{row.expectedRemaining}kg</span></>
+                            <>
+                              Rec: <span className="font-bold text-red-600">None</span>
+                              <span className="text-slate-400 mx-1">/</span>
+                              Exp: <span className="font-bold text-slate-900">{row.expectedRemaining}kg</span>
+                            </>
                           )}
                         </p>
                       </div>
