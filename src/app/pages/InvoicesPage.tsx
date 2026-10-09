@@ -232,7 +232,7 @@ export default function InvoicesPage({ponds,invoices,customers,priceGroups,setti
 
   return(
     <div className="p-4 sm:p-6 space-y-5 w-full">
-      <div className="lg:sticky lg:top-0 lg:z-20 lg:bg-[#f5f7fa] lg:-mx-6 lg:-mt-6 lg:px-6 lg:py-4 flex flex-wrap items-center justify-between gap-3">
+      <div className="lg:sticky lg:top-0 lg:z-30 lg:bg-[#f5f7fa] lg:-mx-6 lg:-mt-6 lg:px-6 lg:py-4 flex flex-wrap items-center justify-between gap-3">
         <div><h1 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Invoices</h1><p className="text-xs text-slate-400 mt-0.5">Manage customer invoices, configure pricing groups, generate professional invoices, and track payment status.</p></div>
         <div className="flex flex-wrap gap-2">
           {canEdit&&<PBtn sm outline onClick={()=>{setSettingsF({...settings});setShowSettings(true);}}><Filter size={13}/> Invoice Settings</PBtn>}

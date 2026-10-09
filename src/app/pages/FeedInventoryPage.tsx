@@ -271,7 +271,7 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
 
   return(
     <div className="p-4 sm:p-6 space-y-5 w-full pb-20 sm:pb-8">
-      <div className="lg:sticky lg:top-0 lg:z-20 lg:bg-[#f5f7fa] lg:-mx-6 lg:-mt-6 lg:px-6 lg:py-4 flex flex-wrap items-center justify-between gap-3">
+      <div className="lg:sticky lg:top-0 lg:z-30 lg:bg-[#f5f7fa] lg:-mx-6 lg:-mt-6 lg:px-6 lg:py-4 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Feed Stock</h1>
           <p className="text-xs text-slate-400 mt-0.5">Manage purchased feed stock, track daily bags opened, and view usage.</p>
@@ -285,8 +285,8 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
         <StatCard label="Total Bags" value={String(totalBagsInStock)} sub="in stock" icon={Package} hi/>
         <StatCard label="Total Kg" value={`${totalKgInStock}kg`} sub="in stock" icon={Layers}/>
       </div>
-      {/* ── Sticky Tab bar ── */}
-      <div className="sticky top-0 z-20 bg-[#f5f7fa] -mx-4 -mt-2 px-4 py-2 sm:-mx-6 sm:px-6 flex flex-wrap items-center justify-between gap-3">
+      {/* ── Tab bar ── */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex gap-1 bg-slate-200/80 p-1 rounded-xl w-fit">
           {([
             ["stock", "Stock"],

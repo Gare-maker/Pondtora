@@ -653,6 +653,16 @@ function FeedDocumentation({
     return rows;
   }, [ponds, bagLogs, feedingRecords, remainLogs, inventory, selDate, selMonLabel, selDay, selYear, viewYear, viewMonth]);
 
+  const handleMismatchClick = (row: MismatchStockRow) => {
+    setDocTab("bags");
+    setBagsHighlight({
+      stock: row.stockName,
+      size: row.size,
+      brand: row.brand,
+      col: row.status === "Bag Mismatch" ? "bags" : row.status === "Remaining Mismatch" ? "remaining" : "all"
+    });
+  };
+
   /* ── mismatch notifications ── */
   const onReconMismatchesRef = useRef(onReconMismatches);
   onReconMismatchesRef.current = onReconMismatches;
@@ -1687,7 +1697,7 @@ function FeedDocumentation({
   return (
     <div className="p-4 sm:p-6 space-y-5 w-full pb-20 sm:pb-8">
       {/* ── Header ── */}
-      <div className="lg:sticky lg:top-0 lg:z-20 lg:bg-[#f5f7fa] lg:-mx-6 lg:-mt-6 lg:px-6 lg:py-4 space-y-2.5">
+      <div className="lg:sticky lg:top-0 lg:z-30 lg:bg-[#f5f7fa] lg:-mx-6 lg:-mt-6 lg:px-6 lg:py-4 space-y-2.5">
         {/* Top Row: Title + Date Picker */}
         <div className="flex items-start justify-between gap-2.5 sm:gap-4">
           <div className="min-w-0 flex-1">
@@ -1741,7 +1751,7 @@ function FeedDocumentation({
           {canCreate && (
             <>
               <PBtn onClick={openLog} sm className="whitespace-nowrap px-2.5 sm:px-3 text-xs"><Plus size={13} /> Log Feeding</PBtn>
-              <PBtn onClick={openBagsModal} sm outline className="whitespace-nowrap px-2.5 sm:px-3 text-xs"><Package size={13} /> Log Bags &amp; Leftover</PBtn>
+              <PBtn onClick={openBagsModal} sm outline className="whitespace-nowrap px-2.5 sm:px-3 text-xs"><Package size={13} /> Log Bags Opened &amp; Leftover</PBtn>
             </>
           )}
           <div className="shrink-0 relative" ref={feedMobileMenuRef}>
@@ -1784,8 +1794,8 @@ function FeedDocumentation({
         <StatCard label="Bags Opened" value={String(bagsOpenedToday)} sub={selDate} icon={Package} />
       </div>
 
-      {/* ── Sticky Tab bar ── */}
-      <div className="sticky top-0 z-20 bg-[#f5f7fa] -mx-4 -mt-2 px-4 py-2 sm:-mx-6 sm:px-6 flex flex-wrap items-center justify-between gap-3">
+      {/* ── Tab bar ── */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex gap-1 bg-slate-200/80 p-1 rounded-xl w-fit">
           {(["daily", "bags", "mismatch"] as const).map(t => (
             <button
@@ -1795,7 +1805,7 @@ function FeedDocumentation({
                 docTab === t ? "bg-white text-green-700 font-bold shadow-xs" : "text-slate-600 hover:text-slate-900"
               }`}
             >
-              <span>{t === "daily" ? "Daily Feed" : t === "bags" ? "Bags Open" : "Mismatch"}</span>
+              <span>{t === "daily" ? "Daily Feed" : t === "bags" ? "Bags Opened" : "Mismatch"}</span>
               {t === "mismatch" && mismatchRows.length > 0 && (
                 <span className="w-2 h-2 rounded-full bg-red-500 ring-2 ring-white animate-pulse shrink-0" title={`${mismatchRows.length} unrecorded bag mismatch${mismatchRows.length !== 1 ? "es" : ""}`} />
               )}
@@ -2170,7 +2180,7 @@ function FeedDocumentation({
         </>
       )}
 
-      {/* ── Bags Open tab ── */}
+      {/* ── Bags Opened tab ── */}
       {docTab === "bags" && (
         <>
           {/* Desktop Table View */}
@@ -2178,7 +2188,7 @@ function FeedDocumentation({
             <Card className="overflow-hidden">
               <div className="px-5 py-3 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <p className="text-xs font-bold uppercase tracking-wider text-slate-600">Bags Open — {selDate}</p>
+                  <p className="text-xs font-bold uppercase tracking-wider text-slate-600">Bags Opened — {selDate}</p>
                   <p className="text-[11px] text-slate-400">{filteredMergedBagRows.length} entries</p>
                 </div>
                 <div className="relative">
@@ -2242,6 +2252,8 @@ function FeedDocumentation({
                       const isRemainColHighlighted = isHighlightedRow && (bagsHighlight?.col === "remaining" || bagsHighlight?.col === "all" || !bagsHighlight?.col);
 
                       const expData = getExpectedFeedData(selDate, row.fishStock, row.brand, row.size, row.bagsOpened);
+                      const isBagsMismatch = expData.hasFed && row.bagsOpened !== expData.expectedBags;
+                      const isRemainMismatch = expData.hasFed && Math.abs((row.remainingKg || 0) - expData.expectedRemaining) > 0.05;
 
                       return (
                         <tr
@@ -2263,11 +2275,11 @@ function FeedDocumentation({
 
                           {/* Bags Opened */}
                           <td className={`px-4 py-3 relative z-0 transition-all ${isBagsColHighlighted ? "bg-orange-50 ring-1 ring-orange-400 ring-inset rounded" : ""}`}>
-                            <div className="font-bold text-slate-900 text-xs">
-                              {row.bagsOpened > 0 ? `${row.bagsOpened} bag${row.bagsOpened !== 1 ? "s" : ""}` : <span className="text-slate-300">—</span>}
+                            <div className={`font-bold text-xs ${isBagsMismatch ? "text-red-600 font-bold" : "text-slate-900"}`}>
+                              {row.bagsOpened > 0 ? `${row.bagsOpened} bag${row.bagsOpened !== 1 ? "s" : ""}` : <span className={isBagsMismatch ? "text-red-600 font-bold" : "text-slate-300"}>—</span>}
                             </div>
                             {expData.hasFed && (
-                              <p className="text-[11px] font-medium mt-0.5 leading-tight text-slate-400">
+                              <p className={`text-[11px] font-medium mt-0.5 leading-tight ${isBagsMismatch ? "text-red-600 font-semibold" : "text-slate-400"}`}>
                                 Exp: {expData.expectedBags} bag{expData.expectedBags !== 1 ? "s" : ""}
                               </p>
                             )}
@@ -2281,10 +2293,16 @@ function FeedDocumentation({
                           {/* Leftover Feed (kg) */}
                           <td className={`px-4 py-3 relative z-0 transition-all ${isRemainColHighlighted ? "bg-amber-50 ring-1 ring-amber-400 ring-inset rounded" : ""}`}>
                             <div className="font-semibold text-xs">
-                              {row.remainingKg > 0 ? <span className="text-slate-800 font-bold">{row.remainingKg} kg</span> : <span className="text-slate-300 text-xs">—</span>}
+                              {row.remainingKg > 0 ? (
+                                <span className={isRemainMismatch ? "text-red-600 font-bold" : "text-slate-800 font-bold"}>
+                                  {row.remainingKg} kg
+                                </span>
+                              ) : (
+                                <span className={isRemainMismatch ? "text-red-600 font-bold" : "text-slate-300"}>—</span>
+                              )}
                             </div>
                             {expData.hasFed && (
-                              <p className="text-[11px] font-medium mt-0.5 leading-tight text-slate-400">
+                              <p className={`text-[11px] font-medium mt-0.5 leading-tight ${isRemainMismatch ? "text-red-600 font-semibold" : "text-slate-400"}`}>
                                 Exp: {expData.expectedRemaining} kg
                               </p>
                             )}
@@ -2358,6 +2376,8 @@ function FeedDocumentation({
                 const isRemainColHighlighted = isHighlightedRow && (bagsHighlight?.col === "remaining" || bagsHighlight?.col === "all" || !bagsHighlight?.col);
 
                 const expData = getExpectedFeedData(selDate, row.fishStock, row.brand, row.size, row.bagsOpened);
+                const isBagsMismatch = expData.hasFed && row.bagsOpened !== expData.expectedBags;
+                const isRemainMismatch = expData.hasFed && Math.abs((row.remainingKg || 0) - expData.expectedRemaining) > 0.05;
                 const isMenuOpen = activeBagMenuId === `${row.fishStock}__${row.brand}__${row.size}`;
 
                 return (
@@ -2435,13 +2455,13 @@ function FeedDocumentation({
                     {/* Card Metrics Grid */}
                     <div className="mt-3 pt-2.5 border-t border-slate-100 grid grid-cols-3 gap-2 text-xs">
                       {/* Bags Opened */}
-                      <div className={`rounded-lg p-2 transition-all ${isBagsColHighlighted ? "bg-orange-100/90 border border-orange-400 ring-1 ring-orange-400" : "bg-slate-50"}`}>
-                        <span className="text-[10px] text-slate-400 block mb-0.5">Bags Opened</span>
-                        <span className="font-bold text-slate-900 text-xs">
-                          {row.bagsOpened > 0 ? `${row.bagsOpened} bag${row.bagsOpened !== 1 ? "s" : ""}` : "—"}
+                      <div className={`rounded-lg p-2 transition-all ${isBagsColHighlighted ? "bg-orange-100/90 border border-orange-400 ring-1 ring-orange-400" : isBagsMismatch ? "bg-red-50/80 border border-red-200" : "bg-slate-50"}`}>
+                        <span className={`text-[10px] block mb-0.5 ${isBagsMismatch ? "text-red-600 font-bold" : "text-slate-400"}`}>Bags Opened</span>
+                        <span className={`font-bold text-xs ${isBagsMismatch ? "text-red-600 font-bold" : "text-slate-900"}`}>
+                          {row.bagsOpened > 0 ? `${row.bagsOpened} bag${row.bagsOpened !== 1 ? "s" : ""}` : <span className={isBagsMismatch ? "text-red-600 font-bold" : "text-slate-400"}>—</span>}
                         </span>
                         {expData.hasFed && (
-                          <p className="text-[10px] font-medium mt-0.5 text-slate-400">
+                          <p className={`text-[10px] font-medium mt-0.5 ${isBagsMismatch ? "text-red-600 font-semibold" : "text-slate-400"}`}>
                             Exp: {expData.expectedBags}
                           </p>
                         )}
@@ -2456,13 +2476,13 @@ function FeedDocumentation({
                       </div>
 
                       {/* Leftover Feed */}
-                      <div className={`rounded-lg p-2 transition-all ${isRemainColHighlighted ? "bg-amber-100/90 border border-amber-400 ring-1 ring-amber-400" : "bg-slate-50"}`}>
-                        <span className="text-[10px] text-slate-400 block mb-0.5">Leftover Feed</span>
-                        <span className="font-semibold text-slate-800 text-xs">
-                          {row.remainingKg > 0 ? `${row.remainingKg} kg` : "—"}
+                      <div className={`rounded-lg p-2 transition-all ${isRemainColHighlighted ? "bg-amber-100/90 border border-amber-400 ring-1 ring-amber-400" : isRemainMismatch ? "bg-red-50/80 border border-red-200" : "bg-slate-50"}`}>
+                        <span className={`text-[10px] block mb-0.5 ${isRemainMismatch ? "text-red-600 font-bold" : "text-slate-400"}`}>Leftover Feed</span>
+                        <span className={`font-semibold text-xs ${isRemainMismatch ? "text-red-600 font-bold" : "text-slate-800"}`}>
+                          {row.remainingKg > 0 ? `${row.remainingKg} kg` : <span className={isRemainMismatch ? "text-red-600 font-bold" : "text-slate-400"}>—</span>}
                         </span>
                         {expData.hasFed && (
-                          <p className="text-[10px] font-medium mt-0.5 text-slate-400">
+                          <p className={`text-[10px] font-medium mt-0.5 ${isRemainMismatch ? "text-red-600 font-semibold" : "text-slate-400"}`}>
                             Exp: {expData.expectedRemaining} kg
                           </p>
                         )}
@@ -2514,16 +2534,11 @@ function FeedDocumentation({
                       mismatchRows.map(row => {
                         const statusConfig = {
                           "Not Opened": { bg: "bg-red-50 text-red-700 border-red-200/80", dot: "bg-red-500" },
-                          "Bag Mismatch": { bg: "bg-orange-50 text-orange-700 border-orange-200/80", dot: "bg-orange-500" },
-                          "Remaining Mismatch": { bg: "bg-amber-50 text-amber-700 border-amber-200/80", dot: "bg-amber-500" },
-                          "Multiple Mismatches": { bg: "bg-red-50 text-red-700 border-red-200/80", dot: "bg-red-500" },
-                        }[row.status] || { bg: "bg-red-50 text-red-700 border-red-200/80", dot: "bg-red-500" };
-
-                        return (
-                          <tr key={row.stockKey} className="hover:bg-red-50/20 transition-colors bg-red-50/5">
+                          "Bag M                        return (
+                          <tr key={row.stockKey} onClick={() => handleMismatchClick(row)} className="hover:bg-red-50/40 transition-colors bg-red-50/5 cursor-pointer group" title="Click to view and update in Bags Opened">
                             <td className="px-5 py-3.5">
                               <div className="flex items-center gap-1.5 flex-wrap">
-                                <p className="font-bold text-slate-900 text-xs">
+                                <p className="font-bold text-slate-900 text-xs group-hover:text-red-700 transition-colors">
                                   {getStockDisplayName(row.stockName, row.stockDate)}
                                 </p>
                                 {row.size && <Bdg label={row.size} color="blue" />}
@@ -2559,7 +2574,10 @@ function FeedDocumentation({
                               </div>
                             </td>
                             <td className="px-5 py-3.5 text-xs text-slate-600">
-                              <p className="leading-snug">{row.reason}</p>
+                              <div className="flex items-center justify-between gap-2">
+                                <p className="leading-snug">{row.reason}</p>
+                                <span className="text-[10px] text-red-600 font-semibold opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">View in Bags Opened →</span>
+                              </div>
                             </td>
                           </tr>
                         );
@@ -2582,12 +2600,12 @@ function FeedDocumentation({
                 const statusConfig = {
                   "Not Opened": { bg: "bg-red-50 text-red-700 border-red-200/80", dot: "bg-red-500", border: "border-red-300 ring-1 ring-red-200/60 bg-red-50/15" },
                   "Bag Mismatch": { bg: "bg-orange-50 text-orange-700 border-orange-200/80", dot: "bg-orange-500", border: "border-orange-300 ring-1 ring-orange-200/60 bg-orange-50/15" },
-                  "Remaining Mismatch": { bg: "bg-amber-50 text-amber-700 border-amber-200/80", dot: "bg-amber-500", border: "border-amber-300 ring-1 ring-amber-200/60 bg-amber-50/15" },
+                  "Remaining Mismatch": { bg: "bg-amber-50 text-amber-700 border-amber-200/80", dot: "bg-amber-500", border: "border-amber-300 ring-1 ring-amber-200/60 bg-orange-50/15" },
                   "Multiple Mismatches": { bg: "bg-red-50 text-red-700 border-red-200/80", dot: "bg-red-500", border: "border-red-300 ring-1 ring-red-200/60 bg-red-50/15" },
                 }[row.status] || { bg: "bg-red-50 text-red-700 border-red-200/80", dot: "bg-red-500", border: "border-red-300 ring-1 ring-red-200/60 bg-red-50/15" };
 
                 return (
-                  <div key={row.stockKey} className={`bg-white border-2 rounded-2xl p-4 shadow-xs space-y-3 ${statusConfig.border}`}>
+                  <div key={row.stockKey} onClick={() => handleMismatchClick(row)} className={`bg-white border-2 rounded-2xl p-4 shadow-xs space-y-3 cursor-pointer hover:shadow-md active:scale-[0.99] transition-all ${statusConfig.border}`} title="Tap to view and update in Bags Opened">
                     <div className="flex items-start justify-between gap-2 pb-2.5 border-b border-slate-100">
                       <div>
                         <div className="flex items-center gap-1.5 flex-wrap">
@@ -2631,8 +2649,9 @@ function FeedDocumentation({
                       </div>
                     </div>
 
-                    <div className="pt-2 border-t border-slate-100/80 text-xs text-slate-600">
+                    <div className="pt-2 border-t border-slate-100/80 text-xs text-slate-600 flex items-center justify-between gap-2">
                       <p className="leading-snug">{row.reason}</p>
+                      <span className="text-[10px] text-red-600 font-bold shrink-0">Tap to Fix →</span>
                     </div>
                   </div>
                 );
@@ -2696,10 +2715,10 @@ function FeedDocumentation({
               {/* Desktop Table or Mobile Table View */}
               <div className={bulkMobileView === "card" ? "hidden md:block min-w-full" : "min-w-full"}>
                 <table className="w-full text-sm border-separate border-spacing-0">
-                  <thead className="sticky top-0 z-20 bg-slate-100">
+                  <thead className="sticky top-0 z-10 bg-slate-100">
                     <tr className="bg-slate-100">
-                      <th className="w-12 min-w-[48px] max-w-[48px] px-2 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-center sticky top-0 left-0 z-30 bg-slate-100 border-b border-slate-200">#</th>
-                      <th className="px-3 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left min-w-[110px] max-w-[135px] sticky top-0 left-[48px] z-30 bg-slate-100 border-b border-r border-slate-200">Pond</th>
+                      <th className="w-12 min-w-[48px] max-w-[48px] px-2 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-center sticky top-0 left-0 z-20 bg-slate-100 border-b border-slate-200">#</th>
+                      <th className="px-3 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left min-w-[110px] max-w-[135px] sticky top-0 left-[48px] z-20 bg-slate-100 border-b border-r border-slate-200">Pond</th>
                       {logColOrder.map(col => {
                         let label = "";
                         let align = "text-left";
@@ -2719,7 +2738,7 @@ function FeedDocumentation({
                             onDragStart={e => { e.stopPropagation(); setDraggedLogCol(col); }}
                             onDragOver={e => { e.preventDefault(); e.stopPropagation(); }}
                             onDrop={e => { e.preventDefault(); e.stopPropagation(); handleColDrop(col); }}
-                            className={`sticky top-0 z-20 bg-slate-100 border-b border-slate-200 px-3 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider ${align} ${minW} whitespace-nowrap cursor-grab active:cursor-grabbing hover:bg-slate-200/80 transition-colors select-none`}
+                            className={`sticky top-0 z-10 bg-slate-100 border-b border-slate-200 px-3 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider ${align} ${minW} whitespace-nowrap cursor-grab active:cursor-grabbing hover:bg-slate-200/80 transition-colors select-none`}
                             title="Drag column to reorder"
                           >
                             <div className={`flex items-center gap-1 ${align === "text-right" ? "justify-end" : align === "text-center" ? "justify-center" : "justify-start"}`}>
@@ -2966,7 +2985,7 @@ function FeedDocumentation({
       {/* ── Log Opened Bags & Leftover Feed Modal ── */}
       {showBagsModal && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-3 sm:p-6" onClick={e => e.target === e.currentTarget && setShowBagsModal(false)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col overflow-hidden" style={{ maxHeight: "88vh" }}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col overflow-hidden max-h-[92dvh] sm:max-h-[88vh]">
             <div className="flex items-start justify-between px-4 sm:px-5 py-3 border-b border-slate-100 shrink-0">
               <div>
                 <h2 className="text-base font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Log Opened Bags &amp; Leftover Feed</h2>
@@ -2983,7 +3002,7 @@ function FeedDocumentation({
               </div>
               <p className="text-[11px] text-slate-500 font-medium">{filledBagRows.length} entr{filledBagRows.length !== 1 ? "ies" : "y"} filled</p>
             </div>
-            <div className="flex-1 overflow-y-auto px-4 sm:px-5 py-3 space-y-2.5">
+            <div className="flex-1 overflow-y-auto px-4 sm:px-5 py-3 space-y-2.5 pb-40 sm:pb-4">
               {bagRows.map((row, i) => {
                 const avail = getStockAvailable(row.brand, row.size, row.id);
                 const requestedBags = Number(row.qty) || 0;
@@ -3004,6 +3023,7 @@ function FeedDocumentation({
                       <select
                         value={row.fishStock}
                         onChange={e => updateBagRow(i, "fishStock", e.target.value)}
+                        onFocus={e => setTimeout(() => e.target.scrollIntoView({ behavior: 'smooth', block: 'center' }), 180)}
                         className="w-full text-[11px] px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-slate-800 font-normal focus:outline-none focus:ring-1 focus:ring-green-400"
                       >
                         <option value="">Select fish stock…</option>
@@ -3041,6 +3061,7 @@ function FeedDocumentation({
                               return next;
                             });
                           }}
+                          onFocus={e => setTimeout(() => e.target.scrollIntoView({ behavior: 'smooth', block: 'center' }), 180)}
                           className="w-full text-[11px] px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-slate-800 font-normal focus:outline-none focus:ring-1 focus:ring-green-400 h-[34px]"
                         >
                           {invSizesForBrand(row.brand).map(s => (
@@ -3068,6 +3089,7 @@ function FeedDocumentation({
                           min="0"
                           value={row.qty}
                           onChange={e => updateBagRow(i, "qty", e.target.value)}
+                          onFocus={e => setTimeout(() => e.target.scrollIntoView({ behavior: 'smooth', block: 'center' }), 180)}
                           className={`w-full text-[11px] px-2 py-1 bg-slate-50/50 border ${isOverStock ? "border-red-300 focus:ring-red-100" : "border-slate-200 focus:ring-green-400"} rounded-md font-normal text-slate-800 placeholder:text-slate-300 focus:outline-none focus:ring-1`}
                           placeholder="0"
                         />
@@ -3106,6 +3128,7 @@ function FeedDocumentation({
                           step="0.1"
                           value={row.remainingKg}
                           onChange={e => updateBagRow(i, "remainingKg", e.target.value)}
+                          onFocus={e => setTimeout(() => e.target.scrollIntoView({ behavior: 'smooth', block: 'center' }), 180)}
                           className="w-full text-[11px] px-2 py-1 bg-slate-50/50 border border-slate-200 rounded-md font-normal text-slate-800 placeholder:text-slate-300 focus:outline-none focus:ring-1 focus:ring-green-400"
                           placeholder="0.0"
                         />
