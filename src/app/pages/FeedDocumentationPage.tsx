@@ -1426,6 +1426,18 @@ function FeedDocumentation({
     return Array.from(map.values());
   }, [bagLogs, remainLogs, feedingRecords, selDate, ponds, invBrands]);
 
+  const [bagsSearch, setBagsSearch] = useState("");
+  const filteredMergedBagRows = useMemo(() => {
+    if (!bagsSearch.trim()) return mergedBagRows;
+    const q = bagsSearch.toLowerCase().trim();
+    return mergedBagRows.filter(r =>
+      (r.brand && r.brand.toLowerCase().includes(q)) ||
+      (r.size && r.size.toLowerCase().includes(q)) ||
+      (r.fishStock && r.fishStock.toLowerCase().includes(q)) ||
+      (r.stockDate && r.stockDate.toLowerCase().includes(q))
+    );
+  }, [mergedBagRows, bagsSearch]);
+
   /* ── bulk log (Log Feeding — All Ponds) ── */
   const [bulkDate, setBulkDate] = useState(TODAY);
   const [bulkBy, setBulkBy] = useState(currentUser?.name || "");
