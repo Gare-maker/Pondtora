@@ -2534,7 +2534,12 @@ function FeedDocumentation({
                       mismatchRows.map(row => {
                         const statusConfig = {
                           "Not Opened": { bg: "bg-red-50 text-red-700 border-red-200/80", dot: "bg-red-500" },
-                          "Bag M                        return (
+                          "Bag Mismatch": { bg: "bg-orange-50 text-orange-700 border-orange-200/80", dot: "bg-orange-500" },
+                          "Remaining Mismatch": { bg: "bg-amber-50 text-amber-700 border-amber-200/80", dot: "bg-amber-500" },
+                          "Multiple Mismatches": { bg: "bg-red-50 text-red-700 border-red-200/80", dot: "bg-red-500" },
+                        }[row.status] || { bg: "bg-red-50 text-red-700 border-red-200/80", dot: "bg-red-500" };
+
+                        return (
                           <tr key={row.stockKey} onClick={() => handleMismatchClick(row)} className="hover:bg-red-50/40 transition-colors bg-red-50/5 cursor-pointer group" title="Click to view and update in Bags Opened">
                             <td className="px-5 py-3.5">
                               <div className="flex items-center gap-1.5 flex-wrap">
