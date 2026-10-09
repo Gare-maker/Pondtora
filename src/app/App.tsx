@@ -8111,13 +8111,6 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
           notifs.push({ id: nid, type: "feeding", pondName: p.name, farmId: activeFarmId, farmName: farm?.name || "", date: TODAY, read: readNotifIds.has(nid) });
         }
       });
-
-      if (canSeeInventory && !bagsToday) {
-        const nid = `notif-bags-${activeFarmId}`;
-        if (!dismissedNotifIds.has(nid)) {
-          notifs.push({ id: nid, type: "bags", farmId: activeFarmId, farmName: farm?.name || "", date: TODAY, read: readNotifIds.has(nid) });
-        }
-      }
     }
 
     // Feed inventory low-stock alerts (≤3 bags remaining) - only if feed inventory exists

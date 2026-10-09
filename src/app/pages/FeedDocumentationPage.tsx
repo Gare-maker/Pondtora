@@ -1706,38 +1706,6 @@ function FeedDocumentation({
         </div>
       </div>
 
-      {/* ── Orange Unlogged Bags Warning Banner ── */}
-      {unloggedStockAlerts.length > 0 && (
-        <div className="bg-amber-50 border border-amber-300/80 rounded-2xl p-3.5 sm:p-4 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-amber-900 animate-in fade-in duration-200">
-          <div className="flex items-start gap-3">
-            <div className="p-2 rounded-xl bg-amber-100 text-amber-700 shrink-0 mt-0.5 sm:mt-0">
-              <AlertTriangle size={18} />
-            </div>
-            <div>
-              <p className="text-xs sm:text-sm font-bold text-amber-900 leading-tight">
-                Opened Bags Not Logged for Fed Stocks ({selDate})
-              </p>
-              <p className="text-[11px] sm:text-xs text-amber-800/90 mt-1 leading-normal">
-                Feed was recorded today for{" "}
-                <span className="font-semibold text-amber-950">
-                  {unloggedStockAlerts.map(u => `${u.stockName}${u.stockDate ? ` (${u.stockDate})` : ""}`).join(", ")}
-                </span>
-                , but no opened bags have been documented. Please document opened feed bags to update stock inventory.
-              </p>
-            </div>
-          </div>
-          {canCreate && (
-            <button
-              type="button"
-              onClick={openBagsModal}
-              className="shrink-0 w-full sm:w-auto px-3.5 py-2 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs rounded-xl shadow-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
-            >
-              <Package size={14} /> Log Bags &amp; Leftover
-            </button>
-          )}
-        </div>
-      )}
-
       {/* Stats - Desktop Only */}
       <div className="hidden md:grid md:grid-cols-4 gap-3">
         <StatCard label="Total Ponds" value={String(totalPonds)} sub="active" icon={Layers} />
@@ -1753,11 +1721,14 @@ function FeedDocumentation({
             <button
               key={t}
               onClick={() => setDocTab(t)}
-              className={`relative px-4 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
-                docTab === t ? "bg-white text-green-700 font-bold" : "text-slate-600 hover:text-slate-900"
+              className={`relative px-4 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 ${
+                docTab === t ? "bg-white text-green-700 font-bold shadow-xs" : "text-slate-600 hover:text-slate-900"
               }`}
             >
-              {t === "daily" ? "Daily Feed" : t === "bags" ? "Bags Open" : "Mismatch"}
+              <span>{t === "daily" ? "Daily Feed" : t === "bags" ? "Bags Open" : "Mismatch"}</span>
+              {t === "mismatch" && mismatchRows.length > 0 && (
+                <span className="w-2 h-2 rounded-full bg-red-500 ring-2 ring-white animate-pulse shrink-0" title={`${mismatchRows.length} unrecorded bag mismatch${mismatchRows.length !== 1 ? "es" : ""}`} />
+              )}
             </button>
           ))}
         </div>
@@ -2444,7 +2415,7 @@ function FeedDocumentation({
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="border-b border-slate-100 bg-slate-50">
+                    <tr className="border-b border-slate-200 bg-slate-50">
                       <th className="text-left px-5 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
                         Fish Stock
                       </th>
@@ -2456,7 +2427,7 @@ function FeedDocumentation({
                       </th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-50">
+                  <tbody className="divide-y divide-slate-100">
                     {mismatchRows.length === 0 ? (
                       <tr>
                         <td colSpan={3} className="text-center text-xs text-slate-400 py-8">
@@ -2465,18 +2436,19 @@ function FeedDocumentation({
                       </tr>
                     ) : (
                       mismatchRows.map(row => (
-                        <tr key={row.stockKey} className="hover:bg-slate-50/80 transition-colors">
+                        <tr key={row.stockKey} className="hover:bg-red-50/20 transition-colors border-l-4 border-l-red-500 bg-red-50/10">
                           <td className="px-5 py-3.5">
-                            <p className="font-bold text-slate-800 text-xs">
+                            <p className="font-bold text-slate-900 text-xs">
                               {getStockDisplayName(row.stockName, row.stockDate)}
                             </p>
                           </td>
                           <td className="px-5 py-3.5">
-                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200/70">
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-bold bg-red-50 text-red-700 border border-red-200/80">
+                              <span className="w-1.5 h-1.5 rounded-full bg-red-500 mr-1.5 shrink-0" />
                               {row.status}
                             </span>
                           </td>
-                          <td className="px-5 py-3.5 font-bold text-slate-800 text-xs">
+                          <td className="px-5 py-3.5 font-bold text-slate-900 text-xs">
                             {row.expectedBags} {row.expectedBags === 1 ? "bag" : "bags"}
                           </td>
                         </tr>
@@ -2496,7 +2468,7 @@ function FeedDocumentation({
               </div>
             ) : (
               mismatchRows.map(row => (
-                <div key={row.stockKey} className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-xs space-y-3">
+                <div key={row.stockKey} className="bg-white border border-slate-200/80 border-l-4 border-l-red-500 rounded-2xl p-4 shadow-xs space-y-3 bg-red-50/5">
                   <div className="flex items-start justify-between gap-2">
                     <div>
                       <p className="text-[10px] uppercase font-bold text-slate-400 tracking-wider mb-0.5">Fish Stock</p>
@@ -2504,7 +2476,8 @@ function FeedDocumentation({
                         {getStockDisplayName(row.stockName, row.stockDate)}
                       </h3>
                     </div>
-                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200/70">
+                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-bold bg-red-50 text-red-700 border border-red-200/80">
+                      <span className="w-1.5 h-1.5 rounded-full bg-red-500 mr-1.5 shrink-0" />
                       {row.status}
                     </span>
                   </div>
@@ -2529,9 +2502,9 @@ function FeedDocumentation({
 
 
       {showLog && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-3 sm:p-6" onClick={e => e.target === e.currentTarget && setShowLog(false)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-6xl flex flex-col overflow-hidden" style={{ maxHeight: "92vh" }}>
-            <div className="flex items-start justify-between px-5 sm:px-6 py-4 border-b border-slate-200 bg-white shrink-0 z-30 shadow-xs">
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-2 sm:p-6" onClick={e => e.target === e.currentTarget && setShowLog(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-6xl flex flex-col overflow-hidden h-[90vh] max-h-[90dvh]">
+            <div className="flex items-start justify-between px-4 sm:px-6 py-3.5 border-b border-slate-200 bg-white shrink-0 z-30 shadow-xs">
               <div className="min-w-0 flex-1 mr-3">
                 <div className="flex items-center justify-between gap-2 flex-wrap">
                   <h2 className="text-lg font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Log Feeding — All Ponds</h2>
@@ -2565,29 +2538,29 @@ function FeedDocumentation({
                   Enter morning &amp; evening amounts for each pond for <span className="font-semibold text-slate-700">{toDateLabel(bulkDate)}</span>.
                 </p>
               </div>
-              <button onClick={() => setShowLog(false)} className="text-slate-400 hover:text-slate-700 p-1 shrink-0"><X size={20} /></button>
+              <button onClick={() => setShowLog(false)} className="text-slate-400 hover:text-slate-700 p-1 shrink-0 rounded-lg hover:bg-slate-100 transition-colors"><X size={20} /></button>
             </div>
 
-            {/* Modal scrollable body - scrolls vertically up and down */}
-            <div className="flex-1 overflow-y-auto min-h-0 bg-slate-50">
+            {/* Modal scrollable body - single overflow-auto container for seamless vertical + horizontal scrolling */}
+            <div className="flex-1 min-h-0 overflow-auto bg-slate-50">
               {/* Desktop Table or Mobile Table View */}
-              <div className={bulkMobileView === "card" ? "hidden md:block overflow-x-auto w-full" : "overflow-x-auto w-full"}>
-                <table className="w-full text-sm">
-                  <thead className="sticky top-0 z-20 shadow-xs bg-slate-100">
-                    <tr className="bg-slate-100 border-b border-slate-200">
-                      <th className="w-12 min-w-[48px] max-w-[48px] px-2 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-center sticky top-0 left-0 z-30 bg-slate-100">#</th>
-                      <th className="px-3 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left min-w-[110px] max-w-[135px] sticky top-0 left-[48px] z-30 bg-slate-100 border-r border-slate-200">Pond</th>
+              <div className={bulkMobileView === "card" ? "hidden md:block min-w-full" : "min-w-full"}>
+                <table className="w-full text-sm border-separate border-spacing-0">
+                  <thead className="sticky top-0 z-20 bg-slate-100">
+                    <tr className="bg-slate-100">
+                      <th className="w-12 min-w-[48px] max-w-[48px] px-2 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-center sticky top-0 left-0 z-30 bg-slate-100 border-b border-slate-200">#</th>
+                      <th className="px-3 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left min-w-[110px] max-w-[135px] sticky top-0 left-[48px] z-30 bg-slate-100 border-b border-r border-slate-200">Pond</th>
                       {logColOrder.map(col => {
                         let label = "";
                         let align = "text-left";
                         let minW = "min-w-[95px]";
                         switch (col) {
-                          case "size": label = "Pellet Size"; align = "text-left"; minW = "min-w-[120px]"; break;
-                          case "morning": label = "Morning (kg)"; align = "text-left"; minW = "min-w-[95px]"; break;
-                          case "morningTime": label = "AM Time"; align = "text-left"; minW = "min-w-[85px]"; break;
-                          case "evening": label = "Evening (kg)"; align = "text-left"; minW = "min-w-[95px]"; break;
-                          case "eveningTime": label = "PM Time"; align = "text-left"; minW = "min-w-[85px]"; break;
-                          case "total": label = "Total"; align = "text-center"; minW = "min-w-[80px]"; break;
+                          case "size": label = "Pellet Size"; align = "text-left"; minW = "min-w-[130px]"; break;
+                          case "morning": label = "Morning (kg)"; align = "text-left"; minW = "min-w-[105px]"; break;
+                          case "morningTime": label = "AM Time"; align = "text-left"; minW = "min-w-[95px]"; break;
+                          case "evening": label = "Evening (kg)"; align = "text-left"; minW = "min-w-[105px]"; break;
+                          case "eveningTime": label = "PM Time"; align = "text-left"; minW = "min-w-[95px]"; break;
+                          case "total": label = "Total"; align = "text-center"; minW = "min-w-[85px]"; break;
                         }
                         return (
                           <th
@@ -2596,7 +2569,7 @@ function FeedDocumentation({
                             onDragStart={e => { e.stopPropagation(); setDraggedLogCol(col); }}
                             onDragOver={e => { e.preventDefault(); e.stopPropagation(); }}
                             onDrop={e => { e.preventDefault(); e.stopPropagation(); handleColDrop(col); }}
-                            className={`px-3 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider ${align} ${minW} whitespace-nowrap cursor-grab active:cursor-grabbing hover:bg-slate-200/80 transition-colors select-none`}
+                            className={`sticky top-0 z-20 bg-slate-100 border-b border-slate-200 px-3 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider ${align} ${minW} whitespace-nowrap cursor-grab active:cursor-grabbing hover:bg-slate-200/80 transition-colors select-none`}
                             title="Drag column to reorder"
                           >
                             <div className={`flex items-center gap-1 ${align === "text-right" ? "justify-end" : align === "text-center" ? "justify-center" : "justify-start"}`}>
@@ -2607,7 +2580,7 @@ function FeedDocumentation({
                       })}
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100 bg-white">
+                  <tbody className="bg-white">
                     {bulkRows.map((row, i) => {
                       const m = Number(row.morning) || 0; const e = Number(row.evening) || 0; const total = m + e;
                       const hasFeed = m > 0 || e > 0;
@@ -2616,9 +2589,9 @@ function FeedDocumentation({
                       const cumFed = (feedingRecords || []).filter(r => r && r.pond === row.pondName && r.size === row.size).reduce((s, r) => s + (Number(r.total) || 0), 0);
                       const rowAtMax = !!rowMaxKg && cumFed >= rowMaxKg;
                       return (
-                        <tr key={row.pondId} className={`transition-colors ${hasFeed ? "bg-green-50/40" : "hover:bg-slate-50"}`}>
-                          <td className={`w-12 min-w-[48px] max-w-[48px] px-2 py-3 text-slate-400 text-xs font-mono text-center sticky left-0 z-10 ${hasFeed ? "bg-[#f2faf4]" : "bg-white"}`}>{i + 1}</td>
-                          <td className={`px-3 py-2.5 min-w-[110px] max-w-[135px] sticky left-[48px] z-10 border-r border-slate-200 ${hasFeed ? "bg-[#f2faf4]" : "bg-white"}`}>
+                        <tr key={row.pondId} className={`transition-colors ${hasFeed ? "bg-green-50/40" : "hover:bg-slate-50/80"}`}>
+                          <td className={`w-12 min-w-[48px] max-w-[48px] px-2 py-3 text-slate-400 text-xs font-mono text-center sticky left-0 z-10 border-b border-slate-100 ${hasFeed ? "bg-[#f2faf4]" : "bg-white"}`}>{i + 1}</td>
+                          <td className={`px-3 py-2.5 min-w-[110px] max-w-[135px] sticky left-[48px] z-10 border-b border-r border-slate-200 ${hasFeed ? "bg-[#f2faf4]" : "bg-white"}`}>
                             <p className="font-bold text-slate-900 leading-tight truncate" title={row.pondName}>{row.pondName}</p>
                             {row.stockDate && row.stockDate !== "—" ? (
                               <p className="text-[11px] font-medium text-teal-700 leading-tight mt-0.5 truncate" title={`Stocked: ${row.stockDate}`}>
@@ -2634,7 +2607,7 @@ function FeedDocumentation({
                             switch (col) {
                               case "size":
                                 return (
-                                  <td key={col} className="px-2.5 py-2.5">
+                                  <td key={col} className="px-2.5 py-2.5 border-b border-slate-100 bg-transparent">
                                     <select
                                       value={row.size}
                                       onChange={e => updateRow(row.pondId, "size", e.target.value)}
@@ -2655,31 +2628,31 @@ function FeedDocumentation({
                                 );
                             case "morning":
                               return (
-                                <td key={col} className="px-2 py-2.5">
+                                <td key={col} className="px-2 py-2.5 border-b border-slate-100 bg-transparent">
                                   <input type="number" value={row.morning} onChange={e => updateRow(row.pondId, "morning", e.target.value)} className={TI} placeholder="0" min="0" step="0.5" />
                                 </td>
                               );
                             case "morningTime":
                               return (
-                                <td key={col} className="px-2 py-2.5">
+                                <td key={col} className="px-2 py-2.5 border-b border-slate-100 bg-transparent">
                                   <input type="time" value={row.morningTime} onChange={e => updateRow(row.pondId, "morningTime", e.target.value)} className={`${TI} text-xs`} style={{ colorScheme: "light" }} />
                                 </td>
                               );
                             case "evening":
                               return (
-                                <td key={col} className="px-2 py-2.5">
+                                <td key={col} className="px-2 py-2.5 border-b border-slate-100 bg-transparent">
                                   <input type="number" value={row.evening} onChange={e => updateRow(row.pondId, "evening", e.target.value)} className={TI} placeholder="0" min="0" step="0.5" />
                                 </td>
                               );
                             case "eveningTime":
                               return (
-                                <td key={col} className="px-2 py-2.5">
+                                <td key={col} className="px-2 py-2.5 border-b border-slate-100 bg-transparent">
                                   <input type="time" value={row.eveningTime} onChange={e => updateRow(row.pondId, "eveningTime", e.target.value)} className={`${TI} text-xs`} style={{ colorScheme: "light" }} />
                                 </td>
                               );
                             case "total":
                               return (
-                                <td key={col} className="px-3 py-3 text-center">
+                                <td key={col} className="px-3 py-3 text-center border-b border-slate-100 bg-transparent">
                                   {total > 0 ? <span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-green-100 text-green-800 font-bold text-sm font-['Barlow_Condensed',sans-serif]">{total}kg</span> : <span className="text-slate-300 text-xs">—</span>}
                                 </td>
                               );
