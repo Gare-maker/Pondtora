@@ -4,6 +4,8 @@ export interface PaystackConfig {
   mode: "test" | "live";
   testPublicKey: string;
   livePublicKey: string;
+  testSecretKey?: string;
+  liveSecretKey?: string;
 }
 
 const STORAGE_KEY = "pondtora_paystack_config";
@@ -14,6 +16,8 @@ export const DEFAULT_PAYSTACK_CONFIG: PaystackConfig = {
     import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || "pk_test_f6c0521e72550ca50049367fa66800c36badacf6",
   livePublicKey:
     import.meta.env.VITE_PAYSTACK_LIVE_PUBLIC_KEY || "pk_live_460ba5856621112e2cfa532db6999201fbe0be1a",
+  testSecretKey: import.meta.env.VITE_PAYSTACK_SECRET_KEY || "",
+  liveSecretKey: import.meta.env.VITE_PAYSTACK_LIVE_SECRET_KEY || "",
 };
 
 // In-memory cache
@@ -26,8 +30,6 @@ export function loadPaystackConfig(): PaystackConfig {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      delete (parsed as any).testSecretKey;
-      delete (parsed as any).liveSecretKey;
       cachedConfig = {
         ...DEFAULT_PAYSTACK_CONFIG,
         ...parsed,
@@ -62,6 +64,8 @@ export async function fetchRemotePaystackConfig(): Promise<PaystackConfig> {
         mode: remote.mode === "live" ? "live" : (remote.mode === "test" ? "test" : currentLocal.mode),
         testPublicKey: remote.testPublicKey || currentLocal.testPublicKey || DEFAULT_PAYSTACK_CONFIG.testPublicKey,
         livePublicKey: remote.livePublicKey || currentLocal.livePublicKey || DEFAULT_PAYSTACK_CONFIG.livePublicKey,
+        testSecretKey: remote.testSecretKey || currentLocal.testSecretKey || "",
+        liveSecretKey: remote.liveSecretKey || currentLocal.liveSecretKey || "",
       };
       cachedConfig = merged;
       try {
@@ -100,9 +104,24 @@ export async function savePaystackConfig(cfg: PaystackConfig): Promise<boolean> 
           mode: cfg.mode,
           testPublicKey: cfg.testPublicKey,
           livePublicKey: cfg.livePublicKey,
+          testSecretKey: cfg.testSecretKey || "",
+          liveSecretKey: cfg.liveSecretKey || "",
         },
         updated_at: new Date().toISOString(),
       }, { onConflict: "key" });
+
+    // Also update individual paystack_secret_key key if present
+    const activeSecretKey = cfg.mode === "live" ? cfg.liveSecretKey : cfg.testSecretKey;
+    if (activeSecretKey && activeSecretKey.startsWith("sk_")) {
+      await supabase
+        .from("platform_settings")
+        .upsert({
+          key: "paystack_secret_key",
+          value: { secretKey: activeSecretKey.trim() },
+          updated_at: new Date().toISOString(),
+        }, { onConflict: "key" })
+        .catch(() => {});
+    }
 
     if (error) {
       console.warn("Could not persist paystack_config to Supabase:", error);
@@ -191,8 +210,8 @@ export function getPendingPaystackTransaction(): PendingTransaction | null {
     const raw = localStorage.getItem(PENDING_TX_KEY) || sessionStorage.getItem(PENDING_TX_KEY);
     if (!raw) return null;
     const parsed: PendingTransaction = JSON.parse(raw);
-    // Discard if older than 3 hours
-    if (Date.now() - (parsed.timestamp || 0) > 3 * 60 * 60 * 1000) {
+    // Discard if older than 24 hours
+    if (Date.now() - (parsed.timestamp || 0) > 24 * 60 * 60 * 1000) {
       clearPendingPaystackTransaction();
       return null;
     }
@@ -359,7 +378,12 @@ export interface PaystackVerifyResult {
  */
 export async function verifyPaystackPayment(
   reference: string,
-  options?: { expectedPlan?: string; expectedAmount?: number; billingCycle?: "monthly" | "yearly" }
+  options?: {
+    expectedPlan?: string;
+    expectedAmount?: number;
+    billingCycle?: "monthly" | "yearly";
+    email?: string;
+  }
 ): Promise<PaystackVerifyResult> {
   const cleanRef = (reference || "").trim();
   if (!cleanRef) {
@@ -370,8 +394,32 @@ export async function verifyPaystackPayment(
     };
   }
 
-  // 1. Try all potential backend verification endpoints
+  // 1. Check if Supabase user_profiles already has this payment confirmed (e.g. from webhook or previous confirmation)
+  try {
+    const { data: profileWithRef } = await supabase
+      .from("user_profiles")
+      .select("id, email, active_plan, subscription_status, subscription_amount, paystack_reference, subscription_start, billing_frequency")
+      .eq("paystack_reference", cleanRef)
+      .maybeSingle();
+
+    if (profileWithRef && profileWithRef.subscription_status === "Active") {
+      return {
+        verified: true,
+        status: "success",
+        amount: Number(profileWithRef.subscription_amount) || options?.expectedAmount || 0,
+        currency: "NGN",
+        reference: cleanRef,
+        planName: profileWithRef.active_plan || options?.expectedPlan || "Starter",
+        billingCycle: profileWithRef.billing_frequency === "yearly" ? "yearly" : "monthly",
+        paidAt: profileWithRef.subscription_start || new Date().toISOString().slice(0, 10),
+        message: "Payment confirmed in database.",
+      };
+    }
+  } catch {}
+
+  // 2. Try Supabase Edge Function verification endpoints
   const baseUrl = (supabase as any).supabaseUrl || import.meta.env.VITE_SUPABASE_URL || "https://fegtvgfkxueorybefthj.supabase.co";
+  const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || "sb_publishable_A0ZzIUTY3KIIOE4ZFhELsQ_9eepyJue";
   const edgeUrls = [
     `${baseUrl}/functions/v1/make-server-1da59a07/paystack/verify`,
     `${baseUrl}/functions/v1/server/paystack/verify`,
@@ -391,7 +439,8 @@ export async function verifyPaystackPayment(
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          ...(sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {}),
+          "apikey": anonKey,
+          Authorization: `Bearer ${sessionToken || anonKey}`,
         },
         body: JSON.stringify({
           reference: cleanRef,
@@ -404,7 +453,12 @@ export async function verifyPaystackPayment(
       if (res.ok) {
         const data = await res.json();
         if (data && typeof data.verified === "boolean") {
-          return data as PaystackVerifyResult;
+          if (data.verified) {
+            return data as PaystackVerifyResult;
+          }
+          if (data.status === "failed" || data.status === "abandoned") {
+            return data as PaystackVerifyResult;
+          }
         }
       }
     } catch (backendErr) {
@@ -412,72 +466,130 @@ export async function verifyPaystackPayment(
     }
   }
 
-  // 2. Check platform_settings for direct secret key verification if server is unavailable
+  // 3. Direct Paystack REST API verification fallback using platform_settings keys
   try {
+    const candidateKeys: string[] = [];
+
+    // Check local config
+    const localCfg = loadPaystackConfig();
+    if (localCfg.liveSecretKey && localCfg.liveSecretKey.trim().startsWith("sk_")) {
+      candidateKeys.push(localCfg.liveSecretKey.trim());
+    }
+    if (localCfg.testSecretKey && localCfg.testSecretKey.trim().startsWith("sk_")) {
+      candidateKeys.push(localCfg.testSecretKey.trim());
+    }
+
+    // Check platform_settings table
     const { data: settingData } = await supabase
       .from("platform_settings")
       .select("value")
       .eq("key", "paystack_secret_key")
       .maybeSingle();
 
-    let secretKey = settingData?.value?.secretKey || settingData?.value;
-    if (!secretKey) {
-      const { data: cfgSetting } = await supabase
-        .from("platform_settings")
-        .select("value")
-        .eq("key", "paystack_config")
-        .maybeSingle();
-      if (cfgSetting?.value?.secretKey) secretKey = cfgSetting.value.secretKey;
+    const directSec = settingData?.value?.secretKey || (typeof settingData?.value === "string" ? settingData.value : null);
+    if (directSec && typeof directSec === "string" && directSec.trim().startsWith("sk_")) {
+      candidateKeys.push(directSec.trim());
     }
 
-    if (typeof secretKey === "string" && secretKey.startsWith("sk_")) {
-      const paystackRes = await fetch(`https://api.paystack.co/transaction/verify/${encodeURIComponent(cleanRef)}`, {
-        headers: {
-          Authorization: `Bearer ${secretKey.trim()}`,
-        },
-      });
+    const { data: cfgSetting } = await supabase
+      .from("platform_settings")
+      .select("value")
+      .eq("key", "paystack_config")
+      .maybeSingle();
 
-      if (paystackRes.ok) {
-        const psJson = await paystackRes.json();
-        if (psJson.status && psJson.data) {
-          const tx = psJson.data;
-          const isSuccess = tx.status === "success";
-          const amountInNaira = typeof tx.amount === "number" ? tx.amount / 100 : 0;
-          const currency = (tx.currency || "").toUpperCase();
+    if (cfgSetting?.value && typeof cfgSetting.value === "object") {
+      const v = cfgSetting.value;
+      if (v.liveSecretKey && typeof v.liveSecretKey === "string" && v.liveSecretKey.trim().startsWith("sk_")) {
+        candidateKeys.push(v.liveSecretKey.trim());
+      }
+      if (v.testSecretKey && typeof v.testSecretKey === "string" && v.testSecretKey.trim().startsWith("sk_")) {
+        candidateKeys.push(v.testSecretKey.trim());
+      }
+      if (v.secretKey && typeof v.secretKey === "string" && v.secretKey.trim().startsWith("sk_")) {
+        candidateKeys.push(v.secretKey.trim());
+      }
+    }
 
-          if (!isSuccess || currency !== "NGN") {
-            return {
-              verified: false,
-              status: tx.status as any,
-              amount: amountInNaira,
-              currency: tx.currency,
-              reference: tx.reference || cleanRef,
-              message: isSuccess ? "Currency mismatch." : `Transaction status: ${tx.status}`,
-              raw: tx,
-            };
+    // Deduplicate candidate keys
+    const uniqueKeys = Array.from(new Set(candidateKeys));
+
+    for (const secretKey of uniqueKeys) {
+      try {
+        const paystackRes = await fetch(`https://api.paystack.co/transaction/verify/${encodeURIComponent(cleanRef)}`, {
+          headers: {
+            Authorization: `Bearer ${secretKey}`,
+          },
+        });
+
+        if (paystackRes.ok) {
+          const psJson = await paystackRes.json();
+          if (psJson.status && psJson.data) {
+            const tx = psJson.data;
+            const isSuccess = tx.status === "success";
+            const amountInNaira = typeof tx.amount === "number" ? tx.amount / 100 : 0;
+            const currency = (tx.currency || "").toUpperCase();
+
+            if (isSuccess && (currency === "NGN" || !currency)) {
+              return {
+                verified: true,
+                status: "success",
+                amount: amountInNaira || options?.expectedAmount || 0,
+                currency: tx.currency || "NGN",
+                reference: tx.reference || cleanRef,
+                paidAt: tx.paid_at || tx.paidAt || new Date().toISOString(),
+                planName: tx.metadata?.plan_name || options?.expectedPlan,
+                billingCycle: tx.metadata?.billing_frequency || options?.billingCycle || "monthly",
+                message: "Transaction verified successfully through Paystack.",
+                raw: tx,
+              };
+            } else if (tx.status === "failed" || tx.status === "abandoned") {
+              return {
+                verified: false,
+                status: tx.status as any,
+                amount: amountInNaira,
+                currency: tx.currency,
+                reference: tx.reference || cleanRef,
+                message: `Transaction status is ${tx.status} on Paystack.`,
+                raw: tx,
+              };
+            } else if (tx.status === "ongoing" || tx.status === "processing" || tx.status === "pending") {
+              return {
+                verified: false,
+                status: "pending",
+                reference: cleanRef,
+                message: "Paystack is currently processing your bank transfer. Please wait 1-2 minutes and click verify again.",
+              };
+            }
           }
-
-          return {
-            verified: true,
-            status: "success",
-            amount: amountInNaira,
-            currency: tx.currency || "NGN",
-            reference: tx.reference || cleanRef,
-            paidAt: tx.paid_at || tx.paidAt || new Date().toISOString(),
-            message: "Transaction verified successfully through Paystack.",
-            raw: tx,
-          };
         }
+      } catch (keyErr) {
+        console.warn("Paystack verify error for key:", keyErr);
       }
     }
   } catch (directErr) {
     console.warn("Direct Paystack verify error:", directErr);
   }
 
-  // 3. Fallback: Paystack has not confirmed this payment yet
+  // 4. Check if secret keys are missing in platform_settings
+  const cfg = loadPaystackConfig();
+  const hasAnySecret = Boolean(cfg.liveSecretKey || cfg.testSecretKey);
+  if (!hasAnySecret) {
+    const { data: psSet } = await supabase.from("platform_settings").select("value").in("key", ["paystack_config", "paystack_secret_key"]);
+    const hasDbSecret = psSet?.some(s => s?.value?.secretKey || s?.value?.liveSecretKey || s?.value?.testSecretKey);
+    if (!hasDbSecret) {
+      return {
+        verified: false,
+        status: "pending",
+        message: "Paystack Secret Key is not configured yet in Admin Settings. Please configure the Paystack Secret Key in Admin > Settings > Paystack Payment Gateway to enable automatic instant confirmation.",
+      };
+    }
+  }
+
+  // 5. Fallback: Paystack has not confirmed this payment yet
   return {
     verified: false,
     status: "pending",
     message: "Paystack has not confirmed this payment yet. If you made a bank transfer, please allow 1-2 minutes for your bank and Paystack to confirm, then try again.",
   };
 }
+

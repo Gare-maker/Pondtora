@@ -821,6 +821,8 @@ function SettingsPage({
 }) {
   const [paystackCfg, setPaystackCfg] = useState<PaystackConfig>(loadPaystackConfig());
   const [isSaving, setIsSaving] = useState(false);
+  const [showLiveSecret, setShowLiveSecret] = useState(false);
+  const [showTestSecret, setShowTestSecret] = useState(false);
 
   useEffect(() => {
     fetchRemotePaystackConfig().then(cfg => {
@@ -834,14 +836,16 @@ function SettingsPage({
     return () => window.removeEventListener("pondtora:paystack_config_updated", onUpdate);
   }, []);
 
-  const handleSavePaystack = (e: React.FormEvent) => {
+  const handleSavePaystack = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSaving(true);
-    savePaystackConfig(paystackCfg);
-    setTimeout(() => {
-      setIsSaving(false);
-      toast.success("Paystack gateway configuration updated and saved to cloud database!");
-    }, 300);
+    const ok = await savePaystackConfig(paystackCfg);
+    setIsSaving(false);
+    if (ok) {
+      toast.success("Paystack gateway configuration & verification keys updated in cloud database!");
+    } else {
+      toast.info("Paystack settings updated locally.");
+    }
   };
 
   const handleToggleMode = (mode: "test" | "live") => {
@@ -871,7 +875,7 @@ function SettingsPage({
               <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2">
                 Paystack Payment Gateway
               </h2>
-              <p className="text-xs text-slate-400">Manage client-side Public API keys and toggle between Test and Live processing.</p>
+              <p className="text-xs text-slate-400">Manage API keys and toggle between Test and Live payment processing.</p>
             </div>
           </div>
 
@@ -917,15 +921,15 @@ function SettingsPage({
             />
             <p className="font-medium leading-relaxed">
               {paystackCfg.mode === "live"
-                ? "Live Mode is active. Real Paystack charges and transactions will be processed using your Live Public Key."
-                : "Test Mode is active. Test transactions are processed using your Test Public Key without charging real money."}
+                ? "Live Mode is active. Real Paystack charges and transactions will be processed and verified using your Live keys."
+                : "Test Mode is active. Test transactions are processed using your Test keys without charging real money."}
             </p>
           </div>
 
           {/* Key Fields Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Live Key */}
-            <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-2.5">
+            {/* Live Keys */}
+            <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-3">
               <div className="flex items-center justify-between">
                 <span className="font-bold text-slate-800 flex items-center gap-1.5">
                   <Lock size={12} className="text-emerald-600" /> Live Environment
@@ -939,16 +943,36 @@ function SettingsPage({
                 <label className="text-[11px] font-semibold text-slate-600 block mb-1">Public Live Key</label>
                 <input
                   type="text"
-                  value={paystackCfg.livePublicKey}
+                  value={paystackCfg.livePublicKey || ""}
                   onChange={e => setPaystackCfg({ ...paystackCfg, livePublicKey: e.target.value })}
                   placeholder="pk_live_..."
                   className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-mono focus:border-green-500 focus:outline-none"
                 />
               </div>
+
+              <div>
+                <label className="text-[11px] font-semibold text-slate-600 block mb-1">Secret Live Key (for instant payment verification)</label>
+                <div className="relative">
+                  <input
+                    type={showLiveSecret ? "text" : "password"}
+                    value={paystackCfg.liveSecretKey || ""}
+                    onChange={e => setPaystackCfg({ ...paystackCfg, liveSecretKey: e.target.value })}
+                    placeholder="sk_live_..."
+                    className="w-full px-3 py-2 pr-9 bg-white border border-slate-200 rounded-lg text-xs font-mono focus:border-green-500 focus:outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowLiveSecret(!showLiveSecret)}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                  >
+                    {showLiveSecret ? <EyeOff size={13} /> : <Eye size={13} />}
+                  </button>
+                </div>
+              </div>
             </div>
 
-            {/* Test Key */}
-            <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-2.5">
+            {/* Test Keys */}
+            <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-3">
               <div className="flex items-center justify-between">
                 <span className="font-bold text-slate-800 flex items-center gap-1.5">
                   <Key size={12} className="text-amber-600" /> Test Environment
@@ -962,22 +986,42 @@ function SettingsPage({
                 <label className="text-[11px] font-semibold text-slate-600 block mb-1">Public Test Key</label>
                 <input
                   type="text"
-                  value={paystackCfg.testPublicKey}
+                  value={paystackCfg.testPublicKey || ""}
                   onChange={e => setPaystackCfg({ ...paystackCfg, testPublicKey: e.target.value })}
                   placeholder="pk_test_..."
                   className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-mono focus:border-green-500 focus:outline-none"
                 />
               </div>
+
+              <div>
+                <label className="text-[11px] font-semibold text-slate-600 block mb-1">Secret Test Key (for instant payment verification)</label>
+                <div className="relative">
+                  <input
+                    type={showTestSecret ? "text" : "password"}
+                    value={paystackCfg.testSecretKey || ""}
+                    onChange={e => setPaystackCfg({ ...paystackCfg, testSecretKey: e.target.value })}
+                    placeholder="sk_test_..."
+                    className="w-full px-3 py-2 pr-9 bg-white border border-slate-200 rounded-lg text-xs font-mono focus:border-green-500 focus:outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowTestSecret(!showTestSecret)}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                  >
+                    {showTestSecret ? <EyeOff size={13} /> : <Eye size={13} />}
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
 
           {/* Security Notice */}
-          <div className="bg-blue-50/70 border border-blue-200 rounded-xl p-3 text-slate-700 flex items-start gap-2.5">
-            <ShieldCheck size={16} className="text-blue-600 shrink-0 mt-0.5" />
+          <div className="bg-emerald-50/70 border border-emerald-200 rounded-xl p-3 text-slate-700 flex items-start gap-2.5">
+            <ShieldCheck size={16} className="text-emerald-600 shrink-0 mt-0.5" />
             <div className="space-y-1 text-[11px]">
-              <p className="font-bold text-slate-900">Security Best Practice Enforced</p>
+              <p className="font-bold text-slate-900">Secure Payment Verification</p>
               <p className="text-slate-600 leading-relaxed">
-                Paystack Secret Keys (<code className="bg-blue-100 px-1 py-0.5 rounded font-mono text-[10px]">sk_live_...</code>, <code className="bg-blue-100 px-1 py-0.5 rounded font-mono text-[10px]">sk_test_...</code>) are server-only credentials and are NEVER exposed to or stored in frontend code or browser storage.
+                Keys configured here are persisted to the database and used by the system to verify Paystack transactions, confirm bank transfers, and automatically activate customer subscriptions in real time.
               </p>
             </div>
           </div>
@@ -986,7 +1030,7 @@ function SettingsPage({
             <button
               type="submit"
               disabled={isSaving}
-              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5 shadow-sm"
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5 shadow-sm cursor-pointer"
             >
               <Save size={14} /> {isSaving ? "Saving…" : "Save Paystack Settings"}
             </button>

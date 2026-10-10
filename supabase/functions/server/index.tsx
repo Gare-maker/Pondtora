@@ -113,31 +113,40 @@ async function handlePaystackVerify(c: any) {
       return c.json({ verified: false, status: "not_found", message: "Transaction reference is required." }, 400);
     }
 
-    // 1. Resolve Paystack Secret Key from environment or platform_settings
-    let secretKey = Deno.env.get("PAYSTACK_SECRET_KEY") || "";
-    if (!secretKey) {
+    // 1. Resolve candidate Paystack Secret Keys from environment or platform_settings
+    const candidateKeys: string[] = [];
+    if (Deno.env.get("PAYSTACK_SECRET_KEY")) candidateKeys.push(Deno.env.get("PAYSTACK_SECRET_KEY")!);
+    if (Deno.env.get("PAYSTACK_LIVE_SECRET_KEY")) candidateKeys.push(Deno.env.get("PAYSTACK_LIVE_SECRET_KEY")!);
+    if (Deno.env.get("PAYSTACK_TEST_SECRET_KEY")) candidateKeys.push(Deno.env.get("PAYSTACK_TEST_SECRET_KEY")!);
+
+    try {
       const { data: setting } = await adminDb()
         .from("platform_settings")
         .select("value")
         .eq("key", "paystack_secret_key")
         .maybeSingle();
       if (setting?.value) {
-        secretKey = typeof setting.value === "string" ? setting.value : (setting.value.secretKey || "");
+        const val = typeof setting.value === "string" ? setting.value : (setting.value.secretKey || "");
+        if (val && val.startsWith("sk_")) candidateKeys.push(val);
       }
-    }
+    } catch {}
 
-    if (!secretKey) {
+    try {
       const { data: cfgSetting } = await adminDb()
         .from("platform_settings")
         .select("value")
         .eq("key", "paystack_config")
         .maybeSingle();
-      if (cfgSetting?.value?.secretKey) {
-        secretKey = cfgSetting.value.secretKey;
+      if (cfgSetting?.value && typeof cfgSetting.value === "object") {
+        if (cfgSetting.value.liveSecretKey?.startsWith("sk_")) candidateKeys.push(cfgSetting.value.liveSecretKey);
+        if (cfgSetting.value.testSecretKey?.startsWith("sk_")) candidateKeys.push(cfgSetting.value.testSecretKey);
+        if (cfgSetting.value.secretKey?.startsWith("sk_")) candidateKeys.push(cfgSetting.value.secretKey);
       }
-    }
+    } catch {}
 
-    if (!secretKey) {
+    const uniqueKeys = Array.from(new Set(candidateKeys)).filter(k => typeof k === "string" && k.startsWith("sk_"));
+
+    if (uniqueKeys.length === 0) {
       return c.json({
         verified: false,
         status: "error",
@@ -145,37 +154,49 @@ async function handlePaystackVerify(c: any) {
       });
     }
 
-    // 2. Query Paystack REST API
-    const psRes = await fetch(`https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`, {
-      headers: {
-        Authorization: `Bearer ${secretKey.trim()}`,
-      },
-    });
+    // 2. Query Paystack REST API with candidate keys
+    let successfulTx: any = null;
+    let lastErrorMsg = "Transaction not found on Paystack.";
 
-    if (!psRes.ok) {
+    for (const secretKey of uniqueKeys) {
+      try {
+        const psRes = await fetch(`https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`, {
+          headers: {
+            Authorization: `Bearer ${secretKey.trim()}`,
+          },
+        });
+
+        if (psRes.ok) {
+          const psJson = await psRes.json();
+          if (psJson.status && psJson.data) {
+            if (psJson.data.status === "success") {
+              successfulTx = psJson.data;
+              break;
+            } else {
+              lastErrorMsg = `Paystack status: ${psJson.data.status}`;
+            }
+          }
+        }
+      } catch (err: any) {
+        lastErrorMsg = err?.message || lastErrorMsg;
+      }
+    }
+
+    if (!successfulTx) {
       return c.json({
         verified: false,
         status: "failed",
-        message: "Unable to verify transaction with Paystack.",
+        message: lastErrorMsg,
       });
     }
 
-    const psJson = await psRes.json();
-    if (!psJson.status || !psJson.data) {
-      return c.json({
-        verified: false,
-        status: "not_found",
-        message: psJson.message || "Transaction not found on Paystack.",
-      });
-    }
-
-    const tx = psJson.data;
+    const tx = successfulTx;
     const isSuccess = tx.status === "success";
     const amountInNaira = typeof tx.amount === "number" ? tx.amount / 100 : 0;
     const payerEmail = (tx.customer?.email || "").toLowerCase().trim();
     const currency = (tx.currency || "").toUpperCase();
 
-    if (!isSuccess || currency !== "NGN") {
+    if (!isSuccess || (currency && currency !== "NGN")) {
       return c.json({
         verified: false,
         status: tx.status || "failed",
@@ -287,7 +308,7 @@ async function handlePaystackWebhook(c: any) {
     const signature = c.req.header("x-paystack-signature") || "";
 
     // 1. Resolve Paystack Secret Key
-    let secretKey = Deno.env.get("PAYSTACK_SECRET_KEY") || "";
+    let secretKey = Deno.env.get("PAYSTACK_SECRET_KEY") || Deno.env.get("PAYSTACK_LIVE_SECRET_KEY") || Deno.env.get("PAYSTACK_TEST_SECRET_KEY") || "";
     if (!secretKey) {
       const { data: setting } = await adminDb()
         .from("platform_settings")
@@ -304,7 +325,9 @@ async function handlePaystackWebhook(c: any) {
         .select("value")
         .eq("key", "paystack_config")
         .maybeSingle();
-      if (cfgSetting?.value?.secretKey) secretKey = cfgSetting.value.secretKey;
+      if (cfgSetting?.value) {
+        secretKey = cfgSetting.value.liveSecretKey || cfgSetting.value.testSecretKey || cfgSetting.value.secretKey || "";
+      }
     }
 
     // 2. Validate HMAC SHA-512 signature if secretKey and signature are present

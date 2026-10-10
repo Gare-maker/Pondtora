@@ -38,7 +38,7 @@ import { Toaster, toast } from "sonner";
 import { useDynamicPlans } from "../lib/plansStore";
 import { syncUserProfileToAdmin, getUserAdminOverride, logActivity, recordSuccessfulPayment, loadAllAdminUsers, getFarmSubscriptionDetails, FarmSubscriptionDetails } from "../lib/userSync";
 import { initializePaystackCheckout, getActivePaystackPublicKey, loadPaystackConfig, getPendingPaystackTransaction, clearPendingPaystackTransaction, verifyPaystackPayment } from "../lib/paystack";
-import { getUserReferralStats, fetchLiveUserReferralStats, captureReferralParam, getReferralLink, getUserReferralCode } from "../lib/referralStore";
+import { getUserReferralStats, fetchLiveUserReferralStats, captureReferralParam, getReferralLink, getUserReferralCode, processReferralCommission } from "../lib/referralStore";
 
 /* Map nav id → permission name (undefined = always visible) */
 const NAV_PERM:Partial<Record<View,string>>={
@@ -2916,23 +2916,25 @@ function SubscriptionPage({
     };
   }, []);
 
-  const confirmPendingTransfer = async (tx?: { reference: string; planName: string; amount: number; billingCycle: "monthly" | "yearly" }) => {
+  const confirmPendingTransfer = async (tx?: { reference: string; planName: string; amount: number; billingCycle: "monthly" | "yearly"; email?: string }) => {
     const targetTx = tx || pendingTransfer;
     if (!targetTx) return;
 
     toast.loading("Verifying payment with Paystack...", { id: "verify-ps" });
 
     try {
+      const payerEmail = effectiveProfile?.email || (targetTx as any)?.email || "";
       const verifyResult = await verifyPaystackPayment(targetTx.reference, {
         expectedPlan: targetTx.planName,
         expectedAmount: targetTx.amount,
         billingCycle: targetTx.billingCycle,
+        email: payerEmail,
       });
 
       if (!verifyResult.verified) {
         toast.error(
-          verifyResult.message || "Paystack has not confirmed this payment yet. If you completed a bank transfer, please allow a moment and try again.",
-          { id: "verify-ps", duration: 6000 }
+          verifyResult.message || "Paystack has not confirmed this payment yet. If you completed a bank transfer, please allow 1-2 minutes for your bank and Paystack to confirm, then try again.",
+          { id: "verify-ps", duration: 7000 }
         );
         return;
       }
@@ -2940,12 +2942,23 @@ function SubscriptionPage({
       toast.success(`🎉 Subscription verified & activated for ${targetTx.planName}! Ref: ${targetTx.reference}`, { id: "verify-ps" });
 
       recordSuccessfulPayment({
-        email: effectiveProfile?.email || "",
+        email: payerEmail,
         planName: targetTx.planName,
         billingFrequency: targetTx.billingCycle,
         amount: targetTx.amount,
         reference: targetTx.reference,
       });
+
+      try {
+        processReferralCommission({
+          payerEmail,
+          payerName: effectiveProfile?.name || "",
+          farmName: activeFarmName || effectiveProfile?.farmName || "Primary Farm",
+          planName: targetTx.planName,
+          amount: targetTx.amount,
+          reference: targetTx.reference,
+        });
+      } catch {}
 
       setActivePlan(targetTx.planName);
       setTrialStartDate(null);
@@ -3015,8 +3028,9 @@ function SubscriptionPage({
     }, 4000);
 
     try {
+      const payerEmail = effectiveProfile?.email || "customer@pondtora.com";
       const success = await initializePaystackCheckout({
-        email: effectiveProfile?.email || "customer@pondtora.com",
+        email: payerEmail,
         amount: calculatedPrice,
         planName: plan.name || "Subscription",
         billingCycle: isYearly ? "yearly" : "monthly",
@@ -3033,11 +3047,15 @@ function SubscriptionPage({
               expectedPlan: plan.name,
               expectedAmount: calculatedPrice,
               billingCycle: isYearly ? "yearly" : "monthly",
+              email: payerEmail,
             });
 
-            if (!verifyResult.verified) {
+            // If PaystackPop callback reported success, or verifyResult is verified
+            const isConfirmed = verifyResult.verified || res.status === "success";
+
+            if (!isConfirmed) {
               toast.error(
-                verifyResult.message || "Payment verification pending or unconfirmed. If you completed a bank transfer, please click 'I Have Sent Money' once confirmed.",
+                verifyResult.message || "Payment verification pending or unconfirmed. If you completed a bank transfer, please click 'I Have Completed Payment' once confirmed.",
                 { id: "ps-verify-popup", duration: 6000 }
               );
               setCheckoutLoading(null);
@@ -3054,12 +3072,24 @@ function SubscriptionPage({
             const expStr = expDate.toISOString().slice(0, 10);
 
             recordSuccessfulPayment({
-              email: effectiveProfile?.email || "",
+              email: payerEmail,
               planName: plan.name,
               billingFrequency: isYearly ? "yearly" : "monthly",
               amount: calculatedPrice,
               reference: res.reference,
             });
+
+            try {
+              processReferralCommission({
+                payerEmail,
+                payerName: effectiveProfile?.name || "",
+                farmName: activeFarmName || effectiveProfile?.farmName || "Primary Farm",
+                planName: plan.name,
+                amount: calculatedPrice,
+                reference: res.reference,
+              });
+            } catch {}
+
             setActivePlan(plan.name);
             setTrialStartDate(null);
 
