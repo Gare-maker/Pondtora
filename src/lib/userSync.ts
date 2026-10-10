@@ -351,18 +351,31 @@ export async function fetchLiveAdminUsers(): Promise<{
         );
         const override = globalOverrides[pEmail] || (p.id ? globalOverrides[p.id] : null);
 
-        const hasValidRef = isValidPaystackRef(p.paystack_reference) || isValidPaystackRef(override?.paystackReference);
-        const isFree = Boolean(p.free_access || override?.freeAccess);
-        const hasPaid = Boolean(!isFree && hasValidRef);
+        const hasValidRef = isValidPaystackRef(p.paystack_reference) || isValidPaystackRef(override?.paystackReference) || isValidPaystackRef(local?.paystackReference);
+        const isFree = Boolean(p.free_access || p.raw_data?.free_access || override?.freeAccess || local?.freeAccess);
+        const rawSubStatus = (override?.subscriptionStatus || p.subscription_status || local?.subscriptionStatus || "").trim();
+        const hasPaid = Boolean(
+          !isFree && (
+            p.has_paid === true ||
+            p.raw_data?.has_paid === true ||
+            p.raw_data?.hasPaid === true ||
+            override?.hasPaid === true ||
+            local?.hasPaid === true ||
+            rawSubStatus === "Paid" ||
+            (rawSubStatus === "Active" && (hasValidRef || Boolean(p.last_payment_date || override?.lastPaymentDate || local?.lastPaymentDate || p.subscription_amount))) ||
+            hasValidRef ||
+            Boolean(p.last_payment_date || override?.lastPaymentDate || local?.lastPaymentDate)
+          )
+        );
 
         const roleStr = (p.role || override?.role || local?.role || "owner").toLowerCase().trim();
         const activePlan = override?.activePlan || p.active_plan || local?.activePlan || "Starter";
         const billingFreq = (override?.billingFrequency || p.billing_frequency || local?.billingFrequency || "monthly") as BillingFrequency;
 
-        let subAmount = hasPaid ? (parseAmount(override?.subscriptionAmount) ??
+        let subAmount = (parseAmount(override?.subscriptionAmount) ??
           parseAmount(p.subscription_amount) ??
           parseAmount(p.raw_data?.subscription_amount) ??
-          parseAmount(local?.subscriptionAmount)) : null;
+          parseAmount(local?.subscriptionAmount));
 
         // If user is paid but amount not explicitly in DB, resolve from plan price
         if (hasPaid && (!subAmount || subAmount <= 0)) {
@@ -496,17 +509,30 @@ export async function fetchLiveAdminUsers(): Promise<{
           const userInvoices = rawInvoices.filter((inv: any) => inv.user_id === p.id);
           const invoicesCount = userInvoices.length || local?.invoicesCount || 0;
 
-          const hasValidRef = isValidPaystackRef(p.paystack_reference) || isValidPaystackRef(override?.paystackReference);
+          const hasValidRef = isValidPaystackRef(p.paystack_reference) || isValidPaystackRef(override?.paystackReference) || isValidPaystackRef(local?.paystackReference);
           const isFree = Boolean(p.free_access || p.raw_data?.free_access || override?.freeAccess || local?.freeAccess);
-          const hasPaid = Boolean(!isFree && hasValidRef);
+          const rawSubStatus = (override?.subscriptionStatus || p.subscription_status || local?.subscriptionStatus || "").trim();
+          const hasPaid = Boolean(
+            !isFree && (
+              p.has_paid === true ||
+              p.raw_data?.has_paid === true ||
+              p.raw_data?.hasPaid === true ||
+              override?.hasPaid === true ||
+              local?.hasPaid === true ||
+              rawSubStatus === "Paid" ||
+              (rawSubStatus === "Active" && (hasValidRef || Boolean(p.last_payment_date || override?.lastPaymentDate || local?.lastPaymentDate || p.subscription_amount))) ||
+              hasValidRef ||
+              Boolean(p.last_payment_date || override?.lastPaymentDate || local?.lastPaymentDate)
+            )
+          );
 
           const activePlan = override?.activePlan || p.active_plan || local?.activePlan || "Starter";
           const billingFreq = (override?.billingFrequency || p.billing_frequency || local?.billingFrequency || "monthly") as BillingFrequency;
 
-          let subAmount = hasPaid ? (parseAmount(override?.subscriptionAmount) ??
+          let subAmount = (parseAmount(override?.subscriptionAmount) ??
             parseAmount(p.subscription_amount) ??
             parseAmount(p.raw_data?.subscription_amount) ??
-            parseAmount(local?.subscriptionAmount)) : null;
+            parseAmount(local?.subscriptionAmount));
 
           if (hasPaid && (!subAmount || subAmount <= 0)) {
             const planTarget = activePlan.toLowerCase().trim();
@@ -968,6 +994,7 @@ export async function updateAdminUserInDb(u: AdminUser): Promise<boolean> {
         farmName: u.farmName,
         subscriptionAmount: finalAmount,
         freeAccess: isFree,
+        hasPaid: Boolean(u.hasPaid),
         activePlan: u.activePlan,
         billingFrequency: u.billingFrequency || "monthly",
         subscriptionStatus: u.subscriptionStatus,
