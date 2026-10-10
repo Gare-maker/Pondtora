@@ -33,6 +33,7 @@ import EmployeeAssessmentsPage, { CandidateAssessment } from "./pages/EmployeeAs
 import { INIT_K, INIT_C } from "./questionsData";
 import InvestorsPage from "./pages/InvestorsPage";
 import PondReportsComponent from "./pages/PondReportsComponent";
+import OnboardingPlanOverlay from "./components/OnboardingPlanOverlay";
 import { Toaster, toast } from "sonner";
 import { useDynamicPlans } from "../lib/plansStore";
 import { syncUserProfileToAdmin, getUserAdminOverride, logActivity, recordSuccessfulPayment, loadAllAdminUsers, getFarmSubscriptionDetails, FarmSubscriptionDetails } from "../lib/userSync";
@@ -4342,201 +4343,9 @@ function SettingsPage({farms,onAddFarm,onEditFarm,onDeleteFarm,userProfile,onUpd
 /* ─── Auth ───────────────────────────────────────────────────── */
 const AIC="w-full px-3 py-2.5 text-sm border border-slate-200 rounded-lg bg-white text-slate-900 placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-green-300 transition";
 
-/* ─── Verify Email Screen ────────────────────────────────────── */
-function VerifyEmailScreen({email,onVerified,onChangeEmail}:{email:string;onVerified:()=>void;onChangeEmail:()=>void;}){
-  const [otp,setOtp]=useState(["","","","","",""]);
-  const [status,setStatus]=useState<"idle"|"loading"|"success"|"error">("idle");
-  const [errMsg,setErrMsg]=useState("");
-  const [countdown,setCountdown]=useState(0);
-  const inputRefs=useRef<(HTMLInputElement|null)[]>([]);
-  useEffect(()=>{if(countdown>0){const t=setTimeout(()=>setCountdown(c=>c-1),1000);return ()=>clearTimeout(t);};},[countdown]);
-  const handleOtpChange=(idx:number,val:string)=>{
-    if(!/^\d?$/.test(val))return;
-    const next=[...otp];next[idx]=val;setOtp(next);
-    if(val&&idx<5)inputRefs.current[idx+1]?.focus();
-  };
-  const handleOtpKey=(idx:number,e:React.KeyboardEvent<HTMLInputElement>)=>{
-    if(e.key==="Backspace"&&!otp[idx]&&idx>0){inputRefs.current[idx-1]?.focus();}
-  };
-  const handleOtpPaste=(e:React.ClipboardEvent)=>{
-    const paste=e.clipboardData.getData("text").replace(/\D/g,"").slice(0,6);
-    if(paste.length){const next=paste.split("").concat(Array(6).fill("")).slice(0,6);setOtp(next);inputRefs.current[Math.min(paste.length,5)]?.focus();}
-    e.preventDefault();
-  };
-  const handleVerify=(e:React.FormEvent)=>{
-    e.preventDefault();
-    const code=otp.join("");
-    if(code.length<6){setErrMsg("Please enter the complete 6-digit code.");setStatus("error");return;}
-    setStatus("loading");setErrMsg("");
-    setTimeout(()=>{
-      if(code==="000000"){setErrMsg("Invalid or expired code. Please try again.");setStatus("error");}
-      else{setStatus("success");setTimeout(()=>onVerified(),1200);}
-    },1200);
-  };
-  const handleResend=()=>{if(countdown>0)return;setOtp(["","","","","",""]);setStatus("idle");setErrMsg("");setCountdown(60);inputRefs.current[0]?.focus();};
-  return(
-    <div className="min-h-screen bg-white flex flex-col items-center justify-center px-6 py-10">
-      <div className="w-full max-w-sm">
-        <div className="flex items-center gap-2 mb-8 justify-center">
-          <span className="text-2xl font-extrabold font-['Barlow_Condensed',sans-serif] text-slate-900 tracking-wide">Pondtora</span>
-        </div>
-        {status==="success"?(
-          <div className="text-center space-y-4 py-6">
-            <div className="w-16 h-16 rounded-full bg-green-50 border-2 border-green-200 flex items-center justify-center mx-auto"><CheckCircle size={30} className="text-green-500"/></div>
-            <div><p className="font-bold text-slate-800 text-base">Email Verified!</p><p className="text-xs text-slate-400 mt-1">Taking you to subscription setup…</p></div>
-          </div>
-        ):(
-          <>
-            <div className="mb-6 text-center">
-              <div className="w-14 h-14 rounded-full bg-green-50 border-2 border-green-200 flex items-center justify-center mx-auto mb-4">
-                <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-green-500"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
-              </div>
-              <h1 className="text-2xl font-extrabold text-slate-900 font-['Barlow_Condensed',sans-serif] mb-2">Verify Your Email</h1>
-              <p className="text-sm text-slate-500 leading-relaxed">We sent a 6-digit verification code to<br/><span className="font-semibold text-slate-700">{email}</span></p>
-            </div>
-            <form onSubmit={handleVerify} className="space-y-5">
-              <div className="flex gap-2 justify-center" onPaste={handleOtpPaste}>
-                {otp.map((d,i)=>(
-                  <input key={i} ref={el=>{inputRefs.current[i]=el;}} type="text" inputMode="numeric" maxLength={1} value={d}
-                    onChange={e=>handleOtpChange(i,e.target.value)}
-                    onKeyDown={e=>handleOtpKey(i,e)}
-                    className={`w-11 h-12 text-center text-lg font-bold border-2 rounded-xl bg-slate-50 focus:outline-none focus:ring-2 focus:ring-green-300 transition-colors ${status==="error"?"border-red-300 bg-red-50":"border-slate-200 focus:border-green-400"}`}
-                  />
-                ))}
-              </div>
-              {status==="error"&&errMsg&&<p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-center">{errMsg}</p>}
-              <button type="submit" disabled={status==="loading"} className="w-full py-2.5 bg-green-600 hover:bg-green-700 disabled:opacity-60 text-white text-sm font-bold rounded-lg transition-colors">
-                {status==="loading"?"Verifying…":"Verify Email"}
-              </button>
-            </form>
-            <div className="mt-4 space-y-3 text-center">
-              <button onClick={handleResend} disabled={countdown>0} className={`text-sm font-semibold transition-colors ${countdown>0?"text-slate-300 cursor-not-allowed":"text-green-600 hover:text-green-800"}`}>
-                {countdown>0?`Resend code in ${countdown}s`:"Resend Code"}
-              </button>
-              <div><button onClick={onChangeEmail} className="text-xs text-slate-400 hover:text-slate-600 underline">Change email address</button></div>
-            </div>
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
 
-/* ─── Choose Plan Screen (post-signup) ──────────────────────── */
-function ChoosePlanScreen({onSelectPlan}:{onSelectPlan:(plan:string)=>void;}){
-  const cs = "₦";
-  const cvt = (n: number) => n;
-  const { singleFarmPlans: singlePlans = [], multiFarmPlans: multiPlans = [] } = useDynamicPlans() || {};
-  const [planTab,setPlanTab]=useState<"single"|"multi">("single");
-  const [yearlyS,setYearlyS]=useState(false);
-  const [yearlyM,setYearlyM]=useState(false);
-  const EVERY_PLAN_INCLUDES = [
-    "Financial Dashboard",
-    "Pond Management",
-    "Feed Stock",
-    "Feeding Records",
-    "Fish Stock History",
-    "Sales Calculator",
-    "Sales Invoicing",
-    "Staff Management",
-    "Investor Details & Returns Tracking",
-    "Reports & Analytics",
-    "CSV Export",
-    "PDF Export",
-  ];
-  const dp=(mp:number,yr:boolean)=>yr?Math.round(mp*12*0.80):mp;
-  const sv=(mp:number)=>Math.round(mp*12*0.20);
-  const BillingToggle=({yearly,setYearly}:{yearly:boolean;setYearly:(v:boolean)=>void})=>(
-    <div className="inline-flex items-center gap-3 bg-slate-100 rounded-full p-1">
-      <button onClick={()=>setYearly(false)} className={`px-4 py-1.5 rounded-full text-sm font-semibold transition-all ${!yearly?"bg-white text-slate-900 shadow-sm":"text-slate-500"}`}>Monthly</button>
-      <button onClick={()=>setYearly(true)} className={`flex items-center gap-2 px-4 py-1.5 rounded-full text-sm font-semibold transition-all ${yearly?"bg-white text-slate-900 shadow-sm":"text-slate-500"}`}>
-        Yearly <span className="bg-green-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none">Save 20%</span>
-      </button>
-    </div>
-  );
-  return(
-    <div className="min-h-screen bg-white flex flex-col items-center justify-start p-6 overflow-y-auto">
-      <div className="w-full max-w-4xl py-8">
-        <div className="text-center mb-6">
-          <div className="inline-flex items-center gap-2 mb-4">
-            <span className="text-2xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] tracking-wide">Pondtora</span>
-          </div>
-          <h1 className="text-3xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] mb-2">Choose Your Subscription</h1>
-          <p className="text-slate-500 text-sm max-w-md mx-auto">Start with a free 30-day trial. No payment required to start. Cancel anytime.</p>
-        </div>
-        <div className="flex gap-1 bg-slate-100 p-1 rounded-xl w-fit mx-auto mb-4">
-          <button onClick={()=>setPlanTab("single")} className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all ${planTab==="single"?"bg-white text-slate-900 shadow-sm":"text-slate-500 hover:text-slate-800"}`}>Single Farm</button>
-          <button onClick={()=>setPlanTab("multi")} className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all ${planTab==="multi"?"bg-white text-slate-900 shadow-sm":"text-slate-500 hover:text-slate-800"}`}>Multiple Farms</button>
-        </div>
-        {planTab==="single"&&(
-          <div className="space-y-5">
-            <div className="flex justify-center"><BillingToggle yearly={yearlyS} setYearly={setYearlyS}/></div>
-            {yearlyS&&<p className="text-xs text-green-600 font-semibold text-center">Billed annually — save 20% on your subscription.</p>}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
-              {singlePlans.map(plan=>(
-                <div key={plan.name} className={`rounded-2xl border-2 ${plan.color} bg-white p-6 flex flex-col relative`}>
-                  {plan.badge&&<span className={`absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full text-[11px] font-bold ${plan.badge==="Popular"?"bg-green-600 text-white":"bg-[#F97316] text-white"}`}>{plan.badge}</span>}
-                  <div className="mb-5">
-                    <p className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-0.5">{plan.name}</p>
-                    <p className={`text-sm font-semibold mb-3 ${plan.limit==="Unlimited active ponds"?"text-slate-700":"text-green-600"}`}>{plan.limit}</p>
-                    <div className="flex items-baseline gap-1">
-                      <span className="text-4xl font-extrabold text-slate-900 font-['Barlow_Condensed',sans-serif]">{cs}{cvt(yearlyS ? (plan.yearlyPrice || dp(plan.monthlyPrice, true)) : plan.monthlyPrice).toLocaleString()}</span>
-                      <span className="text-slate-400 text-sm">{yearlyS?"/year":"/month"}</span>
-                    </div>
-                    {yearlyS&&<p className="text-[11px] text-green-600 mt-1">Save {cs}{cvt(plan.yearlySaving || sv(plan.monthlyPrice)).toLocaleString()} per year</p>}
-                    <p className="text-xs text-slate-400 mt-2 leading-relaxed">{plan.desc}</p>
-                  </div>
-                  <div className="mb-4 space-y-1.5 flex-1">
-                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">Includes:</p>
-                    {plan.name==="Starter"?EVERY_PLAN_INCLUDES.map(f=><div key={f} className="flex items-center gap-2 text-xs text-slate-600"><CheckCircle size={12} className="text-green-500 shrink-0"/>{f}</div>):plan.name==="Growth"?(<><div className="flex items-center gap-2 text-xs text-slate-600"><CheckCircle size={12} className="text-green-500 shrink-0"/>Everything in Starter</div><div className="flex items-center gap-2 text-xs text-slate-600"><CheckCircle size={12} className="text-green-500 shrink-0"/>Up to 15 active ponds</div></>):(<><div className="flex items-center gap-2 text-xs text-slate-600"><CheckCircle size={12} className="text-green-500 shrink-0"/>Everything in Growth</div><div className="flex items-center gap-2 text-xs text-slate-600"><CheckCircle size={12} className="text-green-500 shrink-0"/>Unlimited active ponds</div></>)}
-                  </div>
-                  <button onClick={()=>onSelectPlan(plan.name)} className={`w-full py-2.5 rounded-xl text-sm font-bold transition-colors mt-3 ${plan.badge==="Popular"?"bg-green-600 hover:bg-green-700 text-white":plan.badge==="Best Value"?"bg-[#F97316] hover:bg-[#ea6c0a] text-white":"border-2 border-slate-200 hover:border-green-400 text-slate-700"}`}>Try 30 Days for Free</button>
-                </div>
-              ))}
-            </div>
-            <div className="text-center">
-              <p className="text-sm text-slate-500">All plans include a <strong className="text-slate-700">30-day free trial</strong>. No payment required to start. Cancel or change plans anytime.</p>
-            </div>
-          </div>
-        )}
-        {planTab==="multi"&&(
-          <div className="space-y-5">
-            <div className="flex justify-center"><BillingToggle yearly={yearlyM} setYearly={setYearlyM}/></div>
-            {yearlyM&&<p className="text-xs text-green-600 font-semibold text-center">Billed annually — save 20% on your subscription.</p>}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
-              {multiPlans.map(plan=>(
-                <div key={plan.name} className={`rounded-2xl border-2 ${plan.color} bg-white p-6 flex flex-col relative`}>
-                  {plan.badge&&<span className={`absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full text-[11px] font-bold ${plan.badge==="Popular"?"bg-green-600 text-white":"bg-[#F97316] text-white"}`}>{plan.badge}</span>}
-                  <div className="mb-4">
-                    <p className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-0.5">{plan.name}</p>
-                    <div className="flex items-center gap-1.5 mb-1"><Fish size={11} className="text-green-500"/><p className={`text-sm font-semibold ${plan.farmLimit===Infinity?"text-slate-900":"text-green-600"}`}>{plan.farms}</p></div>
-                    <p className="text-[11px] text-teal-600 font-medium mb-2">Unlimited active ponds per farm</p>
-                    <div className="flex items-baseline gap-1">
-                      <span className="text-4xl font-extrabold text-slate-900 font-['Barlow_Condensed',sans-serif]">{cs}{cvt(yearlyM ? (plan.yearlyPrice || dp(plan.monthlyPrice, true)) : plan.monthlyPrice).toLocaleString()}</span>
-                      <span className="text-slate-400 text-sm">{yearlyM?"/year":"/month"}</span>
-                    </div>
-                    {yearlyM&&<p className="text-[10px] text-green-600 mt-0.5">Save {cs}{cvt(plan.yearlySaving || sv(plan.monthlyPrice)).toLocaleString()} per year</p>}
-                    <p className="text-xs text-slate-400 mt-2 leading-relaxed">{plan.desc}</p>
-                  </div>
-                  <div className="mb-4 space-y-1.5 flex-1">
-                    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">Includes:</p>
-                    {plan.farmLimit===3?(<>{[...EVERY_PLAN_INCLUDES,"Unlimited active ponds per farm"].map(f=><div key={f} className="flex items-center gap-2 text-xs text-slate-600"><CheckCircle size={12} className="text-green-500 shrink-0"/>{f}</div>)}</>):plan.farmLimit===5?(<><div className="flex items-center gap-2 text-xs text-slate-600"><CheckCircle size={12} className="text-green-500 shrink-0"/>Everything in the 3-Farm Plan</div><div className="flex items-center gap-2 text-xs text-slate-600"><CheckCircle size={12} className="text-green-500 shrink-0"/>Up to 5 farms</div></>):(<><div className="flex items-center gap-2 text-xs text-slate-600"><CheckCircle size={12} className="text-green-500 shrink-0"/>Everything in the 5-Farm Plan</div><div className="flex items-center gap-2 text-xs text-slate-600"><CheckCircle size={12} className="text-green-500 shrink-0"/>Unlimited farms</div></>)}
-                  </div>
-                  <button onClick={()=>onSelectPlan(plan.name)} className={`w-full py-2.5 rounded-xl text-sm font-bold transition-colors mt-auto ${plan.badge==="Popular"?"bg-green-600 hover:bg-green-700 text-white":plan.badge==="Best Value"?"bg-[#F97316] hover:bg-[#ea6c0a] text-white":"border-2 border-slate-200 hover:border-green-400 text-slate-700"}`}>Try 30 Days for Free</button>
-                </div>
-              ))}
-            </div>
-            <div className="text-center">
-              <p className="text-sm text-slate-500">All plans include a <strong className="text-slate-700">30-day free trial</strong>. No payment required to start. Cancel or change plans anytime.</p>
-              <p className="text-xs text-slate-400 mt-1">Prices shown in {cs}. Plans differ only in the number of farms supported.</p>
-            </div>
-          </div>
-        )}
-        <p className="text-center text-xs text-slate-400 mt-6">You can change or cancel your plan at any time from Settings → Subscription.</p>
-      </div>
-    </div>
-  );
-}
+
+
 
 /* ─── Candidate hash-routing wrapper ────────────────────────── */
 function parseAssessUrlParts(hash:string):{type:"knowledge"|"compatibility";ownerId:string}|null{
@@ -6180,9 +5989,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     setExtraNotifs(prev=>[...prev,{id:nid,type:"transfer" as any,pondName:fromPond.name,farmId:activeFarmId,farmName:farm?.name||"",date:TODAY,read:false,message:`${safeCount.toLocaleString()} fish transferred from ${fromPond.name} to ${toPond.name}`}]);
     toast.success(`${safeCount.toLocaleString()} fish transferred${isFullTransfer?" — source pond cleared":""}`);
   };
-  const [showChoosePlan,setShowChoosePlan]=useState(false);
-  const [showVerifyEmail,setShowVerifyEmail]=useState(false);
-  const [pendingUser,setPendingUser]=useState<UserProfile|null>(null);
+  const [onboardingSubmitting, setOnboardingSubmitting] = useState(false);
   const [authLoading,setAuthLoading]=useState(()=>{
     if (typeof window !== "undefined") {
       return localStorage.getItem("pondtora_is_auth") !== "true";
@@ -6801,8 +6608,19 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
             session.user.email?.toLowerCase().trim() === "edafejesugarec@gmail.com"
           );
 
-          let resolvedPlan = userOverride?.activePlan || prof?.active_plan || (prof as any)?.activePlan || meta.active_plan || meta.activePlan || "Starter";
-          let resolvedTrialStart = prof?.trial_start_date || (prof as any)?.trialStartDate || meta.trial_start_date || meta.trialStartDate || null;
+          const isOnboardingDone = Boolean(
+            prof?.onboarding_completed ||
+            (prof as any)?.onboardingCompleted ||
+            prof?.raw_data?.onboarding_completed ||
+            (session.user.id && localStorage.getItem(`pondtora_${session.user.id}_onboarding_completed`) === "true") ||
+            prof?.active_plan ||
+            meta.active_plan ||
+            userOverride?.activePlan ||
+            isStaffUser
+          );
+
+          let resolvedPlan = userOverride?.activePlan || prof?.active_plan || (prof as any)?.activePlan || meta.active_plan || meta.activePlan || (isOnboardingDone ? "Starter" : null);
+          let resolvedTrialStart = prof?.trial_start_date || (prof as any)?.trialStartDate || meta.trial_start_date || meta.trialStartDate || (isOnboardingDone ? TODAY : null);
           let resolvedSubStatus = userOverride?.subscriptionStatus || prof?.subscription_status || (prof as any)?.subscriptionStatus || meta.subscription_status || meta.subscriptionStatus || "Trial";
           let resolvedSubExpiry = userOverride?.subscriptionExpiry || prof?.subscription_expiry || (prof as any)?.subscriptionExpiry || meta.subscription_expiry || meta.subscriptionExpiry || null;
           let resolvedSubStart = userOverride?.subscriptionStart || prof?.subscription_start || (prof as any)?.subscriptionStart || meta.subscription_start || meta.subscriptionStart || null;
@@ -6859,6 +6677,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
             billingFrequency: resolvedBillingFreq,
             paystackReference: resolvedPaystackRef,
             lastPaymentDate: resolvedLastPayment,
+            onboardingCompleted: isOnboardingDone,
             referralCode: prof?.referral_code || meta.referral_code || meta.referralCode || (prof as any)?.referralCode,
             referredBy: prof?.referred_by || meta.referred_by || meta.referredBy || (prof as any)?.referredBy,
           };
@@ -7037,8 +6856,19 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
           session.user.email?.toLowerCase().trim() === "edafejesugarec@gmail.com"
         );
 
-        let activePlanStr = prof?.active_plan || (prof as any)?.activePlan || meta.active_plan || meta.activePlan || "Starter";
-        let trialStartStr = prof?.trial_start_date || (prof as any)?.trialStartDate || meta.trial_start_date || meta.trialStartDate || new Date().toISOString();
+        const isOnboardingDone2 = Boolean(
+          prof?.onboarding_completed ||
+          (prof as any)?.onboardingCompleted ||
+          prof?.raw_data?.onboarding_completed ||
+          (session.user.id && localStorage.getItem(`pondtora_${session.user.id}_onboarding_completed`) === "true") ||
+          prof?.active_plan ||
+          meta.active_plan ||
+          userOverride?.activePlan ||
+          isStaffUser
+        );
+
+        let activePlanStr = prof?.active_plan || (prof as any)?.activePlan || meta.active_plan || meta.activePlan || (isOnboardingDone2 ? "Starter" : null);
+        let trialStartStr = prof?.trial_start_date || (prof as any)?.trialStartDate || meta.trial_start_date || meta.trialStartDate || (isOnboardingDone2 ? new Date().toISOString() : null);
         let subStatusStr = prof?.subscription_status || (prof as any)?.subscriptionStatus || meta.subscription_status || meta.subscriptionStatus || "Trial";
         let subExpiryStr = prof?.subscription_expiry || (prof as any)?.subscriptionExpiry || meta.subscription_expiry || meta.subscriptionExpiry || null;
         let subStartStr = prof?.subscription_start || (prof as any)?.subscriptionStart || meta.subscription_start || meta.subscriptionStart || null;
@@ -7095,6 +6925,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
           billingFrequency: billingFreqStr,
           paystackReference: paystackRefStr,
           lastPaymentDate: lastPaymentStr,
+          onboardingCompleted: isOnboardingDone2,
           referralCode: prof?.referral_code || meta.referral_code || meta.referralCode || (prof as any)?.referralCode,
           referredBy: prof?.referred_by || meta.referred_by || meta.referredBy || (prof as any)?.referredBy,
         };
@@ -7196,11 +7027,65 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     await auth.signOut().catch(console.warn);
   }, [userProfile?.id]);
   const handleSignup=(profile:UserProfile)=>{
-    // With Supabase, if we get here a session exists (signUp returned session immediately)
-    // Show plan selector before entering the app
-    setActive("financial");
-    setPendingUser(profile);
-    setShowChoosePlan(true);
+    handleLogin(profile);
+  };
+
+  const handleCompleteOnboarding = async (planName: string, farmType: "single" | "multi") => {
+    if (!userProfile) return;
+    setOnboardingSubmitting(true);
+    try {
+      const todayStr = TODAY;
+      setActivePlan(planName);
+      setTrialStartDate(todayStr);
+
+      const updatedProfile: UserProfile = {
+        ...userProfile,
+        activePlan: planName,
+        trialStartDate: todayStr,
+        onboardingCompleted: true,
+        rawData: {
+          ...(userProfile.rawData || {}),
+          onboarding_completed: true,
+          farm_type: farmType,
+        },
+        raw_data: {
+          ...(userProfile.raw_data || {}),
+          onboarding_completed: true,
+          farm_type: farmType,
+        },
+      };
+
+      setUserProfile(updatedProfile);
+      if (userProfile.id) {
+        try {
+          localStorage.setItem(`pondtora_${userProfile.id}_onboarding_completed`, "true");
+          localStorage.setItem(`pondtora_${userProfile.id}_plan`, planName);
+          localStorage.setItem(`pondtora_${userProfile.id}_trial_start`, todayStr);
+          saveLocal(`pondtora_${userProfile.id}_user_profile`, updatedProfile);
+        } catch {}
+      }
+
+      await supabase.from("user_profiles").update({
+        active_plan: planName,
+        trial_start_date: todayStr,
+        onboarding_completed: true,
+        raw_data: {
+          ...(userProfile.raw_data || {}),
+          onboarding_completed: true,
+          farm_type: farmType,
+        },
+        updated_at: new Date().toISOString(),
+      }).eq("id", userProfile.id);
+
+      await api.profile.updatePlan(planName, todayStr).catch(console.warn);
+      syncUserProfileToAdmin(updatedProfile, planName, farms.length || 1);
+      toast.success("Welcome to Pondtora! Your 30-day free trial has started.");
+    } catch (err: any) {
+      console.error("Failed to complete onboarding:", err);
+      toast.error("Failed to save plan selection. Please try again.");
+    } finally {
+      setOnboardingSubmitting(false);
+    }
   };
   const addReport=async(r:Report)=>{
     if (!checkSubscriptionActive()) return;
@@ -8220,19 +8105,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       </div>
     </div>
   );
-  if(showVerifyEmail&&pendingUser) return(
-    <VerifyEmailScreen email={pendingUser.email} onVerified={()=>{setShowVerifyEmail(false);setShowChoosePlan(true);}} onChangeEmail={()=>{setShowVerifyEmail(false);setPendingUser(null);}}/>
-  );
-  if(showChoosePlan&&pendingUser) return(
-    <ChoosePlanScreen onSelectPlan={async(plan:string)=>{
-      const profile=pendingUser!;
-      setActivePlan(plan);setTrialStartDate(TODAY);setUserProfile(profile);setIsAuth(true);setShowChoosePlan(false);setPendingUser(null);
-      // DB trigger already created the farm + profile on sign-up — just update the plan
-      api.profile.updatePlan(plan, TODAY).catch(console.warn);
-      // Load data (farm + profile created by trigger)
-      loadFromBackend();
-    }}/>
-  );
+
   const _hash=window.location.hash;
   if(parseAssessUrlParts(_hash)) return <CandidateRoute/>;
   if (routeState === "reset-password") {
@@ -8303,9 +8176,28 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   const cs=userProfile?.currencySymbol??"₦";
   const userCountry=userProfile?.country??"Nigeria";
   const cvt=(n:number)=>convertNGN(n,userCountry);
+
+  const showOnboardingOverlay = Boolean(
+    isAuth &&
+    isOwner &&
+    userProfile &&
+    !userProfile.onboardingCompleted &&
+    !adminOverride.hasFreeAccess &&
+    userProfile.email?.toLowerCase().trim() !== "edafejesugarec@gmail.com"
+  );
+
   return(
     <div className="w-full min-h-screen min-h-[100dvh] flex bg-white text-slate-900 lg:fixed lg:inset-0 lg:overflow-hidden overflow-x-hidden" style={{fontFamily:"'Barlow',sans-serif"}}>
       <Toaster position="top-right" richColors duration={2500} visibleToasts={1} closeButton/>
+
+      {/* ── Compulsory Farm Plan Onboarding Overlay for New Users ── */}
+      {showOnboardingOverlay && (
+        <OnboardingPlanOverlay
+          currencySymbol={cs}
+          loading={onboardingSubmitting}
+          onConfirm={handleCompleteOnboarding}
+        />
+      )}
       {/* ── Database Setup Wizard ── */}
       {showSetup&&(setupSql||setupRunning)&&(
         <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4">

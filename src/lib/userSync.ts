@@ -218,6 +218,18 @@ export async function resolveFullUserProfile(user: any): Promise<UserProfile> {
   const staffRole: string = staffRecord?.role || meta.role || dbProf?.role || (isStaff ? "staff" : "owner");
   const staffFarms: string[] = staffRecord?.farms || meta.farms || [];
 
+  const isOnboardingDone = Boolean(
+    dbProf?.onboarding_completed ||
+    dbProf?.raw_data?.onboarding_completed ||
+    meta.onboarding_completed ||
+    meta.onboardingCompleted ||
+    (userId && typeof localStorage !== "undefined" && localStorage.getItem(`pondtora_${userId}_onboarding_completed`) === "true") ||
+    (dbProf?.active_plan && (dbProf?.trial_start_date || dbProf?.subscription_start)) ||
+    dbProf?.subscription_expiry ||
+    dbProf?.paystack_reference ||
+    staffRole === "staff"
+  );
+
   const profile: UserProfile = {
     id: userId,
     name: dbProf?.name || meta.name || staffRecord?.name || cleanEmail.split("@")[0] || "User",
@@ -229,8 +241,8 @@ export async function resolveFullUserProfile(user: any): Promise<UserProfile> {
     phone: dbProf?.phone || meta.phone || "",
     currencySymbol: dbProf?.currency_symbol || meta.currency_symbol || "₦",
     currencyCode: dbProf?.currency_code || meta.currency_code || "NGN",
-    activePlan: dbProf?.active_plan || meta.active_plan || "Starter",
-    trialStartDate: dbProf?.trial_start_date || meta.trial_start_date,
+    activePlan: dbProf?.active_plan || meta.active_plan || (isOnboardingDone ? "Starter" : null),
+    trialStartDate: dbProf?.trial_start_date || meta.trial_start_date || null,
     role: staffRole,
     permissions: staffPerms,
     ownerId: staffOwnerId,
@@ -244,6 +256,7 @@ export async function resolveFullUserProfile(user: any): Promise<UserProfile> {
     subscriptionExpiry: dbProf?.subscription_expiry,
     subscriptionStart: dbProf?.subscription_start,
     billingFrequency: dbProf?.billing_frequency || meta.plan_billing || "monthly",
+    onboardingCompleted: isOnboardingDone,
   };
 
   return profile;

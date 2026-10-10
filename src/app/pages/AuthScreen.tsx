@@ -7,7 +7,6 @@ import { COUNTRIES, DIAL_CODES, FLAG_EMOJI, COUNTRY_CURRENCIES } from "../data";
 import { SearchableCountrySelect } from "../shared";
 import { supabase, getAppUrl } from "../../lib/supabase";
 import { auth, api } from "../../lib/api";
-import { useDynamicPlans, yearlyPrice, EVERY_PLAN_INCLUDES } from "../pricingData";
 import { syncUserProfileToAdmin, resolveFullUserProfile } from "../../lib/userSync";
 import { captureReferralParam, attachReferralToNewUser, getPendingReferrerCode } from "../../lib/referralStore";
 
@@ -91,11 +90,6 @@ function AuthScreen({
   const [resendCooldown, setResendCooldown] = useState(0);
 
   // ── Create account state ───────────────────────────────────────────────────
-  const [createStep, setCreateStep] = useState<"details" | "plan">("details");
-  const [selectedTrialPlan, setSelectedTrialPlan] = useState<string>("Starter");
-  const [trialBilling, setTrialBilling] = useState<"monthly" | "yearly">("monthly");
-  const [trialFarmType, setTrialFarmType] = useState<"single" | "multi">("single");
-
   const [cName, setCName] = useState("");
   const [cEmail, setCEmail] = useState("");
   const [cPass, setCPass] = useState("");
@@ -108,7 +102,6 @@ function AuthScreen({
   const [cReferralCode, setCReferralCode] = useState(() => getPendingReferrerCode() || "");
   const [cErr, setCErr] = useState("");
   const [cLoading, setCLoading] = useState(false);
-  const [checkingEmail, setCheckingEmail] = useState(false);
   const [cAgreed, setCAgreed] = useState(false);
   const [showCPass, setShowCPass] = useState(false);
   const [signupSent, setSignupSent] = useState(false);
@@ -138,9 +131,6 @@ function AuthScreen({
 
   const cur = COUNTRY_CURRENCIES[cCountry] ?? COUNTRY_CURRENCIES["Nigeria"];
   const isCreate = view === "create";
-
-  const { singleFarmPlans = [], multiFarmPlans = [] } = useDynamicPlans();
-  const trialPlans = (trialFarmType === "single" ? singleFarmPlans : multiFarmPlans) || [];
 
   // Detect URL search/hash for email verification / invite / recovery flows on mount + listen for PASSWORD_RECOVERY
   useEffect(() => {
@@ -302,14 +292,14 @@ function AuthScreen({
     }
   };
 
-  // Always reset scroll to the very top whenever view or create step changes (e.g. going to subscription plan step)
+  // Always reset scroll to the very top whenever view changes
   useEffect(() => {
     if (typeof window !== "undefined") {
       window.scrollTo({ top: 0, left: 0, behavior: "instant" });
       document.documentElement.scrollTo({ top: 0, left: 0, behavior: "instant" });
       document.body.scrollTo({ top: 0, left: 0, behavior: "instant" });
     }
-  }, [createStep, view]);
+  }, [view]);
 
   // ── Supabase Login ─────────────────────────────────────────────────────────
   const handleLogin = async (e: React.FormEvent) => {
@@ -365,8 +355,8 @@ function AuthScreen({
     }
   };
 
-  // ── Step 1: Validate Details and advance to Plan Selection ───────────────
-  const handleProceedToPlan = async (e: React.FormEvent) => {
+  // ── Create Account & Trigger Confirmation Email ──────────────────────────
+  const handleCreateAccount = async (e: React.FormEvent) => {
     e.preventDefault();
     setCErr("");
     if (!cName.trim() || !cEmail.trim() || !cPass.trim() || !cFarm.trim()) {
@@ -387,32 +377,18 @@ function AuthScreen({
       return;
     }
 
-    setCheckingEmail(true);
-    try {
-      const check = await api.staff.checkEmailExists(cEmail.trim().toLowerCase());
-      if (check.exists) {
-        setCErr("An account with this email address already exists. Please sign in.");
-        return;
-      }
-    } catch {
-      // Fallback: proceed and let Supabase auth enforce duplicate prevention
-    } finally {
-      setCheckingEmail(false);
-    }
-
-    setCreateStep("plan");
-    if (typeof window !== "undefined") {
-      window.scrollTo({ top: 0, left: 0, behavior: "instant" });
-    }
-  };
-
-  // ── Step 2: Select Free Trial Plan and trigger Sign Up ────────────────────
-  const handleSelectPlanAndSignUp = async (planName: string) => {
-    setCErr("");
-    setSelectedTrialPlan(planName);
     setCLoading(true);
     const cleanEmail = cEmail.trim().toLowerCase();
     try {
+      try {
+        const check = await api.staff.checkEmailExists(cleanEmail);
+        if (check.exists) {
+          setCErr("An account with this email address already exists. Please sign in.");
+          setCLoading(false);
+          return;
+        }
+      } catch {}
+
       const phoneStr = `${DIAL_CODES[cDialC] ?? ""} ${cPhone.trim()}`.trim();
       const pendingRef = (cReferralCode.trim() || getPendingReferrerCode() || "").toUpperCase();
 
@@ -427,8 +403,7 @@ function AuthScreen({
         phone: phoneStr,
         currencySymbol: cur.symbol,
         currencyCode: cur.code,
-        activePlan: planName,
-        planBilling: trialBilling,
+        activePlan: null,
         referredBy: pendingRef || undefined,
       });
 
@@ -477,11 +452,12 @@ function AuthScreen({
         phone: phoneStr,
         currencySymbol: cur.symbol,
         currencyCode: cur.code,
-        activePlan: planName,
-        trialStartDate: new Date().toISOString(),
+        activePlan: null,
+        trialStartDate: null,
         role: "owner",
         status: "Active",
         referredBy: pendingRef || undefined,
+        onboardingCompleted: false,
       };
 
       // Ensure user profile & primary farm are immediately in the backend database
@@ -498,11 +474,12 @@ function AuthScreen({
             phone: phoneStr,
             currency_symbol: cur.symbol,
             currency_code: cur.code,
-            active_plan: planName,
-            trial_start_date: new Date().toISOString(),
+            active_plan: null,
+            trial_start_date: null,
             role: "owner",
             status: "Active",
             referred_by: pendingRef || null,
+            raw_data: { onboarding_completed: false },
             updated_at: new Date().toISOString(),
           });
           const { data: existingFarms } = await supabase.from("farms").select("id").eq("user_id", createdUserId).limit(1);
@@ -519,7 +496,7 @@ function AuthScreen({
       }
 
       // Sync into admin local state / logs immediately
-      syncUserProfileToAdmin(profile, planName, 1);
+      syncUserProfileToAdmin(profile, null, 1);
       attachReferralToNewUser({ id: createdUserId, email: cleanEmail, name: cName }, pendingRef);
 
       // Strict enforcement: only auto-login if email is confirmed
@@ -711,13 +688,11 @@ function AuthScreen({
     </div>
   );
 
-  const isPlanStep = view === "create" && createStep === "plan" && !signupSent;
-
   return (
-    <div className={`min-h-screen ${isPlanStep ? "flex flex-col items-center justify-start bg-[#f8fafc] py-8 px-4 sm:px-8 overflow-y-auto" : "grid lg:grid-cols-2 bg-white"}`}>
-      {!isPlanStep && <AuthLeftPanel />}
-      <div className={`flex flex-col justify-start overflow-y-auto ${isPlanStep ? "w-full max-w-5xl mx-auto" : "px-6 py-8 sm:py-12 sm:px-10 lg:h-screen lg:overflow-y-auto min-h-screen"}`}>
-        {!isPlanStep && !signupSent && (
+    <div className="min-h-screen grid lg:grid-cols-2 bg-white">
+      <AuthLeftPanel />
+      <div className="flex flex-col justify-start overflow-y-auto px-6 py-8 sm:py-12 sm:px-10 lg:h-screen lg:overflow-y-auto min-h-screen">
+        {!signupSent && (
           <div className="flex items-center gap-3 mb-8 lg:hidden">
             <img src={pondtoraLogo} alt="Pondtora" className="h-9 w-auto object-contain shrink-0" />
             <div>
@@ -726,8 +701,8 @@ function AuthScreen({
             </div>
           </div>
         )}
-        <div className={`${isPlanStep ? "w-full my-auto" : "max-w-sm my-auto"} w-full mx-auto transition-all`}>
-          {!isPlanStep && !signupSent && (
+        <div className="max-w-sm my-auto w-full mx-auto transition-all">
+          {!signupSent && (
             <>
               <h2 className="text-2xl font-extrabold text-slate-900 font-['Barlow_Condensed',sans-serif] mb-1">
                 {view === "login" ? "Welcome back"
@@ -799,9 +774,9 @@ function AuthScreen({
             </form>
           )}
 
-          {/* ── Create account Step 1: Account Details ── */}
-          {view === "create" && !signupSent && createStep === "details" && (
-            <form onSubmit={handleProceedToPlan} className="space-y-3">
+          {/* ── Create account Details ── */}
+          {view === "create" && !signupSent && (
+            <form onSubmit={handleCreateAccount} className="space-y-3">
               <div className="grid grid-cols-2 gap-3">
                 <div><label className={LBL}>Full Name *</label><input className={AIC} placeholder="Jane Doe" value={cName} onChange={e => setCName(e.target.value)} /></div>
                 <div>
@@ -878,331 +853,20 @@ function AuthScreen({
               {cErr && <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2 flex items-center gap-2"><AlertCircle size={13} />{cErr}</p>}
               <button
                 type="submit"
-                disabled={checkingEmail}
+                disabled={cLoading}
                 className="w-full py-2.5 bg-green-600 hover:bg-green-700 disabled:opacity-60 text-white text-sm font-bold rounded-lg transition-colors mt-1 flex items-center justify-center gap-2 cursor-pointer"
               >
-                {checkingEmail ? (
+                {cLoading ? (
                   <>
                     <Loader2 size={16} className="animate-spin" />
-                    <span>Checking email…</span>
+                    <span>Creating Account…</span>
                   </>
                 ) : (
-                  <span>Continue to Select Plan →</span>
+                  <span>Create Account</span>
                 )}
               </button>
               <button type="button" onClick={() => setView("login")} className="w-full text-center text-xs text-slate-400 hover:text-slate-600 pt-1">Already have an account? Sign in</button>
             </form>
-          )}
-
-          {/* ── Create account Step 2: Select 30-Day Free Trial Plan ── */}
-          {view === "create" && !signupSent && createStep === "plan" && (
-            <div className="w-full space-y-5">
-              <div className="space-y-2.5 pb-3 border-b border-slate-200">
-                <div className="flex items-center justify-between">
-                  <button
-                    type="button"
-                    onClick={() => setCreateStep("details")}
-                    className="flex items-center gap-1.5 text-xs font-bold text-emerald-700 hover:text-emerald-900 transition-colors bg-emerald-50 px-3 py-1.5 rounded-lg border border-emerald-200 shadow-2xs"
-                  >
-                    <ChevronLeft size={16} /> Back to Details
-                  </button>
-                  <div className="hidden sm:flex items-center gap-2">
-                    <img src={pondtoraLogo} alt="Pondtora" className="h-6 w-auto object-contain shrink-0" />
-                    <span className="text-base font-extrabold font-['Barlow_Condensed',sans-serif] text-slate-900">Pondtora</span>
-                  </div>
-                </div>
-                <div className="w-full text-center">
-                  <span className="inline-block w-full sm:w-auto text-center text-[11px] font-bold uppercase tracking-wider text-emerald-700 bg-emerald-100 px-4 py-1.5 rounded-full border border-emerald-200">
-                    Step 2 of 2 · 30-Day Free Trial
-                  </span>
-                </div>
-              </div>
-
-              <div className="text-center space-y-2">
-                <h2 className="text-3xl font-extrabold text-slate-900 font-['Barlow_Condensed',sans-serif] tracking-wide">
-                  Choose the plan that fits your farm
-                </h2>
-                <p className="text-slate-500 text-sm max-w-xl mx-auto leading-relaxed">
-                  Start with your 30-day free trial and explore everything Pondtora has to offer. No payment required to get started.
-                </p>
-                <div className="flex flex-wrap items-center justify-center gap-3 pt-1 text-xs font-semibold text-emerald-700">
-                  <span className="inline-flex items-center gap-1 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">
-                    <CheckCircle size={13} className="text-emerald-600" /> 30-Day Full Free Trial
-                  </span>
-                  <span className="inline-flex items-center gap-1 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">
-                    <CheckCircle size={13} className="text-emerald-600" /> No Card Required Now
-                  </span>
-                  <span className="inline-flex items-center gap-1 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">
-                    <CheckCircle size={13} className="text-emerald-600" /> Switch Plans Anytime
-                  </span>
-                </div>
-              </div>
-
-              {cErr && (
-                <div className="max-w-xl mx-auto w-full my-2">
-                  <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-xl px-4 py-3 flex items-center gap-2.5 shadow-xs">
-                    <AlertCircle size={16} className="shrink-0" />
-                    <span>{cErr}</span>
-                  </p>
-                </div>
-              )}
-
-              {/* Tab switcher */}
-              <div className="flex gap-1 bg-slate-100 p-1 rounded-xl w-fit mx-auto border border-slate-200 mt-2">
-                <button
-                  type="button"
-                  onClick={() => setTrialFarmType("single")}
-                  className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all ${
-                    trialFarmType === "single" ? "bg-white text-slate-900 shadow-sm font-bold" : "text-slate-500 hover:text-slate-800"
-                  }`}
-                >
-                  Single Farm
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setTrialFarmType("multi")}
-                  className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all ${
-                    trialFarmType === "multi" ? "bg-white text-slate-900 shadow-sm font-bold" : "text-slate-500 hover:text-slate-800"
-                  }`}
-                >
-                  Multiple Farms
-                </button>
-              </div>
-              <p className="text-xs text-slate-500 -mt-2 mb-2 text-center">
-                {trialFarmType === "single" ? "For managing a single farm operation with tailored pond capacity." : "For managing multiple distinct farm sites under one account."}
-              </p>
-
-              {/* Billing toggle */}
-              <div className="flex justify-center mb-1">
-                <div className="inline-flex items-center gap-3 bg-slate-100 rounded-full p-1 border border-slate-200">
-                  <button
-                    type="button"
-                    onClick={() => setTrialBilling("monthly")}
-                    className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-all ${
-                      trialBilling === "monthly" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500"
-                    }`}
-                  >
-                    Monthly (after trial)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setTrialBilling("yearly")}
-                    className={`flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs font-semibold transition-all ${
-                      trialBilling === "yearly" ? "bg-white text-slate-900 shadow-sm font-bold" : "text-slate-500"
-                    }`}
-                  >
-                    Yearly (after trial) <span className="bg-emerald-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none">Save 20%</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Plans Grid */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-5 items-stretch pt-2">
-                {trialFarmType === "single" ? (
-                  singleFarmPlans.map(plan => {
-                    const isYearly = trialBilling === "yearly";
-                    const displayPrice = isYearly ? plan.yearlyPrice : plan.monthlyPrice;
-                    const isSelected = selectedTrialPlan === plan.name;
-                    const savings = plan.yearlySaving || Math.round((plan.monthlyPrice || 0) * 12 * 0.2);
-
-                    return (
-                      <div
-                        key={plan.name}
-                        onClick={() => setSelectedTrialPlan(plan.name)}
-                        className={`rounded-2xl border-2 ${plan.color || "border-slate-200"} bg-white p-6 flex flex-col relative shadow-sm hover:shadow-md transition-all cursor-pointer ${
-                          isSelected ? "ring-2 ring-emerald-500 border-emerald-500 bg-emerald-50/20" : ""
-                        }`}
-                      >
-                        {plan.badge && (
-                          <span
-                            className={`absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full text-[11px] font-bold ${
-                              plan.badge === "Popular" ? "bg-green-600 text-white shadow-xs" : "bg-[#F97316] text-white shadow-xs"
-                            }`}
-                          >
-                            {plan.badge}
-                          </span>
-                        )}
-                        <div className="mb-4">
-                          <div className="flex items-center justify-between mb-1">
-                            <p className="text-xs font-bold uppercase tracking-wider text-slate-500">{plan.name}</p>
-                            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-100/80 px-2 py-0.5 rounded-md">
-                              <Sparkles size={11} className="text-emerald-600" /> Free Trial
-                            </span>
-                          </div>
-
-                          <div className="p-2.5 bg-slate-50 border border-slate-200/80 rounded-xl my-2.5">
-                            <p className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
-                              <Fish size={13} className="text-emerald-600" />
-                              {plan.limit === "Unlimited active ponds" ? "Unlimited Ponds Capacity" : plan.limit || "Up to 5 active ponds"}
-                            </p>
-                            <p className="text-[11px] text-slate-500 mt-0.5">Single Farm Operation</p>
-                          </div>
-
-                          <p className="text-xs text-slate-500 leading-relaxed mb-3">{plan.desc || ""}</p>
-
-                          <div className="flex items-baseline gap-1 pt-2 border-t border-slate-100 text-slate-600">
-                            <span className="text-2xl font-extrabold text-slate-900 font-['Barlow_Condensed',sans-serif]">
-                              ₦{displayPrice.toLocaleString()}
-                            </span>
-                            <span className="text-slate-400 text-xs">{isYearly ? "/yr after trial" : "/mo after trial"}</span>
-                          </div>
-                          {isYearly && (
-                            <p className="text-[10px] text-emerald-600 font-semibold mt-0.5">Save ₦{savings.toLocaleString()} / year</p>
-                          )}
-                        </div>
-
-                        <div className="mb-5 space-y-1.5 flex-1">
-                          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">What&apos;s Included:</p>
-                          {plan.name === "Starter" ? (
-                            EVERY_PLAN_INCLUDES.slice(0, 6).map(f => (
-                              <div key={f} className="flex items-center gap-2 text-xs text-slate-600">
-                                <CheckCircle size={12} className="text-emerald-500 shrink-0" />{f}
-                              </div>
-                            ))
-                          ) : plan.name === "Growth" ? (
-                            <>
-                              <div className="flex items-center gap-2 text-xs text-slate-600"><CheckCircle size={12} className="text-emerald-500 shrink-0" />Everything in Starter</div>
-                              <div className="flex items-center gap-2 text-xs text-slate-600"><CheckCircle size={12} className="text-emerald-500 shrink-0" />Up to 15 active ponds</div>
-                              <div className="flex items-center gap-2 text-xs text-slate-600"><CheckCircle size={12} className="text-emerald-500 shrink-0" />Advanced batch analytics</div>
-                            </>
-                          ) : (
-                            <>
-                              <div className="flex items-center gap-2 text-xs text-slate-600"><CheckCircle size={12} className="text-emerald-500 shrink-0" />Everything in Growth</div>
-                              <div className="flex items-center gap-2 text-xs text-slate-600"><CheckCircle size={12} className="text-emerald-500 shrink-0" />Unlimited active ponds</div>
-                              <div className="flex items-center gap-2 text-xs text-slate-600"><CheckCircle size={12} className="text-emerald-500 shrink-0" />Commercial scale reporting</div>
-                            </>
-                          )}
-                        </div>
-
-                        <button
-                          type="button"
-                          disabled={cLoading}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleSelectPlanAndSignUp(plan.name);
-                          }}
-                          className={`w-full py-3 rounded-xl text-xs font-bold transition-all mt-auto flex items-center justify-center gap-2 shadow-sm cursor-pointer ${
-                            plan.badge === "Popular"
-                              ? "bg-emerald-600 hover:bg-emerald-700 text-white"
-                              : plan.badge === "Best Value"
-                              ? "bg-[#F97316] hover:bg-[#ea6c0a] text-white"
-                              : "bg-slate-900 hover:bg-slate-800 text-white"
-                          }`}
-                        >
-                          {cLoading && selectedTrialPlan === plan.name ? (
-                            <><Loader2 size={14} className="animate-spin" /> Starting Free Trial…</>
-                          ) : (
-                            <>Start 30-Day Free Trial</>
-                          )}
-                        </button>
-                      </div>
-                    );
-                  })
-                ) : (
-                  multiFarmPlans.map(plan => {
-                    const isYearly = trialBilling === "yearly";
-                    const displayPrice = isYearly ? plan.yearlyPrice : plan.monthlyPrice;
-                    const isSelected = selectedTrialPlan === plan.name;
-                    const savings = plan.yearlySaving || Math.round((plan.monthlyPrice || 0) * 12 * 0.2);
-
-                    return (
-                      <div
-                        key={plan.name}
-                        onClick={() => setSelectedTrialPlan(plan.name)}
-                        className={`rounded-2xl border-2 ${plan.color || "border-slate-200"} bg-white p-6 flex flex-col relative shadow-sm hover:shadow-md transition-all cursor-pointer ${
-                          isSelected ? "ring-2 ring-emerald-500 border-emerald-500 bg-emerald-50/20" : ""
-                        }`}
-                      >
-                        {plan.badge && (
-                          <span
-                            className={`absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 rounded-full text-[11px] font-bold ${
-                              plan.badge === "Popular" ? "bg-green-600 text-white shadow-xs" : "bg-[#F97316] text-white shadow-xs"
-                            }`}
-                          >
-                            {plan.badge}
-                          </span>
-                        )}
-                        <div className="mb-4">
-                          <div className="flex items-center justify-between mb-1">
-                            <p className="text-xs font-bold uppercase tracking-wider text-slate-500">{plan.name}</p>
-                            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-100/80 px-2 py-0.5 rounded-md">
-                              <Sparkles size={11} className="text-emerald-600" /> Free Trial
-                            </span>
-                          </div>
-
-                          <div className="p-2.5 bg-slate-50 border border-slate-200/80 rounded-xl my-2.5">
-                            <p className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
-                              <Fish size={13} className="text-emerald-600" />
-                              {plan.farms || "Multiple Farms"} · Unlimited Ponds
-                            </p>
-                            <p className="text-[11px] text-emerald-600 font-semibold mt-0.5">Manage multiple distinct locations</p>
-                          </div>
-
-                          <p className="text-xs text-slate-500 leading-relaxed mb-3">{plan.desc || ""}</p>
-
-                          <div className="flex items-baseline gap-1 pt-2 border-t border-slate-100 text-slate-600">
-                            <span className="text-2xl font-extrabold text-slate-900 font-['Barlow_Condensed',sans-serif]">
-                              ₦{displayPrice.toLocaleString()}
-                            </span>
-                            <span className="text-slate-400 text-xs">{isYearly ? "/yr after trial" : "/mo after trial"}</span>
-                          </div>
-                          {isYearly && (
-                            <p className="text-[10px] text-emerald-600 font-semibold mt-0.5">Save ₦{savings.toLocaleString()} / year</p>
-                          )}
-                        </div>
-
-                        <div className="mb-5 space-y-1.5 flex-1">
-                          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">What&apos;s Included:</p>
-                          {plan.farmLimit === 3 ? (
-                            <>{[...EVERY_PLAN_INCLUDES.slice(0, 4), "Unlimited active ponds per farm"].map(f => (
-                              <div key={f} className="flex items-center gap-2 text-xs text-slate-600">
-                                <CheckCircle size={12} className="text-emerald-500 shrink-0" />{f}
-                              </div>
-                            ))}</>
-                          ) : plan.farmLimit === 5 ? (
-                            <>
-                              <div className="flex items-center gap-2 text-xs text-slate-600"><CheckCircle size={12} className="text-emerald-500 shrink-0" />Everything in 3-Farm Plan</div>
-                              <div className="flex items-center gap-2 text-xs text-slate-600"><CheckCircle size={12} className="text-emerald-500 shrink-0" />Up to 5 farms</div>
-                            </>
-                          ) : (
-                            <>
-                              <div className="flex items-center gap-2 text-xs text-slate-600"><CheckCircle size={12} className="text-emerald-500 shrink-0" />Everything in 5-Farm Plan</div>
-                              <div className="flex items-center gap-2 text-xs text-slate-600"><CheckCircle size={12} className="text-emerald-500 shrink-0" />Unlimited farms</div>
-                            </>
-                          )}
-                        </div>
-
-                        <button
-                          type="button"
-                          disabled={cLoading}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleSelectPlanAndSignUp(plan.name);
-                          }}
-                          className={`w-full py-3 rounded-xl text-xs font-bold transition-all mt-auto flex items-center justify-center gap-2 shadow-sm cursor-pointer ${
-                            plan.badge === "Popular"
-                              ? "bg-emerald-600 hover:bg-emerald-700 text-white"
-                              : plan.badge === "Best Value"
-                              ? "bg-[#F97316] hover:bg-[#ea6c0a] text-white"
-                              : "bg-slate-900 hover:bg-slate-800 text-white"
-                          }`}
-                        >
-                          {cLoading && selectedTrialPlan === plan.name ? (
-                            <><Loader2 size={14} className="animate-spin" /> Starting Free Trial…</>
-                          ) : (
-                            <>Start 30-Day Free Trial</>
-                          )}
-                        </button>
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-
-              <p className="text-center text-xs text-slate-400 pt-4">
-                You will not be charged today. No credit card required. Cancel or change plan anytime.
-              </p>
-            </div>
           )}
 
           {/* ── Email confirmation pending ── */}
@@ -1213,7 +877,7 @@ function AuthScreen({
               </div>
               <div>
                 <span className="inline-block text-[11px] font-bold text-emerald-800 bg-emerald-100 px-3 py-1 rounded-full uppercase tracking-wider mb-2">
-                  {selectedTrialPlan} Plan · 30 Days Free
+                  Account Verification
                 </span>
                 <p className="font-bold text-slate-800 text-2xl font-['Barlow_Condensed',sans-serif]">Check your inbox</p>
                 <p className="text-xs text-slate-500 mt-2 leading-relaxed max-w-sm mx-auto">
