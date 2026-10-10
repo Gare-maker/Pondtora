@@ -159,10 +159,15 @@ function AuthScreen({
         hashParams.get("type") === "email_confirmation";
 
       if (isVerified && !errorDesc && !errCode) {
-        setShowVerifiedModal(true);
-        supabase.auth.getSession().then(({ data: { session } }) => {
-          if (session?.user?.email) {
-            setVerifiedEmail(session.user.email);
+        supabase.auth.getSession().then(async ({ data: { session } }) => {
+          if (session?.user) {
+            try {
+              const profile = await resolveFullUserProfile(session.user);
+              if (typeof window !== "undefined") {
+                window.history.replaceState(null, "", window.location.pathname);
+              }
+              onLogin(profile);
+            } catch {}
           }
         });
       }
@@ -209,17 +214,29 @@ function AuthScreen({
       supabase.auth.getSession().then(({ data: { session } }) => {
         if (!session) {
           if (tokenHash && linkType) {
-            supabase.auth.verifyOtp({ token_hash: tokenHash, type: linkType }).then(({ error }) => {
+            supabase.auth.verifyOtp({ token_hash: tokenHash, type: linkType }).then(async ({ data, error }) => {
               if (!error) {
                 if (linkType === "recovery") setView("recovery");
                 else if (linkType === "invite") setView("invite");
+                else if (linkType === "signup" || linkType === "email_confirmation") {
+                  if (data?.session?.user) {
+                    const profile = await resolveFullUserProfile(data.session.user);
+                    if (typeof window !== "undefined") window.history.replaceState(null, "", window.location.pathname);
+                    onLogin(profile);
+                  }
+                }
               }
             });
           } else if (authCode) {
-            supabase.auth.exchangeCodeForSession(authCode).then(({ error }) => {
+            supabase.auth.exchangeCodeForSession(authCode).then(async ({ data, error }) => {
               if (!error) {
                 if (linkType === "recovery") setView("recovery");
                 else if (linkType === "invite") setView("invite");
+                else if (data?.session?.user) {
+                  const profile = await resolveFullUserProfile(data.session.user);
+                  if (typeof window !== "undefined") window.history.replaceState(null, "", window.location.pathname);
+                  onLogin(profile);
+                }
               }
             });
           }
@@ -230,16 +247,19 @@ function AuthScreen({
     // 5. Supabase Auth state listener for PASSWORD_RECOVERY and SIGNED_IN confirmation
     let subRes: any;
     try {
-      subRes = supabase.auth.onAuthStateChange((event, session) => {
+      subRes = supabase.auth.onAuthStateChange(async (event, session) => {
         if (event === "PASSWORD_RECOVERY") {
           setView("recovery");
         } else if (event === "SIGNED_IN" && session?.user?.email_confirmed_at) {
-          // If URL indicated verification, track the confirmed email
+          // If URL indicated verification, automatically log in and enter app
           const sp = new URLSearchParams(window.location.search);
           const hp = new URLSearchParams(window.location.hash.replace(/^#/, ""));
-          if (sp.get("verified") === "true" || sp.get("type") === "signup" || hp.get("type") === "signup") {
-            setVerifiedEmail(session.user.email || "");
-            setShowVerifiedModal(true);
+          if (sp.get("verified") === "true" || sp.get("type") === "signup" || hp.get("type") === "signup" || sp.get("type") === "email_confirmation" || hp.get("type") === "email_confirmation") {
+            try {
+              const profile = await resolveFullUserProfile(session.user);
+              if (typeof window !== "undefined") window.history.replaceState(null, "", window.location.pathname);
+              onLogin(profile);
+            } catch {}
           }
         }
       });

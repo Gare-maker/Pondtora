@@ -4516,6 +4516,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
         sp.get("type") === "invite" || hp.get("type") === "invite" ||
         sp.get("type") === "recovery" || hp.get("type") === "recovery" ||
         sp.get("type") === "signup" || hp.get("type") === "signup" ||
+        sp.get("type") === "email_confirmation" || hp.get("type") === "email_confirmation" ||
         sp.get("verified") === "true" || hp.has("access_token") || sp.has("code") ||
         hp.has("error") || sp.has("error");
       if (isAuthCallback) return false;
@@ -6609,18 +6610,15 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
           );
 
           const isOnboardingDone = Boolean(
-            prof?.onboarding_completed ||
-            (prof as any)?.onboardingCompleted ||
-            prof?.raw_data?.onboarding_completed ||
+            prof?.onboarding_completed === true ||
+            (prof as any)?.onboardingCompleted === true ||
+            prof?.raw_data?.onboarding_completed === true ||
             (session.user.id && localStorage.getItem(`pondtora_${session.user.id}_onboarding_completed`) === "true") ||
-            prof?.active_plan ||
-            meta.active_plan ||
-            userOverride?.activePlan ||
             isStaffUser
           );
 
-          let resolvedPlan = userOverride?.activePlan || prof?.active_plan || (prof as any)?.activePlan || meta.active_plan || meta.activePlan || (isOnboardingDone ? "Starter" : null);
-          let resolvedTrialStart = prof?.trial_start_date || (prof as any)?.trialStartDate || meta.trial_start_date || meta.trialStartDate || (isOnboardingDone ? TODAY : null);
+          let resolvedPlan = isOnboardingDone ? (userOverride?.activePlan || prof?.active_plan || (prof as any)?.activePlan || meta.active_plan || meta.activePlan || "Starter") : null;
+          let resolvedTrialStart = isOnboardingDone ? (prof?.trial_start_date || (prof as any)?.trialStartDate || meta.trial_start_date || meta.trialStartDate || TODAY) : null;
           let resolvedSubStatus = userOverride?.subscriptionStatus || prof?.subscription_status || (prof as any)?.subscriptionStatus || meta.subscription_status || meta.subscriptionStatus || "Trial";
           let resolvedSubExpiry = userOverride?.subscriptionExpiry || prof?.subscription_expiry || (prof as any)?.subscriptionExpiry || meta.subscription_expiry || meta.subscriptionExpiry || null;
           let resolvedSubStart = userOverride?.subscriptionStart || prof?.subscription_start || (prof as any)?.subscriptionStart || meta.subscription_start || meta.subscriptionStart || null;
@@ -6770,9 +6768,10 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
               state: meta.state || "",
               country: meta.country || "Nigeria",
               role: isStaffUser ? "staff" : (meta.role || "owner"),
-              active_plan: meta.active_plan || "Starter",
-              trial_start_date: meta.trial_start_date || new Date().toISOString(),
+              active_plan: meta.active_plan || null,
+              trial_start_date: meta.trial_start_date || null,
               status: "Active",
+              raw_data: { onboarding_completed: false },
               updated_at: new Date().toISOString(),
             });
             if (!isStaffUser) {
@@ -6857,18 +6856,15 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
         );
 
         const isOnboardingDone2 = Boolean(
-          prof?.onboarding_completed ||
-          (prof as any)?.onboardingCompleted ||
-          prof?.raw_data?.onboarding_completed ||
+          prof?.onboarding_completed === true ||
+          (prof as any)?.onboardingCompleted === true ||
+          prof?.raw_data?.onboarding_completed === true ||
           (session.user.id && localStorage.getItem(`pondtora_${session.user.id}_onboarding_completed`) === "true") ||
-          prof?.active_plan ||
-          meta.active_plan ||
-          userOverride?.activePlan ||
           isStaffUser
         );
 
-        let activePlanStr = prof?.active_plan || (prof as any)?.activePlan || meta.active_plan || meta.activePlan || (isOnboardingDone2 ? "Starter" : null);
-        let trialStartStr = prof?.trial_start_date || (prof as any)?.trialStartDate || meta.trial_start_date || meta.trialStartDate || (isOnboardingDone2 ? new Date().toISOString() : null);
+        let activePlanStr = isOnboardingDone2 ? (prof?.active_plan || (prof as any)?.activePlan || meta.active_plan || meta.activePlan || "Starter") : null;
+        let trialStartStr = isOnboardingDone2 ? (prof?.trial_start_date || (prof as any)?.trialStartDate || meta.trial_start_date || meta.trialStartDate || new Date().toISOString()) : null;
         let subStatusStr = prof?.subscription_status || (prof as any)?.subscriptionStatus || meta.subscription_status || meta.subscriptionStatus || "Trial";
         let subExpiryStr = prof?.subscription_expiry || (prof as any)?.subscriptionExpiry || meta.subscription_expiry || meta.subscriptionExpiry || null;
         let subStartStr = prof?.subscription_start || (prof as any)?.subscriptionStart || meta.subscription_start || meta.subscriptionStart || null;
@@ -8151,31 +8147,26 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       <div className="min-h-screen bg-slate-950 flex items-center justify-center p-6 text-white font-['Barlow',sans-serif]">
         <div className="max-w-md w-full bg-slate-900 border border-red-500/30 rounded-3xl p-8 text-center space-y-4 shadow-2xl">
           <div className="w-16 h-16 rounded-full bg-red-500/10 border border-red-500/30 flex items-center justify-center mx-auto text-red-400">
-            <AlertCircle size={32} />
+            <ShieldAlert size={32} />
           </div>
-          <h1 className="text-2xl font-bold font-['Barlow_Condensed',sans-serif] text-white">Account Suspended</h1>
+          <h2 className="text-2xl font-bold font-['Barlow_Condensed',sans-serif] text-white">Account Suspended</h2>
           <p className="text-sm text-slate-400 leading-relaxed">
-            Your farm account (<strong className="text-white">{userProfile?.email}</strong>) has been temporarily suspended by the platform administrator.
+            Your account has been suspended by an administrator. If you believe this is an error, please contact support.
           </p>
-          <p className="text-xs text-slate-500">
-            Please reach out to the site administrator at <a href="mailto:pondtora.site@gmail.com" className="text-green-400 hover:underline">pondtora.site@gmail.com</a> to reactivate your access.
-          </p>
-          <div className="pt-2">
-            <button
-              onClick={handleLogout}
-              className="px-6 py-2.5 bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold rounded-xl transition-colors"
-            >
-              Sign Out
-            </button>
-          </div>
+          <button
+            onClick={handleLogout}
+            className="w-full py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl transition-colors mt-4 cursor-pointer"
+          >
+            Log Out
+          </button>
         </div>
       </div>
     );
   }
-  /* currency helpers derived from user's country */
-  const cs=userProfile?.currencySymbol??"₦";
-  const userCountry=userProfile?.country??"Nigeria";
-  const cvt=(n:number)=>convertNGN(n,userCountry);
+
+  const cs = userProfile?.currencySymbol ?? "₦";
+  const userCountry = userProfile?.country ?? "Nigeria";
+  const cvt = (n: number) => convertNGN(n, userCountry);
 
   const showOnboardingOverlay = Boolean(
     isAuth &&
@@ -8187,7 +8178,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   );
 
   return(
-    <div className="w-full min-h-screen min-h-[100dvh] flex bg-white text-slate-900 lg:fixed lg:inset-0 lg:overflow-hidden overflow-x-hidden" style={{fontFamily:"'Barlow',sans-serif"}}>
+    <div className="flex h-screen h-[100dvh] w-full bg-white text-slate-900 overflow-hidden" style={{fontFamily:"'Barlow',sans-serif"}}>
       <Toaster position="top-right" richColors duration={2500} visibleToasts={1} closeButton/>
 
       {/* ── Compulsory Farm Plan Onboarding Overlay for New Users ── */}
@@ -8252,9 +8243,9 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       <div className={`fixed lg:hidden inset-y-0 left-0 z-50 w-64 transition-transform duration-200 ${sideOpen?"translate-x-0":"-translate-x-full"}`}>
         <Sidebar active={active} onNav={nav} collapsed={false} onToggle={()=>setSideOpen(false)} farms={accessibleFarms} activeFarmId={activeFarmId} onSwitchFarm={id=>{handleSwitchFarm(id);setSideOpen(false);}} onAddFarm={()=>{setSideOpen(false);setShowAddFarm(true);}} sideOpen={sideOpen} staff={staff} unreadCount={unreadCount} onNotifications={()=>{nav("notifications");setSideOpen(false);}} onLogout={handleLogout} hasPerm={hasPerm} canView={canView} isOwner={isOwner} userProfile={userProfile} currentStaff={currentStaff}/>
       </div>
-      <div className="flex-1 flex flex-col min-w-0 min-h-screen lg:min-h-0 lg:h-full lg:overflow-hidden relative">
+      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden relative">
         {/* Mobile top bar — permanently pinned to the top */}
-        <header className="lg:hidden flex items-center justify-between px-4 h-14 bg-slate-900 border-b border-slate-800 shrink-0 sticky top-0 z-50 select-none w-full shadow-sm">
+        <header className="lg:hidden flex items-center justify-between px-4 h-14 bg-slate-900 border-b border-slate-800 shrink-0 select-none w-full shadow-sm z-30">
           <div className="flex items-center gap-2.5">
             <button onClick={()=>setSideOpen(true)} className="p-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer" aria-label="Open menu">
               <Menu size={20}/>
@@ -8311,7 +8302,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
             )}
           </div>
         )}
-        <main ref={mainRef} className="flex-1 lg:overflow-y-auto bg-[#f5f7fa] pb-28 lg:pb-8 touch-pan-y relative overscroll-y-contain" style={{ WebkitOverflowScrolling: "touch" }}>
+        <main ref={mainRef} className="flex-1 overflow-y-auto bg-[#f5f7fa] pb-28 lg:pb-8 touch-pan-y relative overscroll-y-contain" style={{ WebkitOverflowScrolling: "touch" }}>
           {isDataLoading ? (
             <div className="flex flex-col items-center justify-center min-h-[60vh] gap-3 p-6">
               <Loader2 size={36} className="text-green-600 animate-spin" />

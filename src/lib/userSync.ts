@@ -180,12 +180,13 @@ export async function resolveFullUserProfile(user: any): Promise<UserProfile> {
           phone: meta.phone || "",
           currency_symbol: meta.currency_symbol || "₦",
           currency_code: meta.currency_code || "NGN",
-          active_plan: meta.active_plan || "Starter",
-          trial_start_date: meta.trial_start_date || new Date().toISOString(),
+          active_plan: meta.active_plan || null,
+          trial_start_date: meta.trial_start_date || null,
           role: defaultRole,
           status: "Active",
           referred_by: meta.referred_by || meta.referredBy || null,
           referral_code: meta.referral_code || meta.referralCode || null,
+          raw_data: { onboarding_completed: false },
           updated_at: new Date().toISOString(),
         })
         .select()
@@ -219,14 +220,11 @@ export async function resolveFullUserProfile(user: any): Promise<UserProfile> {
   const staffFarms: string[] = staffRecord?.farms || meta.farms || [];
 
   const isOnboardingDone = Boolean(
-    dbProf?.onboarding_completed ||
-    dbProf?.raw_data?.onboarding_completed ||
-    meta.onboarding_completed ||
-    meta.onboardingCompleted ||
+    dbProf?.onboarding_completed === true ||
+    dbProf?.raw_data?.onboarding_completed === true ||
+    meta.onboarding_completed === true ||
+    meta.onboardingCompleted === true ||
     (userId && typeof localStorage !== "undefined" && localStorage.getItem(`pondtora_${userId}_onboarding_completed`) === "true") ||
-    (dbProf?.active_plan && (dbProf?.trial_start_date || dbProf?.subscription_start)) ||
-    dbProf?.subscription_expiry ||
-    dbProf?.paystack_reference ||
     staffRole === "staff"
   );
 
@@ -241,8 +239,8 @@ export async function resolveFullUserProfile(user: any): Promise<UserProfile> {
     phone: dbProf?.phone || meta.phone || "",
     currencySymbol: dbProf?.currency_symbol || meta.currency_symbol || "₦",
     currencyCode: dbProf?.currency_code || meta.currency_code || "NGN",
-    activePlan: dbProf?.active_plan || meta.active_plan || (isOnboardingDone ? "Starter" : null),
-    trialStartDate: dbProf?.trial_start_date || meta.trial_start_date || null,
+    activePlan: isOnboardingDone ? (dbProf?.active_plan || meta.active_plan || "Starter") : null,
+    trialStartDate: isOnboardingDone ? (dbProf?.trial_start_date || meta.trial_start_date || null) : null,
     role: staffRole,
     permissions: staffPerms,
     ownerId: staffOwnerId,
