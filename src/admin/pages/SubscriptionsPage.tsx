@@ -51,7 +51,7 @@ export default function SubscriptionsPage({ users, plans, onUpdate }: Props) {
     let freeCount = 0;
 
     customerUsers.forEach(u => {
-      const isPaid = Boolean(!u.freeAccess && u.hasPaid && isValidPaystackRef(u.paystackReference));
+      const isPaid = Boolean(!u.freeAccess && (u.hasPaid || u.subscriptionStatus === "Paid" || (u.paystackReference && isValidPaystackRef(u.paystackReference)) || Boolean(u.lastPaymentDate)));
       if (isPaid) {
         paidCount++;
         const amt = typeof u.subscriptionAmount === "number" && u.subscriptionAmount > 0
@@ -78,7 +78,7 @@ export default function SubscriptionsPage({ users, plans, onUpdate }: Props) {
     let list = [...customerUsers];
 
     if (filter === "Paid") {
-      list = list.filter(u => !u.freeAccess && u.hasPaid && isValidPaystackRef(u.paystackReference));
+      list = list.filter(u => !u.freeAccess && (u.hasPaid || u.subscriptionStatus === "Paid" || (u.paystackReference && isValidPaystackRef(u.paystackReference)) || Boolean(u.lastPaymentDate)));
     } else if (filter === "Free Access") {
       list = list.filter(u => u.freeAccess);
     } else if (filter !== "All") {
@@ -343,7 +343,7 @@ export default function SubscriptionsPage({ users, plans, onUpdate }: Props) {
                 </tr>
               )}
               {paged.map(u => {
-                const isPaid = Boolean(!u.freeAccess && u.hasPaid && isValidPaystackRef(u.paystackReference));
+                const isPaid = Boolean(!u.freeAccess && (u.hasPaid || u.subscriptionStatus === "Paid" || (u.paystackReference && isValidPaystackRef(u.paystackReference)) || Boolean(u.lastPaymentDate)));
                 return (
                   <tr key={u.id} className="hover:bg-slate-50/80 transition-colors group">
                     <td className="px-4 py-3 max-w-[200px] sticky left-0 bg-white group-hover:bg-slate-50 z-10 border-r border-slate-100 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.06)]">

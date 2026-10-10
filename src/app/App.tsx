@@ -6659,7 +6659,16 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
             prof?.onboarding_completed === true ||
             (prof as any)?.onboardingCompleted === true ||
             prof?.raw_data?.onboarding_completed === true ||
+            prof?.raw_data?.onboardingCompleted === true ||
+            meta.onboarding_completed === true ||
+            meta.onboardingCompleted === true ||
             (session.user.id && localStorage.getItem(`pondtora_${session.user.id}_onboarding_completed`) === "true") ||
+            (session.user.email && localStorage.getItem(`pondtora_onboarding_completed_${session.user.email.toLowerCase().trim()}`) === "true") ||
+            Boolean(prof?.active_plan && prof.active_plan.trim() !== "") ||
+            Boolean(prof?.trial_start_date) ||
+            Boolean(prof?.subscription_status && prof.subscription_status !== "Trial") ||
+            Boolean(prof?.paystack_reference) ||
+            Boolean(prof?.has_paid) ||
             isStaffUser
           );
 
@@ -6905,7 +6914,16 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
           prof?.onboarding_completed === true ||
           (prof as any)?.onboardingCompleted === true ||
           prof?.raw_data?.onboarding_completed === true ||
+          prof?.raw_data?.onboardingCompleted === true ||
+          meta.onboarding_completed === true ||
+          meta.onboardingCompleted === true ||
           (session.user.id && localStorage.getItem(`pondtora_${session.user.id}_onboarding_completed`) === "true") ||
+          (session.user.email && localStorage.getItem(`pondtora_onboarding_completed_${session.user.email.toLowerCase().trim()}`) === "true") ||
+          Boolean(prof?.active_plan && prof.active_plan.trim() !== "") ||
+          Boolean(prof?.trial_start_date) ||
+          Boolean(prof?.subscription_status && prof.subscription_status !== "Trial") ||
+          Boolean(prof?.paystack_reference) ||
+          Boolean(prof?.has_paid) ||
           isStaffUser
         );
 
@@ -7101,6 +7119,9 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       if (userProfile.id) {
         try {
           localStorage.setItem(`pondtora_${userProfile.id}_onboarding_completed`, "true");
+          if (userProfile.email) {
+            localStorage.setItem(`pondtora_onboarding_completed_${userProfile.email.toLowerCase().trim()}`, "true");
+          }
           localStorage.setItem(`pondtora_${userProfile.id}_plan`, planName);
           localStorage.setItem(`pondtora_${userProfile.id}_trial_start`, todayStr);
           saveLocal(`pondtora_${userProfile.id}_user_profile`, updatedProfile);
@@ -7114,10 +7135,22 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
         raw_data: {
           ...(userProfile.raw_data || {}),
           onboarding_completed: true,
+          onboardingCompleted: true,
           farm_type: farmType,
         },
         updated_at: new Date().toISOString(),
       }).eq("id", userProfile.id);
+
+      try {
+        await supabase.auth.updateUser({
+          data: {
+            onboarding_completed: true,
+            onboardingCompleted: true,
+            active_plan: planName,
+            trial_start_date: todayStr,
+          },
+        });
+      } catch {}
 
       await api.profile.updatePlan(planName, todayStr).catch(console.warn);
       syncUserProfileToAdmin(updatedProfile, planName, farms.length || 1);

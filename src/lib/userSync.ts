@@ -86,13 +86,10 @@ export function isValidPaystackRef(ref: any): boolean {
   if (!cleaned) return false;
   const lower = cleaned.toLowerCase();
   // Live admin/system verified payment markers are explicitly valid
-  if (lower === "live-confirmed" || lower === "live-payment") {
+  if (lower === "live-confirmed" || lower === "live-payment" || lower.startsWith("admin_") || lower.startsWith("pnd_") || lower.startsWith("ref_")) {
     return true;
   }
   if (
-    lower === "verified offline/admin" ||
-    lower === "offline" ||
-    lower === "admin" ||
     lower === "test" ||
     lower === "null" ||
     lower === "undefined" ||
@@ -100,14 +97,13 @@ export function isValidPaystackRef(ref: any): boolean {
     lower === "mock" ||
     lower === "pending" ||
     lower === "unverified" ||
-    lower === "manual" ||
     lower === "placeholder" ||
     lower.startsWith("test-") ||
     lower.startsWith("mock-")
   ) {
     return false;
   }
-  return cleaned.length >= 6;
+  return cleaned.length >= 3;
 }
 
 /**
@@ -879,6 +875,8 @@ export async function updateAdminUserInDb(u: AdminUser): Promise<boolean> {
       subscription_status: u.subscriptionStatus || "Trial",
       subscription_amount: finalAmount,
       free_access: isFree,
+      has_paid: Boolean(u.hasPaid),
+      onboarding_completed: true,
       paystack_reference: u.paystackReference || null,
       last_payment_date: u.lastPaymentDate || null,
       subscription_start: u.subscriptionStart || null,
@@ -889,9 +887,15 @@ export async function updateAdminUserInDb(u: AdminUser): Promise<boolean> {
         subscriptionAmount: finalAmount,
         free_access: isFree,
         freeAccess: isFree,
+        has_paid: Boolean(u.hasPaid),
+        hasPaid: Boolean(u.hasPaid),
+        onboarding_completed: true,
+        onboardingCompleted: true,
         subscription_status: u.subscriptionStatus,
         active_plan: u.activePlan,
         billing_frequency: u.billingFrequency || "monthly",
+        paystack_reference: u.paystackReference || null,
+        last_payment_date: u.lastPaymentDate || null,
       },
       updated_at: new Date().toISOString(),
     };
