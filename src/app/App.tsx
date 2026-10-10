@@ -3201,21 +3201,37 @@ function SubscriptionPage({
         )}
 
         {pendingTransfer && (
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-emerald-50 border-2 border-emerald-400 rounded-2xl p-4 mt-4 text-emerald-950 text-xs shadow-md animate-fadeIn text-left">
-            <div className="flex items-center gap-2.5">
-              <span className="w-3 h-3 rounded-full bg-emerald-500 animate-ping inline-block shrink-0" />
-              <div>
+          <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-3 bg-emerald-50 border-2 border-emerald-400 rounded-2xl p-4 mt-4 text-emerald-950 text-xs shadow-md animate-fadeIn text-left">
+            <div className="flex items-start gap-2.5 min-w-0">
+              <span className="w-3 h-3 rounded-full bg-emerald-500 animate-ping inline-block shrink-0 mt-1" />
+              <div className="min-w-0">
                 <p className="font-bold text-sm text-emerald-900">Pending Paystack Payment: {pendingTransfer.planName} (₦{pendingTransfer.amount.toLocaleString()})</p>
-                <p className="text-xs text-emerald-700 mt-0.5 font-mono">Ref: {pendingTransfer.reference} — Paid via transfer or banking app?</p>
+                <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
+                  <span className="text-xs text-emerald-800 font-mono font-bold bg-emerald-100/80 px-2 py-0.5 rounded-md border border-emerald-300/80">Ref: {pendingTransfer.reference}</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(pendingTransfer.reference);
+                      toast.success("Transaction Reference copied to clipboard!");
+                    }}
+                    className="inline-flex items-center gap-1 text-[11px] text-emerald-700 hover:text-emerald-900 bg-white border border-emerald-300 px-2 py-0.5 rounded hover:bg-emerald-50 transition-colors cursor-pointer font-medium"
+                    title="Copy reference to send to admin"
+                  >
+                    <Copy size={11} /> Copy Ref
+                  </button>
+                </div>
+                <p className="text-[11px] text-emerald-700 mt-1 leading-normal">
+                  Paid via bank transfer or app? Click confirm below. If funds were debited and status shows abandoned/delayed, send this Ref to Admin for instant manual activation.
+                </p>
               </div>
             </div>
-            <div className="flex items-center gap-2 shrink-0">
+            <div className="flex flex-wrap items-center gap-2 shrink-0 mt-2 md:mt-0">
               <button
                 type="button"
                 onClick={() => confirmPendingTransfer()}
-                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl transition-colors shadow-sm cursor-pointer text-xs"
+                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl transition-colors shadow-sm cursor-pointer text-xs flex items-center gap-1.5"
               >
-                ✓ I Have Completed Payment (Confirm)
+                <CheckCircle size={14} /> I Have Completed Payment (Confirm)
               </button>
               <button
                 type="button"
@@ -8208,7 +8224,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   );
 
   return(
-    <div className="flex h-screen h-[100dvh] w-full bg-white text-slate-900 overflow-hidden" style={{fontFamily:"'Barlow',sans-serif"}}>
+    <div className="fixed inset-0 flex h-full w-full bg-white text-slate-900 overflow-hidden" style={{fontFamily:"'Barlow',sans-serif"}}>
       <Toaster position="top-right" richColors duration={2500} visibleToasts={1} closeButton/>
 
       {/* ── Compulsory Farm Plan Onboarding Overlay for New Users ── */}
@@ -8273,9 +8289,9 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       <div className={`fixed lg:hidden inset-y-0 left-0 z-50 w-64 transition-transform duration-200 ${sideOpen?"translate-x-0":"-translate-x-full"}`}>
         <Sidebar active={active} onNav={nav} collapsed={false} onToggle={()=>setSideOpen(false)} farms={accessibleFarms} activeFarmId={activeFarmId} onSwitchFarm={id=>{handleSwitchFarm(id);setSideOpen(false);}} onAddFarm={()=>{setSideOpen(false);setShowAddFarm(true);}} sideOpen={sideOpen} staff={staff} unreadCount={unreadCount} onNotifications={()=>{nav("notifications");setSideOpen(false);}} onLogout={handleLogout} hasPerm={hasPerm} canView={canView} isOwner={isOwner} userProfile={userProfile} currentStaff={currentStaff}/>
       </div>
-      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden relative">
+      <div className="flex-1 flex flex-col min-w-0 h-full max-h-full overflow-hidden relative">
         {/* Mobile top bar — permanently pinned to the top */}
-        <header className="lg:hidden flex items-center justify-between px-4 h-14 bg-slate-900 border-b border-slate-800 shrink-0 select-none w-full shadow-sm z-30">
+        <header className="lg:hidden sticky top-0 flex items-center justify-between px-4 h-14 bg-slate-900 border-b border-slate-800 shrink-0 select-none w-full shadow-sm z-30">
           <div className="flex items-center gap-2.5">
             <button onClick={()=>setSideOpen(true)} className="p-1.5 rounded-lg text-slate-300 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer" aria-label="Open menu">
               <Menu size={20}/>
@@ -8332,7 +8348,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
             )}
           </div>
         )}
-        <main ref={mainRef} className="flex-1 overflow-y-auto bg-[#f5f7fa] pb-28 lg:pb-8 touch-pan-y relative overscroll-y-contain" style={{ WebkitOverflowScrolling: "touch" }}>
+        <main ref={mainRef} className="flex-1 overflow-y-auto bg-[#f5f7fa] pb-28 lg:pb-8 touch-pan-y relative overscroll-contain" style={{ WebkitOverflowScrolling: "touch", overscrollBehavior: "contain" }}>
           {isDataLoading ? (
             <div className="flex flex-col items-center justify-center min-h-[60vh] gap-3 p-6">
               <Loader2 size={36} className="text-green-600 animate-spin" />

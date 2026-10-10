@@ -173,7 +173,12 @@ async function handlePaystackVerify(c: any) {
               successfulTx = psJson.data;
               break;
             } else {
-              lastErrorMsg = `Paystack status: ${psJson.data.status}`;
+              const psStatus = psJson.data.status;
+              if (psStatus === "abandoned") {
+                lastErrorMsg = `Paystack session status is abandoned (uncompleted). If funds were debited, please allow 1-3 minutes for Paystack bank sync, or provide Ref (${reference}) to Admin.`;
+              } else {
+                lastErrorMsg = `Paystack status: ${psStatus}`;
+              }
             }
           }
         }

@@ -543,13 +543,16 @@ export async function verifyPaystackPayment(
                 raw: tx,
               };
             } else if (tx.status === "failed" || tx.status === "abandoned") {
+              const isAbandoned = tx.status === "abandoned";
               return {
                 verified: false,
                 status: tx.status as any,
                 amount: amountInNaira,
                 currency: tx.currency,
                 reference: tx.reference || cleanRef,
-                message: `Transaction status is ${tx.status} on Paystack.`,
+                message: isAbandoned
+                  ? `Paystack shows this payment session as uncompleted / abandoned. If you already completed a bank transfer and were debited, Paystack may still be matching the bank credit (takes 1-3 mins), or you can provide your reference (${tx.reference || cleanRef}) to Admin for instant manual activation.`
+                  : `Transaction failed on Paystack (${tx.gateway_response || tx.status}). Please try again or contact support.`,
                 raw: tx,
               };
             } else if (tx.status === "ongoing" || tx.status === "processing" || tx.status === "pending") {
