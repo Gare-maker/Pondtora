@@ -517,7 +517,7 @@ function AuthScreen({
 
       // Sync into admin local state / logs immediately
       syncUserProfileToAdmin(profile, null, 1);
-      attachReferralToNewUser({ id: createdUserId, email: cleanEmail, name: cName }, pendingRef);
+      attachReferralToNewUser({ id: createdUserId, email: cleanEmail, name: cName.trim(), farmName: cFarm.trim() }, pendingRef);
 
       // Strict enforcement: only auto-login if email is confirmed
       if (data.session && data.user?.email_confirmed_at) {

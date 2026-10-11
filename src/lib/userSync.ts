@@ -523,13 +523,21 @@ export async function fetchLiveAdminUsers(): Promise<{
           // De-duplicate duplicate farm rows by name
           const uniqueFarmNames = new Set<string>();
           const deduplicatedFarms = userFarms.filter((f: any) => {
-            const normName = (f.name || "Primary Farm").toLowerCase().trim();
+            const normName = (f.name || "").toLowerCase().trim();
+            if (!normName || normName === "primary farm") return false;
             if (uniqueFarmNames.has(normName)) return false;
             uniqueFarmNames.add(normName);
             return true;
           });
-          const farmCount = deduplicatedFarms.length > 0 ? deduplicatedFarms.length : (p.farm_name ? 1 : (local?.farmCount || 1));
-          const farmName = p.farm_name || deduplicatedFarms[0]?.name || userFarms[0]?.name || local?.farmName || "Primary Farm";
+          const farmCount = deduplicatedFarms.length > 0 ? deduplicatedFarms.length : (userFarms.length > 0 ? userFarms.length : (p.farm_name ? 1 : (local?.farmCount || 1)));
+          const rawFarmName = (deduplicatedFarms[0]?.name) ||
+            (p.farm_name && p.farm_name.toLowerCase() !== "primary farm" ? p.farm_name : null) ||
+            (override?.farmName && override.farmName.toLowerCase() !== "primary farm" ? override.farmName : null) ||
+            (local?.farmName && local.farmName.toLowerCase() !== "primary farm" ? local.farmName : null) ||
+            userFarms[0]?.name;
+          const farmName = (!rawFarmName || rawFarmName.trim().toLowerCase() === "primary farm")
+            ? (p.name ? `${p.name}'s Farm` : (local?.name ? `${local.name}'s Farm` : "Fish Farm"))
+            : rawFarmName.trim();
 
           const userFarmIds = new Set(userFarms.map((f: any) => f.id));
           const userPonds = rawPonds.filter((pd: any) => pd.user_id === p.id || (pd.farm_id && userFarmIds.has(pd.farm_id)));
@@ -638,7 +646,9 @@ export async function fetchLiveAdminUsers(): Promise<{
             id: session.user.id,
             name: session.user.user_metadata?.name || sessEmail.split("@")[0],
             email: session.user.email,
-            farmName: session.user.user_metadata?.farm_name || "Primary Farm",
+            farmName: (session.user.user_metadata?.farm_name && session.user.user_metadata.farm_name.toLowerCase() !== "primary farm")
+              ? session.user.user_metadata.farm_name
+              : `${session.user.user_metadata?.name || sessEmail.split("@")[0]}'s Farm`,
             phone: session.user.user_metadata?.phone || "",
             city: session.user.user_metadata?.city || "Lagos",
             state: session.user.user_metadata?.state || "Lagos",
@@ -760,6 +770,17 @@ export async function fetchLiveAdminUsers(): Promise<{
           if (override.freeAccess !== undefined) merged.freeAccess = override.freeAccess;
           if (override.activePlan) merged.activePlan = override.activePlan;
           if (override.billingFrequency) merged.billingFrequency = override.billingFrequency;
+          if (override.hasPaid !== undefined) merged.hasPaid = Boolean(override.hasPaid);
+          if (override.subscriptionStatus) merged.subscriptionStatus = override.subscriptionStatus;
+          if (override.paystackReference) merged.paystackReference = override.paystackReference;
+          if (override.lastPaymentDate) merged.lastPaymentDate = override.lastPaymentDate;
+          if (override.farmName && override.farmName.trim().toLowerCase() !== "primary farm") {
+            merged.farmName = override.farmName.trim();
+          }
+        }
+
+        if (!merged.farmName || merged.farmName.trim().toLowerCase() === "primary farm") {
+          merged.farmName = merged.name ? `${merged.name}'s Farm` : "Fish Farm";
         }
 
         merged.subscriptionStatus = computeSubscriptionStatus(merged);
@@ -1085,6 +1106,20 @@ export async function updateAdminUserInDb(u: AdminUser): Promise<boolean> {
       });
       if (!rpcErr) profSuccess = true;
     } catch {}
+
+    // 3b. If user has paid, invoke admin_mark_user_paid RPC (SECURITY DEFINER)
+    if (u.hasPaid) {
+      try {
+        await (supabase.rpc as any)("admin_mark_user_paid", {
+          target_user_id: isTargetUuid ? u.id : null,
+          target_email: cleanEmail || null,
+          plan_name: u.activePlan || "Starter",
+          payment_amount: finalAmount,
+          payment_reference: u.paystackReference || null,
+          billing_frequency: u.billingFrequency || "monthly",
+        });
+      } catch {}
+    }
 
     // 3. Update farms table
     if (u.farmName && u.id) {

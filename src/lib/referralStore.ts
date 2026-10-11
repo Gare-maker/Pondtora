@@ -299,13 +299,20 @@ export function attachReferralToNewUser(newUser: { id?: string; email: string; n
   const allUsers = loadAllAdminUsers();
 
   const userIdx = allUsers.findIndex(u => (u.email || "").toLowerCase().trim() === cleanUserEmail);
-  const farmName = newUser.farmName || "Primary Farm";
+  const cleanFarm = (newUser.farmName || "").trim();
   const userName = newUser.name || cleanUserEmail.split("@")[0];
+  const farmName = (cleanFarm && cleanFarm.toLowerCase() !== "primary farm")
+    ? cleanFarm
+    : (userName ? `${userName}'s Farm` : "Fish Farm");
   const userId = newUser.id || "usr-" + Math.random().toString(36).slice(2, 8);
 
   if (userIdx >= 0) {
     (allUsers[userIdx] as any).referredBy = code;
-    if (newUser.farmName) allUsers[userIdx].farmName = newUser.farmName;
+    if (cleanFarm && cleanFarm.toLowerCase() !== "primary farm") {
+      allUsers[userIdx].farmName = cleanFarm;
+    } else if (!allUsers[userIdx].farmName || allUsers[userIdx].farmName.toLowerCase() === "primary farm") {
+      allUsers[userIdx].farmName = farmName;
+    }
     saveAllAdminUsers(allUsers);
   } else {
     allUsers.push({
@@ -466,14 +473,22 @@ export function processReferralCommission(params: {
   const isFirstPayment = previousRewardsForPayer.length === 0;
   const commissionRate = isFirstPayment ? 0.30 : 0.10; // 30% 1st payment, 10% recurring
   const commissionAmount = Math.round(params.amount * commissionRate);
-  const resolvedFarmName = params.farmName || (payerUser as any)?.farmName || "Primary Farm";
+  const rawFarm = (params.farmName || (payerUser as any)?.farmName || "").trim();
+  const resolvedFarmName = (rawFarm && rawFarm.toLowerCase() !== "primary farm")
+    ? rawFarm
+    : (params.payerName || payerUser?.name ? `${params.payerName || payerUser?.name}'s Farm` : "Fish Farm");
   const resolvedUserName = params.payerName || payerUser?.name || cleanPayerEmail.split("@")[0];
+
+  const rawUserId = params.referredUserId || payerUser?.id || null;
+  const cleanUserId = (rawUserId && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(rawUserId))
+    ? rawUserId
+    : null;
 
   const reward: ReferralReward = {
     id: "ref-rew-" + Math.random().toString(36).slice(2, 10),
     referrerCode: cleanRefCode,
     referrerEmail: finalReferrerEmail,
-    referredUserId: params.referredUserId || payerUser?.id,
+    referredUserId: cleanUserId || undefined,
     referredUserEmail: cleanPayerEmail,
     referredUserName: resolvedUserName,
     paymentReference: cleanRef,
@@ -494,7 +509,7 @@ export function processReferralCommission(params: {
     supabase.from("referral_rewards").insert({
       referrer_code: cleanRefCode,
       referrer_email: reward.referrerEmail,
-      referred_user_id: reward.referredUserId || null,
+      referred_user_id: cleanUserId,
       referred_user_email: cleanPayerEmail,
       referred_user_name: resolvedUserName,
       payment_reference: cleanRef,
@@ -504,7 +519,7 @@ export function processReferralCommission(params: {
       commission_rate: commissionRate,
       commission_amount: commissionAmount,
       status: "Available",
-    }).then(() => {}).catch(() => {});
+    }).then(() => {}).catch(err => console.warn("referral_rewards insert error:", err));
   } catch {}
 
   // Also update platform_settings referral_registry
@@ -673,11 +688,27 @@ export async function syncReferralOnUserPayment(u: AdminUser): Promise<ReferralR
   }
   if (!referrerEmail) referrerEmail = referrerCode.toLowerCase();
 
+  const cleanFarm = (u.farmName || "").trim();
+  const payerFarmName = (cleanFarm && cleanFarm.toLowerCase() !== "primary farm")
+    ? cleanFarm
+    : (u.name ? `${u.name.trim()}'s Farm` : "Fish Farm");
+
+  // Call admin_mark_user_paid RPC in Supabase if valid UUID
+  if (u.id && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(u.id)) {
+    try {
+      supabase.rpc("admin_mark_user_paid", {
+        p_user_id: u.id,
+        p_paystack_ref: paymentRef,
+        p_payment_amount: paymentAmount,
+      }).then(() => {}).catch(() => {});
+    } catch {}
+  }
+
   // 5. Process referral commission (idempotent)
   const result = processReferralCommission({
     payerEmail: cleanUserEmail,
     payerName: u.name || cleanUserEmail.split("@")[0],
-    farmName: u.farmName || "Primary Farm",
+    farmName: payerFarmName,
     planName: u.activePlan || "Starter",
     amount: paymentAmount,
     reference: paymentRef,
@@ -686,7 +717,7 @@ export async function syncReferralOnUserPayment(u: AdminUser): Promise<ReferralR
     referredUserId: u.id,
   });
 
-  // 6. Ensure platform_settings referral_registry is updated
+  // 6. Ensure platform_settings referral_registry & admin_user_overrides are updated
   try {
     const remoteList = await fetchRemoteReferralRegistry();
     const existingIdx = remoteList.findIndex(
@@ -697,7 +728,7 @@ export async function syncReferralOnUserPayment(u: AdminUser): Promise<ReferralR
       id: u.id || "usr-" + Math.random().toString(36).slice(2, 8),
       name: u.name || cleanUserEmail.split("@")[0],
       email: cleanUserEmail,
-      farmName: u.farmName || "Primary Farm",
+      farmName: payerFarmName,
       referrerCode: referrerCode,
       referrerEmail: referrerEmail,
       activePlan: u.activePlan || "Starter",
@@ -715,6 +746,7 @@ export async function syncReferralOnUserPayment(u: AdminUser): Promise<ReferralR
       remoteList[existingIdx] = {
         ...remoteList[existingIdx],
         ...entry,
+        farmName: payerFarmName,
         hasPaid: true,
         subscriptionStatus: "Active",
         paymentAmount: paymentAmount,
@@ -728,6 +760,41 @@ export async function syncReferralOnUserPayment(u: AdminUser): Promise<ReferralR
   } catch (err) {
     console.warn("syncReferralOnUserPayment registry update error:", err);
   }
+
+  // Also ensure admin_user_overrides reflects hasPaid: true in platform_settings
+  try {
+    const { data: setRow } = await supabase
+      .from("platform_settings")
+      .select("value")
+      .eq("key", "admin_user_overrides")
+      .maybeSingle();
+    const currentOverrides = (setRow?.value && typeof setRow.value === "object") ? setRow.value : {};
+    const ovRecord = {
+      userId: u.id,
+      email: cleanUserEmail,
+      name: u.name,
+      farmName: payerFarmName,
+      subscriptionAmount: paymentAmount,
+      hasPaid: true,
+      activePlan: u.activePlan || "Starter",
+      billingFrequency: u.billingFrequency || "monthly",
+      subscriptionStatus: "Active",
+      paystackReference: paymentRef,
+      lastPaymentDate: todayStr,
+      referredBy: referrerCode,
+      updatedAt: new Date().toISOString(),
+    };
+    if (cleanUserEmail) currentOverrides[cleanUserEmail] = { ...(currentOverrides[cleanUserEmail] || {}), ...ovRecord };
+    if (u.id) currentOverrides[u.id.toLowerCase()] = { ...(currentOverrides[u.id.toLowerCase()] || {}), ...ovRecord };
+    try {
+      localStorage.setItem("pondtora_admin_user_overrides", JSON.stringify(currentOverrides));
+    } catch {}
+    await supabase.from("platform_settings").upsert({
+      key: "admin_user_overrides",
+      value: currentOverrides,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "key" });
+  } catch {}
 
   // 7. Dispatch events to notify all active windows/components
   if (typeof window !== "undefined") {
@@ -836,11 +903,16 @@ export function getUserReferralStats(user: { id?: string; name?: string; email?:
           const regEmail = (reg.email || "").toLowerCase().trim();
           if (isMatch && regEmail && (!cleanEmail || regEmail !== cleanEmail) && !existingReferredEmails.has(regEmail)) {
             existingReferredEmails.add(regEmail);
+            const regCleanFarm = (reg.farmName || "").trim();
+            const regFarmName = (regCleanFarm && regCleanFarm.toLowerCase() !== "primary farm")
+              ? regCleanFarm
+              : (reg.name ? `${reg.name.trim()}'s Farm` : "Fish Farm");
+
             referredUsersList.push({
               id: reg.id || "usr-" + regEmail.replace(/[^a-zA-Z0-9]/g, "").slice(0, 10),
               name: reg.name || regEmail.split("@")[0] || "Farmer",
               email: regEmail,
-              farmName: reg.farmName || reg.name || "Primary Farm",
+              farmName: regFarmName,
               phone: "",
               city: "Lagos",
               state: "Lagos",
@@ -867,11 +939,16 @@ export function getUserReferralStats(user: { id?: string; name?: string; email?:
     const rEmail = (r.referredUserEmail || "").toLowerCase().trim();
     if (rEmail && cleanEmail && rEmail !== cleanEmail && !existingReferredEmails.has(rEmail)) {
       existingReferredEmails.add(rEmail);
+      const rewFarmRaw = ((r as any).farmName || "").trim();
+      const rewFarm = (rewFarmRaw && rewFarmRaw.toLowerCase() !== "primary farm")
+        ? rewFarmRaw
+        : (r.referredUserName ? `${r.referredUserName.trim()}'s Farm` : "Fish Farm");
+
       referredUsersList.push({
         id: r.referredUserId || "usr-" + rEmail.replace(/[^a-zA-Z0-9]/g, "").slice(0, 10),
         name: r.referredUserName || rEmail.split("@")[0] || "Farmer",
         email: rEmail,
-        farmName: (r as any).farmName || "Primary Farm",
+        farmName: rewFarm,
         phone: "",
         city: "Lagos",
         state: "Lagos",
@@ -890,12 +967,35 @@ export function getUserReferralStats(user: { id?: string; name?: string; email?:
     }
   });
 
+  // Check pondtora_admin_user_overrides in local cache for immediate paid reflection
+  let localAdminOverrides: Record<string, any> = {};
+  try {
+    const ovRaw = localStorage.getItem("pondtora_admin_user_overrides");
+    if (ovRaw) localAdminOverrides = JSON.parse(ovRaw);
+  } catch {}
+
   const referredUsers: ReferredUserRecord[] = referredUsersList.map(u => {
     const uEmail = (u.email || "").toLowerCase().trim();
     const userRewards = myRewards.filter(r => (r.referredUserEmail || "").toLowerCase().trim() === uEmail);
     const commTotal = userRewards.reduce((s, r) => s + (r.commissionAmount || 0), 0);
     const hasVerifiedReward = userRewards.length > 0;
-    const hasPaid = Boolean(hasVerifiedReward || u.hasPaid);
+
+    const userOv = localAdminOverrides[uEmail] || (u.id ? localAdminOverrides[u.id.toLowerCase()] : null) || (u.id ? localAdminOverrides[u.id] : null);
+    const isOverridePaid = Boolean(
+      userOv?.hasPaid ||
+      userOv?.subscriptionStatus === "Paid" ||
+      userOv?.subscriptionStatus === "Active" ||
+      (userOv?.paystackReference && isValidPaystackRef(userOv.paystackReference)) ||
+      Boolean(userOv?.lastPaymentDate)
+    );
+
+    const hasPaid = Boolean(hasVerifiedReward || u.hasPaid || isOverridePaid);
+
+    // Resolve accurate farm name - never display Primary Farm
+    const rawF = (u.farmName || userOv?.farmName || "").trim();
+    const displayFarmName = (rawF && rawF.toLowerCase() !== "primary farm")
+      ? rawF
+      : (u.name ? `${u.name.trim()}'s Farm` : "Fish Farm");
 
     // Calculate trial days left (30-day free trial window)
     let trialDaysLeft = 0;
@@ -918,6 +1018,9 @@ export function getUserReferralStats(user: { id?: string; name?: string; email?:
         trialDaysLeft = 30;
         trialStatusText = "Free Trial (30 days left)";
       }
+    } else {
+      trialStatusText = "Subscribed / Active";
+      trialDaysLeft = 0;
     }
 
     // Payment Amount strictly from verified rewards or confirmed payment
@@ -926,10 +1029,12 @@ export function getUserReferralStats(user: { id?: string; name?: string; email?:
       paymentAmount = userRewards.reduce((sum, r) => sum + (r.paymentAmount || 0), 0);
     } else if (hasPaid && typeof u.subscriptionAmount === "number" && u.subscriptionAmount > 0) {
       paymentAmount = u.subscriptionAmount;
+    } else if (hasPaid && userOv?.subscriptionAmount && Number(userOv.subscriptionAmount) > 0) {
+      paymentAmount = Number(userOv.subscriptionAmount);
     } else if (hasPaid && (u as any).paymentAmount && Number((u as any).paymentAmount) > 0) {
       paymentAmount = Number((u as any).paymentAmount);
     } else if (hasPaid) {
-      paymentAmount = getStandardPlanPrice(u.activePlan || "Starter");
+      paymentAmount = getStandardPlanPrice(userOv?.activePlan || u.activePlan || "Starter");
     }
 
     // Actual Commission Amount: from verified rewards or registry commission
@@ -959,11 +1064,11 @@ export function getUserReferralStats(user: { id?: string; name?: string; email?:
       id: u.id,
       name: u.name || uEmail.split("@")[0],
       email: u.email,
-      farmName: u.farmName,
+      farmName: displayFarmName,
       createdAt: u.createdAt || "Recently",
       subscriptionStatus: hasPaid ? "Active" : (trialDaysLeft > 0 ? "Trial" : "Expired"),
       hasPaid,
-      activePlan: u.activePlan || "Starter Plan",
+      activePlan: userOv?.activePlan || u.activePlan || "Starter Plan",
       paymentAmount: hasPaid ? paymentAmount : 0,
       trialDaysLeft,
       trialStatusText,
@@ -1259,6 +1364,42 @@ export async function fetchLiveUserReferralStats(user: { id?: string; name?: str
       });
     }
 
+    // Fetch admin_user_overrides from platform_settings
+    let adminOverrides: Record<string, any> = {};
+    try {
+      const { data: setRow } = await supabase
+        .from("platform_settings")
+        .select("value")
+        .eq("key", "admin_user_overrides")
+        .maybeSingle();
+      if (setRow?.value && typeof setRow.value === "object") {
+        adminOverrides = setRow.value;
+      }
+    } catch {}
+
+    // Fetch actual farm names from farms table for all referred profiles
+    const userFarmsMap = new Map<string, string>();
+    const lookupUserIds = Array.from(new Set(dbReferredProfiles.map(p => p.id).filter(id => id && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id))));
+    if (lookupUserIds.length > 0) {
+      try {
+        const { data: farmRows } = await supabase
+          .from("farms")
+          .select("user_id, name")
+          .in("user_id", lookupUserIds)
+          .order("created_at", { ascending: true });
+        if (Array.isArray(farmRows)) {
+          farmRows.forEach(f => {
+            const fName = (f.name || "").trim();
+            if (fName && fName.toLowerCase() !== "primary farm") {
+              userFarmsMap.set(f.user_id, fName);
+            } else if (!userFarmsMap.has(f.user_id) && fName) {
+              userFarmsMap.set(f.user_id, fName);
+            }
+          });
+        }
+      } catch {}
+    }
+
     const allLocalUsers = loadAllAdminUsers();
     let hasChanges = false;
 
@@ -1271,8 +1412,11 @@ export async function fetchLiveUserReferralStats(user: { id?: string; name?: str
         if (p.id && userId && (p.id === userId || p.id.toLowerCase() === userId.toLowerCase())) return;
 
         const existingIdx = allLocalUsers.findIndex(u => (u.email || "").toLowerCase().trim() === pEmail || (p.id && u.id === p.id));
+        const pOverride = (p.id && adminOverrides[p.id]) || (pEmail ? adminOverrides[pEmail] : null);
         
         const hasPaid = Boolean(
+          pOverride?.hasPaid ||
+          pOverride?.subscriptionStatus === "Active" ||
           p.hasPaid ||
           p.has_paid ||
           p.subscription_status === "Paid" ||
@@ -1287,11 +1431,11 @@ export async function fetchLiveUserReferralStats(user: { id?: string; name?: str
         if (hasPaid) {
           const userReward = mergedRewards.find(r => (r.referredUserEmail || "").toLowerCase().trim() === pEmail);
           if (!userReward) {
-            const rawAmt = Number(p.subscription_amount || p.subscriptionAmount);
-            const price = rawAmt > 0 ? rawAmt : getStandardPlanPrice(p.active_plan || p.activePlan || "Starter", p.billing_frequency || p.billingFrequency);
+            const rawAmt = Number(p.subscription_amount || p.subscriptionAmount || pOverride?.subscriptionAmount);
+            const price = rawAmt > 0 ? rawAmt : getStandardPlanPrice(p.active_plan || p.activePlan || pOverride?.activePlan || "Starter", p.billing_frequency || p.billingFrequency || pOverride?.billingFrequency);
             const commAmt = Math.round(price * 0.30);
-            const pDate = p.last_payment_date || p.lastPaymentDate || new Date().toISOString().slice(0, 10);
-            const pRef = p.paystack_reference || p.paystackReference || `admin_paid_${(p.id || pEmail).replace(/[^a-zA-Z0-9]/g, "").slice(0, 8)}_${pDate.replace(/[^0-9]/g, "").slice(0, 8)}`;
+            const pDate = p.last_payment_date || p.lastPaymentDate || pOverride?.lastPaymentDate || new Date().toISOString().slice(0, 10);
+            const pRef = p.paystack_reference || p.paystackReference || pOverride?.paystackReference || `admin_paid_${(p.id || pEmail).replace(/[^a-zA-Z0-9]/g, "").slice(0, 8)}_${pDate.replace(/[^0-9]/g, "").slice(0, 8)}`;
             const autoReward: ReferralReward = {
               id: "ref-rew-" + Math.random().toString(36).slice(2, 10),
               referrerCode: cleanCode,
@@ -1300,7 +1444,7 @@ export async function fetchLiveUserReferralStats(user: { id?: string; name?: str
               referredUserEmail: pEmail,
               referredUserName: p.name || pEmail.split("@")[0],
               paymentReference: pRef,
-              planName: p.active_plan || p.activePlan || "Starter",
+              planName: p.active_plan || p.activePlan || pOverride?.activePlan || "Starter",
               paymentAmount: price,
               paymentType: "first",
               commissionRate: 0.30,
@@ -1310,10 +1454,11 @@ export async function fetchLiveUserReferralStats(user: { id?: string; name?: str
             };
             mergedRewards.unshift(autoReward);
             saveAllReferralRewards(mergedRewards);
+            const cleanReferredId = p.id && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(p.id) ? p.id : null;
             supabase.from("referral_rewards").insert({
               referrer_code: cleanCode,
               referrer_email: cleanEmail,
-              referred_user_id: p.id || null,
+              referred_user_id: cleanReferredId,
               referred_user_email: pEmail,
               referred_user_name: autoReward.referredUserName,
               payment_reference: pRef,
@@ -1327,7 +1472,15 @@ export async function fetchLiveUserReferralStats(user: { id?: string; name?: str
           }
         }
 
-        const farmName = p.farm_name || p.farmName || (existingIdx >= 0 ? allLocalUsers[existingIdx].farmName : null) || p.name || "Primary Farm";
+        const rawFarmName = (p.id && userFarmsMap.get(p.id)) ||
+          pOverride?.farmName ||
+          p.farm_name ||
+          p.farmName ||
+          (existingIdx >= 0 ? allLocalUsers[existingIdx].farmName : null);
+
+        const farmName = (!rawFarmName || rawFarmName.trim().toLowerCase() === "primary farm")
+          ? (p.name ? `${p.name}'s Farm` : "Fish Farm")
+          : rawFarmName.trim();
 
         if (existingIdx >= 0) {
           allLocalUsers[existingIdx] = {
@@ -1335,11 +1488,11 @@ export async function fetchLiveUserReferralStats(user: { id?: string; name?: str
             referredBy: cleanCode,
             name: p.name || allLocalUsers[existingIdx].name,
             farmName: farmName,
-            activePlan: p.active_plan || p.activePlan || allLocalUsers[existingIdx].activePlan,
+            activePlan: p.active_plan || p.activePlan || pOverride?.activePlan || allLocalUsers[existingIdx].activePlan,
             hasPaid: hasPaid || allLocalUsers[existingIdx].hasPaid,
             subscriptionStatus: (hasPaid || allLocalUsers[existingIdx].hasPaid) ? "Active" : allLocalUsers[existingIdx].subscriptionStatus,
-            paystackReference: p.paystack_reference || p.paystackReference || allLocalUsers[existingIdx].paystackReference,
-            lastPaymentDate: p.last_payment_date || p.lastPaymentDate || allLocalUsers[existingIdx].lastPaymentDate,
+            paystackReference: p.paystack_reference || p.paystackReference || pOverride?.paystackReference || allLocalUsers[existingIdx].paystackReference,
+            lastPaymentDate: p.last_payment_date || p.lastPaymentDate || pOverride?.lastPaymentDate || allLocalUsers[existingIdx].lastPaymentDate,
           };
           hasChanges = true;
         } else {
@@ -1353,14 +1506,14 @@ export async function fetchLiveUserReferralStats(user: { id?: string; name?: str
             state: p.state || "Lagos",
             country: p.country || "Nigeria",
             role: p.role || "owner",
-            activePlan: p.active_plan || p.activePlan || "Starter",
-            billingFrequency: p.billing_frequency || p.billingFrequency || "monthly",
-            subscriptionAmount: p.subscription_amount || p.subscriptionAmount || null,
+            activePlan: p.active_plan || p.activePlan || pOverride?.activePlan || "Starter",
+            billingFrequency: p.billing_frequency || p.billingFrequency || pOverride?.billingFrequency || "monthly",
+            subscriptionAmount: p.subscription_amount || p.subscriptionAmount || pOverride?.subscriptionAmount || null,
             hasPaid,
             subscriptionStatus: hasPaid ? "Active" : "Trial",
             trialStartDate: p.trial_start_date ? String(p.trial_start_date).slice(0, 10) : String(p.created_at || "").slice(0, 10),
-            paystackReference: p.paystack_reference || p.paystackReference,
-            lastPaymentDate: p.last_payment_date || p.lastPaymentDate,
+            paystackReference: p.paystack_reference || p.paystackReference || pOverride?.paystackReference,
+            lastPaymentDate: p.last_payment_date || p.lastPaymentDate || pOverride?.lastPaymentDate,
             referredBy: cleanCode,
             createdAt: p.created_at ? String(p.created_at).slice(0, 10) : new Date().toISOString().slice(0, 10),
           });
@@ -1375,7 +1528,14 @@ export async function fetchLiveUserReferralStats(user: { id?: string; name?: str
         const rEmail = (r.referred_user_email || "").toLowerCase().trim();
         if (rEmail && cleanEmail && rEmail !== cleanEmail) {
           const existingIdx = allLocalUsers.findIndex(u => (u.email || "").toLowerCase().trim() === rEmail);
-          const farmName = r.referred_user_name || "Primary Farm";
+          const rOverride = (r.referred_user_id && adminOverrides[r.referred_user_id]) || (rEmail ? adminOverrides[rEmail] : null);
+          const rawFarmName = (r.referred_user_id && userFarmsMap.get(r.referred_user_id)) ||
+            rOverride?.farmName ||
+            (existingIdx >= 0 ? allLocalUsers[existingIdx].farmName : null);
+          const farmName = (!rawFarmName || rawFarmName.trim().toLowerCase() === "primary farm")
+            ? (r.referred_user_name ? `${r.referred_user_name}'s Farm` : "Fish Farm")
+            : rawFarmName.trim();
+
           if (existingIdx === -1) {
             allLocalUsers.push({
               id: r.referred_user_id || "usr-" + rEmail.replace(/[^a-zA-Z0-9]/g, "").slice(0, 10),
@@ -1398,11 +1558,18 @@ export async function fetchLiveUserReferralStats(user: { id?: string; name?: str
               createdAt: r.created_at ? String(r.created_at).slice(0, 10) : new Date().toISOString().slice(0, 10),
             });
             hasChanges = true;
-          } else if (!allLocalUsers[existingIdx].hasPaid) {
-            allLocalUsers[existingIdx].hasPaid = true;
-            allLocalUsers[existingIdx].subscriptionStatus = "Active";
-            if (r.referred_user_name) allLocalUsers[existingIdx].farmName = r.referred_user_name;
-            hasChanges = true;
+          } else {
+            let userUpdated = false;
+            if (!allLocalUsers[existingIdx].hasPaid) {
+              allLocalUsers[existingIdx].hasPaid = true;
+              allLocalUsers[existingIdx].subscriptionStatus = "Active";
+              userUpdated = true;
+            }
+            if (!allLocalUsers[existingIdx].farmName || allLocalUsers[existingIdx].farmName.toLowerCase() === "primary farm") {
+              allLocalUsers[existingIdx].farmName = farmName;
+              userUpdated = true;
+            }
+            if (userUpdated) hasChanges = true;
           }
         }
       });

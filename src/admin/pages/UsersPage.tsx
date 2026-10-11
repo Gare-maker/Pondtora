@@ -490,7 +490,10 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
     } catch {}
 
     if (localFarms.length === 0 && (u.farmCount || u.farmName)) {
-      localFarms = [{ id: `farm-${u.id}`, name: u.farmName || "Primary Farm", city: u.city, state: u.state, country: u.country }];
+      const resolvedName = (u.farmName && u.farmName.trim().toLowerCase() !== "primary farm")
+        ? u.farmName.trim()
+        : (u.name ? `${u.name}'s Farm` : "Fish Farm");
+      localFarms = [{ id: `farm-${u.id}`, name: resolvedName, city: u.city, state: u.state, country: u.country }];
     }
 
     return {
@@ -1837,7 +1840,7 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                                       />
                                     </div>
                                     <p className="text-[11px] text-slate-500 mt-0.5 truncate">
-                                      {refUser.email} • Farm: <strong className="text-slate-700">{refUser.farmName || "Primary Farm"}</strong> • Joined {fmtDate(refUser.createdAt)}
+                                      {refUser.email} • Farm: <strong className="text-slate-700">{(!refUser.farmName || refUser.farmName.trim().toLowerCase() === "primary farm") ? (refUser.name ? `${refUser.name}'s Farm` : "Fish Farm") : refUser.farmName}</strong> • Joined {fmtDate(refUser.createdAt)}
                                     </p>
                                   </div>
 

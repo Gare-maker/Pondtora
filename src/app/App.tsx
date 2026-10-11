@@ -4135,10 +4135,15 @@ function SettingsPage({farms,onAddFarm,onEditFarm,onDeleteFarm,userProfile,onUpd
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {refStats.referredUsers.map((u, idx) => (
+                      {refStats.referredUsers.map((u, idx) => {
+                        const rawF = (u.farmName || "").trim();
+                        const displayFarmName = (!rawF || rawF.toLowerCase() === "primary farm")
+                          ? (u.name ? `${u.name}'s Farm` : `Farm #${idx + 1}`)
+                          : rawF;
+                        return (
                         <tr key={u.id || idx} className="hover:bg-slate-50/80 transition-colors">
                           <td className="px-4 py-3">
-                            <p className="font-bold text-slate-800">{u.farmName || `Referral #${idx + 1}`}</p>
+                            <p className="font-bold text-slate-800">{displayFarmName}</p>
                           </td>
                           <td className="px-4 py-3 text-slate-500 whitespace-nowrap">{u.createdAt}</td>
                           <td className="px-4 py-3">
@@ -4172,18 +4177,23 @@ function SettingsPage({farms,onAddFarm,onEditFarm,onDeleteFarm,userProfile,onUpd
                             )}
                           </td>
                         </tr>
-                      ))}
+                      );})}
                     </tbody>
                   </table>
                 </div>
 
                 {/* Mobile Card List View (Clean & No Overlaps) */}
                 <div className="sm:hidden divide-y divide-slate-100">
-                  {refStats.referredUsers.map((u, idx) => (
+                  {refStats.referredUsers.map((u, idx) => {
+                    const rawF = (u.farmName || "").trim();
+                    const displayFarmName = (!rawF || rawF.toLowerCase() === "primary farm")
+                      ? (u.name ? `${u.name}'s Farm` : `Farm #${idx + 1}`)
+                      : rawF;
+                    return (
                     <div key={u.id || idx} className="p-4 space-y-2.5">
                       <div className="flex items-start justify-between gap-2">
                         <div>
-                          <p className="font-bold text-slate-900 text-sm">{u.farmName || `Referral #${idx + 1}`}</p>
+                          <p className="font-bold text-slate-900 text-sm">{displayFarmName}</p>
                           <p className="text-xs text-slate-500 mt-0.5 font-medium">Joined: {u.createdAt}</p>
                         </div>
                         <div className="text-right shrink-0">

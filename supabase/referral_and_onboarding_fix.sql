@@ -192,11 +192,21 @@ BEGIN
     up.id,
     up.name,
     up.email,
-    up.farm_name,
+    COALESCE(
+      NULLIF(CASE WHEN LOWER(TRIM(up.farm_name)) = 'primary farm' THEN '' ELSE TRIM(up.farm_name) END, ''),
+      (SELECT TRIM(f.name) FROM public.farms f WHERE f.user_id = up.id AND TRIM(f.name) <> '' AND LOWER(TRIM(f.name)) <> 'primary farm' ORDER BY f.created_at ASC LIMIT 1),
+      (SELECT TRIM(f.name) FROM public.farms f WHERE f.user_id = up.id AND TRIM(f.name) <> '' ORDER BY f.created_at ASC LIMIT 1),
+      CASE WHEN up.name IS NOT NULL AND TRIM(up.name) <> '' THEN TRIM(up.name) || '''s Farm' ELSE 'Fish Farm' END
+    ) AS farm_name,
     up.active_plan,
     up.subscription_status,
     up.billing_frequency,
-    COALESCE(up.has_paid, FALSE) AS has_paid,
+    COALESCE(
+      up.has_paid,
+      (up.subscription_status IN ('Active', 'Paid')),
+      (up.paystack_reference IS NOT NULL AND TRIM(up.paystack_reference) <> ''),
+      FALSE
+    ) AS has_paid,
     up.subscription_amount,
     up.trial_start_date,
     up.paystack_reference,
@@ -377,3 +387,149 @@ CREATE TRIGGER trg_credit_referral_on_paid
   AFTER INSERT OR UPDATE OF has_paid, subscription_status, paystack_reference ON public.user_profiles
   FOR EACH ROW
   EXECUTE FUNCTION public.trigger_credit_referral_on_paid();
+
+-- 8. Dedicated Security Definer RPC: admin_mark_user_paid()
+-- Allows admin to immediately mark user paid, bypasses client RLS, updates user_profiles & credits referral rewards
+DROP FUNCTION IF EXISTS public.admin_mark_user_paid(UUID, TEXT, TEXT, NUMERIC, TEXT, TEXT) CASCADE;
+DROP FUNCTION IF EXISTS public.admin_mark_user_paid CASCADE;
+
+CREATE OR REPLACE FUNCTION public.admin_mark_user_paid(
+  target_user_id UUID DEFAULT NULL,
+  target_email TEXT DEFAULT NULL,
+  plan_name TEXT DEFAULT 'Starter',
+  payment_amount NUMERIC DEFAULT NULL,
+  payment_reference TEXT DEFAULT NULL,
+  billing_frequency TEXT DEFAULT 'monthly'
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_user RECORD;
+  v_pay_amount NUMERIC;
+  v_ref_code TEXT;
+  v_pay_ref TEXT;
+  v_today_str TEXT;
+  v_comm_amount NUMERIC;
+  v_referrer_email TEXT;
+BEGIN
+  -- 1. Locate user
+  SELECT * INTO v_user
+  FROM public.user_profiles
+  WHERE (target_user_id IS NOT NULL AND id = target_user_id)
+     OR (target_email IS NOT NULL AND TRIM(target_email) <> '' AND LOWER(email) = LOWER(TRIM(target_email)))
+  LIMIT 1;
+
+  IF v_user IS NULL THEN
+    RETURN jsonb_build_object('success', false, 'error', 'User not found');
+  END IF;
+
+  v_today_str := TO_CHAR(NOW(), 'YYYYMMDD');
+  v_pay_ref := COALESCE(NULLIF(TRIM(payment_reference), ''), 'admin_paid_' || SUBSTRING(COALESCE(v_user.id::TEXT, v_user.email), 1, 8) || '_' || v_today_str);
+
+  IF payment_amount IS NOT NULL AND payment_amount > 0 THEN
+    v_pay_amount := payment_amount;
+  ELSE
+    v_pay_amount := COALESCE(v_user.subscription_amount, 3000);
+  END IF;
+
+  -- 2. Update user profile to paid
+  UPDATE public.user_profiles
+  SET
+    has_paid = TRUE,
+    subscription_status = 'Active',
+    active_plan = COALESCE(NULLIF(TRIM(plan_name), ''), active_plan, 'Starter'),
+    billing_frequency = COALESCE(NULLIF(TRIM(billing_frequency), ''), billing_frequency, 'monthly'),
+    subscription_amount = v_pay_amount,
+    paystack_reference = v_pay_ref,
+    last_payment_date = TO_CHAR(NOW(), 'YYYY-MM-DD'),
+    subscription_start = TO_CHAR(NOW(), 'YYYY-MM-DD'),
+    subscription_expiry = TO_CHAR(NOW() + CASE WHEN LOWER(billing_frequency) = 'yearly' THEN INTERVAL '1 year' ELSE INTERVAL '1 month' END, 'YYYY-MM-DD'),
+    trial_start_date = NULL,
+    onboarding_completed = TRUE,
+    updated_at = NOW()
+  WHERE id = v_user.id;
+
+  -- 3. If referred, insert reward
+  IF v_user.referred_by IS NOT NULL AND TRIM(v_user.referred_by) <> '' THEN
+    v_ref_code := UPPER(TRIM(v_user.referred_by));
+    SELECT email INTO v_referrer_email
+    FROM public.user_profiles
+    WHERE UPPER(TRIM(referral_code)) = v_ref_code OR LOWER(TRIM(email)) = LOWER(v_ref_code) OR id::TEXT = v_ref_code
+    LIMIT 1;
+
+    IF v_referrer_email IS NULL THEN
+      IF v_ref_code LIKE '%@%' THEN
+        v_referrer_email := LOWER(v_ref_code);
+      ELSE
+        v_referrer_email := 'referrer_' || v_ref_code || '@pondtora.com';
+      END IF;
+    END IF;
+
+    v_comm_amount := ROUND(v_pay_amount * 0.30);
+
+    INSERT INTO public.referral_rewards (
+      referrer_code,
+      referrer_email,
+      referred_user_id,
+      referred_user_email,
+      referred_user_name,
+      payment_reference,
+      plan_name,
+      payment_amount,
+      payment_type,
+      commission_rate,
+      commission_amount,
+      status,
+      created_at
+    ) VALUES (
+      v_ref_code,
+      v_referrer_email,
+      v_user.id,
+      v_user.email,
+      COALESCE(v_user.name, SPLIT_PART(v_user.email, '@', 1)),
+      v_pay_ref,
+      COALESCE(NULLIF(TRIM(plan_name), ''), v_user.active_plan, 'Starter'),
+      v_pay_amount,
+      'first',
+      0.30,
+      v_comm_amount,
+      'Available',
+      NOW()
+    )
+    ON CONFLICT (payment_reference) DO UPDATE
+    SET status = 'Available', commission_amount = EXCLUDED.commission_amount, payment_amount = EXCLUDED.payment_amount;
+  END IF;
+
+  RETURN jsonb_build_object(
+    'success', true,
+    'user_id', v_user.id,
+    'payment_reference', v_pay_ref,
+    'payment_amount', v_pay_amount,
+    'has_paid', true
+  );
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.admin_mark_user_paid(UUID, TEXT, TEXT, NUMERIC, TEXT, TEXT) TO authenticated, anon;
+
+-- 9. Auto-fix existing 'Primary Farm' entries in database
+UPDATE public.user_profiles
+SET farm_name = CASE 
+  WHEN name IS NOT NULL AND TRIM(name) <> '' THEN TRIM(name) || '''s Farm' 
+  ELSE 'Fish Farm' 
+END
+WHERE LOWER(TRIM(COALESCE(farm_name, ''))) IN ('primary farm', 'primary', '')
+  AND name IS NOT NULL AND TRIM(name) <> '';
+
+UPDATE public.farms f
+SET name = CASE 
+  WHEN up.name IS NOT NULL AND TRIM(up.name) <> '' THEN TRIM(up.name) || '''s Farm'
+  ELSE 'Fish Farm'
+END
+FROM public.user_profiles up
+WHERE f.user_id = up.id
+  AND LOWER(TRIM(COALESCE(f.name, ''))) IN ('primary farm', 'primary', '')
+  AND up.name IS NOT NULL AND TRIM(up.name) <> '';
+
