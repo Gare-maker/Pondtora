@@ -162,6 +162,10 @@ CREATE POLICY "Allow authenticated users to insert/update platform_settings" ON 
   FOR ALL USING (auth.role() = 'authenticated' OR auth.role() = 'anon');
 
 -- 6. SECURITY DEFINER RPC Functions for querying referrals securely across RLS
+DROP FUNCTION IF EXISTS public.get_user_referrals(TEXT, TEXT);
+DROP FUNCTION IF EXISTS public.get_user_referrals(TEXT);
+DROP FUNCTION IF EXISTS public.get_user_referrals();
+
 CREATE OR REPLACE FUNCTION public.get_user_referrals(p_referrer_code TEXT, p_referrer_email TEXT)
 RETURNS TABLE (
   id UUID,
@@ -208,6 +212,10 @@ BEGIN
   ORDER BY up.created_at DESC;
 END;
 $$;
+
+DROP FUNCTION IF EXISTS public.get_user_referral_rewards(TEXT, TEXT);
+DROP FUNCTION IF EXISTS public.get_user_referral_rewards(TEXT);
+DROP FUNCTION IF EXISTS public.get_user_referral_rewards();
 
 CREATE OR REPLACE FUNCTION public.get_user_referral_rewards(p_referrer_code TEXT, p_referrer_email TEXT)
 RETURNS TABLE (
@@ -258,6 +266,9 @@ END;
 $$;
 
 -- 7. Automatic Database Trigger: When a referred user is marked as paid, credit referral reward immediately
+DROP TRIGGER IF EXISTS trg_credit_referral_on_paid ON public.user_profiles;
+DROP FUNCTION IF EXISTS public.trigger_credit_referral_on_paid() CASCADE;
+
 CREATE OR REPLACE FUNCTION public.trigger_credit_referral_on_paid()
 RETURNS TRIGGER
 LANGUAGE plpgsql
