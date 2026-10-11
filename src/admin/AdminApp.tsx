@@ -48,6 +48,7 @@ import {
   subscribeToPlatformUpdates,
 } from "../lib/userSync";
 import { Toaster, toast } from "sonner";
+import { syncReferralOnUserPayment } from "../lib/referralStore";
 
 interface AdminErrorBoundaryProps {
   children: React.ReactNode;
@@ -428,6 +429,9 @@ export default function AdminApp({ onExit }: { onExit?: () => void } = {}) {
       await updateAdminUserInDb(u);
     } catch (err) {
       console.warn("Error persisting user update to DB:", err);
+    }
+    if (u.hasPaid || u.subscriptionStatus === "Paid" || (u.subscriptionStatus === "Active" && (u.paystackReference || u.lastPaymentDate))) {
+      syncReferralOnUserPayment(u).catch(console.warn);
     }
     logAction("User Profile Updated", "user", `Updated account details for ${u.name} (${u.email})`);
   }

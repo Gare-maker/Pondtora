@@ -53,6 +53,6 @@ input, select, textarea, button {
 
 main, .overflow-y-auto {
   -webkit-overflow-scrolling: touch;
-  overscroll-behavior-y: contain;
+  overscroll-behavior-y: auto;
 }
 

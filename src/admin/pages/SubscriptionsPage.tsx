@@ -4,6 +4,7 @@ import { Card, Bdg, PBtn, Pagination, PER_PAGE, Modal, F, IC, SC, DateInput, Tog
 import type { AdminUser, AdminPlan } from "../types";
 import { fmtDate, trialDaysLeft, fmtMoney, computeSubscriptionStatus, effectivePrice } from "../types";
 import { isStaffUser, clearAllPaymentDataInDbAndStorage, loadAllAdminUsers, isValidPaystackRef } from "../../lib/userSync";
+import { syncReferralOnUserPayment } from "../../lib/referralStore";
 import { toast } from "sonner";
 
 interface Props {
@@ -136,22 +137,31 @@ export default function SubscriptionsPage({ users, plans, onUpdate }: Props) {
     // Explicit payment verification: only mark hasPaid if user has verified payment or admin explicitly checked paid
     const isExplicitlyPaid = Boolean(!form.freeAccess && (form.hasPaid || form.paystackReference.trim() !== "" || form.lastPaymentDate.trim() !== ""));
     const customAmt = !form.freeAccess && form.subscriptionAmount.trim() !== "" && !isNaN(Number(form.subscriptionAmount)) ? Number(form.subscriptionAmount) : null;
+    const todayStr = getTodayDateStr();
+    const cleanRef = form.paystackReference.trim() || (isExplicitlyPaid ? (editing.paystackReference || `admin_paid_${(editing.id || editing.email.split("@")[0]).replace(/[^a-zA-Z0-9]/g, "").slice(0, 8)}_${todayStr.replace(/-/g, "")}`) : editing.paystackReference || null);
 
     const updated: AdminUser = {
       ...editing,
       activePlan: form.activePlan || null,
       billingFrequency: form.billingFrequency as "monthly" | "yearly",
       subscriptionAmount: customAmt,
-      subscriptionStart: toDateInputValue(form.subscriptionStart) || editing.subscriptionStart || null,
+      subscriptionStart: toDateInputValue(form.subscriptionStart) || editing.subscriptionStart || (isExplicitlyPaid ? todayStr : null),
       subscriptionExpiry: toDateInputValue(form.subscriptionExpiry) || editing.subscriptionExpiry || null,
-      paystackReference: form.paystackReference.trim() || editing.paystackReference || null,
-      lastPaymentDate: toDateInputValue(form.lastPaymentDate) || editing.lastPaymentDate || (isExplicitlyPaid ? getTodayDateStr() : null),
+      paystackReference: cleanRef,
+      lastPaymentDate: toDateInputValue(form.lastPaymentDate) || editing.lastPaymentDate || (isExplicitlyPaid ? todayStr : null),
       freeAccess: form.freeAccess,
       hasPaid: isExplicitlyPaid,
     };
 
     updated.subscriptionStatus = computeSubscriptionStatus(updated);
     onUpdate(updated);
+    if (isExplicitlyPaid) {
+      syncReferralOnUserPayment(updated).then(reward => {
+        if (reward) {
+          toast.success(`Referral reward of ₦${reward.commissionAmount.toLocaleString()} credited to referring user`);
+        }
+      }).catch(console.warn);
+    }
     setEditing(null);
     toast.success(`Pricing & subscription updated for ${updated.name || updated.email}`);
   }

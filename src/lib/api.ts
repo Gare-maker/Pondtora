@@ -1515,7 +1515,7 @@ export const api = {
         d.setDate(d.getDate() + (p.billingFrequency === "yearly" ? 365 : 30));
         return d.toISOString().slice(0, 10);
       })();
-      const payload: any = {
+      const basePayload: any = {
         active_plan: p.plan,
         trial_start_date: null,
         subscription_status: "Active",
@@ -1525,10 +1525,28 @@ export const api = {
         subscription_start: todayStr,
         subscription_expiry: expStr,
         billing_frequency: p.billingFrequency,
+        raw_data: {
+          has_paid: true,
+          hasPaid: true,
+          onboarding_completed: true,
+          onboardingCompleted: true,
+          active_plan: p.plan,
+          subscription_status: "Active",
+          paystack_reference: p.reference,
+          last_payment_date: todayStr,
+        },
         updated_at: new Date().toISOString(),
       };
-      const { data } = await supabase.from("user_profiles").update(payload).eq("id", userId).select().single();
-      return data ? objToCamel<UserProfile>(data) : ({} as UserProfile);
+      let res = await supabase.from("user_profiles").update({
+        ...basePayload,
+        has_paid: true,
+        onboarding_completed: true,
+      }).eq("id", userId).select().maybeSingle();
+
+      if (res.error) {
+        res = await supabase.from("user_profiles").update(basePayload).eq("id", userId).select().maybeSingle();
+      }
+      return res.data ? objToCamel<UserProfile>(res.data) : ({} as UserProfile);
     },
   },
 

@@ -215,14 +215,45 @@ export async function resolveFullUserProfile(user: any): Promise<UserProfile> {
   const staffRole: string = staffRecord?.role || meta.role || dbProf?.role || (isStaff ? "staff" : "owner");
   const staffFarms: string[] = staffRecord?.farms || meta.farms || [];
 
+  const hasDbSelectedPlan = Boolean(
+    (dbProf?.active_plan && String(dbProf.active_plan).trim() !== "") ||
+    (dbProf?.trial_start_date && String(dbProf.trial_start_date).trim() !== "") ||
+    Boolean(dbProf?.paystack_reference) ||
+    Boolean(dbProf?.has_paid) ||
+    (dbProf?.subscription_status && dbProf.subscription_status !== "Trial") ||
+    (meta.active_plan && String(meta.active_plan).trim() !== "")
+  );
+
+  const isUserPaid = Boolean(
+    dbProf?.has_paid ||
+    dbProf?.raw_data?.has_paid ||
+    Boolean(dbProf?.paystack_reference) ||
+    dbProf?.subscription_status === "Active" ||
+    dbProf?.subscription_status === "Paid"
+  );
+
   const isOnboardingDone = Boolean(
     dbProf?.onboarding_completed === true ||
     dbProf?.raw_data?.onboarding_completed === true ||
+    dbProf?.raw_data?.onboardingCompleted === true ||
     meta.onboarding_completed === true ||
     meta.onboardingCompleted === true ||
     (userId && typeof localStorage !== "undefined" && localStorage.getItem(`pondtora_${userId}_onboarding_completed`) === "true") ||
+    (cleanEmail && typeof localStorage !== "undefined" && localStorage.getItem(`pondtora_onboarding_completed_${cleanEmail}`) === "true") ||
+    hasDbSelectedPlan ||
+    isUserPaid ||
     staffRole === "staff"
   );
+
+  const resolvedPlan = isOnboardingDone
+    ? (dbProf?.active_plan || meta.active_plan || "Starter")
+    : (dbProf?.active_plan || null);
+
+  const resolvedTrialStart = isOnboardingDone
+    ? (dbProf?.trial_start_date || meta.trial_start_date || null)
+    : (dbProf?.trial_start_date || null);
+
+  const resolvedSubStatus = dbProf?.subscription_status || meta.subscription_status || (isUserPaid ? "Active" : "Trial");
 
   const profile: UserProfile = {
     id: userId,
@@ -235,8 +266,8 @@ export async function resolveFullUserProfile(user: any): Promise<UserProfile> {
     phone: dbProf?.phone || meta.phone || "",
     currencySymbol: dbProf?.currency_symbol || meta.currency_symbol || "₦",
     currencyCode: dbProf?.currency_code || meta.currency_code || "NGN",
-    activePlan: isOnboardingDone ? (dbProf?.active_plan || meta.active_plan || "Starter") : null,
-    trialStartDate: isOnboardingDone ? (dbProf?.trial_start_date || meta.trial_start_date || null) : null,
+    activePlan: resolvedPlan,
+    trialStartDate: resolvedTrialStart,
     role: staffRole,
     permissions: staffPerms,
     ownerId: staffOwnerId,
@@ -244,12 +275,14 @@ export async function resolveFullUserProfile(user: any): Promise<UserProfile> {
     referralCode: dbProf?.referral_code || meta.referral_code || meta.referralCode,
     referredBy: dbProf?.referred_by || meta.referred_by || meta.referredBy,
     status: dbProf?.status || "Active",
-    freeAccess: dbProf?.free_access || meta.free_access,
+    freeAccess: Boolean(dbProf?.free_access || meta.free_access || cleanEmail === "edafejesugarec@gmail.com"),
     paystackReference: dbProf?.paystack_reference,
     subscriptionAmount: dbProf?.subscription_amount,
     subscriptionExpiry: dbProf?.subscription_expiry,
     subscriptionStart: dbProf?.subscription_start,
     billingFrequency: dbProf?.billing_frequency || meta.plan_billing || "monthly",
+    subscriptionStatus: resolvedSubStatus,
+    hasPaid: isUserPaid,
     onboardingCompleted: isOnboardingDone,
   };
 
@@ -1122,6 +1155,11 @@ export async function updateAdminUserInDb(u: AdminUser): Promise<boolean> {
     }
 
     window.dispatchEvent(new CustomEvent("pondtora:user_profile_updated", { detail: normalizedUser }));
+
+    if (u.hasPaid || u.subscriptionStatus === "Paid" || (u.subscriptionStatus === "Active" && (u.paystackReference || u.lastPaymentDate))) {
+      import("./referralStore").then(m => m.syncReferralOnUserPayment(u)).catch(() => {});
+    }
+
     return profSuccess;
   } catch (e) {
     console.warn("updateAdminUserInDb error:", e);

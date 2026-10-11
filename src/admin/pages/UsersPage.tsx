@@ -11,7 +11,7 @@ import type { AdminUser, AdminPlan, AccountStatus } from "../types";
 import { fmtDate, trialDaysLeft, fmtMoney, computeSubscriptionStatus, effectivePrice } from "../types";
 import { supabase } from "../../lib/supabase";
 import { isStaffUser } from "../../lib/userSync";
-import { getUserReferralStats, markReferralRewardsPaid, clearUserReferralBalance } from "../../lib/referralStore";
+import { getUserReferralStats, markReferralRewardsPaid, clearUserReferralBalance, syncReferralOnUserPayment } from "../../lib/referralStore";
 import { toast } from "sonner";
 
 function getWhatsAppUrl(phone?: string, name?: string): string | null {
@@ -739,13 +739,25 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
     if (Object.keys(e).length) return;
 
     const isExplicitlyPaid = Boolean(!form.freeAccess && (form.hasPaid || form.paystackReference?.trim() || form.lastPaymentDate?.trim()));
+    const todayStr = getTodayDateStr();
+    const cleanRef = form.paystackReference?.trim() || (isExplicitlyPaid ? (editUser.paystackReference || `admin_paid_${(editUser.id || editUser.email.split("@")[0]).replace(/[^a-zA-Z0-9]/g, "").slice(0, 8)}_${todayStr.replace(/-/g, "")}`) : editUser.paystackReference || null);
+
     const updated = {
       ...editUser,
       ...form,
+      paystackReference: cleanRef,
+      lastPaymentDate: form.lastPaymentDate?.trim() || (isExplicitlyPaid ? (editUser.lastPaymentDate || todayStr) : null),
       hasPaid: isExplicitlyPaid,
     } as AdminUser;
     updated.subscriptionStatus = computeSubscriptionStatus(updated);
     onUpdate(updated);
+    if (isExplicitlyPaid) {
+      syncReferralOnUserPayment(updated).then(reward => {
+        if (reward) {
+          toast.success(`Referral reward of ₦${reward.commissionAmount.toLocaleString()} credited to referring user`);
+        }
+      }).catch(console.warn);
+    }
     setEditUser(null);
     setFErr({});
   }
@@ -776,16 +788,25 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
     const todayStr = new Date().toISOString().slice(0, 10);
     const expDate = new Date();
     expDate.setDate(expDate.getDate() + (u.billingFrequency === "yearly" ? 365 : 30));
+    const cleanRef = (u.paystackReference && u.paystackReference.trim()) || `admin_paid_${(u.id || u.email.split("@")[0]).replace(/[^a-zA-Z0-9]/g, "").slice(0, 8)}_${todayStr.replace(/-/g, "")}`;
     const updated: AdminUser = {
       ...u,
       hasPaid: true,
+      paystackReference: cleanRef,
+      lastPaymentDate: todayStr,
       subscriptionStatus: "Active",
       subscriptionStart: todayStr,
       subscriptionExpiry: expDate.toISOString().slice(0, 10),
       trialStartDate: null,
     };
     onUpdate(updated);
+    syncReferralOnUserPayment(updated).then(reward => {
+      if (reward) {
+        toast.success(`Referral reward of ₦${reward.commissionAmount.toLocaleString()} credited to referring user (${reward.referrerEmail})`);
+      }
+    }).catch(console.warn);
     setMenu(null);
+    toast.success(`Marked ${u.name || u.email} as verified paid`);
   }
 
   function handleSwitchToTrial(u: AdminUser) {

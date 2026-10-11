@@ -34,6 +34,7 @@ import { INIT_K, INIT_C } from "./questionsData";
 import InvestorsPage from "./pages/InvestorsPage";
 import PondReportsComponent from "./pages/PondReportsComponent";
 import OnboardingPlanOverlay from "./components/OnboardingPlanOverlay";
+import PullToRefresh from "./components/PullToRefresh";
 import { Toaster, toast } from "sonner";
 import { useDynamicPlans } from "../lib/plansStore";
 import { syncUserProfileToAdmin, getUserAdminOverride, logActivity, recordSuccessfulPayment, loadAllAdminUsers, getFarmSubscriptionDetails, FarmSubscriptionDetails } from "../lib/userSync";
@@ -2981,6 +2982,8 @@ function SubscriptionPage({
         activePlan: targetTx.planName,
         trialStartDate: null,
         subscriptionStatus: "Active",
+        hasPaid: true,
+        onboardingCompleted: true,
         subscriptionAmount: targetTx.amount,
         subscriptionExpiry: expStr,
         subscriptionStart: todayStr,
@@ -3106,6 +3109,8 @@ function SubscriptionPage({
               activePlan: plan.name,
               trialStartDate: null,
               subscriptionStatus: "Active",
+              hasPaid: true,
+              onboardingCompleted: true,
               subscriptionAmount: calculatedPrice,
               subscriptionExpiry: expStr,
               subscriptionStart: todayStr,
@@ -6503,6 +6508,17 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     };
   },[loadFromBackend,userProfile?.id]);
 
+  const handlePullToRefresh = useCallback(async () => {
+    try {
+      await Promise.allSettled([
+        loadFromBackend(),
+        userProfile ? fetchLiveUserReferralStats(userProfile) : Promise.resolve(),
+      ]);
+    } catch (e) {
+      console.warn("Pull-to-refresh sync warning:", e);
+    }
+  }, [loadFromBackend, userProfile]);
+
   /* ── Restore session via Supabase Auth ── */
   useEffect(()=>{
     const p = typeof window !== "undefined" ? window.location.pathname.toLowerCase() : "";
@@ -6725,6 +6741,15 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
             subscriptionStatus: resolvedSubStatus,
             subscriptionAmount: customSubAmount,
             freeAccess: hasFreeAccess,
+            hasPaid: Boolean(
+              prof?.has_paid ||
+              (prof as any)?.hasPaid ||
+              prof?.raw_data?.has_paid ||
+              userOverride?.hasPaid ||
+              resolvedPaystackRef ||
+              resolvedSubStatus === "Active" ||
+              resolvedSubStatus === "Paid"
+            ),
             subscriptionExpiry: resolvedSubExpiry,
             subscriptionStart: resolvedSubStart,
             billingFrequency: resolvedBillingFreq,
@@ -6980,6 +7005,14 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
           subscriptionStatus: subStatusStr,
           subscriptionAmount: customSubAmount,
           freeAccess: hasFreeAccess,
+          hasPaid: Boolean(
+            prof?.has_paid ||
+            (prof as any)?.hasPaid ||
+            prof?.raw_data?.has_paid ||
+            paystackRefStr ||
+            subStatusStr === "Active" ||
+            subStatusStr === "Paid"
+          ),
           subscriptionExpiry: subExpiryStr,
           subscriptionStart: subStartStr,
           billingFrequency: billingFreqStr,
@@ -7128,18 +7161,29 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
         } catch {}
       }
 
-      await supabase.from("user_profiles").update({
+      const baseUpdate: Record<string, any> = {
         active_plan: planName,
         trial_start_date: todayStr,
-        onboarding_completed: true,
         raw_data: {
           ...(userProfile.raw_data || {}),
           onboarding_completed: true,
           onboardingCompleted: true,
+          active_plan: planName,
+          trial_start_date: todayStr,
           farm_type: farmType,
         },
         updated_at: new Date().toISOString(),
+      };
+
+      const { error: fullErr } = await supabase.from("user_profiles").update({
+        ...baseUpdate,
+        onboarding_completed: true,
       }).eq("id", userProfile.id);
+
+      if (fullErr) {
+        // Fallback if onboarding_completed column has not yet been added to user_profiles
+        await supabase.from("user_profiles").update(baseUpdate).eq("id", userProfile.id);
+      }
 
       try {
         await supabase.auth.updateUser({
@@ -8247,12 +8291,26 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   const userCountry = userProfile?.country ?? "Nigeria";
   const cvt = (n: number) => convertNGN(n, userCountry);
 
+  const isPaidSubscriber = Boolean(
+    userProfile?.hasPaid ||
+    userProfile?.subscriptionStatus === "Active" ||
+    userProfile?.subscriptionStatus === "Paid" ||
+    Boolean(userProfile?.paystackReference) ||
+    adminOverride.hasFreeAccess ||
+    userProfile?.freeAccess
+  );
+
+  const hasSelectedPlan = Boolean(
+    userProfile?.activePlan && String(userProfile.activePlan).trim() !== ""
+  );
+
   const showOnboardingOverlay = Boolean(
     isAuth &&
     isOwner &&
     userProfile &&
+    !isPaidSubscriber &&
+    !hasSelectedPlan &&
     !userProfile.onboardingCompleted &&
-    !adminOverride.hasFreeAccess &&
     userProfile.email?.toLowerCase().trim() !== "edafejesugarec@gmail.com"
   );
 
@@ -8381,31 +8439,33 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
             )}
           </div>
         )}
-        <main ref={mainRef} className="flex-1 overflow-y-auto bg-[#f5f7fa] pb-28 lg:pb-8 touch-pan-y relative overscroll-contain" style={{ WebkitOverflowScrolling: "touch", overscrollBehavior: "contain" }}>
-          {isDataLoading ? (
-            <div className="flex flex-col items-center justify-center min-h-[60vh] gap-3 p-6">
-              <Loader2 size={36} className="text-green-600 animate-spin" />
-              <p className="text-base font-bold text-slate-800 font-['Barlow_Condensed',sans-serif] tracking-wide">Loading farm data…</p>
-              <p className="text-xs text-slate-400">Syncing records for your account</p>
-            </div>
-          ) : (
-            <AppErrorBoundary key={active}>
-              {active==="financial"     &&(hasPerm("Financial Dashboard")?<FinancialDashboard expenses={farmExpenses} revenues={farmRevenues} onAddExpense={addExp} onAddRevenue={addRev} onEditExpense={editExp} onEditRevenue={editRev} onDeleteExpense={deleteExp} onDeleteRevenue={deleteRev} stockEvents={stockEvents} ponds={farmPonds} inventory={farmInventory} bagLogs={farmBagLogs} currency={cs} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}} canCreate={canCreate("Financial Dashboard")} canEdit={canEdit("Financial Dashboard")} canDelete={canDelete("Financial Dashboard")}/>:<AccessDenied/>)}
-              {active==="ponds"         &&(hasPerm("Pond Management")?<PondManagementPage ponds={farmPonds} onAddPond={addPond} onClosePond={closePond} onRestockPond={restockPond} onTransfer={transferStock} onNurseryTransfer={nurseryTransfer} mortality={farmMortality} onAddMortality={addMort} onAddCost={addExp} feedingRecords={farmFeeding} stockEvents={stockEvents} treatments={farmTreatments} onAddTreatment={addTreatment} activeFarmId={activeFarmId} onDeletePond={deletePond} onEditFish={editFish} onSetMaxKg={setPondMaxKg} onEditPond={handleEditPond} onReorderPonds={handleReorderPonds} onScrollTop={()=>mainRef.current?.scrollTo({top:0,behavior:"instant"})} currency={cs} inventory={farmInventory} farms={farms} pondReports={farmPondReports} onAddPondReport={handleAddPondReport} canCreate={canCreate("Pond Management")} canEdit={canEdit("Pond Management")} canDelete={canDelete("Pond Management")}/>:<AccessDenied/>)}
-              {active==="inventory"     &&(hasPerm("Feed Stock")?<FeedInventoryPage inventory={farmInventory} onAdd={addInv} onDelete={delInv} feedingRecords={farmFeeding} bagLogs={farmBagLogs} remainLogs={farmRemainLogs} ponds={farmPonds} onEditBagLog={editBagLog} onEditInv={editInv} currency={cs} canEditLocked={isOwner||currentStaff?.role==="Farm Manager"} canCreate={canCreate("Feed Stock")} canEdit={canEdit("Feed Stock")} canDelete={canDelete("Feed Stock")}/>:<AccessDenied/>)}
-              {active==="documentation" &&(hasPerm("Feeding Records")?<FeedDocumentationPage feedingRecords={farmFeeding} onAddRecord={addFeed} onEditFeedRecord={editFeedRecord} onDeleteRecord={deleteFeedRecord} ponds={farmPonds} inventory={farmInventory} bagLogs={farmBagLogs} onAddBagLog={addBagLog} onEditBagLog={editBagLog} onEditInv={editInv} remainLogs={farmRemainLogs} onAddRemainLog={addRemainLog} onEditRemainLog={editRemainLog} onReconMismatches={onReconMismatches} reconFocus={reconFocus} canEditLocked={isOwner||currentStaff?.role==="Farm Manager"} currentUser={{name:currentStaff?.name||userProfile?.name||"",email:userProfile?.email||""}} canCreate={canCreate("Feeding Records")} canEdit={canEdit("Feeding Records")} canDelete={canDelete("Feeding Records")}/>:<AccessDenied/>)}
-              {active==="invoices"      &&(hasPerm("Invoices")||hasPerm("Sales Calculator")?<InvoicesPage ponds={farmPonds} invoices={farmInvoices} customers={farmCustomers} priceGroups={farmPriceGroups} settings={invSettings} onAddInvoice={addInvoice} onEditInvoice={editInvoice} onDeleteInvoice={deleteInvoice} onAddCustomer={addCustomer} onAddPriceGroup={addPriceGroup} onEditPriceGroup={editPriceGroup} onDeletePriceGroup={delPriceGroup} onUpdateSettings={(s)=>{setInvSettings(s);api.invSettings.update(s).catch(console.warn);}} currentUser={userProfile?.name} currency={cs} canCreate={canCreate("Invoices")} canEdit={canEdit("Invoices")} canDelete={canDelete("Invoices")}/>:<AccessDenied/>)}
-              {active==="sales_calculator"&&(hasPerm("Sales Calculator")||hasPerm("Invoices")?<SalesCalculatorPage priceGroups={farmPriceGroups} settings={invSettings} onAddPriceGroup={addPriceGroup} onEditPriceGroup={editPriceGroup} onDeletePriceGroup={delPriceGroup} currency={cs} canCreate={canCreate("Sales Calculator")||canCreate("Invoices")} canEdit={canEdit("Sales Calculator")||canEdit("Invoices")} canDelete={canDelete("Sales Calculator")||canDelete("Invoices")}/>:<AccessDenied/>)}
-              {active==="staff"         &&(isOwner?<StaffPage staff={staff} onAdd={addStaff} onEdit={editStaff} onDelete={delStaff} farms={farms.filter(f => f.userId === userProfile?.id || isOwner)} activeFarmId={activeFarmId} ownerEmail={userProfile?.email}/>:<AccessDenied/>)}
-              {active==="investors"     &&(hasPerm("Investors")?<InvestorsPage investors={farmInvestors} investments={farmInvestments} payments={farmPayments} farms={farms} ponds={farmPonds} stockEvents={stockEvents} activeFarmId={activeFarmId} currency={cs} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}} isOwner={isOwner} canManage={isOwner||hasPerm("Investors")} onAddInvestor={handleAddInvestor} onEditInvestor={handleEditInvestor} onEditInvestment={handleEditInvestment} onDeleteInvestor={handleDeleteInvestor} onRecordPayment={handleRecordPayment} onMarkPaymentPaid={handleMarkPaymentPaid} canCreate={canCreate("Investors")} canEdit={canEdit("Investors")} canDelete={canDelete("Investors")}/>:<AccessDenied/>)}
-              {active==="equipment"     &&(hasPerm("Farm Equipment")?<FarmEquipmentPage equipment={farmEquipments} onAdd={handleAddEquipment} onAddEquipment={handleAddEquipment} onEdit={handleEditEquipment} onEditEquipment={handleEditEquipment} onDelete={handleDeleteEquipment} onDeleteEquipment={handleDeleteEquipment} currency={cs} farms={farms} activeFarmId={activeFarmId} canCreate={canCreate("Farm Equipment")} canEdit={canEdit("Farm Equipment")} canDelete={canDelete("Farm Equipment")} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}}/>:<AccessDenied/>)}
-              {active==="reports"       &&(hasPerm("Reports")?<ReportsPage reports={farmReports} staff={staff} onAdd={addReport} onEdit={editReportFn} onDelete={deleteReport} pondReports={farmPondReports} treatments={farmTreatments} farms={farms} ponds={farmPonds} stockEvents={stockEvents} onAddPondReport={handleAddPondReport} onDeletePondReport={deletePondReport} activeFarmId={activeFarmId} canCreate={canCreate("Reports")} canEdit={canEdit("Reports")} canDelete={canDelete("Reports")} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}} isOwner={isOwner}/>:<AccessDenied/>)}
-              {active==="assessments"   &&(hasPerm("Staff Assessments")?<EmployeeAssessmentsPage kQuestions={kQuestions} cQuestions={cQuestions} kResults={kResults} cResults={cResults} onSaveKQuestions={saveKQuestions} onSaveCQuestions={saveCQuestions} onAddKResult={addKResult} onAddCResult={addCResult} ownerId={userProfile?.id??""}/>:<AccessDenied/>)}
-              {active==="pricing"       &&(isOwner?<SubscriptionPage farmCount={farms.length} activePlan={activePlan} setActivePlan={setActivePlan} trialStartDate={trialStartDate} setTrialStartDate={setTrialStartDate} currency={cs} convertPrice={cvt} userProfile={userProfile} onProfileUpdated={(p) => setUserProfile(prev => { const next = { ...(prev || {}), ...p }; if(prev?.id){ try{ localStorage.setItem(`pondtora_${prev.id}_user_profile`, JSON.stringify(next)); }catch{} } return next; })} activeFarmName={farms.find(f=>f.id===activeFarmId)?.name||userProfile?.farmName} onOpenReferrals={() => { setSettingsTab("referrals"); nav("settings"); }}/>:<AccessDenied/>)}
-              {active==="settings"      &&<SettingsPage farms={isOwner?farms:accessibleFarms} onAddFarm={handleAddFarmDirect} onEditFarm={handleEditFarm} onDeleteFarm={handleDeleteFarm} userProfile={userProfile} onUpdateProfile={handleUpdateProfile} isOwner={isOwner} ponds={ponds} activePlan={activePlan} initialTab={settingsTab}/>}
-              {active==="notifications" && (canView("Notifications") ? <NotificationsPage notifications={notifications} onMarkRead={markRead} onMarkAllRead={markAllRead} farms={farms} activeFarmId={activeFarmId} farmCount={farms.length} onDismiss={dismissNotif} onNotifNav={(n)=>{if(n.type==="reconciliation"&&n.reconDate&&n.reconKey){nav("documentation");setReconFocus({date:n.reconDate,key:n.reconKey});}}}/> : <AccessDenied/>)}
-            </AppErrorBoundary>
-          )}
+        <main ref={mainRef} className="flex-1 overflow-y-auto bg-[#f5f7fa] pb-36 sm:pb-28 lg:pb-8 touch-pan-y relative overscroll-y-auto" style={{ WebkitOverflowScrolling: "touch", overscrollBehavior: "auto" }}>
+          <PullToRefresh onRefresh={handlePullToRefresh} containerRef={mainRef}>
+            {isDataLoading ? (
+              <div className="flex flex-col items-center justify-center min-h-[60vh] gap-3 p-6">
+                <Loader2 size={36} className="text-green-600 animate-spin" />
+                <p className="text-base font-bold text-slate-800 font-['Barlow_Condensed',sans-serif] tracking-wide">Loading farm data…</p>
+                <p className="text-xs text-slate-400">Syncing records for your account</p>
+              </div>
+            ) : (
+              <AppErrorBoundary key={active}>
+                {active==="financial"     &&(hasPerm("Financial Dashboard")?<FinancialDashboard expenses={farmExpenses} revenues={farmRevenues} onAddExpense={addExp} onAddRevenue={addRev} onEditExpense={editExp} onEditRevenue={editRev} onDeleteExpense={deleteExp} onDeleteRevenue={deleteRev} stockEvents={stockEvents} ponds={farmPonds} inventory={farmInventory} bagLogs={farmBagLogs} currency={cs} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}} canCreate={canCreate("Financial Dashboard")} canEdit={canEdit("Financial Dashboard")} canDelete={canDelete("Financial Dashboard")}/>:<AccessDenied/>)}
+                {active==="ponds"         &&(hasPerm("Pond Management")?<PondManagementPage ponds={farmPonds} onAddPond={addPond} onClosePond={closePond} onRestockPond={restockPond} onTransfer={transferStock} onNurseryTransfer={nurseryTransfer} mortality={farmMortality} onAddMortality={addMort} onAddCost={addExp} feedingRecords={farmFeeding} stockEvents={stockEvents} treatments={farmTreatments} onAddTreatment={addTreatment} activeFarmId={activeFarmId} onDeletePond={deletePond} onEditFish={editFish} onSetMaxKg={setPondMaxKg} onEditPond={handleEditPond} onReorderPonds={handleReorderPonds} onScrollTop={()=>mainRef.current?.scrollTo({top:0,behavior:"instant"})} currency={cs} inventory={farmInventory} farms={farms} pondReports={farmPondReports} onAddPondReport={handleAddPondReport} canCreate={canCreate("Pond Management")} canEdit={canEdit("Pond Management")} canDelete={canDelete("Pond Management")}/>:<AccessDenied/>)}
+                {active==="inventory"     &&(hasPerm("Feed Stock")?<FeedInventoryPage inventory={farmInventory} onAdd={addInv} onDelete={delInv} feedingRecords={farmFeeding} bagLogs={farmBagLogs} remainLogs={farmRemainLogs} ponds={farmPonds} onEditBagLog={editBagLog} onEditInv={editInv} currency={cs} canEditLocked={isOwner||currentStaff?.role==="Farm Manager"} canCreate={canCreate("Feed Stock")} canEdit={canEdit("Feed Stock")} canDelete={canDelete("Feed Stock")}/>:<AccessDenied/>)}
+                {active==="documentation" &&(hasPerm("Feeding Records")?<FeedDocumentationPage feedingRecords={farmFeeding} onAddRecord={addFeed} onEditFeedRecord={editFeedRecord} onDeleteRecord={deleteFeedRecord} ponds={farmPonds} inventory={farmInventory} bagLogs={farmBagLogs} onAddBagLog={addBagLog} onEditBagLog={editBagLog} onEditInv={editInv} remainLogs={farmRemainLogs} onAddRemainLog={addRemainLog} onEditRemainLog={editRemainLog} onReconMismatches={onReconMismatches} reconFocus={reconFocus} canEditLocked={isOwner||currentStaff?.role==="Farm Manager"} currentUser={{name:currentStaff?.name||userProfile?.name||"",email:userProfile?.email||""}} canCreate={canCreate("Feeding Records")} canEdit={canEdit("Feeding Records")} canDelete={canDelete("Feeding Records")}/>:<AccessDenied/>)}
+                {active==="invoices"      &&(hasPerm("Invoices")||hasPerm("Sales Calculator")?<InvoicesPage ponds={farmPonds} invoices={farmInvoices} customers={farmCustomers} priceGroups={farmPriceGroups} settings={invSettings} onAddInvoice={addInvoice} onEditInvoice={editInvoice} onDeleteInvoice={deleteInvoice} onAddCustomer={addCustomer} onAddPriceGroup={addPriceGroup} onEditPriceGroup={editPriceGroup} onDeletePriceGroup={delPriceGroup} onUpdateSettings={(s)=>{setInvSettings(s);api.invSettings.update(s).catch(console.warn);}} currentUser={userProfile?.name} currency={cs} canCreate={canCreate("Invoices")} canEdit={canEdit("Invoices")} canDelete={canDelete("Invoices")}/>:<AccessDenied/>)}
+                {active==="sales_calculator"&&(hasPerm("Sales Calculator")||hasPerm("Invoices")?<SalesCalculatorPage priceGroups={farmPriceGroups} settings={invSettings} onAddPriceGroup={addPriceGroup} onEditPriceGroup={editPriceGroup} onDeletePriceGroup={delPriceGroup} currency={cs} canCreate={canCreate("Sales Calculator")||canCreate("Invoices")} canEdit={canEdit("Sales Calculator")||canEdit("Invoices")} canDelete={canDelete("Sales Calculator")||canDelete("Invoices")}/>:<AccessDenied/>)}
+                {active==="staff"         &&(isOwner?<StaffPage staff={staff} onAdd={addStaff} onEdit={editStaff} onDelete={delStaff} farms={farms.filter(f => f.userId === userProfile?.id || isOwner)} activeFarmId={activeFarmId} ownerEmail={userProfile?.email}/>:<AccessDenied/>)}
+                {active==="investors"     &&(hasPerm("Investors")?<InvestorsPage investors={farmInvestors} investments={farmInvestments} payments={farmPayments} farms={farms} ponds={farmPonds} stockEvents={stockEvents} activeFarmId={activeFarmId} currency={cs} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}} isOwner={isOwner} canManage={isOwner||hasPerm("Investors")} onAddInvestor={handleAddInvestor} onEditInvestor={handleEditInvestor} onEditInvestment={handleEditInvestment} onDeleteInvestor={handleDeleteInvestor} onRecordPayment={handleRecordPayment} onMarkPaymentPaid={handleMarkPaymentPaid} canCreate={canCreate("Investors")} canEdit={canEdit("Investors")} canDelete={canDelete("Investors")}/>:<AccessDenied/>)}
+                {active==="equipment"     &&(hasPerm("Farm Equipment")?<FarmEquipmentPage equipment={farmEquipments} onAdd={handleAddEquipment} onAddEquipment={handleAddEquipment} onEdit={handleEditEquipment} onEditEquipment={handleEditEquipment} onDelete={handleDeleteEquipment} onDeleteEquipment={handleDeleteEquipment} currency={cs} farms={farms} activeFarmId={activeFarmId} canCreate={canCreate("Farm Equipment")} canEdit={canEdit("Farm Equipment")} canDelete={canDelete("Farm Equipment")} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}}/>:<AccessDenied/>)}
+                {active==="reports"       &&(hasPerm("Reports")?<ReportsPage reports={farmReports} staff={staff} onAdd={addReport} onEdit={editReportFn} onDelete={deleteReport} pondReports={farmPondReports} treatments={farmTreatments} farms={farms} ponds={farmPonds} stockEvents={stockEvents} onAddPondReport={handleAddPondReport} onDeletePondReport={deletePondReport} activeFarmId={activeFarmId} canCreate={canCreate("Reports")} canEdit={canEdit("Reports")} canDelete={canDelete("Reports")} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}} isOwner={isOwner}/>:<AccessDenied/>)}
+                {active==="assessments"   &&(hasPerm("Staff Assessments")?<EmployeeAssessmentsPage kQuestions={kQuestions} cQuestions={cQuestions} kResults={kResults} cResults={cResults} onSaveKQuestions={saveKQuestions} onSaveCQuestions={saveCQuestions} onAddKResult={addKResult} onAddCResult={addCResult} ownerId={userProfile?.id??""}/>:<AccessDenied/>)}
+                {active==="pricing"       &&(isOwner?<SubscriptionPage farmCount={farms.length} activePlan={activePlan} setActivePlan={setActivePlan} trialStartDate={trialStartDate} setTrialStartDate={setTrialStartDate} currency={cs} convertPrice={cvt} userProfile={userProfile} onProfileUpdated={(p) => setUserProfile(prev => { const next = { ...(prev || {}), ...p }; if(prev?.id){ try{ localStorage.setItem(`pondtora_${prev.id}_user_profile`, JSON.stringify(next)); }catch{} } return next; })} activeFarmName={farms.find(f=>f.id===activeFarmId)?.name||userProfile?.farmName} onOpenReferrals={() => { setSettingsTab("referrals"); nav("settings"); }}/>:<AccessDenied/>)}
+                {active==="settings"      &&<SettingsPage farms={isOwner?farms:accessibleFarms} onAddFarm={handleAddFarmDirect} onEditFarm={handleEditFarm} onDeleteFarm={handleDeleteFarm} userProfile={userProfile} onUpdateProfile={handleUpdateProfile} isOwner={isOwner} ponds={ponds} activePlan={activePlan} initialTab={settingsTab}/>}
+                {active==="notifications" && (canView("Notifications") ? <NotificationsPage notifications={notifications} onMarkRead={markRead} onMarkAllRead={markAllRead} farms={farms} activeFarmId={activeFarmId} farmCount={farms.length} onDismiss={dismissNotif} onNotifNav={(n)=>{if(n.type==="reconciliation"&&n.reconDate&&n.reconKey){nav("documentation");setReconFocus({date:n.reconDate,key:n.reconKey});}}}/> : <AccessDenied/>)}
+              </AppErrorBoundary>
+            )}
+          </PullToRefresh>
         </main>
         {showScrollTop && (
           <button
