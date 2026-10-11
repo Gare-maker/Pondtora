@@ -82,7 +82,27 @@ CREATE TABLE IF NOT EXISTS public.referral_rewards (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- Deduplicate any existing duplicate payment references before creating unique index
+-- Step A: Disambiguate placeholder references (e.g. LIVE-PAYMENT, test) with row id
+UPDATE public.referral_rewards
+SET payment_reference = payment_reference || '_' || SUBSTRING(COALESCE(id::TEXT, MD5(created_at::TEXT)), 1, 8)
+WHERE UPPER(TRIM(payment_reference)) IN ('LIVE-PAYMENT', 'LIVE-CONFIRMED', 'TEST', 'PENDING', 'UNVERIFIED', 'MANUAL');
+
+-- Step B: Remove any remaining duplicate records keeping only the newest entry
+DELETE FROM public.referral_rewards
+WHERE id IN (
+  SELECT id FROM (
+    SELECT id, ROW_NUMBER() OVER (
+      PARTITION BY payment_reference 
+      ORDER BY created_at DESC, id DESC
+    ) as rnum
+    FROM public.referral_rewards
+    WHERE payment_reference IS NOT NULL AND TRIM(payment_reference) <> ''
+  ) sub WHERE rnum > 1
+);
+
 -- Ensure strict idempotency: each payment reference can only produce ONE commission reward
+DROP INDEX IF EXISTS public.idx_referral_rewards_payment_ref_unique;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_referral_rewards_payment_ref_unique 
   ON public.referral_rewards (payment_reference) 
   WHERE payment_reference IS NOT NULL AND payment_reference <> '';
