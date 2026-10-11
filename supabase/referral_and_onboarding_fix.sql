@@ -2,7 +2,7 @@
 -- Pondtora: Referral Tracking & Onboarding Plan Persistence Fix
 -- ============================================================================
 
--- 1. Ensure user_profiles has onboarding_completed and has_paid columns
+-- 1. Ensure user_profiles has all required columns
 ALTER TABLE IF EXISTS public.user_profiles
   ADD COLUMN IF NOT EXISTS onboarding_completed BOOLEAN DEFAULT FALSE;
 
@@ -19,10 +19,22 @@ ALTER TABLE IF EXISTS public.user_profiles
   ADD COLUMN IF NOT EXISTS subscription_status TEXT DEFAULT 'Trial';
 
 ALTER TABLE IF EXISTS public.user_profiles
+  ADD COLUMN IF NOT EXISTS subscription_amount NUMERIC DEFAULT NULL;
+
+ALTER TABLE IF EXISTS public.user_profiles
+  ADD COLUMN IF NOT EXISTS billing_frequency TEXT DEFAULT 'monthly';
+
+ALTER TABLE IF EXISTS public.user_profiles
   ADD COLUMN IF NOT EXISTS paystack_reference TEXT DEFAULT NULL;
 
 ALTER TABLE IF EXISTS public.user_profiles
   ADD COLUMN IF NOT EXISTS last_payment_date TEXT DEFAULT NULL;
+
+ALTER TABLE IF EXISTS public.user_profiles
+  ADD COLUMN IF NOT EXISTS subscription_start TEXT DEFAULT NULL;
+
+ALTER TABLE IF EXISTS public.user_profiles
+  ADD COLUMN IF NOT EXISTS subscription_expiry TEXT DEFAULT NULL;
 
 ALTER TABLE IF EXISTS public.user_profiles
   ADD COLUMN IF NOT EXISTS raw_data JSONB DEFAULT '{}'::jsonb;
@@ -128,3 +140,209 @@ CREATE POLICY "Allow all users to read platform_settings" ON public.platform_set
 DROP POLICY IF EXISTS "Allow authenticated users to insert/update platform_settings" ON public.platform_settings;
 CREATE POLICY "Allow authenticated users to insert/update platform_settings" ON public.platform_settings
   FOR ALL USING (auth.role() = 'authenticated' OR auth.role() = 'anon');
+
+-- 6. SECURITY DEFINER RPC Functions for querying referrals securely across RLS
+CREATE OR REPLACE FUNCTION public.get_user_referrals(p_referrer_code TEXT, p_referrer_email TEXT)
+RETURNS TABLE (
+  id UUID,
+  name TEXT,
+  email TEXT,
+  farm_name TEXT,
+  active_plan TEXT,
+  subscription_status TEXT,
+  billing_frequency TEXT,
+  has_paid BOOLEAN,
+  subscription_amount NUMERIC,
+  trial_start_date TEXT,
+  paystack_reference TEXT,
+  last_payment_date TEXT,
+  referred_by TEXT,
+  created_at TIMESTAMPTZ
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+  RETURN QUERY
+  SELECT 
+    up.id,
+    up.name,
+    up.email,
+    up.farm_name,
+    up.active_plan,
+    up.subscription_status,
+    up.billing_frequency,
+    COALESCE(up.has_paid, FALSE) AS has_paid,
+    up.subscription_amount,
+    up.trial_start_date,
+    up.paystack_reference,
+    up.last_payment_date,
+    up.referred_by,
+    up.created_at
+  FROM public.user_profiles up
+  WHERE (
+    (p_referrer_code IS NOT NULL AND p_referrer_code <> '' AND UPPER(TRIM(up.referred_by)) = UPPER(TRIM(p_referrer_code)))
+    OR (p_referrer_email IS NOT NULL AND p_referrer_email <> '' AND LOWER(TRIM(up.referred_by)) = LOWER(TRIM(p_referrer_email)))
+  )
+  AND (p_referrer_email IS NULL OR LOWER(TRIM(up.email)) <> LOWER(TRIM(p_referrer_email)))
+  ORDER BY up.created_at DESC;
+END;
+$$;
+
+CREATE OR REPLACE FUNCTION public.get_user_referral_rewards(p_referrer_code TEXT, p_referrer_email TEXT)
+RETURNS TABLE (
+  id UUID,
+  referrer_code TEXT,
+  referrer_email TEXT,
+  referred_user_id UUID,
+  referred_user_email TEXT,
+  referred_user_name TEXT,
+  payment_reference TEXT,
+  plan_name TEXT,
+  payment_amount NUMERIC,
+  payment_type TEXT,
+  commission_rate NUMERIC,
+  commission_amount NUMERIC,
+  status TEXT,
+  paid_date TIMESTAMPTZ,
+  created_at TIMESTAMPTZ
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+  RETURN QUERY
+  SELECT 
+    rr.id,
+    rr.referrer_code,
+    rr.referrer_email,
+    rr.referred_user_id,
+    rr.referred_user_email,
+    rr.referred_user_name,
+    rr.payment_reference,
+    rr.plan_name,
+    rr.payment_amount,
+    rr.payment_type,
+    rr.commission_rate,
+    rr.commission_amount,
+    rr.status,
+    rr.paid_date,
+    rr.created_at
+  FROM public.referral_rewards rr
+  WHERE (
+    (p_referrer_code IS NOT NULL AND p_referrer_code <> '' AND UPPER(TRIM(rr.referrer_code)) = UPPER(TRIM(p_referrer_code)))
+    OR (p_referrer_email IS NOT NULL AND p_referrer_email <> '' AND LOWER(TRIM(rr.referrer_email)) = LOWER(TRIM(p_referrer_email)))
+  )
+  ORDER BY rr.created_at DESC;
+END;
+$$;
+
+-- 7. Automatic Database Trigger: When a referred user is marked as paid, credit referral reward immediately
+CREATE OR REPLACE FUNCTION public.trigger_credit_referral_on_paid()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_ref_code TEXT;
+  v_referrer_email TEXT;
+  v_referrer_id UUID;
+  v_pay_amount NUMERIC;
+  v_comm_amount NUMERIC;
+  v_pay_ref TEXT;
+  v_today_str TEXT;
+BEGIN
+  -- Only trigger if user has referred_by and is now marked paid or active
+  IF (NEW.has_paid = TRUE OR NEW.subscription_status = 'Active' OR NEW.subscription_status = 'Paid')
+     AND NEW.referred_by IS NOT NULL AND TRIM(NEW.referred_by) <> '' THEN
+
+    v_ref_code := UPPER(TRIM(NEW.referred_by));
+    
+    -- Find referrer in user_profiles
+    SELECT id, email INTO v_referrer_id, v_referrer_email
+    FROM public.user_profiles
+    WHERE UPPER(TRIM(referral_code)) = v_ref_code 
+       OR LOWER(TRIM(email)) = LOWER(v_ref_code)
+       OR id::TEXT = v_ref_code
+    LIMIT 1;
+
+    IF v_referrer_email IS NULL THEN
+      IF v_ref_code LIKE '%@%' THEN
+        v_referrer_email := LOWER(v_ref_code);
+      ELSE
+        v_referrer_email := 'referrer_' || v_ref_code || '@pondtora.com';
+      END IF;
+    END IF;
+
+    -- Calculate payment amount
+    IF NEW.subscription_amount IS NOT NULL AND NEW.subscription_amount > 0 THEN
+      v_pay_amount := NEW.subscription_amount;
+    ELSE
+      -- Fallback standard pricing
+      IF LOWER(COALESCE(NEW.active_plan, '')) LIKE '%unlimited%' THEN
+        v_pay_amount := 70000;
+      ELSIF LOWER(COALESCE(NEW.active_plan, '')) LIKE '%5-farm%' THEN
+        v_pay_amount := 40000;
+      ELSIF LOWER(COALESCE(NEW.active_plan, '')) LIKE '%3-farm%' THEN
+        v_pay_amount := 24000;
+      ELSIF LOWER(COALESCE(NEW.active_plan, '')) LIKE '%commercial%' THEN
+        v_pay_amount := 10000;
+      ELSIF LOWER(COALESCE(NEW.active_plan, '')) LIKE '%growth%' OR LOWER(COALESCE(NEW.active_plan, '')) LIKE '%pro%' THEN
+        v_pay_amount := 5000;
+      ELSE
+        v_pay_amount := 3000;
+      END IF;
+    END IF;
+
+    v_comm_amount := ROUND(v_pay_amount * 0.30);
+    v_today_str := TO_CHAR(NOW(), 'YYYYMMDD');
+
+    IF NEW.paystack_reference IS NOT NULL AND TRIM(NEW.paystack_reference) <> '' THEN
+      v_pay_ref := TRIM(NEW.paystack_reference);
+    ELSE
+      v_pay_ref := 'admin_paid_' || SUBSTRING(COALESCE(NEW.id::TEXT, NEW.email), 1, 8) || '_' || v_today_str;
+    END IF;
+
+    -- Insert into referral_rewards with idempotency
+    INSERT INTO public.referral_rewards (
+      referrer_code,
+      referrer_email,
+      referred_user_id,
+      referred_user_email,
+      referred_user_name,
+      payment_reference,
+      plan_name,
+      payment_amount,
+      payment_type,
+      commission_rate,
+      commission_amount,
+      status,
+      created_at
+    ) VALUES (
+      v_ref_code,
+      v_referrer_email,
+      NEW.id,
+      NEW.email,
+      COALESCE(NEW.name, SPLIT_PART(NEW.email, '@', 1)),
+      v_pay_ref,
+      COALESCE(NEW.active_plan, 'Starter'),
+      v_pay_amount,
+      'first',
+      0.30,
+      v_comm_amount,
+      'Available',
+      NOW()
+    )
+    ON CONFLICT (payment_reference) DO NOTHING;
+
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_credit_referral_on_paid ON public.user_profiles;
+CREATE TRIGGER trg_credit_referral_on_paid
+  AFTER INSERT OR UPDATE OF has_paid, subscription_status, paystack_reference ON public.user_profiles
+  FOR EACH ROW
+  EXECUTE FUNCTION public.trigger_credit_referral_on_paid();
