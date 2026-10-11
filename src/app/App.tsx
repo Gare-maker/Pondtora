@@ -16,7 +16,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell, Legend
 } from "recharts";
-import type { View, SortDir, MonthData, FeedItem, Pond, Expense, Revenue, FeedingRecord, FeedEditEntry, MortalityEntry, BagOpenLog, FeedRemainingLog, StaffMember, Report, UserProfile, StockEvent, PriceGroup, Customer, InvSettings, InvoiceLineItem, Invoice, Farm, TreatmentRecord, WItem, EditEntry, Investor, Investment, InvestmentPayment, PondReport, FarmEquipment } from "./types";
+import type { View, SortDir, MonthData, FeedItem, Pond, Expense, Revenue, FeedingRecord, FeedEditEntry, MortalityEntry, BagOpenLog, FeedRemainingLog, StaffMember, Report, UserProfile, StockEvent, PriceGroup, Customer, InvSettings, InvoiceLineItem, Invoice, Farm, TreatmentRecord, WItem, EditEntry, Investor, Investment, InvestmentPayment, PondReport, FarmEquipment, FishCountHistoryEntry, InvestmentEditHistoryEntry, FarmToolQuantityHistoryEntry } from "./types";
 import { EXPENSE_CATS, REVENUE_SRCS, POND_TYPES, POND_SPECIES, MORT_CAUSES, TODAY, getTodayStr, fmt, yFmt, uid, toMon, toYr, PAYMENT_METHODS, INV_STATUSES, STAFF_PERMISSIONS, STAFF_ROLES_ALL, INIT_INV_SETTINGS, ADMIN_NAME, downloadCSV, openPrintWindow, COUNTRY_CURRENCIES, COUNTRIES, DIAL_CODES, FLAG_EMOJI, convertNGN, fmtStockingDate, formatFishStockDate, formatFishStock, isSameDate, isStockMatch } from "./data";
 import { Card, Bdg, PBtn, Pagination, PER_PAGE, StatCard, Tip, Modal, F, IC, SC, SearchableSelect, SelDrop, DMONTHS_S, DateFilter, SearchableCountrySelect, SH, useSort, DateInput, NumInput } from "./shared";
 import InvoicesPage from "./pages/InvoicesPage";
@@ -4900,6 +4900,9 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   const [investmentPayments,setInvestmentPayments]=useState<InvestmentPayment[]>(()=>readInit("investment_payments","investmentPayments",[]));
   const [pondReports,setPondReports]=useState<PondReport[]>(()=>readInit("pond_reports","pondReports",[]));
   const [farmEquipment,setFarmEquipment]=useState<FarmEquipment[]>(()=>readInit("farm_equipment","farmEquipment",[]));
+  const [fishCountHistory,setFishCountHistory]=useState<FishCountHistoryEntry[]>(()=>readInit("fish_count_history","fishCountHistory",[]));
+  const [investmentHistory,setInvestmentHistory]=useState<InvestmentEditHistoryEntry[]>(()=>readInit("investment_edit_history","investmentEditHistory",[]));
+  const [toolQuantityHistory,setToolQuantityHistory]=useState<FarmToolQuantityHistoryEntry[]>(()=>readInit("farm_tool_quantity_history","farmToolQuantityHistory",[]));
   const [settingsTab,setSettingsTab_]=useState<"profile"|"farms"|"referrals">(()=>{
     try {
       const saved = localStorage.getItem("pondtora_settings_tab");
@@ -5338,6 +5341,75 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       return nextAllPonds;
     });
   },[activeFarmId,farms,matchesFarm,userProfile?.id,userProfile?.ownerId,saveUserLocal]);
+
+  /* ── Audit History Recorders ── */
+  const recordFishCountHistory = useCallback((entry: Omit<FishCountHistoryEntry, "id">) => {
+    const fullEntry: FishCountHistoryEntry = {
+      ...entry,
+      id: crypto.randomUUID(),
+      createdAt: entry.createdAt || new Date().toISOString(),
+      changedBy: entry.changedBy || userProfile?.name || userProfile?.email || "User",
+    };
+    setFishCountHistory(prev => {
+      const next = [fullEntry, ...prev];
+      if (userProfile?.id) {
+        try {
+          saveUserLocal(userProfile.id, "fish_count_history", "fishCountHistory", next);
+          if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
+            saveUserLocal(userProfile.ownerId, "fish_count_history", "fishCountHistory", next);
+          }
+        } catch {}
+      }
+      return next;
+    });
+    api.fishCountHistory.create(fullEntry).catch(console.warn);
+  }, [userProfile?.id, userProfile?.ownerId, userProfile?.name, userProfile?.email, saveUserLocal]);
+
+  const recordInvestmentEditHistory = useCallback(async (entries: Omit<InvestmentEditHistoryEntry, "id">[]) => {
+    if (!entries || !entries.length) return;
+    const fullEntries: InvestmentEditHistoryEntry[] = entries.map(e => ({
+      ...e,
+      id: crypto.randomUUID(),
+      createdAt: e.createdAt || new Date().toISOString(),
+      changedBy: e.changedBy || userProfile?.name || userProfile?.email || "User",
+    }));
+    setInvestmentHistory(prev => {
+      const next = [...fullEntries, ...prev];
+      if (userProfile?.id) {
+        try {
+          saveUserLocal(userProfile.id, "investment_edit_history", "investmentEditHistory", next);
+          if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
+            saveUserLocal(userProfile.ownerId, "investment_edit_history", "investmentEditHistory", next);
+          }
+        } catch {}
+      }
+      return next;
+    });
+    fullEntries.forEach(entry => api.investmentHistory.create(entry).catch(console.warn));
+  }, [userProfile?.id, userProfile?.ownerId, userProfile?.name, userProfile?.email, saveUserLocal]);
+
+  const recordToolQuantityHistory = useCallback((entry: Omit<FarmToolQuantityHistoryEntry, "id">) => {
+    const fullEntry: FarmToolQuantityHistoryEntry = {
+      ...entry,
+      id: crypto.randomUUID(),
+      createdAt: entry.createdAt || new Date().toISOString(),
+      changedBy: entry.changedBy || userProfile?.name || userProfile?.email || "User",
+    };
+    setToolQuantityHistory(prev => {
+      const next = [fullEntry, ...prev];
+      if (userProfile?.id) {
+        try {
+          saveUserLocal(userProfile.id, "farm_tool_quantity_history", "farmToolQuantityHistory", next);
+          if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
+            saveUserLocal(userProfile.ownerId, "farm_tool_quantity_history", "farmToolQuantityHistory", next);
+          }
+        } catch {}
+      }
+      return next;
+    });
+    api.toolQuantityHistory.create(fullEntry).catch(console.warn);
+  }, [userProfile?.id, userProfile?.ownerId, userProfile?.name, userProfile?.email, saveUserLocal]);
+
   const closePond=async(id:string)=>{
     if (!checkSubscriptionActive()) return;
     const p=ponds.find(x=>x.id===id);
@@ -5362,6 +5434,20 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     };
     const nextPonds = ponds.map(x=>x.id===id?closed:x);
     setPonds(nextPonds);
+
+    if (p.currentCount > 0) {
+      recordFishCountHistory({
+        pondId: p.id,
+        pondName: p.name,
+        farmId: fid,
+        previousCount: p.currentCount,
+        newCount: 0,
+        difference: -p.currentCount,
+        changedBy: userProfile?.name || userProfile?.email || "User",
+        actionReason: "Pond cleared / harvested",
+        createdAt: new Date().toISOString(),
+      });
+    }
 
     if (userProfile?.id) {
       try {
@@ -5412,11 +5498,13 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     if(!p)return;
     const fid=p.farmId||activeFarmId||farms[0]?.id||"";
     const fs = data.fishStock || data.species;
+    const prevCount = Number(p.currentCount) || 0;
+    const newCount = Number(data.initialStock) || 0;
     const updated: Pond = {
       ...p,
       ...data,
       fishStock: fs,
-      currentCount: data.initialStock,
+      currentCount: newCount,
       totalCost: 0,
       status: "Active" as const,
       transferNote: undefined,
@@ -5425,6 +5513,18 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     };
     const nextPonds = ponds.map(x=>x.id===id?updated:x);
     setPonds(nextPonds);
+
+    recordFishCountHistory({
+      pondId: p.id,
+      pondName: p.name,
+      farmId: fid,
+      previousCount: prevCount,
+      newCount: newCount,
+      difference: newCount - prevCount,
+      changedBy: userProfile?.name || userProfile?.email || "User",
+      actionReason: `Pond restocked with ${data.species}`,
+      createdAt: new Date().toISOString(),
+    });
 
     if (userProfile?.id) {
       try {
@@ -5823,7 +5923,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     api.inventory.update(fWithFarm).catch(console.warn);
   };
   const pendingFishUpdatesRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
-  const editFish = (id: string, u: { species: string; currentCount: number; stockingDate: string; fishStock?: string }) => {
+  const editFish = (id: string, u: { species: string; currentCount: number; stockingDate: string; fishStock?: string }, reasonOpt?: { reason?: string }) => {
     if (!checkSubscriptionActive()) return;
     if (!canEdit("Pond Management")) {
       toast.error("You do not have permission to edit pond fish.");
@@ -5832,10 +5932,29 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     const targetPond = ponds.find(p => p.id === id);
     if (!targetPond) return;
 
+    const prevCount = Number(targetPond.currentCount) || 0;
+    const newCount = Number(u.currentCount) || 0;
+
     const np: Pond = { ...targetPond, ...u };
 
     // 1. Immediate optimistic UI update
     setPonds(prev => prev.map(p => p.id === id ? np : p));
+
+    if (newCount !== prevCount) {
+      const diff = newCount - prevCount;
+      const defaultReason = diff > 0 ? "Increased fish count" : "Reduced fish count";
+      recordFishCountHistory({
+        pondId: targetPond.id,
+        pondName: targetPond.name,
+        farmId: targetPond.farmId || activeFarmId,
+        previousCount: prevCount,
+        newCount: newCount,
+        difference: diff,
+        changedBy: userProfile?.name || userProfile?.email || "User",
+        actionReason: reasonOpt?.reason || defaultReason,
+        createdAt: new Date().toISOString(),
+      });
+    }
 
     // 2. Immediate local storage persistence
     if (userProfile?.id) {
@@ -5888,16 +6007,35 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     const farmMort:MortalityEntry={...m,id:isUuid(m.id)?m.id:crypto.randomUUID(),pondId,farmId:fid};
     toast.success("Mortality recorded");
     setMortality(prev=>[farmMort,...prev]);
-    setPonds(prev=>prev.map(p=>p.id===pondId?{...p,currentCount:Math.max(0,p.currentCount-farmMort.count)}:p));
-    api.mortality.create(farmMort).catch(console.warn);
     const updPond=ponds.find(p=>p.id===pondId);
-    if(updPond)api.ponds.update({...updPond,currentCount:Math.max(0,updPond.currentCount-farmMort.count)}).catch(console.warn);
+    const prevCount = updPond ? Number(updPond.currentCount) || 0 : 0;
+    const newCount = Math.max(0, prevCount - farmMort.count);
+    setPonds(prev=>prev.map(p=>p.id===pondId?{...p,currentCount:newCount}:p));
+    api.mortality.create(farmMort).catch(console.warn);
+    if(updPond) {
+      api.ponds.update({...updPond,currentCount:newCount}).catch(console.warn);
+      recordFishCountHistory({
+        pondId: updPond.id,
+        pondName: updPond.name,
+        farmId: fid,
+        previousCount: prevCount,
+        newCount: newCount,
+        difference: -(prevCount - newCount),
+        changedBy: userProfile?.name || userProfile?.email || "User",
+        actionReason: `Mortality recorded (${farmMort.count} fish: ${farmMort.cause || "unspecified"})`,
+        createdAt: new Date().toISOString(),
+      });
+    }
   };
   const transferStock=(fromId:string,toId:string,date:string)=>{
     if (!checkSubscriptionActive()) return;
     const fromPond=ponds.find(p=>p.id===fromId);
     const toPond=ponds.find(p=>p.id===toId);
     if(!fromPond||!toPond)return;
+    if (toPond.status !== "Empty" || (Number(toPond.currentCount) || 0) > 0) {
+      toast.error("Destination pond must be empty to transfer stock.");
+      return;
+    }
     const dateLabel=`${toMon(date)} ${new Date(date).getDate()}, ${new Date(date).getFullYear()}`;
     const stockLabel = fromPond.fishStock || (fromPond.stockingDate && fromPond.stockingDate !== "—" ? fmtStockingDate(fromPond.stockingDate) : fromPond.species);
     const clearedFrom:Pond={...fromPond,status:"Empty" as const,currentCount:0,initialStock:0,avgWeight:undefined,stockingDate:"—",stockMonth:"",totalCost:0,species:"—",fishStock:undefined,transferNote:undefined,maxKgByPallet:{}};
@@ -5908,6 +6046,28 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       if(p.id===toId)return filledTo;
       return p;
     }));
+    recordFishCountHistory({
+      pondId: fromPond.id,
+      pondName: fromPond.name,
+      farmId: fromPond.farmId || activeFarmId,
+      previousCount: fromPond.currentCount,
+      newCount: 0,
+      difference: -fromPond.currentCount,
+      changedBy: userProfile?.name || userProfile?.email || "User",
+      actionReason: `Full stock transferred to ${toPond.name}`,
+      createdAt: new Date().toISOString(),
+    });
+    recordFishCountHistory({
+      pondId: toPond.id,
+      pondName: toPond.name,
+      farmId: toPond.farmId || activeFarmId,
+      previousCount: 0,
+      newCount: fromPond.currentCount,
+      difference: fromPond.currentCount,
+      changedBy: userProfile?.name || userProfile?.email || "User",
+      actionReason: `Full stock received from ${fromPond.name}`,
+      createdAt: new Date().toISOString(),
+    });
     api.ponds.update(clearedFrom).catch(console.warn);
     api.ponds.update(filledTo).catch(console.warn);
     /* remap feeding records from old pond to new pond with fishStock and persist */
@@ -5948,6 +6108,10 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     const fromPond=ponds.find(p=>p.id===fromId);
     const toPond=ponds.find(p=>p.id===toId);
     if(!fromPond||!toPond)return;
+    if (toPond.status !== "Empty" || (Number(toPond.currentCount) || 0) > 0) {
+      toast.error("Destination pond must be empty to transfer stock.");
+      return;
+    }
     const fraction=Math.min(1,Math.max(0,pct/100));
     const dateLabel=`${toMon(date)} ${new Date(date).getDate()}, ${new Date(date).getFullYear()}`;
     const safeCount=Math.min(count,fromPond.currentCount);
@@ -5990,6 +6154,29 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       if(p.id===toId)return updatedTo;
       return p;
     }));
+
+    recordFishCountHistory({
+      pondId: fromPond.id,
+      pondName: fromPond.name,
+      farmId: fromPond.farmId || activeFarmId,
+      previousCount: fromPond.currentCount,
+      newCount: updatedFrom.currentCount,
+      difference: updatedFrom.currentCount - fromPond.currentCount,
+      changedBy: userProfile?.name || userProfile?.email || "User",
+      actionReason: `Transferred ${safeCount} fish to ${toPond.name} (Nursery)`,
+      createdAt: new Date().toISOString(),
+    });
+    recordFishCountHistory({
+      pondId: toPond.id,
+      pondName: toPond.name,
+      farmId: toPond.farmId || activeFarmId,
+      previousCount: Number(toPond.currentCount) || 0,
+      newCount: updatedTo.currentCount,
+      difference: updatedTo.currentCount - (Number(toPond.currentCount) || 0),
+      changedBy: userProfile?.name || userProfile?.email || "User",
+      actionReason: `Received ${safeCount} fish from ${fromPond.name} (Nursery)`,
+      createdAt: new Date().toISOString(),
+    });
 
     /* persist pond updates for BOTH ponds */
     api.ponds.update(updatedFrom).catch(console.warn);
@@ -6372,6 +6559,33 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       setFarmEquipment(finalEq);
     }
 
+    const serverFch: FishCountHistoryEntry[] = Array.isArray(d.fishCountHistory) ? d.fishCountHistory : [];
+    const localFch: FishCountHistoryEntry[] = userProfile?.id ? loadUserLocal(userProfile.id, "fish_count_history", "fishCountHistory", []) : [];
+    const serverFchIds = new Set(serverFch.map(h => h.id));
+    const pendingLocalFch = localFch.filter(lh => lh?.id && !serverFchIds.has(lh.id));
+    const finalFch = [...serverFch, ...pendingLocalFch];
+    if (finalFch.length > 0 || Array.isArray(d.fishCountHistory)) {
+      setFishCountHistory(finalFch);
+    }
+
+    const serverIh: InvestmentEditHistoryEntry[] = Array.isArray(d.investmentHistory) ? d.investmentHistory : [];
+    const localIh: InvestmentEditHistoryEntry[] = userProfile?.id ? loadUserLocal(userProfile.id, "investment_edit_history", "investmentEditHistory", []) : [];
+    const serverIhIds = new Set(serverIh.map(h => h.id));
+    const pendingLocalIh = localIh.filter(lh => lh?.id && !serverIhIds.has(lh.id));
+    const finalIh = [...serverIh, ...pendingLocalIh];
+    if (finalIh.length > 0 || Array.isArray(d.investmentHistory)) {
+      setInvestmentHistory(finalIh);
+    }
+
+    const serverTqh: FarmToolQuantityHistoryEntry[] = Array.isArray(d.toolQuantityHistory) ? d.toolQuantityHistory : [];
+    const localTqh: FarmToolQuantityHistoryEntry[] = userProfile?.id ? loadUserLocal(userProfile.id, "farm_tool_quantity_history", "farmToolQuantityHistory", []) : [];
+    const serverTqhIds = new Set(serverTqh.map(h => h.id));
+    const pendingLocalTqh = localTqh.filter(lh => lh?.id && !serverTqhIds.has(lh.id));
+    const finalTqh = [...serverTqh, ...pendingLocalTqh];
+    if (finalTqh.length > 0 || Array.isArray(d.toolQuantityHistory)) {
+      setToolQuantityHistory(finalTqh);
+    }
+
     if (d.knowledgeQuestions?.length > 0) setKQuestions_(d.knowledgeQuestions);
     if (d.compatibilityQuestions?.length > 0) setCQuestions_(d.compatibilityQuestions);
     if (d.knowledgeResults) setKResults_(d.knowledgeResults);
@@ -6488,6 +6702,12 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
         if(cpr.length>0)setPondReports(cpr);
         const ceq=loadUserLocal(uid,"farm_equipment","farmEquipment",[]).filter((x: any) => !isDeletedId(x.id));
         if(ceq.length>0)setFarmEquipment(ceq);
+        const cfch=loadUserLocal(uid,"fish_count_history","fishCountHistory",[]);
+        if(cfch.length>0)setFishCountHistory(cfch);
+        const cih=loadUserLocal(uid,"investment_edit_history","investmentEditHistory",[]);
+        if(cih.length>0)setInvestmentHistory(cih);
+        const ctqh=loadUserLocal(uid,"farm_tool_quantity_history","farmToolQuantityHistory",[]);
+        if(ctqh.length>0)setToolQuantityHistory(ctqh);
       }
     } finally {
       setIsDataLoading(false);
@@ -8460,14 +8680,14 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
             ) : (
               <AppErrorBoundary key={active}>
                 {active==="financial"     &&(hasPerm("Financial Dashboard")?<FinancialDashboard expenses={farmExpenses} revenues={farmRevenues} onAddExpense={addExp} onAddRevenue={addRev} onEditExpense={editExp} onEditRevenue={editRev} onDeleteExpense={deleteExp} onDeleteRevenue={deleteRev} stockEvents={stockEvents} ponds={farmPonds} inventory={farmInventory} bagLogs={farmBagLogs} currency={cs} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}} canCreate={canCreate("Financial Dashboard")} canEdit={canEdit("Financial Dashboard")} canDelete={canDelete("Financial Dashboard")}/>:<AccessDenied/>)}
-                {active==="ponds"         &&(hasPerm("Pond Management")?<PondManagementPage ponds={farmPonds} onAddPond={addPond} onClosePond={closePond} onRestockPond={restockPond} onTransfer={transferStock} onNurseryTransfer={nurseryTransfer} mortality={farmMortality} onAddMortality={addMort} onAddCost={addExp} feedingRecords={farmFeeding} stockEvents={stockEvents} treatments={farmTreatments} onAddTreatment={addTreatment} activeFarmId={activeFarmId} onDeletePond={deletePond} onEditFish={editFish} onSetMaxKg={setPondMaxKg} onEditPond={handleEditPond} onReorderPonds={handleReorderPonds} onScrollTop={()=>mainRef.current?.scrollTo({top:0,behavior:"instant"})} currency={cs} inventory={farmInventory} farms={farms} pondReports={farmPondReports} onAddPondReport={handleAddPondReport} canCreate={canCreate("Pond Management")} canEdit={canEdit("Pond Management")} canDelete={canDelete("Pond Management")}/>:<AccessDenied/>)}
+                {active==="ponds"         &&(hasPerm("Pond Management")?<PondManagementPage ponds={farmPonds} onAddPond={addPond} onClosePond={closePond} onRestockPond={restockPond} onTransfer={transferStock} onNurseryTransfer={nurseryTransfer} mortality={farmMortality} onAddMortality={addMort} onAddCost={addExp} feedingRecords={farmFeeding} stockEvents={stockEvents} treatments={farmTreatments} onAddTreatment={addTreatment} activeFarmId={activeFarmId} onDeletePond={deletePond} onEditFish={editFish} onSetMaxKg={setPondMaxKg} onEditPond={handleEditPond} onReorderPonds={handleReorderPonds} onScrollTop={()=>mainRef.current?.scrollTo({top:0,behavior:"instant"})} currency={cs} inventory={farmInventory} farms={farms} pondReports={farmPondReports} onAddPondReport={handleAddPondReport} fishCountHistory={fishCountHistory} canCreate={canCreate("Pond Management")} canEdit={canEdit("Pond Management")} canDelete={canDelete("Pond Management")}/>:<AccessDenied/>)}
                 {active==="inventory"     &&(hasPerm("Feed Stock")?<FeedInventoryPage inventory={farmInventory} onAdd={addInv} onDelete={delInv} feedingRecords={farmFeeding} bagLogs={farmBagLogs} remainLogs={farmRemainLogs} ponds={farmPonds} onEditBagLog={editBagLog} onEditInv={editInv} currency={cs} canEditLocked={isOwner||currentStaff?.role==="Farm Manager"} canCreate={canCreate("Feed Stock")} canEdit={canEdit("Feed Stock")} canDelete={canDelete("Feed Stock")}/>:<AccessDenied/>)}
                 {active==="documentation" &&(hasPerm("Feeding Records")?<FeedDocumentationPage feedingRecords={farmFeeding} onAddRecord={addFeed} onEditFeedRecord={editFeedRecord} onDeleteRecord={deleteFeedRecord} ponds={farmPonds} inventory={farmInventory} bagLogs={farmBagLogs} onAddBagLog={addBagLog} onEditBagLog={editBagLog} onEditInv={editInv} remainLogs={farmRemainLogs} onAddRemainLog={addRemainLog} onEditRemainLog={editRemainLog} onReconMismatches={onReconMismatches} reconFocus={reconFocus} canEditLocked={isOwner||currentStaff?.role==="Farm Manager"} currentUser={{name:currentStaff?.name||userProfile?.name||"",email:userProfile?.email||""}} canCreate={canCreate("Feeding Records")} canEdit={canEdit("Feeding Records")} canDelete={canDelete("Feeding Records")}/>:<AccessDenied/>)}
                 {active==="invoices"      &&(hasPerm("Invoices")||hasPerm("Sales Calculator")?<InvoicesPage ponds={farmPonds} invoices={farmInvoices} customers={farmCustomers} priceGroups={farmPriceGroups} settings={invSettings} onAddInvoice={addInvoice} onEditInvoice={editInvoice} onDeleteInvoice={deleteInvoice} onAddCustomer={addCustomer} onAddPriceGroup={addPriceGroup} onEditPriceGroup={editPriceGroup} onDeletePriceGroup={delPriceGroup} onUpdateSettings={(s)=>{setInvSettings(s);api.invSettings.update(s).catch(console.warn);}} currentUser={userProfile?.name} currency={cs} canCreate={canCreate("Invoices")} canEdit={canEdit("Invoices")} canDelete={canDelete("Invoices")}/>:<AccessDenied/>)}
                 {active==="sales_calculator"&&(hasPerm("Sales Calculator")||hasPerm("Invoices")?<SalesCalculatorPage priceGroups={farmPriceGroups} settings={invSettings} onAddPriceGroup={addPriceGroup} onEditPriceGroup={editPriceGroup} onDeletePriceGroup={delPriceGroup} currency={cs} canCreate={canCreate("Sales Calculator")||canCreate("Invoices")} canEdit={canEdit("Sales Calculator")||canEdit("Invoices")} canDelete={canDelete("Sales Calculator")||canDelete("Invoices")}/>:<AccessDenied/>)}
                 {active==="staff"         &&(isOwner?<StaffPage staff={staff} onAdd={addStaff} onEdit={editStaff} onDelete={delStaff} farms={farms.filter(f => f.userId === userProfile?.id || isOwner)} activeFarmId={activeFarmId} ownerEmail={userProfile?.email}/>:<AccessDenied/>)}
-                {active==="investors"     &&(hasPerm("Investors")?<InvestorsPage investors={farmInvestors} investments={farmInvestments} payments={farmPayments} farms={farms} ponds={farmPonds} stockEvents={stockEvents} activeFarmId={activeFarmId} currency={cs} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}} isOwner={isOwner} canManage={isOwner||hasPerm("Investors")} onAddInvestor={handleAddInvestor} onEditInvestor={handleEditInvestor} onEditInvestment={handleEditInvestment} onDeleteInvestor={handleDeleteInvestor} onRecordPayment={handleRecordPayment} onMarkPaymentPaid={handleMarkPaymentPaid} canCreate={canCreate("Investors")} canEdit={canEdit("Investors")} canDelete={canDelete("Investors")}/>:<AccessDenied/>)}
-                {active==="equipment"     &&(hasPerm("Farm Equipment")?<FarmEquipmentPage equipment={farmEquipments} onAdd={handleAddEquipment} onAddEquipment={handleAddEquipment} onEdit={handleEditEquipment} onEditEquipment={handleEditEquipment} onDelete={handleDeleteEquipment} onDeleteEquipment={handleDeleteEquipment} currency={cs} farms={farms} activeFarmId={activeFarmId} canCreate={canCreate("Farm Equipment")} canEdit={canEdit("Farm Equipment")} canDelete={canDelete("Farm Equipment")} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}}/>:<AccessDenied/>)}
+                {active==="investors"     &&(hasPerm("Investors")?<InvestorsPage investors={farmInvestors} investments={farmInvestments} payments={farmPayments} farms={farms} ponds={farmPonds} stockEvents={stockEvents} activeFarmId={activeFarmId} currency={cs} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}} isOwner={isOwner} canManage={isOwner||hasPerm("Investors")} investmentHistory={investmentHistory} onRecordInvestmentEditHistory={recordInvestmentEditHistory} onAddInvestor={handleAddInvestor} onEditInvestor={handleEditInvestor} onEditInvestment={handleEditInvestment} onDeleteInvestor={handleDeleteInvestor} onRecordPayment={handleRecordPayment} onMarkPaymentPaid={handleMarkPaymentPaid} canCreate={canCreate("Investors")} canEdit={canEdit("Investors")} canDelete={canDelete("Investors")}/>:<AccessDenied/>)}
+                {active==="equipment"     &&(hasPerm("Farm Equipment")?<FarmEquipmentPage equipment={farmEquipments} toolQuantityHistory={toolQuantityHistory} onRecordToolQuantityHistory={recordToolQuantityHistory} onAdd={handleAddEquipment} onAddEquipment={handleAddEquipment} onEdit={handleEditEquipment} onEditEquipment={handleEditEquipment} onDelete={handleDeleteEquipment} onDeleteEquipment={handleDeleteEquipment} currency={cs} farms={farms} activeFarmId={activeFarmId} canCreate={canCreate("Farm Equipment")} canEdit={canEdit("Farm Equipment")} canDelete={canDelete("Farm Equipment")} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}}/>:<AccessDenied/>)}
                 {active==="reports"       &&(hasPerm("Reports")?<ReportsPage reports={farmReports} staff={staff} onAdd={addReport} onEdit={editReportFn} onDelete={deleteReport} pondReports={farmPondReports} treatments={farmTreatments} farms={farms} ponds={farmPonds} stockEvents={stockEvents} onAddPondReport={handleAddPondReport} onDeletePondReport={deletePondReport} activeFarmId={activeFarmId} canCreate={canCreate("Reports")} canEdit={canEdit("Reports")} canDelete={canDelete("Reports")} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}} isOwner={isOwner}/>:<AccessDenied/>)}
                 {active==="assessments"   &&(hasPerm("Staff Assessments")?<EmployeeAssessmentsPage kQuestions={kQuestions} cQuestions={cQuestions} kResults={kResults} cResults={cResults} onSaveKQuestions={saveKQuestions} onSaveCQuestions={saveCQuestions} onAddKResult={addKResult} onAddCResult={addCResult} ownerId={userProfile?.id??""}/>:<AccessDenied/>)}
                 {active==="pricing"       &&(isOwner?<SubscriptionPage farmCount={farms.length} activePlan={activePlan} setActivePlan={setActivePlan} trialStartDate={trialStartDate} setTrialStartDate={setTrialStartDate} currency={cs} convertPrice={cvt} userProfile={userProfile} onProfileUpdated={(p) => setUserProfile(prev => { const next = { ...(prev || {}), ...p }; if(prev?.id){ try{ localStorage.setItem(`pondtora_${prev.id}_user_profile`, JSON.stringify(next)); }catch{} } return next; })} activeFarmName={farms.find(f=>f.id===activeFarmId)?.name||userProfile?.farmName} onOpenReferrals={() => { setSettingsTab("referrals"); nav("settings"); }}/>:<AccessDenied/>)}

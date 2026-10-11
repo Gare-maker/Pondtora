@@ -7,7 +7,7 @@ import type {
   BagOpenLog, FeedRemainingLog, Expense, Revenue, MortalityEntry,
   TreatmentRecord, StaffMember, Report, Customer, PriceGroup,
   Invoice, InvSettings, Investor, Investment, InvestmentPayment, PondReport,
-  FarmEquipment,
+  FarmEquipment, FishCountHistoryEntry, InvestmentEditHistoryEntry, FarmToolQuantityHistoryEntry,
 } from "../app/types";
 import { INIT_K, INIT_C } from "../app/questionsData";
 
@@ -290,6 +290,18 @@ const TABLE_ALLOWED_COLUMNS: Record<string, Set<string>> = {
     "user_id", "farm_name", "farm_address", "farm_phone", "farm_email",
     "bank_details", "default_notes", "footer_message", "tax_rate",
     "invoice_prefix", "payment_terms", "updated_at"
+  ]),
+  fish_count_history: new Set([
+    "id", "user_id", "farm_id", "pond_id", "pond_name", "previous_count", "new_count",
+    "difference", "action_reason", "changed_by", "changed_by_id", "created_at"
+  ]),
+  investment_edit_history: new Set([
+    "id", "user_id", "farm_id", "investor_id", "investment_id", "field_name",
+    "previous_value", "new_value", "action_reason", "changed_by", "changed_by_id", "created_at"
+  ]),
+  farm_tool_quantity_history: new Set([
+    "id", "user_id", "farm_id", "tool_id", "tool_name", "previous_quantity", "new_quantity",
+    "difference", "location", "action_reason", "changed_by", "changed_by_id", "created_at"
   ]),
 };
 
@@ -1291,7 +1303,8 @@ export const api = {
         bagRes, remainRes, expRes, revRes, mortRes, treatRes,
         staffRes, farmAssignRes, staffPermRes, repRes, custRes, pgRes, invsRes, setRes,
         kqRes, cqRes, krRes, crRes,
-        investorsRes, investmentsRes, invPayRes, pondRepRes, eqRes
+        investorsRes, investmentsRes, invPayRes, pondRepRes, eqRes,
+        fishHistRes, invHistRes, toolHistRes
       ] = await Promise.all([
         canStaffView("Pond Management") ? farmScope("ponds") : Promise.resolve({ data: [] }),
         canStaffView("Pond Management") ? farmScope("stock_events") : Promise.resolve({ data: [] }),
@@ -1320,6 +1333,9 @@ export const api = {
         canStaffView("Investors") ? farmScope("investment_payments") : Promise.resolve({ data: [] }),
         canStaffView("Reports") ? farmScope("pond_reports") : Promise.resolve({ data: [] }),
         canStaffView("Farm Equipment") ? farmScope("farm_equipment") : Promise.resolve({ data: [] }),
+        canStaffView("Pond Management") ? farmScope("fish_count_history") : Promise.resolve({ data: [] }),
+        canStaffView("Investors") ? farmScope("investment_edit_history") : Promise.resolve({ data: [] }),
+        canStaffView("Farm Equipment") ? farmScope("farm_tool_quantity_history") : Promise.resolve({ data: [] }),
       ]);
 
       const extract = <T,>(res: any, cacheKey: string, mapper: (r: any) => T): T[] => {
@@ -1399,7 +1415,8 @@ export const api = {
         const tablesToHeal = [
           "ponds", "stock_events", "feed_inventory", "feeding_records", "bag_open_logs",
           "feed_remaining_logs", "expenses", "revenues", "mortality_entries", "treatment_records",
-          "reports", "customers", "price_groups", "invoices", "investors", "investments", "pond_reports", "farm_equipment"
+          "reports", "customers", "price_groups", "invoices", "investors", "investments", "pond_reports", "farm_equipment",
+          "fish_count_history", "investment_edit_history", "farm_tool_quantity_history"
         ];
         Promise.all(tablesToHeal.map(tbl =>
           supabase.from(tbl).update({ farm_id: pFid }).eq("user_id", effectiveOwnerId).is("farm_id", null).then()
@@ -1469,6 +1486,9 @@ export const api = {
           });
         })(),
         farmEquipment: extract<FarmEquipment>(eqRes, "farmEquipment", (r: any) => objToCamel<FarmEquipment>(r)),
+        fishCountHistory: extract<FishCountHistoryEntry>(fishHistRes, "fishCountHistory", (r: any) => objToCamel<FishCountHistoryEntry>(r)),
+        investmentHistory: extract<InvestmentEditHistoryEntry>(invHistRes, "investmentHistory", (r: any) => objToCamel<InvestmentEditHistoryEntry>(r)),
+        toolQuantityHistory: extract<FarmToolQuantityHistoryEntry>(toolHistRes, "toolQuantityHistory", (r: any) => objToCamel<FarmToolQuantityHistoryEntry>(r)),
         staffInfo: staffMember || null,
         isStaff: !!staffMember,
       };
@@ -2853,6 +2873,24 @@ export const api = {
     list: () => dbList<any>("compatibility_results", "compatibilityResults"),
     create: (r: any) => dbInsert<any>("compatibility_results", r, "compatibilityResults"),
     remove: (id: string) => dbDelete("compatibility_results", id, "compatibilityResults"),
+  },
+
+  // ── Fish Count History ─────────────────────────────────────────────────────
+  fishCountHistory: {
+    list: () => dbList<FishCountHistoryEntry>("fish_count_history", "fishCountHistory"),
+    create: (h: Partial<FishCountHistoryEntry>) => dbInsert<FishCountHistoryEntry>("fish_count_history", h as FishCountHistoryEntry, "fishCountHistory"),
+  },
+
+  // ── Investment Edit History ────────────────────────────────────────────────
+  investmentHistory: {
+    list: () => dbList<InvestmentEditHistoryEntry>("investment_edit_history", "investmentHistory"),
+    create: (h: Partial<InvestmentEditHistoryEntry>) => dbInsert<InvestmentEditHistoryEntry>("investment_edit_history", h as InvestmentEditHistoryEntry, "investmentHistory"),
+  },
+
+  // ── Farm Tool Quantity History ─────────────────────────────────────────────
+  toolQuantityHistory: {
+    list: () => dbList<FarmToolQuantityHistoryEntry>("farm_tool_quantity_history", "toolQuantityHistory"),
+    create: (h: Partial<FarmToolQuantityHistoryEntry>) => dbInsert<FarmToolQuantityHistoryEntry>("farm_tool_quantity_history", h as FarmToolQuantityHistoryEntry, "toolQuantityHistory"),
   },
 
   // ── Public assessment (no auth) ────────────────────────────────────────────

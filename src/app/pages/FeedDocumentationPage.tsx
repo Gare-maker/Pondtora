@@ -1131,37 +1131,6 @@ function FeedDocumentation({
       return Array.from(map.values());
     }
 
-    // If no bag logs exist yet for this date, look at today's feeding records to pre-fill rows
-    const dayFeedRecords = (feedingRecords || []).filter(r =>
-      r && (isSameDate(r.date, checkDate) || isSameDate(r.date, dateLabel)) &&
-      (Number(r.total) > 0 || Number(r.morning) > 0 || Number(r.evening) > 0)
-    );
-
-    if (dayFeedRecords.length > 0) {
-      const feedGroups = new Map<string, BagRow>();
-      dayFeedRecords.forEach(f => {
-        const fs = pondToStock(f.pond) || activeFishStockOptions[0]?.name || "";
-        const size = f.size || "";
-        if (!size) return;
-        const brand = f.brand || (inventory || []).find(item => item && item.size === size)?.brand || invBrands[0] || "";
-        const key = `${normalizeFishStock(fs)}__${brand}__${size}`;
-        if (!feedGroups.has(key)) {
-          const inv = (inventory || []).find(item => item && (brand ? item.brand.toLowerCase() === brand.toLowerCase() : true) && item.size.toLowerCase() === size.toLowerCase()) || (inventory || []).find(item => item && item.size.toLowerCase() === size.toLowerCase());
-          feedGroups.set(key, {
-            fishStock: fs,
-            brand: brand || inv?.brand || invBrands[0] || "",
-            size,
-            kgPerBag: inv?.weightPerBag || 15,
-            qty: "",
-            remainingKg: ""
-          });
-        }
-      });
-      if (feedGroups.size > 0) {
-        return Array.from(feedGroups.values());
-      }
-    }
-
     return [blankBagRow(checkDate)];
   };
 
@@ -3051,7 +3020,7 @@ function FeedDocumentation({
       {/* ── Log Opened Bags & Leftover Feed Modal ── */}
       {showBagsModal && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-3 sm:p-6" onClick={e => e.target === e.currentTarget && setShowBagsModal(false)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col overflow-hidden max-h-[92dvh] sm:max-h-[88vh]">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col overflow-hidden max-h-[90dvh] sm:max-h-[85vh]">
             <div className="flex items-start justify-between px-4 sm:px-5 py-3 border-b border-slate-100 shrink-0">
               <div>
                 <h2 className="text-base font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Log Opened Bags &amp; Leftover Feed</h2>
@@ -3066,9 +3035,18 @@ function FeedDocumentation({
                   <DateInput value={bagsDate} onChange={handleBagsDateChange} />
                 </div>
               </div>
-              <p className="text-[11px] text-slate-500 font-medium">{filledBagRows.length} entr{filledBagRows.length !== 1 ? "ies" : "y"} filled</p>
+              <div className="flex items-center gap-2">
+                <p className="text-[11px] text-slate-500 font-medium">{bagRows.length} card{bagRows.length !== 1 ? "s" : ""}</p>
+                <button
+                  type="button"
+                  onClick={addBagRow}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 bg-emerald-100 hover:bg-emerald-200 rounded-md transition-colors shadow-xs"
+                >
+                  <Plus size={12} /> Add
+                </button>
+              </div>
             </div>
-            <div className="flex-1 overflow-y-auto px-4 sm:px-5 py-3 space-y-2.5 pb-40 sm:pb-4">
+            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 sm:px-5 py-3 space-y-3">
               {bagRows.map((row, i) => {
                 const avail = getStockAvailable(row.brand, row.size, row.id);
                 const requestedBags = Number(row.qty) || 0;
@@ -3078,7 +3056,7 @@ function FeedDocumentation({
                 return (
                   <div key={i} className={`p-3 border rounded-xl relative space-y-2.5 ${isOverStock ? "border-red-300 bg-red-50/50" : "border-slate-200/90 bg-slate-50/90"}`}>
                     {bagRows.length > 1 && (
-                      <button type="button" onClick={() => removeBagRow(i)} className="absolute top-2.5 right-2.5 p-1 rounded text-slate-300 hover:text-red-500 transition-colors">
+                      <button type="button" onClick={() => removeBagRow(i)} className="absolute top-2.5 right-2.5 p-1 rounded text-slate-300 hover:text-red-500 transition-colors" title="Remove card">
                         <X size={13} />
                       </button>
                     )}
@@ -3231,11 +3209,15 @@ function FeedDocumentation({
                   </div>
                 );
               })}
-              <button type="button" onClick={addBagRow} className="flex items-center gap-1.5 text-xs text-green-600 font-medium hover:text-green-700 transition-colors py-1">
-                <Plus size={13} /> Add another entry
+              <button
+                type="button"
+                onClick={addBagRow}
+                className="w-full flex items-center justify-center gap-2 py-2.5 border-2 border-dashed border-emerald-300 text-emerald-700 hover:bg-emerald-50/70 rounded-xl text-xs font-semibold transition-colors"
+              >
+                <Plus size={14} /> Add Another Entry
               </button>
             </div>
-            <div className="px-4 sm:px-5 py-3 border-t border-slate-100 bg-slate-50 shrink-0 rounded-b-2xl flex items-center justify-between">
+            <div className="shrink-0 sticky bottom-0 bg-slate-50 border-t border-slate-100 px-4 sm:px-5 py-3 rounded-b-2xl flex items-center justify-between z-10">
               <button onClick={() => { setShowBagsModal(false); setBagsErr({}); }} className="px-3.5 py-1.5 text-xs text-slate-500 hover:text-slate-800 font-medium transition-colors">
                 Cancel
               </button>

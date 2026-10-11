@@ -131,3 +131,50 @@ export interface PondReport {
   createdAt?: string;
   updatedAt?: string;
 }
+
+/* ─── Audit & Edit History Interfaces ────────────────────────────── */
+export interface FishCountHistoryEntry {
+  id: string;
+  userId?: string;
+  farmId?: string;
+  pondId: string;
+  pondName?: string;
+  previousCount: number;
+  newCount: number;
+  difference: number;
+  actionReason?: string;
+  changedBy: string;
+  changedById?: string;
+  createdAt: string;
+}
+
+export interface InvestmentEditHistoryEntry {
+  id: string;
+  userId?: string;
+  farmId?: string;
+  investorId: string;
+  investmentId?: string;
+  fieldName: string;
+  previousValue: string;
+  newValue: string;
+  actionReason?: string;
+  changedBy: string;
+  changedById?: string;
+  createdAt: string;
+}
+
+export interface FarmToolQuantityHistoryEntry {
+  id: string;
+  userId?: string;
+  farmId?: string;
+  toolId: string;
+  toolName: string;
+  previousQuantity: number;
+  newQuantity: number;
+  difference: number;
+  location?: string;
+  actionReason?: string;
+  changedBy: string;
+  changedById?: string;
+  createdAt: string;
+}

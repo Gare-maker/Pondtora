@@ -6,11 +6,12 @@ import {
   MoreVertical, Check, Edit3, Trash2, ArrowDownRight,
   Receipt, User, FileText, ChevronRight, AlertTriangle,
   Layers, ArrowRight, ShieldCheck, Sparkles, RefreshCw,
-  Printer, Download, X, ExternalLink
+  Printer, Download, X, ExternalLink, History
 } from "lucide-react";
 import type {
   Farm, Pond, StockEvent, Investor, Investment, InvestmentPayment,
-  InvestmentPaymentMethod, InvestmentPaymentStatus, InvestmentStatus, InvestmentPaymentType
+  InvestmentPaymentMethod, InvestmentPaymentStatus, InvestmentStatus, InvestmentPaymentType,
+  InvestmentEditHistoryEntry
 } from "../types";
 import { Card, Bdg, PBtn, Modal, F, IC, SC, NumInput, DateInput, StatCard } from "../shared";
 import { TODAY, fmt, uid, isSameDate } from "../data";
@@ -47,6 +48,8 @@ interface InvestorsPageProps {
   canCreate?: boolean;
   canEdit?: boolean;
   canDelete?: boolean;
+  investmentHistory?: InvestmentEditHistoryEntry[];
+  onRecordInvestmentEditHistory?: (entries: Omit<InvestmentEditHistoryEntry, "id">[]) => Promise<void>;
   onAddInvestor: (investor: Investor, investment: Investment, payments: InvestmentPayment[]) => Promise<void>;
   onEditInvestor: (investor: Investor) => Promise<void>;
   onEditInvestment: (investment: Investment, newPayments?: InvestmentPayment[]) => Promise<void>;
@@ -70,6 +73,8 @@ export default function InvestorsPage({
   canCreate = true,
   canEdit = true,
   canDelete = true,
+  investmentHistory = [],
+  onRecordInvestmentEditHistory,
   onAddInvestor,
   onEditInvestor,
   onEditInvestment,
@@ -79,6 +84,7 @@ export default function InvestorsPage({
 }: InvestorsPageProps) {
   // Navigation: Selected Investor Detail
   const [selectedInvestorId, setSelectedInvestorId] = useState<string | null>(null);
+  const [showInvestmentHistoryModal, setShowInvestmentHistoryModal] = useState(false);
 
   // Filters & Search
   const [searchQuery, setSearchQuery] = useState("");
@@ -634,10 +640,126 @@ export default function InvestorsPage({
       numberOfPayments: editNumPayments,
     });
 
+    const diffs: Omit<InvestmentEditHistoryEntry, "id">[] = [];
+    const changedBy = currentUser?.name || currentUser?.email || "Admin";
+    const nowIso = new Date().toISOString();
+
+    if (activeInvestment) {
+      if (Number(activeInvestment.amountInvested) !== editAmt) {
+        diffs.push({
+          investmentId: targetInvId,
+          investorId: selectedInvestor.id,
+          farmId: editForm.farmId,
+          fieldChanged: "Amount Invested",
+          previousValue: `${currency}${Number(activeInvestment.amountInvested || 0).toLocaleString()}`,
+          newValue: `${currency}${editAmt.toLocaleString()}`,
+          changedBy,
+          createdAt: nowIso,
+          reason: "Updated via Edit Investment modal",
+        });
+      }
+      if (Number(activeInvestment.investorPercentage) !== editPct) {
+        diffs.push({
+          investmentId: targetInvId,
+          investorId: selectedInvestor.id,
+          farmId: editForm.farmId,
+          fieldChanged: "Return Percentage",
+          previousValue: `${activeInvestment.investorPercentage}%`,
+          newValue: `${editPct}%`,
+          changedBy,
+          createdAt: nowIso,
+          reason: "Updated via Edit Investment modal",
+        });
+      }
+      if (Number(activeInvestment.expectedReturn) !== editReturnAmt) {
+        diffs.push({
+          investmentId: targetInvId,
+          investorId: selectedInvestor.id,
+          farmId: editForm.farmId,
+          fieldChanged: "Expected Return",
+          previousValue: `${currency}${Number(activeInvestment.expectedReturn || 0).toLocaleString()}`,
+          newValue: `${currency}${editReturnAmt.toLocaleString()}`,
+          changedBy,
+          createdAt: nowIso,
+          reason: "Updated via Edit Investment modal",
+        });
+      }
+      if (activeInvestment.paymentMethod !== editForm.paymentMethod) {
+        diffs.push({
+          investmentId: targetInvId,
+          investorId: selectedInvestor.id,
+          farmId: editForm.farmId,
+          fieldChanged: "Payment Structure",
+          previousValue: formatPaymentMethod(activeInvestment.paymentMethod),
+          newValue: formatPaymentMethod(editForm.paymentMethod),
+          changedBy,
+          createdAt: nowIso,
+          reason: "Updated via Edit Investment modal",
+        });
+      }
+      if (activeInvestment.dueDate !== editForm.dueDate) {
+        diffs.push({
+          investmentId: targetInvId,
+          investorId: selectedInvestor.id,
+          farmId: editForm.farmId,
+          fieldChanged: "Maturity / Due Date",
+          previousValue: activeInvestment.dueDate || "—",
+          newValue: editForm.dueDate || "—",
+          changedBy,
+          createdAt: nowIso,
+          reason: "Updated via Edit Investment modal",
+        });
+      }
+      if (activeInvestment.startDate !== editForm.startDate) {
+        diffs.push({
+          investmentId: targetInvId,
+          investorId: selectedInvestor.id,
+          farmId: editForm.farmId,
+          fieldChanged: "Start Date",
+          previousValue: activeInvestment.startDate || "—",
+          newValue: editForm.startDate || "—",
+          changedBy,
+          createdAt: nowIso,
+          reason: "Updated via Edit Investment modal",
+        });
+      }
+    }
+
+    if (selectedInvestor.fullName.trim() !== editForm.fullName.trim()) {
+      diffs.push({
+        investmentId: targetInvId,
+        investorId: selectedInvestor.id,
+        farmId: editForm.farmId,
+        fieldChanged: "Investor Full Name",
+        previousValue: selectedInvestor.fullName,
+        newValue: editForm.fullName.trim(),
+        changedBy,
+        createdAt: nowIso,
+        reason: "Updated via Edit Investment modal",
+      });
+    }
+
+    if (selectedInvestor.phone.trim() !== editForm.phone.trim()) {
+      diffs.push({
+        investmentId: targetInvId,
+        investorId: selectedInvestor.id,
+        farmId: editForm.farmId,
+        fieldChanged: "Investor Phone",
+        previousValue: selectedInvestor.phone,
+        newValue: editForm.phone.trim(),
+        changedBy,
+        createdAt: nowIso,
+        reason: "Updated via Edit Investment modal",
+      });
+    }
+
     try {
       setShowEditInvestmentModal(false);
       onEditInvestor(updatedInvestor);
       onEditInvestment(updatedInvestment, regeneratedPayments);
+      if (diffs.length > 0 && onRecordInvestmentEditHistory) {
+        onRecordInvestmentEditHistory(diffs).catch(console.warn);
+      }
       toast.success("Investment updated successfully. You can download the updated receipt.");
     } catch (err: any) {
       toast.error(err?.message || "Failed to update investment");
@@ -1394,9 +1516,19 @@ export default function InvestorsPage({
 
           {/* ── Investment Overview Presentation ── */}
           <Card className="p-4 sm:p-5 bg-white shadow-xs border border-slate-200/80 rounded-2xl">
-            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">
-              Investment Overview
-            </h3>
+            <div className="flex items-center justify-between mb-3 gap-2">
+              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                Investment Overview
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowInvestmentHistoryModal(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors border border-slate-200/80 shadow-xs"
+              >
+                <History size={13} className="text-slate-500" />
+                <span>View Edit History</span>
+              </button>
+            </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
               <div>
                 <span className="text-slate-400 text-[11px] block">Amount Invested</span>
@@ -1482,7 +1614,7 @@ export default function InvestorsPage({
               </span>
             </div>
 
-            <div className="overflow-x-auto w-full max-w-full touch-pan-x" style={{ WebkitOverflowScrolling: "touch" }}>
+            <div className="overflow-x-auto w-full max-w-full overscroll-x-contain" style={{ WebkitOverflowScrolling: "touch" }}>
               <table className="w-full text-xs min-w-[700px] border-collapse">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200/80 text-slate-500 uppercase tracking-wider font-semibold text-[11px]">
@@ -2847,6 +2979,70 @@ export default function InvestorsPage({
               </button>
             </div>
           </form>
+        </Modal>
+      )}
+
+      {/* ── Investment Edit History Modal ── */}
+      {showInvestmentHistoryModal && selectedInvestor && (
+        <Modal
+          title={`Investment Edit History — ${selectedInvestor.fullName}`}
+          onClose={() => setShowInvestmentHistoryModal(false)}
+          wide
+        >
+          {(() => {
+            const hist = (investmentHistory || [])
+              .filter(h => h.investorId === selectedInvestor.id)
+              .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+            return (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between text-xs text-slate-500 bg-slate-50 border border-slate-200/80 rounded-xl px-4 py-2.5">
+                  <span>Investor: <strong className="text-slate-800">{selectedInvestor.fullName}</strong></span>
+                  <span>Total Modifications: <strong className="text-slate-800">{hist.length}</strong></span>
+                </div>
+                {hist.length === 0 ? (
+                  <div className="text-center py-10 text-slate-400 text-xs bg-slate-50/50 rounded-xl border border-dashed border-slate-200">
+                    <History size={28} className="mx-auto mb-2 text-slate-300" />
+                    <p className="font-semibold text-slate-600">No edit history recorded yet</p>
+                    <p className="mt-0.5 text-slate-400">Modifications to invested amounts, return percentages, payment structures, and profile details will appear here.</p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto border border-slate-200 rounded-xl">
+                    <table className="w-full text-xs">
+                      <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase tracking-wider text-[10px] font-semibold">
+                        <tr>
+                          <th className="text-left px-3.5 py-2.5">Date & Time</th>
+                          <th className="text-left px-3.5 py-2.5">Field Changed</th>
+                          <th className="text-left px-3.5 py-2.5">Previous Value</th>
+                          <th className="text-left px-3.5 py-2.5">New Value</th>
+                          <th className="text-left px-3.5 py-2.5">Edited By</th>
+                          <th className="text-left px-3.5 py-2.5">Reason / Note</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 text-slate-700">
+                        {hist.map(entry => {
+                          const dateObj = new Date(entry.createdAt);
+                          const formattedTime = !isNaN(dateObj.getTime())
+                            ? `${dateObj.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} at ${dateObj.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}`
+                            : entry.createdAt;
+                          return (
+                            <tr key={entry.id} className="hover:bg-slate-50/70 transition-colors">
+                              <td className="px-3.5 py-2.5 font-mono text-slate-600 whitespace-nowrap">{formattedTime}</td>
+                              <td className="px-3.5 py-2.5 font-semibold text-slate-900">{entry.fieldChanged}</td>
+                              <td className="px-3.5 py-2.5 text-rose-700 font-mono bg-rose-50/50">{entry.previousValue || "—"}</td>
+                              <td className="px-3.5 py-2.5 text-emerald-700 font-mono bg-emerald-50/50">{entry.newValue || "—"}</td>
+                              <td className="px-3.5 py-2.5 text-slate-600 whitespace-nowrap">{entry.changedBy}</td>
+                              <td className="px-3.5 py-2.5 text-slate-500">{entry.reason || "Updated in investment profile"}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
         </Modal>
       )}
     </div>

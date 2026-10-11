@@ -2,9 +2,9 @@ import React, { useState, useMemo } from "react";
 import {
   Wrench, Plus, CheckCircle, X, Search, Pencil, Trash2,
   Package, AlertTriangle, Check, Layers, Download, FileText,
-  TrendingUp, Settings, ChevronDown, Eye, Filter
+  TrendingUp, Settings, ChevronDown, Eye, Filter, History
 } from "lucide-react";
-import type { FarmEquipment } from "../types";
+import type { FarmEquipment, FarmToolQuantityHistoryEntry } from "../types";
 import { TODAY, uid, downloadCSV, openPrintWindow } from "../data";
 import { Card, Bdg, PBtn, Pagination, PER_PAGE, StatCard, Modal, F, IC, SC } from "../shared";
 
@@ -29,6 +29,8 @@ export const EQUIPMENT_CONDITIONS = [
 
 interface FarmEquipmentPageProps {
   equipment?: FarmEquipment[];
+  toolQuantityHistory?: FarmToolQuantityHistoryEntry[];
+  onRecordToolQuantityHistory?: (entry: Omit<FarmToolQuantityHistoryEntry, "id">) => Promise<void> | void;
   onAddEquipment?: (item: FarmEquipment) => Promise<void> | void;
   onEditEquipment?: (item: FarmEquipment) => Promise<void> | void;
   onDeleteEquipment?: (id: string) => Promise<void> | void;
@@ -46,6 +48,8 @@ interface FarmEquipmentPageProps {
 
 export default function FarmEquipmentPage({
   equipment = [],
+  toolQuantityHistory = [],
+  onRecordToolQuantityHistory,
   onAddEquipment,
   onEditEquipment,
   onDeleteEquipment,
@@ -58,6 +62,7 @@ export default function FarmEquipmentPage({
   canEdit = true,
   canDelete = true,
   currentUser,
+  farms = [],
 }: FarmEquipmentPageProps) {
   const addHandler = onAdd || onAddEquipment;
   const editHandler = onEdit || onEditEquipment;
@@ -70,6 +75,7 @@ export default function FarmEquipmentPage({
 
   const [showAdd, setShowAdd] = useState(false);
   const [editingItem, setEditingItem] = useState<FarmEquipment | null>(null);
+  const [historyItem, setHistoryItem] = useState<FarmEquipment | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [formErr, setFormErr] = useState<Record<string, string>>({});
@@ -161,6 +167,7 @@ export default function FarmEquipmentPage({
     setSaving(true);
     try {
       if (editingItem) {
+        const prevQty = Number(editingItem.quantity) || 0;
         const updated: FarmEquipment = {
           ...editingItem,
           name: form.name.trim(),
@@ -174,6 +181,21 @@ export default function FarmEquipmentPage({
           updatedAt: new Date().toISOString(),
         };
         if (editHandler) await editHandler(updated);
+        if (qty !== prevQty && onRecordToolQuantityHistory) {
+          const farmObj = farms?.find(f => f.id === (editingItem.farmId || activeFarmId));
+          onRecordToolQuantityHistory({
+            toolId: editingItem.id,
+            toolName: form.name.trim(),
+            farmId: editingItem.farmId || activeFarmId,
+            previousQuantity: prevQty,
+            newQuantity: qty,
+            difference: qty - prevQty,
+            changedBy: currentUser?.name || currentUser?.email || "User",
+            location: form.location.trim() || editingItem.location || farmObj?.name || undefined,
+            reason: "Updated via Edit Tool / Equipment form",
+            createdAt: new Date().toISOString(),
+          });
+        }
         setEditingItem(null);
       } else {
         const newItem: FarmEquipment = {
@@ -203,12 +225,29 @@ export default function FarmEquipmentPage({
 
   const handleQuickQuantityAdjust = async (item: FarmEquipment, delta: number) => {
     if (!canEdit || !editHandler) return;
-    const newQty = Math.max(0, (item.quantity || 0) + delta);
+    const prevQty = Number(item.quantity) || 0;
+    const newQty = Math.max(0, prevQty + delta);
+    if (newQty === prevQty) return;
     await editHandler({
       ...item,
       quantity: newQty,
       updatedAt: new Date().toISOString(),
     });
+    if (onRecordToolQuantityHistory) {
+      const farmObj = farms?.find(f => f.id === (item.farmId || activeFarmId));
+      onRecordToolQuantityHistory({
+        toolId: item.id,
+        toolName: item.name,
+        farmId: item.farmId || activeFarmId,
+        previousQuantity: prevQty,
+        newQuantity: newQty,
+        difference: newQty - prevQty,
+        changedBy: currentUser?.name || currentUser?.email || "User",
+        location: item.location || farmObj?.name || undefined,
+        reason: delta > 0 ? "Quick increase (+1)" : "Quick reduction (-1)",
+        createdAt: new Date().toISOString(),
+      });
+    }
   };
 
   const conditionColor = (cond: string): "green" | "yellow" | "blue" | "red" | "gray" => {
@@ -371,9 +410,14 @@ export default function FarmEquipmentPage({
                                 -
                               </button>
                             )}
-                            <span className="px-2 font-extrabold text-slate-900 font-['Barlow_Condensed',sans-serif] text-base min-w-[28px] text-center">
+                            <button
+                              type="button"
+                              onClick={() => setHistoryItem(item)}
+                              className="px-2 font-extrabold text-slate-900 font-['Barlow_Condensed',sans-serif] text-base min-w-[28px] text-center hover:text-green-700 hover:underline cursor-pointer"
+                              title="Click to view quantity edit history"
+                            >
                               {item.quantity}
-                            </span>
+                            </button>
                             {canEdit && (
                               <button
                                 type="button"
@@ -385,6 +429,14 @@ export default function FarmEquipmentPage({
                               </button>
                             )}
                           </div>
+                          <button
+                            type="button"
+                            onClick={() => setHistoryItem(item)}
+                            className="ml-1.5 p-1 text-slate-400 hover:text-slate-700 rounded hover:bg-slate-100 inline-flex items-center transition-colors align-middle"
+                            title="View quantity edit history"
+                          >
+                            <History size={12} />
+                          </button>
                         </td>
                         <td className="px-4 py-3.5 whitespace-nowrap">
                           <Bdg label={item.condition} color={conditionColor(item.condition)} />
@@ -493,7 +545,16 @@ export default function FarmEquipmentPage({
               {/* Quantity Adjuster & Details Row */}
               <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2 text-xs">
                 <div>
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Quantity</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Quantity</span>
+                    <button
+                      type="button"
+                      onClick={() => setHistoryItem(item)}
+                      className="text-[10px] text-green-700 font-semibold hover:underline inline-flex items-center gap-0.5"
+                    >
+                      <History size={10} /> History
+                    </button>
+                  </div>
                   <div className="flex items-center gap-1.5 mt-0.5">
                     {canEdit && (
                       <button
@@ -505,9 +566,14 @@ export default function FarmEquipmentPage({
                         -
                       </button>
                     )}
-                    <span className="font-extrabold text-slate-900 font-['Barlow_Condensed',sans-serif] text-lg px-1">
+                    <button
+                      type="button"
+                      onClick={() => setHistoryItem(item)}
+                      className="font-extrabold text-slate-900 font-['Barlow_Condensed',sans-serif] text-lg px-1 hover:text-green-700 cursor-pointer"
+                      title="Click to view quantity edit history"
+                    >
                       {item.quantity}
-                    </span>
+                    </button>
                     {canEdit && (
                       <button
                         type="button"
@@ -689,6 +755,97 @@ export default function FarmEquipmentPage({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Quantity Edit History Modal */}
+      {historyItem && (
+        <Modal
+          title={`Quantity Edit History — ${historyItem.name}`}
+          onClose={() => setHistoryItem(null)}
+          wide
+        >
+          {(() => {
+            const hist = (toolQuantityHistory || [])
+              .filter(h => h.toolId === historyItem.id)
+              .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+            const farmObj = farms?.find(f => f.id === (historyItem.farmId || activeFarmId));
+            const farmName = farmObj?.name || "Main Farm";
+
+            return (
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs bg-slate-50 border border-slate-200/80 rounded-xl p-3">
+                  <div>
+                    <span className="text-slate-400 block text-[10px] uppercase font-bold">Item</span>
+                    <strong className="text-slate-800">{historyItem.name}</strong>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 block text-[10px] uppercase font-bold">Category</span>
+                    <strong className="text-slate-700">{historyItem.category}</strong>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 block text-[10px] uppercase font-bold">Current Quantity</span>
+                    <strong className="text-slate-900 text-sm">{historyItem.quantity} units</strong>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 block text-[10px] uppercase font-bold">Farm / Location</span>
+                    <strong className="text-slate-700">{historyItem.location || farmName}</strong>
+                  </div>
+                </div>
+
+                {hist.length === 0 ? (
+                  <div className="text-center py-10 text-slate-400 text-xs bg-slate-50/50 rounded-xl border border-dashed border-slate-200">
+                    <History size={28} className="mx-auto mb-2 text-slate-300" />
+                    <p className="font-semibold text-slate-600">No quantity changes recorded yet</p>
+                    <p className="mt-0.5 text-slate-400">Whenever this item's quantity is increased or reduced, the previous quantity, new quantity, editor, and date will appear here.</p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto border border-slate-200 rounded-xl">
+                    <table className="w-full text-xs">
+                      <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase tracking-wider text-[10px] font-semibold">
+                        <tr>
+                          <th className="text-left px-3.5 py-2.5">Date & Time</th>
+                          <th className="text-right px-3.5 py-2.5">Previous Quantity</th>
+                          <th className="text-right px-3.5 py-2.5">New Quantity</th>
+                          <th className="text-center px-3.5 py-2.5">Change</th>
+                          <th className="text-left px-3.5 py-2.5">Edited By</th>
+                          <th className="text-left px-3.5 py-2.5">Farm / Location</th>
+                          <th className="text-left px-3.5 py-2.5">Reason / Action</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 text-slate-700">
+                        {hist.map(entry => {
+                          const dateObj = new Date(entry.createdAt);
+                          const formattedTime = !isNaN(dateObj.getTime())
+                            ? `${dateObj.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} at ${dateObj.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}`
+                            : entry.createdAt;
+                          const isIncrease = entry.difference > 0;
+                          return (
+                            <tr key={entry.id} className="hover:bg-slate-50/70 transition-colors">
+                              <td className="px-3.5 py-2.5 font-mono text-slate-600 whitespace-nowrap">{formattedTime}</td>
+                              <td className="px-3.5 py-2.5 text-right font-semibold text-slate-700">{entry.previousQuantity}</td>
+                              <td className="px-3.5 py-2.5 text-right font-bold text-slate-900">{entry.newQuantity}</td>
+                              <td className="px-3.5 py-2.5 text-center whitespace-nowrap">
+                                <span className={`inline-flex items-center px-2 py-0.5 rounded-full font-bold text-[10px] ${
+                                  isIncrease ? "bg-emerald-100 text-emerald-800" : entry.difference < 0 ? "bg-rose-100 text-rose-800" : "bg-slate-100 text-slate-600"
+                                }`}>
+                                  {isIncrease ? `+${entry.difference}` : entry.difference}
+                                </span>
+                              </td>
+                              <td className="px-3.5 py-2.5 text-slate-700 whitespace-nowrap">{entry.changedBy}</td>
+                              <td className="px-3.5 py-2.5 text-slate-600">{entry.location || farmName}</td>
+                              <td className="px-3.5 py-2.5 text-slate-500">{entry.reason || "Quantity adjusted"}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+        </Modal>
       )}
     </div>
   );

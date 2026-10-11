@@ -5,7 +5,7 @@ import {
   ChevronLeft, ChevronRight, Eye, Download, FileText, Pencil,
   MoreVertical, TrendingUp, TrendingDown, Search, History, GripVertical
 } from "lucide-react";
-import type { Pond, Expense, MortalityEntry, FeedingRecord, StockEvent, TreatmentRecord, BagOpenLog, FeedRemainingLog, FeedItem, Farm, PondReport } from "../types";
+import type { Pond, Expense, MortalityEntry, FeedingRecord, StockEvent, TreatmentRecord, BagOpenLog, FeedRemainingLog, FeedItem, Farm, PondReport, FishCountHistoryEntry } from "../types";
 import { EXPENSE_CATS, POND_TYPES, POND_SPECIES, MORT_CAUSES, TODAY, fmt, uid, toMon, toYr, downloadCSV, openPrintWindow, fmtStockingDate, getPondFishStock, formatFishStock } from "../data";
 import { Card, Bdg, PBtn, Pagination, PER_PAGE, StatCard, Modal, F, IC, SC, SH, useSort, DateFilter, NumInput } from "../shared";
 import PondReportsComponent from "./PondReportsComponent";
@@ -33,6 +33,7 @@ function PondDetail({
   farms=[],
   pondReports=[],
   onAddPondReport,
+  fishCountHistory=[],
   canCreate = true,
   canEdit = true,
   canDelete = true,
@@ -51,7 +52,7 @@ function PondDetail({
   onNurseryTransfer:(fromId:string,toId:string,count:number,pct:number,date:string)=>void;
   treatments:TreatmentRecord[];
   onAddTreatment:(t:TreatmentRecord)=>void;
-  onEditFish?:(pondId:string,u:{species:string;currentCount:number;stockingDate:string;fishStock?:string})=>void;
+  onEditFish?:(pondId:string,u:{species:string;currentCount:number;stockingDate:string;fishStock?:string},reasonOpt?:{reason?:string})=>void;
   onSetMaxKg:(pondId:string,size:string,maxKg:number)=>void;
   inventory?:FeedItem[];
   onEditThisPond?:(p:Pond)=>void;
@@ -59,6 +60,7 @@ function PondDetail({
   farms?:Farm[];
   pondReports?:PondReport[];
   onAddPondReport?:(r:PondReport)=>Promise<void>;
+  fishCountHistory?:FishCountHistoryEntry[];
   canCreate?:boolean;
   canEdit?:boolean;
   canDelete?:boolean;
@@ -83,7 +85,7 @@ function PondDetail({
   useEffect(()=>{const h=(e:MouseEvent)=>{if(pondMenuRef.current&&!pondMenuRef.current.contains(e.target as Node))setShowPondMenu(false);};document.addEventListener("mousedown",h);return()=>document.removeEventListener("mousedown",h);},[]);
   const handleSaveEditFish=()=>{
     const s = editFishF.species.trim();
-    if(onEditFish)onEditFish(pond.id,{species:s||pond.species,currentCount:Number(editFishF.count)||pond.currentCount,stockingDate:editFishF.stockingDate||pond.stockingDate,fishStock:s||pond.fishStock||pond.species});
+    if(onEditFish)onEditFish(pond.id,{species:s||pond.species,currentCount:Number(editFishF.count)||pond.currentCount,stockingDate:editFishF.stockingDate||pond.stockingDate,fishStock:s||pond.fishStock||pond.species},{reason:"Edited fish stock details"});
     setShowEditFish(false);
   };
   const handleUpdateQty=(mode?: "increase" | "reduce", directAmt?: number)=>{
@@ -91,7 +93,7 @@ function PondDetail({
     const n = directAmt !== undefined ? directAmt : (Number(qtyAmt) || 0);
     if(n <= 0) return;
     const newCount = chosenMode === "increase" ? pond.currentCount + n : Math.max(0, pond.currentCount - n);
-    if(onEditFish) onEditFish(pond.id, { species: pond.species, currentCount: newCount, stockingDate: pond.stockingDate, fishStock: pond.fishStock });
+    if(onEditFish) onEditFish(pond.id, { species: pond.species, currentCount: newCount, stockingDate: pond.stockingDate, fishStock: pond.fishStock }, { reason: chosenMode === "increase" ? `Manual count increase (+${n.toLocaleString()} fish)` : `Manual count reduction (-${n.toLocaleString()} fish)` });
     setShowUpdateQty(false);
     setQtyAmt("");
   };
@@ -153,7 +155,7 @@ function PondDetail({
 
   const [transferF,setTransferF]=useState({toPond:"",date:TODAY,pct:"100",count:""});
   const [transferErr,setTransferErr]=useState<Record<string,string>>({});
-  const emptyPonds=ponds.filter(p=>p.id!==pond.id&&p.status==="Empty");
+  const emptyPonds=ponds.filter(p=>p.id!==pond.id&&p.status==="Empty"&&(Number(p.currentCount)||0)===0);
   const [restockF,setRestockF]=useState({species:pond.species==="—"?"Catfish":pond.species,initialStock:"",stockingDate:"",supplier:""});
   const [restockErr,setRestockErr]=useState<Record<string,string>>({});
   const [mortF,setMortF]=useState({date:TODAY,count:"",cause:"Unknown",notes:""});
@@ -161,6 +163,7 @@ function PondDetail({
   const [costF,setCostF]=useState({category:"Feed",amount:"",date:TODAY,desc:""});
   const [costErr,setCostErr]=useState<Record<string,string>>({});
   const [showMortHistory,setShowMortHistory]=useState(false);
+  const [showCountHistory,setShowCountHistory]=useState(false);
   const [editMortEntry,setEditMortEntry]=useState<MortalityEntry|null>(null);
   const [fhMonth,setFhMonth]=useState("All");
 
@@ -377,6 +380,11 @@ function PondDetail({
   const handleClose=()=>{onClosePond(pond.id);setShowClose(false);};
   const handleTransfer=()=>{
     if(!transferF.toPond){setTransferErr({toPond:"Please select a destination pond"});return;}
+    const destPond = ponds.find(p => p.id === transferF.toPond);
+    if (!destPond || destPond.status !== "Empty" || (Number(destPond.currentCount) || 0) > 0) {
+      setTransferErr({ toPond: "Transfer destination must be an empty pond with no fish" });
+      return;
+    }
     setTransferErr({});
     const pct=Number(transferF.pct)||100;
     if(pct>=100){
@@ -487,10 +495,13 @@ function PondDetail({
           })();
           return(
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
-              {[{l:"Initial Stock",v:pond.initialStock.toLocaleString()},{l:"Current Count",v:pond.currentCount.toLocaleString(),hi:true},{l:"Stocking Date",v:fmtStockingDate(pond.stockingDate)},{l:"Total Dead",v:String(dead),clickable:true},{l:"Mortality Rate",v:`${mRate}%`}].map(item=>(
-                <div key={item.l} className={`p-2.5 rounded-lg bg-white/5 border border-white/10 ${(item as any).clickable?"cursor-pointer hover:bg-white/10 transition-colors group":""}`} onClick={(item as any).clickable?()=>setShowMortHistory(true):undefined}>
-                  <p className="text-[11px] text-blue-200 font-medium uppercase tracking-wider">{item.l}</p>
-                  <p className={`text-xl font-bold mt-1 font-['Barlow_Condensed',sans-serif] ${(item as any).hi?"text-emerald-300":(item as any).clickable?"text-rose-300 group-hover:underline":"text-white"}`}>{item.v}</p>
+              {[{l:"Initial Stock",v:pond.initialStock.toLocaleString()},{l:"Current Count",v:pond.currentCount.toLocaleString(),hi:true,clickable:true},{l:"Stocking Date",v:fmtStockingDate(pond.stockingDate)},{l:"Total Dead",v:String(dead),clickable:true},{l:"Mortality Rate",v:`${mRate}%`}].map(item=>(
+                <div key={item.l} className={`p-2.5 rounded-lg bg-white/5 border border-white/10 ${(item as any).clickable?"cursor-pointer hover:bg-white/10 transition-colors group":""}`} onClick={(item as any).clickable?(item.l==="Current Count"?()=>setShowCountHistory(true):()=>setShowMortHistory(true)):undefined} title={item.l==="Current Count"?"Click to view fish count edit history":undefined}>
+                  <p className="text-[11px] text-blue-200 font-medium uppercase tracking-wider flex items-center justify-between">
+                    <span>{item.l}</span>
+                    {item.l==="Current Count"&&<History size={11} className="text-emerald-300 opacity-70 group-hover:opacity-100" />}
+                  </p>
+                  <p className={`text-xl font-bold mt-1 font-['Barlow_Condensed',sans-serif] ${(item as any).hi?"text-emerald-300 group-hover:underline":(item as any).clickable?"text-rose-300 group-hover:underline":"text-white"}`}>{item.v}</p>
                 </div>
               ))}
               {pondAge&&<div className="col-span-2 sm:col-span-3 lg:col-span-5 mt-1 w-full flex items-center gap-2 bg-white/10 border border-white/20 rounded-xl px-4 py-2.5"><span className="text-xs text-blue-200 font-bold uppercase tracking-wider">Pond Age</span><span className="text-sm font-bold text-white">{pondAge}</span></div>}
@@ -786,9 +797,76 @@ function PondDetail({
         </div>
         <div className="flex gap-2 pt-1"><PBtn danger onClick={handleClose}>Confirm Clear</PBtn><button onClick={()=>setShowClose(false)} className="px-4 py-2 text-sm text-slate-400">Cancel</button></div>
       </Modal>}
+      {showCountHistory && (
+        <Modal title={`Fish Count Edit History — ${pond.name}`} onClose={() => setShowCountHistory(false)} wide>
+          {(() => {
+            const pondHistory = (fishCountHistory || [])
+              .filter(h => h.pondId === pond.id)
+              .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+            return (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between text-xs text-slate-500 bg-slate-50 border border-slate-200/80 rounded-xl px-4 py-2.5">
+                  <span>Current Pond Count: <strong className="text-slate-800">{pond.currentCount.toLocaleString()} fish</strong></span>
+                  <span>Total Recorded Modifications: <strong className="text-slate-800">{pondHistory.length}</strong></span>
+                </div>
+                {pondHistory.length === 0 ? (
+                  <div className="text-center py-10 text-slate-400 text-xs bg-slate-50/50 rounded-xl border border-dashed border-slate-200">
+                    <History size={28} className="mx-auto mb-2 text-slate-300" />
+                    <p className="font-semibold text-slate-600">No count edit history recorded yet</p>
+                    <p className="mt-0.5 text-slate-400">All fish count increases, reductions, transfers, and edit modifications will appear here.</p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto border border-slate-200 rounded-xl">
+                    <table className="w-full text-xs">
+                      <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase tracking-wider text-[10px] font-semibold">
+                        <tr>
+                          <th className="text-left px-3.5 py-2.5">Date & Time</th>
+                          <th className="text-right px-3.5 py-2.5">Previous Count</th>
+                          <th className="text-right px-3.5 py-2.5">Updated Count</th>
+                          <th className="text-center px-3.5 py-2.5">Change</th>
+                          <th className="text-left px-3.5 py-2.5">Action / Reason</th>
+                          <th className="text-left px-3.5 py-2.5">Edited By</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 text-slate-700">
+                        {pondHistory.map(entry => {
+                          const dateObj = new Date(entry.createdAt);
+                          const formattedTime = !isNaN(dateObj.getTime())
+                            ? `${dateObj.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} at ${dateObj.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}`
+                            : entry.createdAt;
+                          const isIncrease = entry.difference > 0;
+                          return (
+                            <tr key={entry.id} className="hover:bg-slate-50/70 transition-colors">
+                              <td className="px-3.5 py-2.5 font-mono text-slate-600 whitespace-nowrap">{formattedTime}</td>
+                              <td className="px-3.5 py-2.5 text-right font-semibold text-slate-700 whitespace-nowrap">{entry.previousCount.toLocaleString()}</td>
+                              <td className="px-3.5 py-2.5 text-right font-bold text-slate-900 whitespace-nowrap">{entry.newCount.toLocaleString()}</td>
+                              <td className="px-3.5 py-2.5 text-center whitespace-nowrap">
+                                <span className={`inline-flex items-center px-2 py-0.5 rounded-full font-bold text-[10px] ${
+                                  isIncrease ? "bg-emerald-100 text-emerald-800" : entry.difference < 0 ? "bg-rose-100 text-rose-800" : "bg-slate-100 text-slate-600"
+                                }`}>
+                                  {isIncrease ? `+${entry.difference.toLocaleString()}` : entry.difference.toLocaleString()}
+                                </span>
+                              </td>
+                              <td className="px-3.5 py-2.5 font-medium text-slate-800">{entry.actionReason || "Count updated"}</td>
+                              <td className="px-3.5 py-2.5 text-slate-600 whitespace-nowrap font-medium">{entry.changedBy}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+                <div className="flex justify-end pt-2 border-t border-slate-100">
+                  <button onClick={() => setShowCountHistory(false)} className="px-4 py-2 text-sm text-slate-500 hover:text-slate-800">Close</button>
+                </div>
+              </div>
+            );
+          })()}
+        </Modal>
+      )}
       {showNurseryTransfer&&<Modal title={`Nursery Transfer — ${pond.name}`} onClose={()=>{setShowNurseryTransfer(false);setNurseryTF({toPond:"",count:"",pct:"100",date:TODAY});setNurseryErr({});}} wide>
-        <div className="bg-purple-50 border border-purple-200 rounded-xl px-4 py-3 text-xs text-purple-700">Nursery ponds support partial transfers. Select the destination pond, number of fish to transfer, and the percentage of feeding history to carry over. All treatment records will be copied for medical reference.</div>
-        <div><F label="Destination Pond"><select value={nurseryTF.toPond} onChange={e=>{setNurseryTF(p=>({...p,toPond:e.target.value}));if(e.target.value)setNurseryErr(p=>({...p,toPond:""}));}} className={`${SC}${nurseryErr.toPond?" border-red-400":""}`}><option value="">Select destination pond…</option>{ponds.filter(p=>p.id!==pond.id).map(p=><option key={p.id} value={p.id}>{p.name} ({p.id}) — {p.status}</option>)}</select></F>{nurseryErr.toPond&&<p className="text-xs text-red-500 mt-1">{nurseryErr.toPond}</p>}</div>
+        <div className="bg-purple-50 border border-purple-200 rounded-xl px-4 py-3 text-xs text-purple-700">Nursery ponds support partial transfers. Select an empty destination pond, number of fish to transfer, and the percentage of feeding history to carry over. All treatment records will be copied for medical reference.</div>
+        <div><F label="Destination Pond (Empty Ponds Only)"><select value={nurseryTF.toPond} onChange={e=>{setNurseryTF(p=>({...p,toPond:e.target.value}));if(e.target.value)setNurseryErr(p=>({...p,toPond:""}));}} className={`${SC}${nurseryErr.toPond?" border-red-400":""}`}><option value="">Select empty destination pond…</option>{emptyPonds.map(p=><option key={p.id} value={p.id}>{p.name} — {p.type} (Empty)</option>)}</select></F>{emptyPonds.length === 0 && <p className="text-xs text-amber-600 mt-1">No empty ponds available. Transfers require an empty destination pond.</p>}{nurseryErr.toPond&&<p className="text-xs text-red-500 mt-1">{nurseryErr.toPond}</p>}</div>
         <div className="grid grid-cols-2 gap-3">
           <div><F label={`Fish to Transfer (max ${pond.currentCount.toLocaleString()})`}><input type="number" min="1" max={String(pond.currentCount)} value={nurseryTF.count} onChange={e=>{setNurseryTF(p=>({...p,count:e.target.value}));if(e.target.value&&Number(e.target.value)>0)setNurseryErr(p=>({...p,count:""}));}} className={`${IC}${nurseryErr.count?" border-red-400":""}`} placeholder="0"/></F>{nurseryErr.count&&<p className="text-xs text-red-500 mt-1">{nurseryErr.count}</p>}</div>
           <F label="% of Feeding History"><input type="number" min="1" max="100" value={nurseryTF.pct} onChange={e=>setNurseryTF(p=>({...p,pct:e.target.value}))} className={IC} placeholder="100"/></F>
@@ -801,7 +879,7 @@ function PondDetail({
           <p>✓ <strong>All</strong> treatment records (medical reference)</p>
           {pond.maxKgByPallet&&Object.keys(pond.maxKgByPallet).length>0&&<p>✓ <strong>{nurseryTF.pct||100}%</strong> of pallet max kg limits</p>}
         </div>}
-        <div className="flex gap-2 pt-1"><PBtn onClick={()=>{const errs:Record<string,string>={};if(!nurseryTF.toPond)errs.toPond="Please select a destination pond";if(!nurseryTF.count||Number(nurseryTF.count)<=0)errs.count="Fish count is required";if(Object.keys(errs).length){setNurseryErr(errs);return;}setNurseryErr({});onNurseryTransfer(pond.id,nurseryTF.toPond,Number(nurseryTF.count),Number(nurseryTF.pct)||100,nurseryTF.date);setShowNurseryTransfer(false);setNurseryTF({toPond:"",count:"",pct:"100",date:TODAY});}}><ArrowRightLeft size={14}/> Confirm Transfer</PBtn><button onClick={()=>{setShowNurseryTransfer(false);setNurseryTF({toPond:"",count:"",pct:"100",date:TODAY});setNurseryErr({});}} className="px-4 py-2 text-sm text-slate-400">Cancel</button></div>
+        <div className="flex gap-2 pt-1"><PBtn onClick={()=>{const errs:Record<string,string>={};if(!nurseryTF.toPond)errs.toPond="Please select a destination pond";const destPond=ponds.find(p=>p.id===nurseryTF.toPond);if(nurseryTF.toPond&&(!destPond||destPond.status!=="Empty"||(Number(destPond.currentCount)||0)>0))errs.toPond="Selected destination pond is not empty";if(!nurseryTF.count||Number(nurseryTF.count)<=0)errs.count="Fish count is required";if(Object.keys(errs).length){setNurseryErr(errs);return;}setNurseryErr({});onNurseryTransfer(pond.id,nurseryTF.toPond,Number(nurseryTF.count),Number(nurseryTF.pct)||100,nurseryTF.date);setShowNurseryTransfer(false);setNurseryTF({toPond:"",count:"",pct:"100",date:TODAY});}}><ArrowRightLeft size={14}/> Confirm Transfer</PBtn><button onClick={()=>{setShowNurseryTransfer(false);setNurseryTF({toPond:"",count:"",pct:"100",date:TODAY});setNurseryErr({});}} className="px-4 py-2 text-sm text-slate-400">Cancel</button></div>
       </Modal>}
       {showTransfer&&<Modal title={`Transfer Fish Stock — ${pond.name}`} onClose={()=>{setShowTransfer(false);setTransferF({toPond:"",date:TODAY,pct:"100",count:""});setTransferErr({});}} wide>
         <div className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-xs text-slate-700 grid grid-cols-2 gap-2">
@@ -825,15 +903,14 @@ function PondDetail({
           <input type="number" value={transferF.pct} onChange={e=>{const v=Math.min(100,Math.max(1,Number(e.target.value)));const cnt=v>=100?"":String(Math.round(pond.currentCount*(v/100)));setTransferF(f=>({...f,pct:String(v),count:cnt}));}} className={IC+" mt-2 max-w-[100px]"} placeholder="Custom %" min="1" max="100"/>
         </F>
         {Number(transferF.pct)<100&&<F label={`Fish Count to Transfer (of ${pond.currentCount.toLocaleString()})`}><input type="number" value={transferF.count} onChange={e=>setTransferF(f=>({...f,count:e.target.value}))} className={IC} min="1" max={pond.currentCount}/></F>}
-        <div><F label={Number(transferF.pct)>=100?"Transfer To (empty ponds only)":"Transfer To"}>
+        <div><F label="Transfer To (Empty Ponds Only)">
           <select value={transferF.toPond} onChange={e=>{setTransferF(p=>({...p,toPond:e.target.value}));if(e.target.value)setTransferErr(p=>({...p,toPond:""}));}} className={`${SC}${transferErr.toPond?" border-red-400":""}`}>
-            <option value="">Select pond…</option>
-            {Number(transferF.pct)>=100
-              ?emptyPonds.map(p=><option key={p.id} value={p.id}>{p.name} — {p.type} (Empty)</option>)
-              :ponds.filter(p=>p.id!==pond.id).map(p=><option key={p.id} value={p.id}>{p.name} — {p.type} ({p.status})</option>)
-            }
+            <option value="">Select empty destination pond…</option>
+            {emptyPonds.map(p=><option key={p.id} value={p.id}>{p.name} — {p.type} (Empty)</option>)}
           </select>
-        </F>{transferErr.toPond&&<p className="text-xs text-red-500 mt-1">{transferErr.toPond}</p>}</div>
+        </F>
+        {emptyPonds.length === 0 && <p className="text-xs text-amber-600 mt-1">No empty ponds available. Fish stock transfers require an empty destination pond.</p>}
+        {transferErr.toPond&&<p className="text-xs text-red-500 mt-1">{transferErr.toPond}</p>}</div>
         <F label="Transfer Date"><input type="date" value={transferF.date} onChange={e=>setTransferF(p=>({...p,date:e.target.value}))} className={IC}/></F>
         {transferF.toPond&&Number(transferF.pct)>=100&&<div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-xs text-amber-800">All fish from <strong>{pond.name}</strong> → <strong>{ponds.find(p=>p.id===transferF.toPond)?.name}</strong>. <strong>{pond.name}</strong> will be cleared.</div>}
         {transferF.toPond&&Number(transferF.pct)<100&&<div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 text-xs text-blue-700"><strong>{Math.round(Number(transferF.pct))}%</strong> of fish ({transferF.count||Math.round(pond.currentCount*Number(transferF.pct)/100)} fish) + proportional feeding history will transfer to <strong>{ponds.find(p=>p.id===transferF.toPond)?.name}</strong>. Source pond retains remaining stock.</div>}
@@ -1037,7 +1114,7 @@ export function getNextPondFigure(ponds: Pond[]): string {
 }
 
 /* ─── 2. Pond Management ────────────────────────────────────── */
-export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPond,onTransfer,onNurseryTransfer,mortality,onAddMortality,onAddCost,feedingRecords,stockEvents,treatments,onAddTreatment,activeFarmId,onDeletePond,onEditFish,onSetMaxKg,onEditPond,onReorderPonds,onScrollTop,currency="₦",inventory=[],farms=[],pondReports=[],onAddPondReport,canCreate=true,canEdit=true,canDelete=true}:{ponds:Pond[];onAddPond:(p:Pond)=>void;onClosePond:(id:string)=>void;onRestockPond:(id:string,data:{species:string;initialStock:number;stockingDate:string;stockMonth:string;supplier?:string;fishStock?:string})=>void;onTransfer:(fromId:string,toId:string,date:string)=>void;onNurseryTransfer:(fromId:string,toId:string,count:number,pct:number,date:string)=>void;mortality:MortalityEntry[];onAddMortality:(m:MortalityEntry,pondId:string)=>void;onAddCost:(e:Expense)=>void;feedingRecords:FeedingRecord[];stockEvents:StockEvent[];treatments:TreatmentRecord[];onAddTreatment:(t:TreatmentRecord)=>void;activeFarmId:string;onDeletePond?:(id:string)=>void;onEditFish?:(pondId:string,u:{species:string;currentCount:number;stockingDate:string;fishStock?:string})=>void;onSetMaxKg:(pondId:string,size:string,maxKg:number)=>void;onEditPond?:(id:string,u:Partial<Pond>)=>void;onReorderPonds?:(ponds:Pond[])=>void;onScrollTop?:()=>void;currency?:string;inventory?:FeedItem[];farms?:Farm[];pondReports?:PondReport[];onAddPondReport?:(r:PondReport)=>Promise<void>;canCreate?:boolean;canEdit?:boolean;canDelete?:boolean;}){
+export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPond,onTransfer,onNurseryTransfer,mortality,onAddMortality,onAddCost,feedingRecords,stockEvents,treatments,onAddTreatment,activeFarmId,onDeletePond,onEditFish,onSetMaxKg,onEditPond,onReorderPonds,onScrollTop,currency="₦",inventory=[],farms=[],pondReports=[],onAddPondReport,fishCountHistory=[],canCreate=true,canEdit=true,canDelete=true}:{ponds:Pond[];onAddPond:(p:Pond)=>void;onClosePond:(id:string)=>void;onRestockPond:(id:string,data:{species:string;initialStock:number;stockingDate:string;stockMonth:string;supplier?:string;fishStock?:string})=>void;onTransfer:(fromId:string,toId:string,date:string)=>void;onNurseryTransfer:(fromId:string,toId:string,count:number,pct:number,date:string)=>void;mortality:MortalityEntry[];onAddMortality:(m:MortalityEntry,pondId:string)=>void;onAddCost:(e:Expense)=>void;feedingRecords:FeedingRecord[];stockEvents:StockEvent[];treatments:TreatmentRecord[];onAddTreatment:(t:TreatmentRecord)=>void;activeFarmId:string;onDeletePond?:(id:string)=>void;onEditFish?:(pondId:string,u:{species:string;currentCount:number;stockingDate:string;fishStock?:string},reasonOpt?:{reason?:string})=>void;onSetMaxKg:(pondId:string,size:string,maxKg:number)=>void;onEditPond?:(id:string,u:Partial<Pond>)=>void;onReorderPonds?:(ponds:Pond[])=>void;onScrollTop?:()=>void;currency?:string;inventory?:FeedItem[];farms?:Farm[];pondReports?:PondReport[];onAddPondReport?:(r:PondReport)=>Promise<void>;fishCountHistory?:FishCountHistoryEntry[];canCreate?:boolean;canEdit?:boolean;canDelete?:boolean;}){
   const cs=currency;
   const [detailId,setDetailId]=useState<string|null>(null);
   const [showAdd,setShowAdd]=useState(false);
@@ -1425,7 +1502,7 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
 
   if(pond) return (
     <>
-      <PondDetail pond={pond} mortality={mortality} onAddMortality={onAddMortality} onAddCost={onAddCost} feedingRecords={feedingRecords} onBack={()=>setDetailId(null)} onClosePond={onClosePond} onRestockPond={(id,data)=>{setFStatus("All");onRestockPond(id,data);}} ponds={ponds} stockEvents={stockEvents} onTransfer={onTransfer} onNurseryTransfer={onNurseryTransfer} treatments={treatments} onAddTreatment={onAddTreatment} onEditFish={onEditFish} onSetMaxKg={onSetMaxKg} inventory={inventory} onEditThisPond={openEditPond} currency={currency} farms={farms} pondReports={pondReports} onAddPondReport={onAddPondReport} canCreate={canCreate} canEdit={canEdit} canDelete={canDelete}/>
+      <PondDetail pond={pond} mortality={mortality} onAddMortality={onAddMortality} onAddCost={onAddCost} feedingRecords={feedingRecords} onBack={()=>setDetailId(null)} onClosePond={onClosePond} onRestockPond={(id,data)=>{setFStatus("All");onRestockPond(id,data);}} ponds={ponds} stockEvents={stockEvents} onTransfer={onTransfer} onNurseryTransfer={onNurseryTransfer} treatments={treatments} onAddTreatment={onAddTreatment} onEditFish={onEditFish} onSetMaxKg={onSetMaxKg} inventory={inventory} onEditThisPond={openEditPond} currency={currency} farms={farms} pondReports={pondReports} onAddPondReport={onAddPondReport} fishCountHistory={fishCountHistory} canCreate={canCreate} canEdit={canEdit} canDelete={canDelete}/>
       {editPondModal}
     </>
   );
