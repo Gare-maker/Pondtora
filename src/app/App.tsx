@@ -4221,7 +4221,7 @@ function SettingsPage({farms,onAddFarm,onEditFarm,onDeleteFarm,userProfile,onUpd
                         </span>
                       </div>
                     </div>
-                  ))}
+                  );})}
                 </div>
               </div>
             )}
