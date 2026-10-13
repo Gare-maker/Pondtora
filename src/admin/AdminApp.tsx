@@ -150,7 +150,7 @@ const INITIAL_LOGS: AdminActivityLog[] = [
     timestamp: new Date(Date.now() - 1000 * 60 * 60 * 5).toISOString(),
     action: "Trial Started",
     category: "subscription",
-    details: "Fatima Bello (AquaFarm North) started 60-day Starter trial",
+    details: "Fatima Bello (AquaFarm North) started 40-day Starter trial",
     adminEmail: "system",
   },
   {

@@ -3194,7 +3194,7 @@ function SubscriptionPage({
             </h1>
             {currentFarmSub.isTrial && (
               <p className="text-xs text-emerald-700 font-semibold mt-1">
-                {currentFarmSub.trialDaysLeft} day{currentFarmSub.trialDaysLeft === 1 ? "" : "s"} left on your 60-Day Free Trial
+                {currentFarmSub.trialDaysLeft} day{currentFarmSub.trialDaysLeft === 1 ? "" : "s"} left on your 40-Day Free Trial
               </p>
             )}
             {currentFarmSub.isPaidActive && (
@@ -7428,7 +7428,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
 
       await api.profile.updatePlan(planName, todayStr).catch(console.warn);
       syncUserProfileToAdmin(updatedProfile, planName, farms.length || 1);
-      toast.success("Welcome to Pondtora! Your 60-day free trial has started.");
+      toast.success("Welcome to Pondtora! Your 40-day free trial has started.");
     } catch (err: any) {
       console.error("Failed to complete onboarding:", err);
       toast.error("Failed to save plan selection. Please try again.");

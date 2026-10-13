@@ -272,7 +272,7 @@ export default function SubscriptionsPage({ users, plans, onUpdate }: Props) {
 
         <div className="p-4 rounded-2xl bg-white border border-slate-200/80 flex flex-col justify-between shadow-xs">
           <div className="flex items-center justify-between mb-1">
-            <span className="text-xs font-bold text-slate-600 uppercase tracking-wider">Active 60-Day Trials</span>
+            <span className="text-xs font-bold text-slate-600 uppercase tracking-wider">Active 40-Day Trials</span>
             <span className="p-1.5 bg-amber-50 text-amber-600 rounded-lg"><Clock size={14} /></span>
           </div>
           <p className="text-2xl font-extrabold text-amber-600 font-['Barlow_Condensed',sans-serif]">
@@ -628,7 +628,7 @@ export default function SubscriptionsPage({ users, plans, onUpdate }: Props) {
                           { label: "+1 Month", onClick: () => setForm(f => ({ ...f, subscriptionExpiry: addDurationToDate(f.subscriptionStart || getTodayDateStr(), "1month") })) },
                           { label: "+1 Year", onClick: () => setForm(f => ({ ...f, subscriptionExpiry: addDurationToDate(f.subscriptionStart || getTodayDateStr(), "1year") })) },
                           { label: "+30 Days", onClick: () => setForm(f => ({ ...f, subscriptionExpiry: addDurationToDate(f.subscriptionStart || getTodayDateStr(), "30days") })) },
-                          { label: "+60 Days", onClick: () => setForm(f => ({ ...f, subscriptionExpiry: addDurationToDate(f.subscriptionStart || getTodayDateStr(), "60days") })) },
+                          { label: "+40 Days", onClick: () => setForm(f => ({ ...f, subscriptionExpiry: addDurationToDate(f.subscriptionStart || getTodayDateStr(), "40days") })) },
                           { label: "Clear", onClick: () => setForm(f => ({ ...f, subscriptionExpiry: "" })) },
                         ]}
                       />

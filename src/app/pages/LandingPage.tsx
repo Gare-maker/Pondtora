@@ -2017,7 +2017,7 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
               onClick={onSignup}
               className="px-5 py-2.5 rounded-full bg-[#00bb58] hover:bg-[#00a84e] text-white text-xs font-black uppercase tracking-wider shadow-lg shadow-emerald-600/30 transition-all hover:scale-[1.02] active:scale-95"
             >
-              Start 60 Days Free Trial
+              Start 40 Days Free Trial
             </button>
           </div>
 
@@ -2051,7 +2051,7 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
                 onClick={() => { setMobileMenuOpen(false); onSignup(); }}
                 className="w-full py-2.5 text-center text-xs uppercase tracking-wider font-black bg-[#00bb58] text-white rounded-xl shadow-lg"
               >
-                Start 60 Days Free Trial
+                Start 40 Days Free Trial
               </button>
             </div>
           </div>
@@ -2098,7 +2098,7 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
                 onClick={onSignup}
                 className="w-full sm:w-auto px-8 py-4 rounded-full bg-[#00bb58] hover:bg-[#00a84e] text-white font-bold text-sm uppercase tracking-wider shadow-xl shadow-emerald-500/20 transition-all hover:scale-105 active:scale-95 flex items-center justify-center gap-2 group"
               >
-                <span>Start 60-Day Free Trial</span>
+                <span>Start 40-Day Free Trial</span>
                 <ArrowRight size={16} className="group-hover:translate-x-1 transition-transform" />
               </button>
               <button
@@ -2133,7 +2133,7 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
                 <p className="text-xs text-slate-400 uppercase tracking-wider mt-0.5">Store Bag Reconciliation</p>
               </div>
               <div>
-                <p className="text-2xl sm:text-3xl font-black font-['Barlow_Condensed',sans-serif] text-emerald-400">60 Days</p>
+                <p className="text-2xl sm:text-3xl font-black font-['Barlow_Condensed',sans-serif] text-emerald-400">40 Days</p>
                 <p className="text-xs text-slate-400 uppercase tracking-wider mt-0.5">Free Unlimited Trial</p>
               </div>
             </div>
@@ -2851,7 +2851,7 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
                             : "bg-slate-900 hover:bg-slate-800 text-white"
                         }`}
                       >
-                        Start 60-Day Free Trial
+                        Start 40-Day Free Trial
                       </button>
                     </div>
                   </div>
@@ -2900,8 +2900,8 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
                 a: "From the Staff Assessment tab, you generate a 6-hour expiring link and send it via WhatsApp or SMS to job candidates. Candidates answer 20 practical aquaculture and compatibility questions. You receive an automatic score breakdown and hiring recommendation before interviewing them."
               },
               {
-                q: "What happens after the 60-day free trial?",
-                a: "You can use all features free for 60 days without any credit card. At the end of the trial, you choose the subscription plan that fits your pond count. Your farm records, pond history, and staff accounts remain completely safe and intact."
+                q: "What happens after the 40-day free trial?",
+                a: "You can use all features free for 40 days without any credit card. At the end of the trial, you choose the subscription plan that fits your pond count. Your farm records, pond history, and staff accounts remain completely safe and intact."
               },
             ].map((faq, i) => {
               const isOpen = openFaq === i;
@@ -2986,14 +2986,14 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
               Ready to eliminate feed waste and secure your farm profits?
             </h2>
             <p className="mt-4 text-slate-300 text-sm sm:text-base max-w-2xl mx-auto leading-relaxed font-light">
-              Join commercial fish farmers who rely on Pondtora every single day. Start your 60-day free trial right now.
+              Join commercial fish farmers who rely on Pondtora every single day. Start your 40-day free trial right now.
             </p>
             <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-4">
               <button
                 onClick={onSignup}
                 className="w-full sm:w-auto px-8 py-4 rounded-full bg-[#00bb58] hover:bg-[#00a84e] text-white font-bold text-sm uppercase tracking-wider shadow-xl shadow-emerald-500/20 transition-all hover:scale-105 active:scale-95"
               >
-                Start 60-Day Free Trial
+                Start 40-Day Free Trial
               </button>
               <button
                 onClick={onLogin}
@@ -3002,7 +3002,7 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
                 Sign In To Existing Account
               </button>
             </div>
-            <p className="text-xs text-slate-400 mt-4">60 days unlimited access · Zero risk · Cancel anytime</p>
+            <p className="text-xs text-slate-400 mt-4">40 days unlimited access · Zero risk · Cancel anytime</p>
           </FadeIn>
         </div>
       </section>

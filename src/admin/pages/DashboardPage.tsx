@@ -552,7 +552,7 @@ export default function DashboardPage({
               badge={{ text: "Subscribers", color: "green" }}
             />
             <StatBox
-              label="Active 60-Day Trials"
+              label="Active 40-Day Trials"
               value={stats.trial}
               subtitle={`${stats.expired} Expired · ${stats.suspended} Suspended`}
               icon={Clock}
