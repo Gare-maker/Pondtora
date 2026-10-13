@@ -685,7 +685,7 @@ function AuthScreen({
         <section><h2 className="font-bold text-slate-800 mb-1">1. Acceptance of Terms</h2><p>By creating an account and using Pondtora ("the Service"), you agree to be bound by these Terms and Conditions. If you do not agree, please do not use the Service.</p></section>
         <section><h2 className="font-bold text-slate-800 mb-1">2. Use of the Service</h2><p>Pondtora is a farm management platform designed for aquaculture operations. You agree to use it only for lawful purposes. You are responsible for maintaining the confidentiality of your account credentials.</p></section>
         <section><h2 className="font-bold text-slate-800 mb-1">3. Data Ownership</h2><p>All farm data you enter into Pondtora remains yours. We do not sell or share your data with third parties without your explicit consent.</p></section>
-        <section><h2 className="font-bold text-slate-800 mb-1">4. Subscription and Billing</h2><p>After your 30-day free trial, continued use requires a paid subscription. Billing occurs monthly or annually depending on your selected plan. You may cancel at any time.</p></section>
+        <section><h2 className="font-bold text-slate-800 mb-1">4. Subscription and Billing</h2><p>After your 60-day free trial, continued use requires a paid subscription. Billing occurs monthly or annually depending on your selected plan. You may cancel at any time.</p></section>
         <section><h2 className="font-bold text-slate-800 mb-1">5. Limitation of Liability</h2><p>Pondtora is provided "as is". We are not liable for any indirect or consequential damages arising from your use of the Service.</p></section>
         <section><h2 className="font-bold text-slate-800 mb-1">6. Changes to Terms</h2><p>We reserve the right to modify these Terms at any time. Continued use after changes constitutes acceptance.</p></section>
         <section><h2 className="font-bold text-slate-800 mb-1">7. Contact</h2><p>Questions? Contact us at support@pondtora.app</p></section>
@@ -733,7 +733,7 @@ function AuthScreen({
               </h2>
               <p className="text-sm text-slate-400 mb-7">
                 {view === "login" ? "Sign in to your Pondtora account"
-                  : view === "create" ? "Start your 30-day free trial today"
+                  : view === "create" ? "Start your 60-day free trial today"
                   : view === "recovery" ? "Enter your new password below"
                   : view === "invite" ? "Set a password to complete your account setup"
                   : "Enter your email to receive a reset link"}

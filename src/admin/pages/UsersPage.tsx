@@ -2211,7 +2211,7 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                   }}
                   className="px-3 py-2 bg-white border border-slate-200 hover:border-slate-300 text-slate-700 text-xs font-bold rounded-xl transition-colors flex items-center gap-1.5 shadow-xs"
                 >
-                  <Clock size={13} className="text-slate-500" /> Reset 30-Day Trial
+                  <Clock size={13} className="text-slate-500" /> Reset 60-Day Trial
                 </button>
 
                 <button
@@ -2327,7 +2327,7 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
             }}
             className="flex items-center gap-2 w-full px-3.5 py-2 text-xs text-slate-700 hover:bg-slate-50 font-medium transition-colors"
           >
-            <Clock size={13} className="text-slate-400" /> Reset 30-Day Trial
+            <Clock size={13} className="text-slate-400" /> Reset 60-Day Trial
           </button>
           <button
             onClick={() => {

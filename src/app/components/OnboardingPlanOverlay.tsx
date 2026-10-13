@@ -46,15 +46,15 @@ export default function OnboardingPlanOverlay({
         <div className="text-center mb-5">
           <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-bold uppercase tracking-wider mb-2">
             <Sparkles size={13} className="text-emerald-600" />
-            <span>30-Day Free Trial</span>
+            <span>60-Day Free Trial</span>
           </div>
           <h2 className="text-2xl sm:text-3xl font-extrabold font-['Barlow_Condensed',sans-serif] text-slate-900 tracking-wide">
-            Your 30-Day Free Trial Starts Here
+            Your 60-Day Free Trial Starts Here
           </h2>
           <div className="text-xs sm:text-sm text-slate-500 mt-2 max-w-lg mx-auto leading-relaxed space-y-1">
             <p className="font-semibold text-slate-700">How would you like to use your free trial?</p>
             <p>
-              Choose the plan that best fits your fish-farming operation. Explore Pondtora free for 30 days before your selected plan&apos;s subscription charges begin.
+              Choose the plan that best fits your fish-farming operation. Explore Pondtora free for 60 days before your selected plan&apos;s subscription charges begin.
             </p>
           </div>
         </div>
@@ -213,7 +213,7 @@ export default function OnboardingPlanOverlay({
                           {priceFormatted}
                         </span>
                         <span className="text-[10px] font-medium text-emerald-700 block">
-                          after 30-day trial
+                          after 60-day trial
                         </span>
                       </div>
                     </label>
@@ -227,7 +227,7 @@ export default function OnboardingPlanOverlay({
           <div className="p-3 bg-slate-50 border border-slate-200/80 rounded-2xl flex items-start gap-2.5 text-xs text-slate-600">
             <CheckCircle2 size={16} className="text-emerald-600 shrink-0 mt-0.5" />
             <p className="leading-relaxed text-[11px] sm:text-xs">
-              <strong>Zero charges today.</strong> You can explore all features free for 30 days. Your selected plan&apos;s subscription charges begin only after your trial period ends.
+              <strong>Zero charges today.</strong> You can explore all features free for 60 days. Your selected plan&apos;s subscription charges begin only after your trial period ends.
             </p>
           </div>
 

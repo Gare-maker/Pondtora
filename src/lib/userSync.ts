@@ -1880,14 +1880,14 @@ export function getFarmSubscriptionDetails(
     };
   }
 
-  // User is on 30-Day Free Trial
+  // User is on 60-Day Free Trial
   const trialStart =
     targetUser?.trialStartDate ||
     targetUser?.trial_start_date ||
     targetUser?.createdAt ||
     null;
 
-  let daysRemaining = 30;
+  let daysRemaining = 60;
   let trialExpiryStr: string | null = null;
   let formattedTrialExp: string | null = null;
 
@@ -1896,7 +1896,7 @@ export function getFarmSubscriptionDetails(
       const start = new Date(trialStart);
       if (!isNaN(start.getTime())) {
         const exp = new Date(start);
-        exp.setDate(exp.getDate() + 30);
+        exp.setDate(exp.getDate() + 60);
         trialExpiryStr = exp.toISOString().slice(0, 10);
         formattedTrialExp = exp.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
         const now = Date.now();
@@ -1905,7 +1905,7 @@ export function getFarmSubscriptionDetails(
     } catch {}
   } else {
     const exp = new Date();
-    exp.setDate(exp.getDate() + 30);
+    exp.setDate(exp.getDate() + 60);
     trialExpiryStr = exp.toISOString().slice(0, 10);
     formattedTrialExp = exp.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
   }

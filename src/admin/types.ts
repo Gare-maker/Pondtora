@@ -123,13 +123,13 @@ export function computeSubscriptionStatus(
     return "Active";
   }
 
-  // Not paid: user is on 30-day trial
+  // Not paid: user is on 60-day trial
   const trialStart = u.trialStartDate || (u as any).trial_start_date || u.createdAt;
   if (trialStart) {
     try {
       const end = new Date(trialStart);
       if (!isNaN(end.getTime())) {
-        end.setDate(end.getDate() + 30);
+        end.setDate(end.getDate() + 60);
         end.setHours(23, 59, 59, 999);
         const today = new Date();
         today.setHours(0, 0, 0, 0);
@@ -157,7 +157,7 @@ export function trialDaysLeft(trialStart: string | null | undefined): number {
   try {
     const end = new Date(trialStart);
     if (isNaN(end.getTime())) return 0;
-    end.setDate(end.getDate() + 30);
+    end.setDate(end.getDate() + 60);
     return Math.max(0, Math.ceil((end.getTime() - Date.now()) / 86400000));
   } catch {
     return 0;

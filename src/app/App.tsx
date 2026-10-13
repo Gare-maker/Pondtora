@@ -2782,7 +2782,7 @@ function SubscriptionPage({
     try {
       const d = new Date(trialStartDate);
       if (isNaN(d.getTime())) return null;
-      d.setDate(d.getDate() + 30);
+      d.setDate(d.getDate() + 60);
       return d.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
     } catch {
       return null;
@@ -3194,7 +3194,7 @@ function SubscriptionPage({
             </h1>
             {currentFarmSub.isTrial && (
               <p className="text-xs text-emerald-700 font-semibold mt-1">
-                {currentFarmSub.trialDaysLeft} day{currentFarmSub.trialDaysLeft === 1 ? "" : "s"} left on your 30-Day Free Trial
+                {currentFarmSub.trialDaysLeft} day{currentFarmSub.trialDaysLeft === 1 ? "" : "s"} left on your 60-Day Free Trial
               </p>
             )}
             {currentFarmSub.isPaidActive && (
@@ -3821,7 +3821,7 @@ function SettingsPage({farms,onAddFarm,onEditFarm,onDeleteFarm,userProfile,onUpd
               </a>
 
               <a
-                href="https://www.facebook.com/share/19kEpHht6y/"
+                href="https://www.facebook.com/share/19cEGUBKxX/"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center gap-3.5 p-3.5 rounded-xl border border-slate-200 bg-slate-50/80 hover:bg-blue-50/60 hover:border-blue-300 transition-all group shadow-xs"
@@ -7428,7 +7428,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
 
       await api.profile.updatePlan(planName, todayStr).catch(console.warn);
       syncUserProfileToAdmin(updatedProfile, planName, farms.length || 1);
-      toast.success("Welcome to Pondtora! Your 30-day free trial has started.");
+      toast.success("Welcome to Pondtora! Your 60-day free trial has started.");
     } catch (err: any) {
       console.error("Failed to complete onboarding:", err);
       toast.error("Failed to save plan selection. Please try again.");

@@ -997,7 +997,7 @@ export function getUserReferralStats(user: { id?: string; name?: string; email?:
       ? rawF
       : (u.name ? `${u.name.trim()}'s Farm` : "Fish Farm");
 
-    // Calculate trial days left (30-day free trial window)
+    // Calculate trial days left (60-day free trial window)
     let trialDaysLeft = 0;
     let trialStatusText = "Trial Expired";
 
@@ -1008,15 +1008,15 @@ export function getUserReferralStats(user: { id?: string; name?: string; email?:
         const now = new Date();
         const diffMs = now.getTime() - startDate.getTime();
         const daysElapsed = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-        trialDaysLeft = Math.max(0, 30 - daysElapsed);
+        trialDaysLeft = Math.max(0, 60 - daysElapsed);
         if (trialDaysLeft > 0) {
           trialStatusText = `Free Trial (${trialDaysLeft} day${trialDaysLeft === 1 ? "" : "s"} left)`;
         } else {
           trialStatusText = "Free Trial (Ended)";
         }
       } else {
-        trialDaysLeft = 30;
-        trialStatusText = "Free Trial (30 days left)";
+        trialDaysLeft = 60;
+        trialStatusText = "Free Trial (60 days left)";
       }
     } else {
       trialStatusText = "Subscribed / Active";

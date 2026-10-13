@@ -54,7 +54,7 @@ function Frame49() {
         <div className="flex flex-row items-center justify-center size-full">
           <div className="content-stretch flex items-center justify-center px-[20px] py-[8px] relative size-full">
             <p className="[word-break:break-word] font-['Roboto:Regular',sans-serif] font-normal leading-[1.5] relative shrink-0 text-[16px] text-white whitespace-nowrap" style={{ fontVariationSettings: '"wdth" 100' }}>
-              Try Free for 30 Days
+              Try Free for 60 Days
             </p>
           </div>
         </div>
@@ -121,7 +121,7 @@ function Column1() {
         <div className="flex flex-row items-center justify-center size-full">
           <div className="content-stretch flex items-center justify-center px-[20px] py-[12px] relative size-full">
             <p className="[word-break:break-word] font-['Roboto:Regular',sans-serif] font-normal leading-[1.5] relative shrink-0 text-[16px] text-white whitespace-nowrap" style={{ fontVariationSettings: '"wdth" 100' }}>
-              Try Pondtora Free for 30 Days
+              Try Pondtora Free for 60 Days
             </p>
           </div>
         </div>
@@ -1660,7 +1660,7 @@ function PriceCard() {
           <div aria-hidden className="absolute border border-[#a6a6a6] border-solid inset-[-1px] pointer-events-none rounded-[13px]" />
           <div className="flex flex-row items-center justify-center size-full">
             <div className="content-stretch flex items-center justify-center px-[20px] py-[12px] relative size-full">
-              <p className="[word-break:break-word] font-['Barlow:Medium',sans-serif] leading-[1.5] not-italic relative shrink-0 text-[16px] text-black whitespace-nowrap">Try Free for 30 Days</p>
+              <p className="[word-break:break-word] font-['Barlow:Medium',sans-serif] leading-[1.5] not-italic relative shrink-0 text-[16px] text-black whitespace-nowrap">Try Free for 60 Days</p>
             </div>
           </div>
         </div>
@@ -1922,7 +1922,7 @@ function PriceCard1() {
           <div aria-hidden className="absolute border border-[#73e2a3] border-solid inset-[-1px] pointer-events-none rounded-[13px]" />
           <div className="flex flex-row items-center justify-center size-full">
             <div className="content-stretch flex items-center justify-center px-[20px] py-[12px] relative size-full">
-              <p className="[word-break:break-word] font-['Barlow:Medium',sans-serif] leading-[1.5] not-italic relative shrink-0 text-[16px] text-black whitespace-nowrap">Try Free for 30 Days</p>
+              <p className="[word-break:break-word] font-['Barlow:Medium',sans-serif] leading-[1.5] not-italic relative shrink-0 text-[16px] text-black whitespace-nowrap">Try Free for 60 Days</p>
             </div>
           </div>
         </div>
@@ -2191,7 +2191,7 @@ function PriceCard2() {
           <div aria-hidden className="absolute border border-[#00a63e] border-solid inset-[-1px] pointer-events-none rounded-[13px]" />
           <div className="flex flex-row items-center justify-center size-full">
             <div className="content-stretch flex items-center justify-center px-[20px] py-[12px] relative size-full">
-              <p className="[word-break:break-word] font-['Barlow:Medium',sans-serif] leading-[1.5] not-italic relative shrink-0 text-[16px] text-white whitespace-nowrap">Try Free for 30 Days</p>
+              <p className="[word-break:break-word] font-['Barlow:Medium',sans-serif] leading-[1.5] not-italic relative shrink-0 text-[16px] text-white whitespace-nowrap">Try Free for 60 Days</p>
             </div>
           </div>
         </div>

@@ -467,7 +467,7 @@ export function getTodayDateStr(): string {
 
 export function addDurationToDate(
   baseDateStr: string | null | undefined,
-  duration: "1month" | "1year" | "30days" | "3months" | "6months"
+  duration: "1month" | "1year" | "30days" | "60days" | "3months" | "6months"
 ): string {
   const clean = toDateInputValue(baseDateStr) || getTodayDateStr();
   const [y, m, d] = clean.split("-").map(Number);
@@ -476,6 +476,8 @@ export function addDurationToDate(
 
   if (duration === "30days") {
     dateObj.setDate(dateObj.getDate() + 30);
+  } else if (duration === "60days") {
+    dateObj.setDate(dateObj.getDate() + 60);
   } else if (duration === "1month") {
     dateObj.setMonth(dateObj.getMonth() + 1);
   } else if (duration === "3months") {

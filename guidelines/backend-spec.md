@@ -204,7 +204,7 @@ Subscription {
   billingCycle:  "monthly"|"yearly"
   status:        "trial"|"active"|"expired"|"cancelled"
   trialStartDate:string?
-  trialEndDate:  string?  // trialStartDate + 30 days
+  trialEndDate:  string?  // trialStartDate + 60 days
   startDate:     string?
   endDate:       string?
   pondLimit:     number   // Infinity for unlimited plans
@@ -229,7 +229,7 @@ Subscription {
 | Unlimited Farms  | Unlimited | Unlimited | ₦70,000       |
 
 **Rules:**
-- Trial starts on plan selection during signup; expires in 30 days.
+- Trial starts on plan selection during signup; expires in 60 days.
 - Yearly billing: 20% discount (monthly × 12 × 0.80).
 - Adding a pond beyond the limit shows an upgrade modal; no pond is created.
 - Adding a farm beyond the limit shows an upgrade modal; no farm is created.
