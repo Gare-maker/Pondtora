@@ -155,10 +155,14 @@ export function saveStoredPlans(plans: AdminPlan[]) {
       },
       { onConflict: "key" }
     )
-    .then(({ error }) => {
-      if (error) console.warn("Could not persist admin_plans to Supabase:", error);
-    })
-    .catch(err => console.warn("Supabase admin_plans save error:", err));
+    .then(
+      ({ error }) => {
+        if (error) console.warn("Could not persist admin_plans to Supabase:", error);
+      },
+      (err: any) => {
+        console.warn("Supabase admin_plans save error:", err);
+      }
+    );
 }
 
 /**

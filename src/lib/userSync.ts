@@ -1,4 +1,4 @@
-import type { AdminUser, AdminActivityLog, AdminPlan, BillingFrequency } from "../admin/types";
+import type { AdminUser, AdminActivityLog, AdminPlan, BillingFrequency, SubscriptionStatus } from "../admin/types";
 import { DEFAULT_PLANS, computeSubscriptionStatus } from "../admin/types";
 import type { UserProfile } from "../app/types";
 import { supabase } from "./supabase";
@@ -145,8 +145,7 @@ export async function resolveFullUserProfile(user: any): Promise<UserProfile> {
           .from("staff_members")
           .update({ staff_auth_id: userId, status: "Active" })
           .eq("id", staffRow.id)
-          .then(() => {})
-          .catch(() => {});
+          .then(() => {}, () => {});
       }
     }
   } catch (err) {
@@ -742,8 +741,8 @@ export async function fetchLiveAdminUsers(): Promise<{
           farmCount: existing?.farmCount || 1,
           pondCount: existing?.pondCount || 0,
           staffCount: existing?.staffCount || 0,
-          paystackReference: hasPaid ? refPayRef : null,
-          lastPaymentDate: hasPaid ? (existing?.lastPaymentDate || null) : null,
+          paystackReference: hasPaid ? refPayRef || undefined : undefined,
+          lastPaymentDate: hasPaid ? (existing?.lastPaymentDate || undefined) : undefined,
           referralCode: existing?.referralCode,
           referredBy: ref.referrerCode || existing?.referredBy,
           createdAt: ref.createdAt || existing?.createdAt || new Date().toISOString().slice(0, 10),
@@ -1547,7 +1546,7 @@ export function syncUserProfileToAdmin(
     if (userObj.freeAccess) {
       payload.free_access = true;
     }
-    supabase.from("user_profiles").upsert(payload).then(() => {}).catch(() => {});
+    supabase.from("user_profiles").upsert(payload).then(() => {}, () => {});
   }
 
   return userObj;
@@ -1712,9 +1711,7 @@ export function getUserAdminOverride(
       : (directPlan || adminCachedUser?.activePlan || localScopedPlan || null);
 
   const finalFreq: BillingFrequency =
-    overrideFreq !== undefined
-      ? overrideFreq
-      : (directFreq || adminCachedUser?.billingFrequency || "monthly");
+    (overrideFreq || directFreq || adminCachedUser?.billingFrequency || "monthly") as BillingFrequency;
 
   return {
     isSuspended: finalSuspended,
@@ -2031,8 +2028,7 @@ export function recordSuccessfulPayment(params: {
     .from("user_profiles")
     .update(payload)
     .ilike("email", cleanEmail)
-    .then(() => {})
-    .catch(console.warn);
+    .then(() => {}, console.warn);
 
   // 2. Also update by id if id is a valid UUID
   const isUuid = Boolean(userObj.id && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(userObj.id));
@@ -2041,8 +2037,7 @@ export function recordSuccessfulPayment(params: {
       .from("user_profiles")
       .update(payload)
       .eq("id", userObj.id)
-      .then(() => {})
-      .catch(console.warn);
+      .then(() => {}, console.warn);
   }
 
   // 3. Persist to platform_settings admin_user_overrides so all admin dashboards immediately reflect payment
@@ -2242,14 +2237,14 @@ export async function clearAllPaymentDataInDbAndStorage(): Promise<boolean> {
         }
       }
 
-      const users = loadAllAdminUsers().map(u => ({
+      const users: AdminUser[] = loadAllAdminUsers().map(u => ({
         ...u,
         hasPaid: false,
-        paystackReference: null,
-        lastPaymentDate: null,
+        paystackReference: undefined,
+        lastPaymentDate: undefined,
         subscriptionAmount: null,
         subscriptionExpiry: null,
-        subscriptionStatus: u.freeAccess ? "Active" : "Trial",
+        subscriptionStatus: (u.freeAccess ? "Active" : "Trial") as SubscriptionStatus,
       }));
       saveAllAdminUsers(users);
 

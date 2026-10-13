@@ -8,9 +8,9 @@ import { COUNTRIES } from "./data";
 export function Card({children,className="",onClick}:{children:ReactNode;className?:string;onClick?:()=>void}){
   return <div onClick={onClick} className={`bg-white border border-slate-200/60 rounded-xl ${className}`}>{children}</div>;
 }
-export function Bdg({label,color}:{label:string;color:"green"|"red"|"amber"|"blue"|"gray"|"teal"|"purple"}){
-  const m={green:"bg-green-50 text-green-700 border-green-200",teal:"bg-green-100 text-green-800 border-green-300",red:"bg-red-50 text-red-700 border-red-200",amber:"bg-amber-50 text-amber-700 border-amber-200",blue:"bg-blue-50 text-blue-700 border-blue-200",gray:"bg-slate-50 text-slate-600 border-slate-200",purple:"bg-purple-50 text-purple-700 border-purple-200"};
-  return <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-semibold border ${m[color]}`}>{label}</span>;
+export function Bdg({label,color}:{label:string;color:"green"|"red"|"amber"|"blue"|"gray"|"teal"|"purple"|"yellow"|"grey"}){
+  const m: Record<string, string>={green:"bg-green-50 text-green-700 border-green-200",teal:"bg-green-100 text-green-800 border-green-300",red:"bg-red-50 text-red-700 border-red-200",amber:"bg-amber-50 text-amber-700 border-amber-200",yellow:"bg-amber-50 text-amber-700 border-amber-200",blue:"bg-blue-50 text-blue-700 border-blue-200",gray:"bg-slate-50 text-slate-600 border-slate-200",grey:"bg-slate-50 text-slate-600 border-slate-200",purple:"bg-purple-50 text-purple-700 border-purple-200"};
+  return <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-semibold border ${m[color] || m.gray}`}>{label}</span>;
 }
 export function PBtn({children,onClick,sm,danger,outline,disabled,type="button",className=""}:{children:ReactNode;onClick?:()=>void;sm?:boolean;danger?:boolean;outline?:boolean;disabled?:boolean;type?:"button"|"submit"|"reset";className?:string}){
   const base="flex items-center gap-1.5 font-semibold rounded-lg transition-colors";
@@ -34,7 +34,7 @@ export function Pagination({total,page,perPage,onPage}:{total:number;page:number
   );
 }
 export const PER_PAGE=10;
-export type StatCardColor = "green" | "blue" | "purple" | "amber" | "teal" | "rose" | "indigo" | "gray";
+export type StatCardColor = "green" | "blue" | "purple" | "amber" | "teal" | "rose" | "indigo" | "gray" | "red";
 
 const STAT_COLOR_STYLES: Record<StatCardColor, { bg: string; border: string; text: string }> = {
   green: { bg: "bg-emerald-50", border: "border-emerald-200/60", text: "text-emerald-600" },
@@ -44,7 +44,8 @@ const STAT_COLOR_STYLES: Record<StatCardColor, { bg: string; border: string; tex
   teal: { bg: "bg-teal-50", border: "border-teal-200/60", text: "text-teal-600" },
   rose: { bg: "bg-rose-50", border: "border-rose-200/60", text: "text-rose-600" },
   indigo: { bg: "bg-indigo-50", border: "border-indigo-200/60", text: "text-indigo-600" },
-  gray: { bg: "bg-slate-50", border: "border-slate-200/60", text: "text-slate-500" },
+  gray: { bg: "bg-slate-50", border: "border-slate-200/60", text: "text-slate-600" },
+  red: { bg: "bg-red-50", border: "border-red-200/60", text: "text-red-600" },
 };
 
 const AUTO_PALETTE: StatCardColor[] = ["blue", "green", "purple", "amber", "teal", "indigo", "rose"];
@@ -125,10 +126,11 @@ export const Tip=({active,payload,label,yFmt}:any)=>{
     </div>
   );
 };
-export function Modal({title,onClose,children,wide}:{title:string;onClose:()=>void;children:ReactNode;wide?:boolean}){
+export function Modal({title,onClose,children,wide,size,maxW}:{title:string;onClose:()=>void;children:ReactNode;wide?:boolean;size?:string;maxW?:string}){
+  const widthClass = maxW ? "" : size === "sm" ? "sm:max-w-sm" : wide ? "sm:max-w-lg" : "sm:max-w-md";
   return(
     <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" onClick={e=>e.target===e.currentTarget&&onClose()}>
-      <div className={`bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full ${wide?"sm:max-w-lg":"sm:max-w-md"} max-h-[90vh] flex flex-col`}>
+      <div className={`bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full ${widthClass} max-h-[90vh] flex flex-col`} style={maxW ? { maxWidth: maxW } : undefined}>
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 shrink-0">
           <h2 className="text-base font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">{title}</h2>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-700 p-1"><X size={18}/></button>
@@ -138,8 +140,17 @@ export function Modal({title,onClose,children,wide}:{title:string;onClose:()=>vo
     </div>
   );
 }
-export function F({label,children}:{label:string;children:ReactNode}){
-  return <div><label className="block text-[11px] font-bold text-slate-600 mb-1 uppercase tracking-wide">{label}</label>{children}</div>;
+export function F({label,children,required,error}:{label:string;children:ReactNode;required?:boolean;error?:string}){
+  return (
+    <div>
+      <label className="block text-[11px] font-bold text-slate-600 mb-1 uppercase tracking-wide">
+        {label}
+        {required && <span className="text-red-500 ml-0.5">*</span>}
+      </label>
+      {children}
+      {error && <p className="text-xs text-red-500 mt-1">{error}</p>}
+    </div>
+  );
 }
 export const IC="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white text-slate-900 placeholder:text-slate-300 focus:outline-none focus:ring-2 focus:ring-green-300";
 export const SC=IC+" cursor-pointer"; /* select class */

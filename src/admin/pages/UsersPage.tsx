@@ -268,7 +268,7 @@ function UserForm({
             <input
               type="text"
               value={f.paystackReference || ""}
-              onChange={e => setF({ ...f, paystackReference: e.target.value || null })}
+              onChange={e => setF({ ...f, paystackReference: e.target.value || undefined })}
               className={IC}
               placeholder="e.g. PND_1727720934"
             />
@@ -276,11 +276,11 @@ function UserForm({
           <F label="Last Payment Date">
             <DateInput
               value={f.lastPaymentDate}
-              onChange={val => setF({ ...f, lastPaymentDate: val || null })}
+              onChange={val => setF({ ...f, lastPaymentDate: val || undefined })}
               placeholder="Payment date"
               presets={[
                 { label: "Today", onClick: () => setF({ ...f, lastPaymentDate: getTodayDateStr() }) },
-                { label: "Clear", onClick: () => setF({ ...f, lastPaymentDate: null }) },
+                { label: "Clear", onClick: () => setF({ ...f, lastPaymentDate: undefined }) },
               ]}
             />
           </F>
@@ -375,9 +375,9 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
     staff: { id: string; name: string; email: string; role: string; status: string }[];
     feedInventory: { id: string; brand?: string; size?: string; bags_in_stock?: number; weight_per_bag?: number; total_kg?: number }[];
     feedingRecords: { id: string; pond?: string; date?: string; total?: number; size?: string; morning?: number; evening?: number }[];
-    revenues: { id: string; category?: string; amount?: number; date?: string; customer?: string }[];
-    expenses: { id: string; category?: string; amount?: number; date?: string; description?: string }[];
-    invoices: { id: string; invoice_number?: string; customer_name?: string; grand_total?: number; status?: string; created_at?: string }[];
+    revenues: { id: string; category?: string; source?: string; pond?: string; amount?: number; date?: string; created_at?: string; notes?: string; description?: string; customer?: string }[];
+    expenses: { id: string; category?: string; pond?: string; vendor?: string; amount?: number; date?: string; created_at?: string; desc?: string; description?: string; notes?: string }[];
+    invoices: { id: string; inv_number?: string; invoice_number?: string; customer?: any; customer_name?: string; grand_total?: number; subtotal?: number; status?: string; invoice_date?: string; due_date?: string; created_at?: string }[];
     investors: { id: string; name?: string; email?: string; phone?: string; total_invested?: number }[];
   }>({
     loading: false,
@@ -1193,7 +1193,7 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                     {/* 8. Account */}
                     <td className="px-4 py-3 whitespace-nowrap">
                       <Bdg
-                        label={u.accountStatus}
+                        label={u.accountStatus || "Active"}
                         color={u.accountStatus === "Active" ? "green" : "gray"}
                       />
                     </td>
@@ -1632,8 +1632,8 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                       </div>
                       <div className="bg-white border border-slate-200 p-2.5 rounded-xl">
                         <p className="text-[10px] uppercase font-bold text-slate-400">Custom Price Override</p>
-                        <p className={`font-bold text-xs mt-0.5 ${viewUser.subscriptionAmount !== null ? "text-emerald-700" : "text-slate-500"}`}>
-                          {viewUser.subscriptionAmount !== null ? `₦${viewUser.subscriptionAmount.toLocaleString()} (Custom)` : "Plan standard"}
+                        <p className={`font-bold text-xs mt-0.5 ${typeof viewUser.subscriptionAmount === "number" ? "text-emerald-700" : "text-slate-500"}`}>
+                          {typeof viewUser.subscriptionAmount === "number" ? `₦${viewUser.subscriptionAmount.toLocaleString()} (Custom)` : "Plan standard"}
                         </p>
                       </div>
                       <div className="bg-white border border-slate-200 p-2.5 rounded-xl">

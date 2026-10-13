@@ -147,8 +147,8 @@ export default function SubscriptionsPage({ users, plans, onUpdate }: Props) {
       subscriptionAmount: customAmt,
       subscriptionStart: toDateInputValue(form.subscriptionStart) || editing.subscriptionStart || (isExplicitlyPaid ? todayStr : null),
       subscriptionExpiry: toDateInputValue(form.subscriptionExpiry) || editing.subscriptionExpiry || null,
-      paystackReference: cleanRef,
-      lastPaymentDate: toDateInputValue(form.lastPaymentDate) || editing.lastPaymentDate || (isExplicitlyPaid ? todayStr : null),
+      paystackReference: cleanRef || undefined,
+      lastPaymentDate: toDateInputValue(form.lastPaymentDate) || editing.lastPaymentDate || (isExplicitlyPaid ? todayStr : undefined),
       freeAccess: form.freeAccess,
       hasPaid: isExplicitlyPaid,
     };
@@ -375,7 +375,7 @@ export default function SubscriptionsPage({ users, plans, onUpdate }: Props) {
                         <div>
                           <div className="flex items-center gap-1">
                             <span className="font-bold text-emerald-800 text-xs">
-                              {fmtMoney(u.subscriptionAmount || effectivePrice(u, plans))}
+                              {fmtMoney(u.subscriptionAmount ?? (typeof effectivePrice(u, plans) === "number" ? (effectivePrice(u, plans) as number) : null))}
                             </span>
                             <span className="text-[9px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.2 rounded">
                               Paid ✓

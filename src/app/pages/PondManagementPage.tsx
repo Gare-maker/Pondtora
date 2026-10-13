@@ -45,7 +45,7 @@ function PondDetail({
   feedingRecords:FeedingRecord[];
   onBack:()=>void;
   onClosePond:(id:string)=>void;
-  onRestockPond:(id:string,data:{species:string;initialStock:number;stockingDate:string;stockMonth:string;supplier?:string})=>void;
+  onRestockPond:(id:string,data:{species:string;initialStock:number;stockingDate:string;stockMonth:string;supplier?:string;fishStock?:string})=>void;
   ponds:Pond[];
   stockEvents:StockEvent[];
   onTransfer:(fromId:string,toId:string,date:string)=>void;

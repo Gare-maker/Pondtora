@@ -596,7 +596,7 @@ export default function InvestorsPage({
       fullName: editForm.fullName.trim(),
       phone: editForm.phone.trim(),
       email: editForm.email.trim() || undefined,
-      status: editForm.status,
+      status: (editForm.status === "Completed" ? "Completed" : editForm.status === "Cancelled" ? "Inactive" : "Active"),
       notes: editForm.notes.trim() || undefined,
       updatedAt: new Date().toISOString(),
     };

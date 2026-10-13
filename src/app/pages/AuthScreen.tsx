@@ -423,7 +423,7 @@ function AuthScreen({
         phone: phoneStr,
         currencySymbol: cur.symbol,
         currencyCode: cur.code,
-        activePlan: null,
+        activePlan: undefined,
         referredBy: pendingRef || undefined,
       });
 
@@ -943,7 +943,7 @@ function AuthScreen({
 
               <button
                 type="button"
-                onClick={() => { setSignupSent(false); setCreateStep("details"); setView("login"); }}
+                onClick={() => { setSignupSent(false); setView("login"); }}
                 className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-bold rounded-lg transition-colors"
               >
                 Back to Sign In

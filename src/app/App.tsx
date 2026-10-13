@@ -1,5 +1,8 @@
 import React, { useState, useMemo, useRef, useEffect, useCallback } from "react";
-import { api, auth, remapId, isUuid, toUuid, fromUuid } from "../lib/api";
+import { api, auth, remapId, isUuid, toUuid, fromUuid, objToCamel } from "../lib/api";
+import confetti from "canvas-confetti";
+import type { AdminUser } from "../admin/types";
+import { derivePaymentStatus, deriveInvestmentStatus } from "../lib/investmentUtils";
 import { supabase, getAppUrl } from "../lib/supabase";
 import { projectId } from "../../utils/supabase/info";
 import pondtoraLogo from "../imports/loo-2.svg";
@@ -46,6 +49,21 @@ const NAV_PERM:Partial<Record<View,string>>={
   financial:"Financial Dashboard",ponds:"Pond Management",inventory:"Feed Stock",
   documentation:"Feeding Records",invoices:"Invoices",sales_calculator:"Sales Calculator",reports:"Reports",investors:"Investors",equipment:"Farm Equipment",assessments:"Staff Assessments",notifications:"Notifications",
 };
+
+const NAV_ITEMS: { id: View; label: string }[] = [
+  { id: "financial", label: "Financial Dashboard" },
+  { id: "ponds", label: "Pond Management" },
+  { id: "inventory", label: "Feed Stock" },
+  { id: "documentation", label: "Feeding Records" },
+  { id: "reports", label: "Reports" },
+  { id: "invoices", label: "Invoices" },
+  { id: "sales_calculator", label: "Sales Calculator" },
+  { id: "staff", label: "Staff" },
+  { id: "investors", label: "Investors" },
+  { id: "equipment", label: "Farm Equipment" },
+  { id: "assessments", label: "Staff Assessments" },
+  { id: "notifications", label: "Notifications" },
+];
 function Sidebar({active,onNav,collapsed,onToggle,farms,activeFarmId,onSwitchFarm,onAddFarm,sideOpen,staff,unreadCount,onNotifications,onLogout,hasPerm,canView,isOwner,userProfile,currentStaff}:{active:View;onNav:(v:View)=>void;collapsed:boolean;onToggle:()=>void;farms:Farm[];activeFarmId:string;onSwitchFarm:(id:string)=>void;onAddFarm:()=>void;sideOpen:boolean;staff?:StaffMember[];unreadCount?:number;onNotifications?:()=>void;onLogout?:()=>void;hasPerm?:(p:string)=>boolean;canView?:(p:string)=>boolean;isOwner?:boolean;userProfile?:UserProfile|null;currentStaff?:StaffMember|null;}){
   const NAV = useMemo<{id:View;icon:React.ElementType;label:string}[]>(() => [
     {id:"financial",        icon:LayoutDashboard, label:"Financial Dashboard"},
@@ -2000,7 +2018,7 @@ function ReportsPage({
     return rd.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
   };
   const pagedReports = filtered.slice((reportPage - 1) * PER_PAGE, reportPage * PER_PAGE);
-  const grouped = pagedReports.reduce<{ label: string; date: string; items: Report[] }>((acc, r) => {
+  const grouped = pagedReports.reduce<Array<{ label: string; date: string; items: Report[] }>>((acc, r) => {
     const rDate = String(r.date || TODAY);
     const lbl = dateLabel(rDate);
     const ex = acc.find(g => g.date === rDate);
@@ -2066,7 +2084,7 @@ function ReportsPage({
           ponds={ponds}
           stockEvents={stockEvents}
           onAddPondReport={onAddPondReport || (async () => {})}
-          onDeletePondReport={onDeletePondReport}
+          onDeletePondReport={onDeletePondReport ? async (id: string) => { await onDeletePondReport(id); } : undefined}
           activeFarmId={activeFarmId}
           canCreate={canCreate}
           canDelete={canDelete}
@@ -4780,7 +4798,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   const readInit = <T,>(key: string, cacheProp: string, fallback: T): T => {
     const currentUid = typeof window !== "undefined" ? getStoredAuthUser() : null;
     if (!currentUid) return fallback;
-    const direct = loadLocal(`pondtora_${currentUid}_${key}`, null);
+    const direct = loadLocal<any>(`pondtora_${currentUid}_${key}`, null);
     if (direct !== null) {
       if (Array.isArray(direct)) {
         return direct.filter((item: any) => !isDeletedId(item?.id)) as unknown as T;
@@ -4808,7 +4826,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   const loadUserLocal = useCallback(<T,>(uid: string | undefined | null, key: string, cacheProp: string, fallback: T): T => {
     const targetUid = uid || userProfile?.id || (typeof window !== "undefined" ? getStoredAuthUser() : null);
     if (!targetUid) return fallback;
-    const direct = loadLocal(`pondtora_${targetUid}_${key}`, null);
+    const direct = loadLocal<any>(`pondtora_${targetUid}_${key}`, null);
     if (direct !== null) {
       if (Array.isArray(direct)) {
         return direct.filter((item: any) => !isDeletedId(item?.id)) as unknown as T;
@@ -7448,7 +7466,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       farmId: r.farmId || activeFarmId || farms[0]?.id || "",
       authorRole: isStaff ? "staff" : "owner",
       createdByRole: isStaff ? "staff" : "owner",
-      createdById: userProfile?.id || null,
+      createdById: userProfile?.id || undefined,
       isStaffSubmission: isStaff,
     };
     setReports(prev=>[rr,...prev]);
@@ -7755,7 +7773,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     if (!isStaff) return;
     if (active === "notifications") {
       if (!canView("Notifications")) {
-        const firstAllowed = NAV.find(item => {
+        const firstAllowed = NAV_ITEMS.find(item => {
           if (item.id === "staff" || item.id === "pricing" || item.id === "settings") return false;
           const p = NAV_PERM[item.id];
           return p && canView(p);
@@ -7768,7 +7786,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     }
     const permForActive = NAV_PERM[active];
     if (!permForActive || !canView(permForActive)) {
-      const firstAllowed = NAV.find(item => {
+      const firstAllowed = NAV_ITEMS.find(item => {
         if (item.id === "staff" || item.id === "pricing" || item.id === "settings") return false;
         const p = NAV_PERM[item.id];
         return p && canView(p);
@@ -8223,7 +8241,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       farmId: fid,
       authorRole: isStaff ? "staff" : "owner",
       createdByRole: isStaff ? "staff" : "owner",
-      createdById: userProfile?.id || null,
+      createdById: userProfile?.id || undefined,
       isStaffSubmission: isStaff,
     };
     setPondReports(prev => [nr, ...prev]);
@@ -8690,7 +8708,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
                 {active==="equipment"     &&(hasPerm("Farm Equipment")?<FarmEquipmentPage equipment={farmEquipments} toolQuantityHistory={toolQuantityHistory} onRecordToolQuantityHistory={recordToolQuantityHistory} onAdd={handleAddEquipment} onAddEquipment={handleAddEquipment} onEdit={handleEditEquipment} onEditEquipment={handleEditEquipment} onDelete={handleDeleteEquipment} onDeleteEquipment={handleDeleteEquipment} currency={cs} farms={farms} activeFarmId={activeFarmId} canCreate={canCreate("Farm Equipment")} canEdit={canEdit("Farm Equipment")} canDelete={canDelete("Farm Equipment")} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}}/>:<AccessDenied/>)}
                 {active==="reports"       &&(hasPerm("Reports")?<ReportsPage reports={farmReports} staff={staff} onAdd={addReport} onEdit={editReportFn} onDelete={deleteReport} pondReports={farmPondReports} treatments={farmTreatments} farms={farms} ponds={farmPonds} stockEvents={stockEvents} onAddPondReport={handleAddPondReport} onDeletePondReport={deletePondReport} activeFarmId={activeFarmId} canCreate={canCreate("Reports")} canEdit={canEdit("Reports")} canDelete={canDelete("Reports")} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}} isOwner={isOwner}/>:<AccessDenied/>)}
                 {active==="assessments"   &&(hasPerm("Staff Assessments")?<EmployeeAssessmentsPage kQuestions={kQuestions} cQuestions={cQuestions} kResults={kResults} cResults={cResults} onSaveKQuestions={saveKQuestions} onSaveCQuestions={saveCQuestions} onAddKResult={addKResult} onAddCResult={addCResult} ownerId={userProfile?.id??""}/>:<AccessDenied/>)}
-                {active==="pricing"       &&(isOwner?<SubscriptionPage farmCount={farms.length} activePlan={activePlan} setActivePlan={setActivePlan} trialStartDate={trialStartDate} setTrialStartDate={setTrialStartDate} currency={cs} convertPrice={cvt} userProfile={userProfile} onProfileUpdated={(p) => setUserProfile(prev => { const next = { ...(prev || {}), ...p }; if(prev?.id){ try{ localStorage.setItem(`pondtora_${prev.id}_user_profile`, JSON.stringify(next)); }catch{} } return next; })} activeFarmName={farms.find(f=>f.id===activeFarmId)?.name||userProfile?.farmName} onOpenReferrals={() => { setSettingsTab("referrals"); nav("settings"); }}/>:<AccessDenied/>)}
+                {active==="pricing"       &&(isOwner?<SubscriptionPage farmCount={farms.length} activePlan={activePlan} setActivePlan={setActivePlan} trialStartDate={trialStartDate} setTrialStartDate={setTrialStartDate} currency={cs} convertPrice={cvt} userProfile={userProfile} onProfileUpdated={(p) => setUserProfile(prev => { if (!prev) return (p as UserProfile); const next: UserProfile = { ...prev, ...p }; if(prev.id){ try{ localStorage.setItem(`pondtora_${prev.id}_user_profile`, JSON.stringify(next)); }catch{} } return next; })} activeFarmName={farms.find(f=>f.id===activeFarmId)?.name||userProfile?.farmName} onOpenReferrals={() => { setSettingsTab("referrals"); nav("settings"); }}/>:<AccessDenied/>)}
                 {active==="settings"      &&<SettingsPage farms={isOwner?farms:accessibleFarms} onAddFarm={handleAddFarmDirect} onEditFarm={handleEditFarm} onDeleteFarm={handleDeleteFarm} userProfile={userProfile} onUpdateProfile={handleUpdateProfile} isOwner={isOwner} ponds={ponds} activePlan={activePlan} initialTab={settingsTab}/>}
                 {active==="notifications" && (canView("Notifications") ? <NotificationsPage notifications={notifications} onMarkRead={markRead} onMarkAllRead={markAllRead} farms={farms} activeFarmId={activeFarmId} farmCount={farms.length} onDismiss={dismissNotif} onNotifNav={(n)=>{if(n.type==="reconciliation"&&n.reconDate&&n.reconKey){nav("documentation");setReconFocus({date:n.reconDate,key:n.reconKey});}}}/> : <AccessDenied/>)}
               </AppErrorBoundary>

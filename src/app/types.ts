@@ -11,12 +11,12 @@ export interface Revenue   { id:string; source:string; amount:number; date:strin
 export interface FeedEditEntry { originalMorning:number; updatedMorning:number; originalEvening:number; updatedEvening:number; editedAt:string; editedBy:string; editedById:string; }
 export interface FeedingRecord { id:string; date:string; month:string; year:number; pond:string; brand:string; size:string; morning:number; evening:number; total:number; recordedBy:string; morningTime?:string; eveningTime?:string; fishStock?:string; createdBy?:string; createdById?:string; farmId?:string; editHistory?:FeedEditEntry[]; }
 export interface MortalityEntry { id:string; pondId:string; date:string; count:number; cause:string; notes:string; farmId?:string; }
-export interface BagOpenLog    { id:string; date:string; month:string; year:number; brand:string; size:string; kgPerBag:number; bagsOpened:number; totalKg:number; fishStock?:string; farmId?:string; notes?:string; reason?:string; }
+export interface BagOpenLog    { id:string; date:string; month:string; year:number; brand:string; size:string; kgPerBag:number; bagsOpened:number; totalKg:number; fishStock?:string; farmId?:string; notes?:string; reason?:string; recordedBy?:string; }
 export interface FeedRemainingLog { id:string; brand:string; size:string; fishStock:string; remainingKg:number; date:string; farmId?:string; month?:string; year?:number; }
 export interface FarmEquipment { id:string; name:string; category:string; quantity:number; condition:"Working"|"Needs Repair"|"In Storage"|"Damaged"; location?:string; purchaseDate?:string; cost?:number; notes?:string; farmId?:string; createdBy?:string; createdById?:string; createdAt?:string; updatedAt?:string; }
 export interface StaffMember  { id:string; userId?:string; staffAuthId?:string; name:string; email:string; phone:string; role:string; status:"Active"|"Pending"; joinedDate:string; permissions:string[]; farms:string[]; staffPermissions?: Record<string, { canView:boolean; canCreate:boolean; canEdit:boolean; canDelete:boolean }>; }
-export interface Report       { id:string; title:string; content:string; type:"Daily"|"Weekly"|"Monthly"|"Pond-Based"; author:string; date:string; status:"Open"|"Resolved"; resolvedBy?:string; resolvedDate?:string; tags:string[]; timestamp?:string; farmId?:string; createdById?:string; createdByRole?:string; isStaffSubmission?:boolean; adminReviewNote?:string; adminReviewStatus?:string; reviewedBy?:string; reviewedAt?:string; }
-export interface UserProfile  { id?:string; name:string; farmName:string; city:string; state:string; country:string; email:string; phone:string; currencySymbol:string; currencyCode:string; activePlan?:string|null; trialStartDate?:string|null; role?:string; permissions?:string[]; ownerId?:string; farms?:string[]; staffPermissions?: Record<string, { canView:boolean; canCreate:boolean; canEdit:boolean; canDelete:boolean }>; referralCode?:string; referredBy?:string; subscriptionAmount?:number|null; freeAccess?:boolean; hasPaid?:boolean; subscriptionExpiry?:string|null; subscriptionStatus?:string|null; billingFrequency?:string|null; paystackReference?:string|null; lastPaymentDate?:string|null; onboardingCompleted?:boolean; raw_data?:any; rawData?:any; status?:string; }
+export interface Report       { id:string; title:string; content:string; type:"Daily"|"Weekly"|"Monthly"|"Pond-Based"; author:string; date:string; status:"Open"|"Resolved"; resolvedBy?:string; resolvedDate?:string; tags:string[]; timestamp?:string; farmId?:string; createdById?:string; createdByRole?:string; authorRole?:string; isStaffSubmission?:boolean; adminReviewNote?:string; adminReviewStatus?:string; reviewedBy?:string; reviewedAt?:string; }
+export interface UserProfile  { id?:string; name:string; farmName:string; city:string; state:string; country:string; email:string; phone:string; currencySymbol:string; currencyCode:string; activePlan?:string|null; trialStartDate?:string|null; role?:string; permissions?:string[]; ownerId?:string; farms?:string[]; staffPermissions?: Record<string, { canView:boolean; canCreate:boolean; canEdit:boolean; canDelete:boolean }>; referralCode?:string; referredBy?:string; subscriptionAmount?:number|null; freeAccess?:boolean; hasPaid?:boolean; subscriptionStart?:string|null; subscriptionExpiry?:string|null; subscriptionStatus?:string|null; billingFrequency?:string|null; paystackReference?:string|null; lastPaymentDate?:string|null; onboardingCompleted?:boolean; raw_data?:any; rawData?:any; status?:string; }
 
 export interface StockEvent   { id:string; pondId:string; pondName:string; date:string; species:string; count:number; avgWeight?:number; cost:number; salePrice?:number; type:"Initial"|"Transfer"|"Restock"|"Closed"; fromPond?:string; clearedDate?:string; supplier?:string; farmId?:string; batch?:string; }
 export interface PriceGroup   { id:string; group:string; displayName:string; description:string; pricePerKg:number; status:"Active"|"Inactive"; farmId?:string; }
@@ -24,7 +24,7 @@ export interface Customer     { id:string; name:string; phone:string; email:stri
 export interface InvSettings  { farmName:string; farmAddress:string; farmPhone:string; farmEmail:string; bankDetails:string; defaultNotes:string; footerMessage:string; taxRate:number; invoicePrefix:string; paymentTerms:string; }
 export interface InvoiceLineItem { id:string; groupId:string; groupLabel:string; displayName:string; qtyKg:number; pricePerKg:number; discount:number; lineTotal:number; }
 export interface Invoice      { id:string; invNumber:string; customer:Customer; pond:string; species:string; items:InvoiceLineItem[]; discountType:"invoice"|"item"|"general"|"individual"; subtotal:number; discount:number; additionalCharges:number; grandTotal:number; amountPaid:number; outstanding:number; status:"Draft"|"Sent"|"Pending"|"Partially Paid"|"Paid"|"Overdue"|"Cancelled"|"Error"; paymentMethod:string; invoiceDate:string; dueDate:string; notes:string; issuedBy?:string; farmId?:string; }
-export interface Farm         { id:string; name:string; city:string; state:string; country:string; }
+export interface Farm         { id:string; name:string; city:string; state:string; country:string; userId?:string; }
 export interface TreatmentRecord { id:string; pondId:string; farmId:string; date:string; cause:string; medicine:string; remarks:string; fishStock?:string; }
 export type WItem = {id:string;groupId:string;qty:string;discount:string;};
 
@@ -121,6 +121,8 @@ export interface PondReport {
   treatmentId?: string;
   recordedBy?: string;
   createdBy?: string;
+  createdById?: string;
+  createdByRole?: string;
   authorId?: string;
   authorRole?: string;
   isStaffSubmission?: boolean;
@@ -154,10 +156,12 @@ export interface InvestmentEditHistoryEntry {
   farmId?: string;
   investorId: string;
   investmentId?: string;
-  fieldName: string;
+  fieldName?: string;
+  fieldChanged?: string;
   previousValue: string;
   newValue: string;
   actionReason?: string;
+  reason?: string;
   changedBy: string;
   changedById?: string;
   createdAt: string;
@@ -174,6 +178,7 @@ export interface FarmToolQuantityHistoryEntry {
   difference: number;
   location?: string;
   actionReason?: string;
+  reason?: string;
   changedBy: string;
   changedById?: string;
   createdAt: string;

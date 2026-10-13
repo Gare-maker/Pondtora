@@ -114,7 +114,7 @@ export function getUserReferralCode(user: { id?: string; name?: string; email?: 
   // Ensure code is synced to Supabase user_profiles if user.id is available
   if (user?.id) {
     try {
-      supabase.from("user_profiles").update({ referral_code: generated }).eq("id", user.id).then(() => {}).catch(() => {});
+      supabase.from("user_profiles").update({ referral_code: generated }).eq("id", user.id).then(() => {}, () => {});
     } catch {}
   }
 
@@ -218,8 +218,7 @@ export function saveAllReferralRewards(rewards: ReferralReward[]) {
         value: rewards,
         updated_at: new Date().toISOString(),
       }, { onConflict: "key" })
-      .then(() => {})
-      .catch(() => {});
+      .then(() => {}, () => {});
   } catch {}
 }
 
@@ -342,8 +341,7 @@ export function attachReferralToNewUser(newUser: { id?: string; email: string; n
         .from("user_profiles")
         .update({ referred_by: code })
         .eq("id", newUser.id)
-        .then(() => {})
-        .catch(() => {});
+        .then(() => {}, () => {});
     } catch {}
   }
 
@@ -519,7 +517,7 @@ export function processReferralCommission(params: {
       commission_rate: commissionRate,
       commission_amount: commissionAmount,
       status: "Available",
-    }).then(() => {}).catch(err => console.warn("referral_rewards insert error:", err));
+    }).then(() => {}, (err: any) => console.warn("referral_rewards insert error:", err));
   } catch {}
 
   // Also update platform_settings referral_registry
@@ -700,7 +698,7 @@ export async function syncReferralOnUserPayment(u: AdminUser): Promise<ReferralR
         p_user_id: u.id,
         p_paystack_ref: paymentRef,
         p_payment_amount: paymentAmount,
-      }).then(() => {}).catch(() => {});
+      }).then(() => {}, () => {});
     } catch {}
   }
 
@@ -1250,10 +1248,8 @@ export async function fetchLiveUserReferralStats(user: { id?: string; name?: str
       }
     } catch {}
 
+    const mergedRewards: ReferralReward[] = [...loadAllReferralRewards()];
     if (Array.isArray(dbRewards) && dbRewards.length > 0) {
-      const localRewards = loadAllReferralRewards();
-      const mergedRewards: ReferralReward[] = [...localRewards];
-
       dbRewards.forEach(r => {
         const matchIdx = mergedRewards.findIndex(lr => lr.id === r.id || (lr.paymentReference && r.payment_reference && lr.paymentReference === r.payment_reference));
         const formatted: ReferralReward = {
@@ -1468,7 +1464,7 @@ export async function fetchLiveUserReferralStats(user: { id?: string; name?: str
               commission_rate: 0.30,
               commission_amount: commAmt,
               status: "Available",
-            }).then(() => {}).catch(() => {});
+            }).then(() => {}, () => {});
           }
         }
 
@@ -1602,14 +1598,14 @@ export async function fetchLiveUserReferralStats(user: { id?: string; name?: str
           farmName: u.farmName,
           referrerCode: cleanCode,
           referrerEmail: user?.email || cleanCode,
-          activePlan: u.activePlan,
+          activePlan: u.activePlan || "Starter",
           billingFrequency: u.billingFrequency,
-          subscriptionStatus: u.subscriptionStatus,
+          subscriptionStatus: u.subscriptionStatus || "Trial",
           hasPaid: Boolean(u.hasPaid),
           paymentAmount: u.subscriptionAmount || undefined,
           paystackReference: u.paystackReference,
           trialStartDate: u.trialStartDate || undefined,
-          createdAt: u.createdAt,
+          createdAt: u.createdAt || new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         };
 

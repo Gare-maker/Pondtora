@@ -1731,7 +1731,7 @@ export const api = {
             } else {
               // 4. Invite resend
               const { error: inviteResendErr } = await authStaffCreator.auth.resend({
-                type: "invite",
+                type: "invite" as any,
                 email: cleanEmail,
                 options: {
                   emailRedirectTo: `${loginUrl}/create-password`,
@@ -1769,7 +1769,7 @@ export const api = {
             invited_by: userId || null,
             status: "pending",
             expires_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-          }, { onConflict: "staff_id" }).catch(() => {});
+          }, { onConflict: "staff_id" });
         }
       } catch {}
 

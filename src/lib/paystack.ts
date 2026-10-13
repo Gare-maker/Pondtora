@@ -30,20 +30,23 @@ export function loadPaystackConfig(): PaystackConfig {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      cachedConfig = {
+      const conf: PaystackConfig = {
         ...DEFAULT_PAYSTACK_CONFIG,
         ...parsed,
-        mode: explicitMode || parsed.mode || DEFAULT_PAYSTACK_CONFIG.mode,
+        mode: (explicitMode || parsed?.mode || DEFAULT_PAYSTACK_CONFIG.mode) as "test" | "live",
       };
-      return cachedConfig;
+      cachedConfig = conf;
+      return conf;
     }
     if (explicitMode) {
-      cachedConfig = { ...DEFAULT_PAYSTACK_CONFIG, mode: explicitMode };
-      return cachedConfig;
+      const conf: PaystackConfig = { ...DEFAULT_PAYSTACK_CONFIG, mode: explicitMode };
+      cachedConfig = conf;
+      return conf;
     }
   } catch {}
-  cachedConfig = { ...DEFAULT_PAYSTACK_CONFIG };
-  return cachedConfig;
+  const defConfig: PaystackConfig = { ...DEFAULT_PAYSTACK_CONFIG };
+  cachedConfig = defConfig;
+  return defConfig;
 }
 
 /**
@@ -119,8 +122,7 @@ export async function savePaystackConfig(cfg: PaystackConfig): Promise<boolean> 
           key: "paystack_secret_key",
           value: { secretKey: activeSecretKey.trim() },
           updated_at: new Date().toISOString(),
-        }, { onConflict: "key" })
-        .catch(() => {});
+        }, { onConflict: "key" });
     }
 
     if (error) {

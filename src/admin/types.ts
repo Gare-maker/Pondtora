@@ -1,4 +1,4 @@
-export type SubscriptionStatus = "Trial" | "Active" | "Expired" | "Cancelled" | "Suspended";
+export type SubscriptionStatus = "Trial" | "Active" | "Expired" | "Cancelled" | "Suspended" | "Paid";
 export type BillingFrequency = "monthly" | "yearly";
 export type AccountStatus = "Active" | "Suspended";
 
@@ -13,13 +13,13 @@ export interface AdminUser {
   country?: string;
   role?: string;
   activePlan: string | null;
-  trialStartDate: string | null;
-  billingFrequency: BillingFrequency;
-  subscriptionAmount: number | null;
+  trialStartDate?: string | null;
+  billingFrequency?: BillingFrequency;
+  subscriptionAmount?: number | null;
   subscriptionStatus: SubscriptionStatus;
-  subscriptionStart: string | null;
-  subscriptionExpiry: string | null;
-  accountStatus: AccountStatus;
+  subscriptionStart?: string | null;
+  subscriptionExpiry?: string | null;
+  accountStatus?: AccountStatus;
   freeAccess?: boolean;
   farmCount?: number;
   pondCount?: number;
