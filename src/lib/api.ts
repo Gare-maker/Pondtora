@@ -8,6 +8,7 @@ import type {
   TreatmentRecord, StaffMember, Report, Customer, PriceGroup,
   Invoice, InvSettings, Investor, Investment, InvestmentPayment, PondReport,
   FarmEquipment, FishCountHistoryEntry, InvestmentEditHistoryEntry, FarmToolQuantityHistoryEntry,
+  SalesCalculation, SalesCalculationItem, SalesCalculationPayment,
 } from "../app/types";
 import { INIT_K, INIT_C } from "../app/questionsData";
 
@@ -302,6 +303,20 @@ const TABLE_ALLOWED_COLUMNS: Record<string, Set<string>> = {
   farm_tool_quantity_history: new Set([
     "id", "user_id", "farm_id", "tool_id", "tool_name", "previous_quantity", "new_quantity",
     "difference", "location", "action_reason", "changed_by", "changed_by_id", "created_at"
+  ]),
+  sales_calculations: new Set([
+    "id", "user_id", "farm_id", "customer_name", "customer_phone", "subtotal",
+    "general_discount_type", "general_discount_value", "general_discount_amount",
+    "total_amount", "amount_paid", "payment_status", "items", "created_by", "created_by_id",
+    "created_at", "updated_at"
+  ]),
+  sales_calculation_items: new Set([
+    "id", "calculation_id", "price_group_id", "price_group_name", "price_group_code",
+    "quantity_kg", "unit_price", "subtotal", "individual_discount_type",
+    "individual_discount_value", "individual_discount_amount", "final_amount", "created_at"
+  ]),
+  sales_calculation_payments: new Set([
+    "id", "calculation_id", "amount", "payment_method", "payment_date", "recorded_by", "created_at"
   ]),
 };
 
@@ -679,6 +694,9 @@ export const TABLE_FEATURE_MAP: Record<string, string> = {
   investors: "Investors",
   investments: "Investors",
   investment_payments: "Investors",
+  sales_calculations: "Sales Calculator",
+  sales_calculation_items: "Sales Calculator",
+  sales_calculation_payments: "Sales Calculator",
 };
 
 export async function verifyStaffActionPermission(table: string, action: "canCreate" | "canEdit" | "canDelete"): Promise<void> {
@@ -706,7 +724,7 @@ export async function verifyStaffActionPermission(table: string, action: "canCre
       .from("staff_permissions")
       .select("can_create, can_edit, can_delete, can_view, feature")
       .eq("staff_id", queryStaffId)
-      .in("feature", table === "price_groups" ? ["Invoices", "Sales Calculator"] : [feature]);
+      .in("feature", (table === "price_groups" || table === "sales_calculations" || table === "sales_calculation_items" || table === "sales_calculation_payments") ? ["Invoices", "Sales Calculator", "Sales Management"] : [feature]);
 
     const permRow = permRows && permRows.length > 0 ? (permRows.find((r: any) => r.can_create || r.can_edit || r.can_delete) || permRows[0]) : null;
 
@@ -1304,7 +1322,7 @@ export const api = {
         staffRes, farmAssignRes, staffPermRes, repRes, custRes, pgRes, invsRes, setRes,
         kqRes, cqRes, krRes, crRes,
         investorsRes, investmentsRes, invPayRes, pondRepRes, eqRes,
-        fishHistRes, invHistRes, toolHistRes
+        fishHistRes, invHistRes, toolHistRes, salesCalcRes
       ] = await Promise.all([
         canStaffView("Pond Management") ? farmScope("ponds") : Promise.resolve({ data: [] }),
         canStaffView("Pond Management") ? farmScope("stock_events") : Promise.resolve({ data: [] }),
@@ -1336,6 +1354,7 @@ export const api = {
         canStaffView("Pond Management") ? farmScope("fish_count_history") : Promise.resolve({ data: [] }),
         canStaffView("Investors") ? farmScope("investment_edit_history") : Promise.resolve({ data: [] }),
         canStaffView("Farm Equipment") ? farmScope("farm_tool_quantity_history") : Promise.resolve({ data: [] }),
+        canStaffView("Sales Calculator") || canStaffView("Invoices") ? farmScope("sales_calculations") : Promise.resolve({ data: [] }),
       ]);
 
       const extract = <T,>(res: any, cacheKey: string, mapper: (r: any) => T): T[] => {
@@ -1489,6 +1508,7 @@ export const api = {
         fishCountHistory: extract<FishCountHistoryEntry>(fishHistRes, "fishCountHistory", (r: any) => objToCamel<FishCountHistoryEntry>(r)),
         investmentHistory: extract<InvestmentEditHistoryEntry>(invHistRes, "investmentHistory", (r: any) => objToCamel<InvestmentEditHistoryEntry>(r)),
         toolQuantityHistory: extract<FarmToolQuantityHistoryEntry>(toolHistRes, "toolQuantityHistory", (r: any) => objToCamel<FarmToolQuantityHistoryEntry>(r)),
+        salesCalculations: extract<SalesCalculation>(salesCalcRes, "salesCalculations", (r: any) => objToCamel<SalesCalculation>(r)),
         staffInfo: staffMember || null,
         isStaff: !!staffMember,
       };
@@ -2607,6 +2627,59 @@ export const api = {
       return dbUpdate<Invoice>("invoices", dbInv as Invoice, "invoices");
     },
     remove: (id: string) => dbDelete("invoices", id, "invoices"),
+  },
+
+  // ── Sales Calculations & Management ─────────────────────────────────────────
+  salesCalculations: {
+    list: () => dbList<SalesCalculation>("sales_calculations", "salesCalculations"),
+    create: async (c: Partial<SalesCalculation>, items?: SalesCalculationItem[]) => {
+      const calcPayload: any = { ...c };
+      if (items && items.length > 0) {
+        calcPayload.items = items;
+      }
+      const created = await dbInsert<SalesCalculation>("sales_calculations", calcPayload as SalesCalculation, "salesCalculations");
+      if (items && items.length > 0 && created?.id) {
+        try {
+          const dbItems = items.map(it => ({
+            id: it.id && isUuid(it.id) ? it.id : crypto.randomUUID(),
+            calculation_id: created.id,
+            price_group_id: it.priceGroupId && isUuid(it.priceGroupId) ? it.priceGroupId : null,
+            price_group_name: it.priceGroupName || null,
+            price_group_code: it.priceGroupCode || null,
+            quantity_kg: Number(it.quantityKg) || 0,
+            unit_price: Number(it.unitPrice) || 0,
+            subtotal: Number(it.subtotal) || 0,
+            individual_discount_type: it.individualDiscountType || null,
+            individual_discount_value: Number(it.individualDiscountValue) || 0,
+            individual_discount_amount: Number(it.individualDiscountAmount) || 0,
+            final_amount: Number(it.finalAmount) || 0,
+          }));
+          await supabase.from("sales_calculation_items").insert(dbItems);
+        } catch (err) {
+          console.warn("Failed to insert sales_calculation_items:", err);
+        }
+      }
+      return created;
+    },
+    update: async (c: SalesCalculation) => {
+      return dbUpdate<SalesCalculation>("sales_calculations", c, "salesCalculations");
+    },
+    remove: async (id: string) => {
+      return dbDelete("sales_calculations", id, "salesCalculations");
+    },
+    recordPayment: async (calcId: string, amount: number, paymentMethod = "Cash", recordedBy = "") => {
+      try {
+        await supabase.from("sales_calculation_payments").insert({
+          id: crypto.randomUUID(),
+          calculation_id: isUuid(calcId) ? calcId : toUuid(calcId),
+          amount: Number(amount) || 0,
+          payment_method: paymentMethod,
+          recorded_by: recordedBy,
+        });
+      } catch (err) {
+        console.warn("Failed to record sales_calculation_payment:", err);
+      }
+    },
   },
 
   // ── Farm Equipment ────────────────────────────────────────────────────────

@@ -19,7 +19,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell, Legend
 } from "recharts";
-import type { View, SortDir, MonthData, FeedItem, Pond, Expense, Revenue, FeedingRecord, FeedEditEntry, MortalityEntry, BagOpenLog, FeedRemainingLog, StaffMember, Report, UserProfile, StockEvent, PriceGroup, Customer, InvSettings, InvoiceLineItem, Invoice, Farm, TreatmentRecord, WItem, EditEntry, Investor, Investment, InvestmentPayment, PondReport, FarmEquipment, FishCountHistoryEntry, InvestmentEditHistoryEntry, FarmToolQuantityHistoryEntry } from "./types";
+import type { View, SortDir, MonthData, FeedItem, Pond, Expense, Revenue, FeedingRecord, FeedEditEntry, MortalityEntry, BagOpenLog, FeedRemainingLog, StaffMember, Report, UserProfile, StockEvent, PriceGroup, Customer, InvSettings, InvoiceLineItem, Invoice, Farm, TreatmentRecord, WItem, EditEntry, Investor, Investment, InvestmentPayment, PondReport, FarmEquipment, FishCountHistoryEntry, InvestmentEditHistoryEntry, FarmToolQuantityHistoryEntry, SalesCalculation, SalesCalculationItem } from "./types";
 import { EXPENSE_CATS, REVENUE_SRCS, POND_TYPES, POND_SPECIES, MORT_CAUSES, TODAY, getTodayStr, fmt, yFmt, uid, toMon, toYr, PAYMENT_METHODS, INV_STATUSES, STAFF_PERMISSIONS, STAFF_ROLES_ALL, INIT_INV_SETTINGS, ADMIN_NAME, downloadCSV, openPrintWindow, COUNTRY_CURRENCIES, COUNTRIES, DIAL_CODES, FLAG_EMOJI, convertNGN, fmtStockingDate, formatFishStockDate, formatFishStock, isSameDate, isStockMatch } from "./data";
 import { Card, Bdg, PBtn, Pagination, PER_PAGE, StatCard, Tip, Modal, F, IC, SC, SearchableSelect, SelDrop, DMONTHS_S, DateFilter, SearchableCountrySelect, SH, useSort, DateInput, NumInput } from "./shared";
 import InvoicesPage from "./pages/InvoicesPage";
@@ -57,7 +57,7 @@ const NAV_ITEMS: { id: View; label: string }[] = [
   { id: "documentation", label: "Feeding Records" },
   { id: "reports", label: "Reports" },
   { id: "invoices", label: "Invoices" },
-  { id: "sales_calculator", label: "Sales Calculator" },
+  { id: "sales_calculator", label: "Sales Management" },
   { id: "staff", label: "Staff" },
   { id: "investors", label: "Investors" },
   { id: "equipment", label: "Farm Equipment" },
@@ -72,7 +72,7 @@ function Sidebar({active,onNav,collapsed,onToggle,farms,activeFarmId,onSwitchFar
     {id:"documentation",    icon:BookOpen,        label:"Feeding Records"},
     {id:"reports",          icon:FileText,        label:"Reports"},
     {id:"invoices",         icon:Receipt,         label:"Invoices"},
-    {id:"sales_calculator", icon:Calculator,      label:"Sales Calculator"},
+    {id:"sales_calculator", icon:Calculator,      label:"Sales Management"},
     {id:"staff",            icon:Users,           label:"Staff"},
     {id:"investors",        icon:Landmark,        label:"Investors"},
     {id:"equipment",        icon:Wrench,          label:"Farm Equipment"},
@@ -4511,7 +4511,7 @@ function normalizeViewName(v: string | null | undefined): View | null {
   if (clean === "feed_stock" || clean === "feed_inventory" || clean === "stock") return "inventory";
   if (clean === "feed_records" || clean === "feeding_records" || clean === "feed_doc" || clean === "feeding_doc" || clean === "feeding_documentation") return "documentation";
   if (clean === "pond_management" || clean === "pond" || clean === "ponds_management") return "ponds";
-  if (clean === "sales" || clean === "calculator" || clean === "sales_calc" || clean === "sales_calculator") return "sales_calculator";
+  if (clean === "sales" || clean === "calculator" || clean === "sales_calc" || clean === "sales_calculator" || clean === "sales_management" || clean === "sales-management" || clean === "salesmanagement") return "sales_calculator";
   if (clean === "subscription" || clean === "subscriptions" || clean === "plans" || clean === "pricing_plans") return "pricing";
   if (clean === "staff_assessments" || clean === "assessment" || clean === "candidate_assessment") return "assessments";
   if (clean === "notification" || clean === "notifs") return "notifications";
@@ -4921,6 +4921,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   const [fishCountHistory,setFishCountHistory]=useState<FishCountHistoryEntry[]>(()=>readInit("fish_count_history","fishCountHistory",[]));
   const [investmentHistory,setInvestmentHistory]=useState<InvestmentEditHistoryEntry[]>(()=>readInit("investment_edit_history","investmentEditHistory",[]));
   const [toolQuantityHistory,setToolQuantityHistory]=useState<FarmToolQuantityHistoryEntry[]>(()=>readInit("farm_tool_quantity_history","farmToolQuantityHistory",[]));
+  const [salesCalculations,setSalesCalculations]=useState<SalesCalculation[]>(()=>readInit("sales_calculations","salesCalculations",[]));
   const [settingsTab,setSettingsTab_]=useState<"profile"|"farms"|"referrals">(()=>{
     try {
       const saved = localStorage.getItem("pondtora_settings_tab");
@@ -6604,6 +6605,15 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       setToolQuantityHistory(finalTqh);
     }
 
+    const serverSc: SalesCalculation[] = Array.isArray(d.salesCalculations) ? d.salesCalculations : [];
+    const localSc: SalesCalculation[] = userProfile?.id ? loadUserLocal(userProfile.id, "sales_calculations", "salesCalculations", []) : [];
+    const serverScIds = new Set(serverSc.map(sc => sc.id));
+    const pendingLocalSc = localSc.filter(lsc => lsc?.id && !serverScIds.has(lsc.id) && !isDeletedId(lsc.id));
+    const finalSc = [...serverSc.filter((sc: any) => !isDeletedId(sc.id)), ...pendingLocalSc].map((sc: any) => ({ ...sc, farmId: normFid(sc.farmId) }));
+    if (finalSc.length > 0 || Array.isArray(d.salesCalculations)) {
+      setSalesCalculations(finalSc);
+    }
+
     if (d.knowledgeQuestions?.length > 0) setKQuestions_(d.knowledgeQuestions);
     if (d.compatibilityQuestions?.length > 0) setCQuestions_(d.compatibilityQuestions);
     if (d.knowledgeResults) setKResults_(d.knowledgeResults);
@@ -6726,6 +6736,8 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
         if(cih.length>0)setInvestmentHistory(cih);
         const ctqh=loadUserLocal(uid,"farm_tool_quantity_history","farmToolQuantityHistory",[]);
         if(ctqh.length>0)setToolQuantityHistory(ctqh);
+        const csc=loadUserLocal(uid,"sales_calculations","salesCalculations",[]).filter((x: any) => !isDeletedId(x.id));
+        if(csc.length>0)setSalesCalculations(csc);
       }
     } finally {
       setIsDataLoading(false);
@@ -7834,6 +7846,90 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   );
   const farmPondReports=pondReports.filter(r=>matchesFarm(r.farmId));
   const farmEquipments=farmEquipment.filter(eq=>matchesFarm(eq.farmId));
+  const farmSalesCalculations=salesCalculations.filter(sc=>matchesFarm(sc.farmId));
+
+  const addSalesCalculation = async (sc: SalesCalculation, items?: SalesCalculationItem[]) => {
+    if (!checkSubscriptionActive()) return;
+    const fid = sc.farmId || activeFarmId || farms[0]?.id || "";
+    const nsc = { ...sc, id: isUuid(sc.id) ? sc.id : crypto.randomUUID(), farmId: fid };
+    setSalesCalculations(prev => [nsc, ...prev.filter(x => x.id !== nsc.id)]);
+    if (userProfile?.id) {
+      try {
+        saveUserLocal(userProfile.id, "sales_calculations", "salesCalculations", [nsc, ...salesCalculations.filter(x => x.id !== nsc.id)]);
+      } catch {}
+    }
+    try {
+      await api.salesCalculations.create(nsc, items);
+    } catch (e) {
+      console.warn("Failed to create sales calculation", e);
+    }
+  };
+
+  const editSalesCalculation = async (sc: SalesCalculation) => {
+    if (!checkSubscriptionActive()) return;
+    setSalesCalculations(prev => prev.map(x => x.id === sc.id ? sc : x));
+    if (userProfile?.id) {
+      try {
+        saveUserLocal(userProfile.id, "sales_calculations", "salesCalculations", salesCalculations.map(x => x.id === sc.id ? sc : x));
+      } catch {}
+    }
+    try {
+      await api.salesCalculations.update(sc);
+    } catch (e) {
+      console.warn("Failed to update sales calculation", e);
+    }
+  };
+
+  const deleteSalesCalculation = async (id: string) => {
+    if (!checkSubscriptionActive()) return;
+    const previous = salesCalculations;
+    setSalesCalculations(prev => prev.filter(x => x.id !== id));
+    markDeletedId(id);
+    if (userProfile?.id) {
+      try {
+        saveUserLocal(userProfile.id, "sales_calculations", "salesCalculations", previous.filter(x => x.id !== id));
+      } catch {}
+    }
+    try {
+      await api.salesCalculations.remove(id);
+    } catch (err: any) {
+      console.error("Failed to delete sales calculation:", err);
+      unmarkDeletedId(id);
+      setSalesCalculations(previous);
+      if (userProfile?.id) {
+        try {
+          saveUserLocal(userProfile.id, "sales_calculations", "salesCalculations", previous);
+        } catch {}
+      }
+    }
+  };
+
+  const toggleSalesPaymentStatus = async (sc: SalesCalculation) => {
+    if (!checkSubscriptionActive()) return;
+    const isNowPaid = sc.paymentStatus !== "Paid";
+    const nextStatus: "Paid" | "Unpaid" = isNowPaid ? "Paid" : "Unpaid";
+    const nextAmountPaid = isNowPaid ? sc.totalAmount : 0;
+    const updated: SalesCalculation = {
+      ...sc,
+      paymentStatus: nextStatus,
+      amountPaid: nextAmountPaid,
+      updatedAt: new Date().toISOString()
+    };
+    setSalesCalculations(prev => prev.map(x => x.id === sc.id ? updated : x));
+    if (userProfile?.id) {
+      try {
+        saveUserLocal(userProfile.id, "sales_calculations", "salesCalculations", salesCalculations.map(x => x.id === sc.id ? updated : x));
+      } catch {}
+    }
+    try {
+      await api.salesCalculations.update(updated);
+      if (isNowPaid) {
+        await api.salesCalculations.recordPayment(sc.id, sc.totalAmount, "Cash", userProfile?.name || currentStaff?.name || "Staff");
+      }
+    } catch (e) {
+      console.warn("Failed to update payment status", e);
+    }
+  };
 
   const handleAddInvestor = async (inv: Investor, investment: Investment, payments: InvestmentPayment[]) => {
     if (!checkSubscriptionActive()) return;
@@ -8702,7 +8798,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
                 {active==="inventory"     &&(hasPerm("Feed Stock")?<FeedInventoryPage inventory={farmInventory} onAdd={addInv} onDelete={delInv} feedingRecords={farmFeeding} bagLogs={farmBagLogs} remainLogs={farmRemainLogs} ponds={farmPonds} onEditBagLog={editBagLog} onEditInv={editInv} currency={cs} canEditLocked={isOwner||currentStaff?.role==="Farm Manager"} canCreate={canCreate("Feed Stock")} canEdit={canEdit("Feed Stock")} canDelete={canDelete("Feed Stock")}/>:<AccessDenied/>)}
                 {active==="documentation" &&(hasPerm("Feeding Records")?<FeedDocumentationPage feedingRecords={farmFeeding} onAddRecord={addFeed} onEditFeedRecord={editFeedRecord} onDeleteRecord={deleteFeedRecord} ponds={farmPonds} inventory={farmInventory} bagLogs={farmBagLogs} onAddBagLog={addBagLog} onEditBagLog={editBagLog} onEditInv={editInv} remainLogs={farmRemainLogs} onAddRemainLog={addRemainLog} onEditRemainLog={editRemainLog} onReconMismatches={onReconMismatches} reconFocus={reconFocus} canEditLocked={isOwner||currentStaff?.role==="Farm Manager"} currentUser={{name:currentStaff?.name||userProfile?.name||"",email:userProfile?.email||""}} canCreate={canCreate("Feeding Records")} canEdit={canEdit("Feeding Records")} canDelete={canDelete("Feeding Records")}/>:<AccessDenied/>)}
                 {active==="invoices"      &&(hasPerm("Invoices")||hasPerm("Sales Calculator")?<InvoicesPage ponds={farmPonds} invoices={farmInvoices} customers={farmCustomers} priceGroups={farmPriceGroups} settings={invSettings} onAddInvoice={addInvoice} onEditInvoice={editInvoice} onDeleteInvoice={deleteInvoice} onAddCustomer={addCustomer} onAddPriceGroup={addPriceGroup} onEditPriceGroup={editPriceGroup} onDeletePriceGroup={delPriceGroup} onUpdateSettings={(s)=>{setInvSettings(s);api.invSettings.update(s).catch(console.warn);}} currentUser={userProfile?.name} currency={cs} canCreate={canCreate("Invoices")} canEdit={canEdit("Invoices")} canDelete={canDelete("Invoices")}/>:<AccessDenied/>)}
-                {active==="sales_calculator"&&(hasPerm("Sales Calculator")||hasPerm("Invoices")?<SalesCalculatorPage priceGroups={farmPriceGroups} settings={invSettings} onAddPriceGroup={addPriceGroup} onEditPriceGroup={editPriceGroup} onDeletePriceGroup={delPriceGroup} currency={cs} canCreate={canCreate("Sales Calculator")||canCreate("Invoices")} canEdit={canEdit("Sales Calculator")||canEdit("Invoices")} canDelete={canDelete("Sales Calculator")||canDelete("Invoices")}/>:<AccessDenied/>)}
+                {active==="sales_calculator"&&(hasPerm("Sales Calculator")||hasPerm("Invoices")?<SalesCalculatorPage priceGroups={farmPriceGroups} calculations={farmSalesCalculations} onAddCalculation={addSalesCalculation} onEditCalculation={editSalesCalculation} onDeleteCalculation={deleteSalesCalculation} onTogglePayment={toggleSalesPaymentStatus} settings={invSettings} onAddPriceGroup={addPriceGroup} onEditPriceGroup={editPriceGroup} onDeletePriceGroup={delPriceGroup} currency={cs} activeFarmId={activeFarmId} currentUser={{name:currentStaff?.name||userProfile?.name||"",email:userProfile?.email||""}} canCreate={canCreate("Sales Calculator")||canCreate("Invoices")} canEdit={canEdit("Sales Calculator")||canEdit("Invoices")} canDelete={canDelete("Sales Calculator")||canDelete("Invoices")}/>:<AccessDenied/>)}
                 {active==="staff"         &&(isOwner?<StaffPage staff={staff} onAdd={addStaff} onEdit={editStaff} onDelete={delStaff} farms={farms.filter(f => f.userId === userProfile?.id || isOwner)} activeFarmId={activeFarmId} ownerEmail={userProfile?.email}/>:<AccessDenied/>)}
                 {active==="investors"     &&(hasPerm("Investors")?<InvestorsPage investors={farmInvestors} investments={farmInvestments} payments={farmPayments} farms={farms} ponds={farmPonds} stockEvents={stockEvents} activeFarmId={activeFarmId} currency={cs} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}} isOwner={isOwner} canManage={isOwner||hasPerm("Investors")} investmentHistory={investmentHistory} onRecordInvestmentEditHistory={recordInvestmentEditHistory} onAddInvestor={handleAddInvestor} onEditInvestor={handleEditInvestor} onEditInvestment={handleEditInvestment} onDeleteInvestor={handleDeleteInvestor} onRecordPayment={handleRecordPayment} onMarkPaymentPaid={handleMarkPaymentPaid} canCreate={canCreate("Investors")} canEdit={canEdit("Investors")} canDelete={canDelete("Investors")}/>:<AccessDenied/>)}
                 {active==="equipment"     &&(hasPerm("Farm Equipment")?<FarmEquipmentPage equipment={farmEquipments} toolQuantityHistory={toolQuantityHistory} onRecordToolQuantityHistory={recordToolQuantityHistory} onAdd={handleAddEquipment} onAddEquipment={handleAddEquipment} onEdit={handleEditEquipment} onEditEquipment={handleEditEquipment} onDelete={handleDeleteEquipment} onDeleteEquipment={handleDeleteEquipment} currency={cs} farms={farms} activeFarmId={activeFarmId} canCreate={canCreate("Farm Equipment")} canEdit={canEdit("Farm Equipment")} canDelete={canDelete("Farm Equipment")} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}}/>:<AccessDenied/>)}

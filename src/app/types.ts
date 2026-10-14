@@ -20,6 +20,49 @@ export interface UserProfile  { id?:string; name:string; farmName:string; city:s
 
 export interface StockEvent   { id:string; pondId:string; pondName:string; date:string; species:string; count:number; avgWeight?:number; cost:number; salePrice?:number; type:"Initial"|"Transfer"|"Restock"|"Closed"; fromPond?:string; clearedDate?:string; supplier?:string; farmId?:string; batch?:string; }
 export interface PriceGroup   { id:string; group:string; displayName:string; description:string; pricePerKg:number; status:"Active"|"Inactive"; farmId?:string; }
+export interface SalesCalculationItem {
+  id: string;
+  calculationId?: string;
+  priceGroupId?: string;
+  priceGroupName?: string;
+  priceGroupCode?: string;
+  quantityKg: number;
+  unitPrice: number;
+  subtotal: number;
+  individualDiscountType?: string;
+  individualDiscountValue?: number;
+  individualDiscountAmount?: number;
+  finalAmount: number;
+  createdAt?: string;
+}
+export interface SalesCalculationPayment {
+  id: string;
+  calculationId: string;
+  amount: number;
+  paymentMethod: string;
+  paymentDate: string;
+  recordedBy?: string;
+  createdAt?: string;
+}
+export interface SalesCalculation {
+  id: string;
+  userId?: string;
+  farmId?: string;
+  customerName: string;
+  customerPhone?: string | null;
+  subtotal: number;
+  generalDiscountType?: "general" | "individual";
+  generalDiscountValue?: number;
+  generalDiscountAmount?: number;
+  totalAmount: number;
+  amountPaid: number;
+  paymentStatus: "Paid" | "Unpaid" | "Partially Paid";
+  items?: SalesCalculationItem[];
+  createdBy?: string;
+  createdById?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
 export interface Customer     { id:string; name:string; phone:string; email:string; businessName:string; address:string; farmId?:string; }
 export interface InvSettings  { farmName:string; farmAddress:string; farmPhone:string; farmEmail:string; bankDetails:string; defaultNotes:string; footerMessage:string; taxRate:number; invoicePrefix:string; paymentTerms:string; }
 export interface InvoiceLineItem { id:string; groupId:string; groupLabel:string; displayName:string; qtyKg:number; pricePerKg:number; discount:number; lineTotal:number; }
