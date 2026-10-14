@@ -1006,7 +1006,7 @@ export default function SalesCalculatorPage({
       {/* ── Calculator Modal (Integrated Call-Up Price Calculator) ── */}
       {showCalculatorModal && (
         <Modal
-          title="Sales Calculator & Customer Order"
+          title="Sales Management & Customer Order"
           onClose={() => { if (!isSavingCalc) setShowCalculatorModal(false); }}
           wide
         >

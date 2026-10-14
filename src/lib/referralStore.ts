@@ -40,6 +40,20 @@ export interface ReferredUserRecord {
   commissionBreakdown: string;
 }
 
+export interface ReferralPayoutRecord {
+  id: string;
+  userId?: string;
+  userEmail: string;
+  userName: string;
+  referralCode: string;
+  amount: number;
+  clearedAt: string;
+  clearedBy: string;
+  paymentMethod?: string;
+  notes?: string;
+  status: "Paid" | "Pending" | "Cancelled";
+}
+
 export interface ReferralStats {
   referralCode: string;
   referralLink: string;
@@ -51,6 +65,7 @@ export interface ReferralStats {
   paidOutEarnings: number;
   referredUsers: ReferredUserRecord[];
   rewards: ReferralReward[];
+  payouts?: ReferralPayoutRecord[];
 }
 
 /**
@@ -220,6 +235,153 @@ export function saveAllReferralRewards(rewards: ReferralReward[]) {
       }, { onConflict: "key" })
       .then(() => {}, () => {});
   } catch {}
+}
+
+const REFERRAL_PAYOUTS_STORAGE_KEY = "pondtora_referral_payouts";
+
+/**
+ * Loads all stored referral clearance/payout history records
+ */
+export function loadAllReferralPayouts(): ReferralPayoutRecord[] {
+  try {
+    const raw = localStorage.getItem(REFERRAL_PAYOUTS_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        return parsed.filter(p => p && typeof p === "object" && typeof p.amount === "number");
+      }
+    }
+  } catch {}
+  return [];
+}
+
+/**
+ * Saves referral clearance/payout history records to local storage and Supabase
+ */
+export function saveAllReferralPayouts(payouts: ReferralPayoutRecord[]) {
+  try {
+    localStorage.setItem(REFERRAL_PAYOUTS_STORAGE_KEY, JSON.stringify(payouts));
+    window.dispatchEvent(new CustomEvent("pondtora:referrals_updated"));
+    window.dispatchEvent(new CustomEvent("pondtora:payouts_updated", { detail: payouts }));
+  } catch {}
+
+  // Asynchronously persist to Supabase platform_settings as central admin payouts backup
+  try {
+    supabase
+      .from("platform_settings")
+      .upsert({
+        key: "admin_referral_payouts",
+        value: payouts,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "key" })
+      .then(() => {}, () => {});
+  } catch {}
+}
+
+/**
+ * Fetches latest clearance history from Supabase referral_payouts and platform_settings
+ */
+export async function fetchRemoteReferralPayouts(): Promise<ReferralPayoutRecord[]> {
+  let remotePayouts: ReferralPayoutRecord[] = [];
+
+  // 1. Try querying public.referral_payouts table
+  try {
+    const { data, error } = await supabase
+      .from("referral_payouts")
+      .select("*")
+      .order("cleared_at", { ascending: false });
+
+    if (!error && Array.isArray(data) && data.length > 0) {
+      remotePayouts = data.map((row: any) => ({
+        id: row.id,
+        userId: row.user_id,
+        userEmail: (row.user_email || "").toLowerCase().trim(),
+        userName: row.user_name || "",
+        referralCode: (row.referral_code || "").toUpperCase().trim(),
+        amount: Number(row.amount) || 0,
+        clearedAt: row.cleared_at || row.created_at || new Date().toISOString(),
+        clearedBy: row.cleared_by || "Admin",
+        paymentMethod: row.payment_method || "Bank Transfer",
+        notes: row.notes || "Settled referral balance payout",
+        status: (row.status === "Pending" ? "Pending" : (row.status === "Cancelled" ? "Cancelled" : "Paid")),
+      }));
+    }
+  } catch {}
+
+  // 2. Fallback / merge with platform_settings.admin_referral_payouts
+  try {
+    const { data: setRes } = await supabase
+      .from("platform_settings")
+      .select("value")
+      .eq("key", "admin_referral_payouts")
+      .maybeSingle();
+
+    if (setRes?.value && Array.isArray(setRes.value)) {
+      const seenIds = new Set(remotePayouts.map(p => p.id));
+      setRes.value.forEach((p: any) => {
+        if (p && p.id && !seenIds.has(p.id)) {
+          remotePayouts.push(p);
+          seenIds.add(p.id);
+        }
+      });
+    }
+  } catch {}
+
+  // Merge with local payouts
+  const localPayouts = loadAllReferralPayouts();
+  const seenIds = new Set(remotePayouts.map(p => p.id));
+  localPayouts.forEach(lp => {
+    if (lp && lp.id && !seenIds.has(lp.id)) {
+      remotePayouts.push(lp);
+      seenIds.add(lp.id);
+    }
+  });
+
+  // Sort descending by date
+  remotePayouts.sort((a, b) => new Date(b.clearedAt).getTime() - new Date(a.clearedAt).getTime());
+
+  try {
+    localStorage.setItem(REFERRAL_PAYOUTS_STORAGE_KEY, JSON.stringify(remotePayouts));
+  } catch {}
+
+  return remotePayouts;
+}
+
+/**
+ * Gets clearance history for a specific user
+ */
+export function getUserReferralPayouts(user: { id?: string; name?: string; email?: string; referralCode?: string } | null): ReferralPayoutRecord[] {
+  if (!user) return [];
+  const cleanCode = (user.referralCode || "").toUpperCase().trim();
+  const cleanEmail = (user.email || "").toLowerCase().trim();
+  const cleanId = (user.id || "").trim().toLowerCase();
+
+  const allPayouts = loadAllReferralPayouts();
+  return allPayouts.filter(p => {
+    const pEmail = (p.userEmail || "").toLowerCase().trim();
+    const pCode = (p.referralCode || "").toUpperCase().trim();
+    const pId = (p.userId || "").trim().toLowerCase();
+    return (
+      (cleanCode && pCode === cleanCode) ||
+      (cleanEmail && pEmail === cleanEmail) ||
+      (cleanId && pId === cleanId)
+    );
+  }).sort((a, b) => new Date(b.clearedAt).getTime() - new Date(a.clearedAt).getTime());
+}
+
+/**
+ * Deletes or cancels a clearance record
+ */
+export async function deleteReferralPayout(payoutId: string): Promise<boolean> {
+  const allPayouts = loadAllReferralPayouts();
+  const filtered = allPayouts.filter(p => p.id !== payoutId);
+  saveAllReferralPayouts(filtered);
+
+  try {
+    await supabase.from("referral_payouts").delete().eq("id", payoutId);
+  } catch {}
+
+  return true;
 }
 
 export interface ReferralRegistryEntry {
@@ -1084,9 +1246,18 @@ export function getUserReferralStats(user: { id?: string; name?: string; email?:
     .filter(u => u.hasPaid && myRewards.every(r => (r.referredUserEmail || "").toLowerCase().trim() !== (u.email || "").toLowerCase().trim()))
     .reduce((sum, u) => sum + (u.totalCommission || 0), 0);
   const totalEarnings = rewardTotalEarnings + registryExtraEarnings;
-  const paidOutEarnings = myRewards
+
+  // Retrieve user clearance payouts
+  const userPayouts = getUserReferralPayouts({ id: userId, email: cleanEmail, referralCode: cleanCode });
+  const totalPayoutHistorySum = userPayouts
+    .filter(p => p.status === "Paid")
+    .reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+
+  const rewardPaidSum = myRewards
     .filter(r => r.status === "Paid")
     .reduce((sum, r) => sum + (r.commissionAmount || 0), 0);
+
+  const paidOutEarnings = Math.max(totalPayoutHistorySum, rewardPaidSum);
   const availableEarnings = Math.max(0, totalEarnings - paidOutEarnings);
 
   return {
@@ -1100,6 +1271,7 @@ export function getUserReferralStats(user: { id?: string; name?: string; email?:
     paidOutEarnings,
     referredUsers,
     rewards: myRewards,
+    payouts: userPayouts,
   };
 }
 
@@ -1626,6 +1798,10 @@ export async function fetchLiveUserReferralStats(user: { id?: string; name?: str
     if (hasChanges) {
       saveAllAdminUsers(allLocalUsers);
     }
+
+    try {
+      await fetchRemoteReferralPayouts();
+    } catch {}
   } catch (err) {
     console.warn("Live referral fetch from Supabase:", err);
   }
@@ -1636,24 +1812,33 @@ export async function fetchLiveUserReferralStats(user: { id?: string; name?: str
 /**
  * Admin action: marks rewards as paid out to the user and clears their available balance
  */
-export async function clearUserReferralBalance(referrerCodeOrEmail: string, referrerId?: string): Promise<{ count: number; amount: number }> {
+/**
+ * Admin action: marks rewards as paid out to the user and clears their available balance
+ * Automatically creates a clearance history payout record, saves to Supabase, and updates balance to ₦0
+ */
+export async function clearUserReferralBalance(
+  referrerCodeOrEmail: string,
+  referrerId?: string,
+  adminIdentifier?: string,
+  explicitAmount?: number
+): Promise<{ count: number; amount: number; payout?: ReferralPayoutRecord }> {
   const clean = referrerCodeOrEmail.trim().toUpperCase();
   const cleanEmail = referrerCodeOrEmail.toLowerCase().trim();
   const cleanId = (referrerId || "").trim().toLowerCase();
   const allRewards = loadAllReferralRewards();
 
   let count = 0;
-  let amount = 0;
+  let rewardSum = 0;
   const todayStr = new Date().toISOString().slice(0, 10);
 
-  const updated = allRewards.map(r => {
+  const updatedRewards = allRewards.map(r => {
     const matchCode = (r.referrerCode || "").toUpperCase() === clean;
     const matchEmail = (r.referrerEmail || "").toLowerCase().trim() === cleanEmail;
     const matchId = cleanId && (r.referredUserId || "").toLowerCase() === cleanId;
 
     if ((matchCode || matchEmail || matchId) && r.status === "Available") {
       count++;
-      amount += (r.commissionAmount || 0);
+      rewardSum += (r.commissionAmount || 0);
       return {
         ...r,
         status: "Paid" as const,
@@ -1663,40 +1848,104 @@ export async function clearUserReferralBalance(referrerCodeOrEmail: string, refe
     return r;
   });
 
-  if (count > 0) {
-    saveAllReferralRewards(updated);
-    
-    // 1. Update Supabase via clear_user_referral_balance RPC
-    try {
-      await supabase.rpc("clear_user_referral_balance", {
-        p_referrer_code: clean,
-        p_referrer_email: cleanEmail,
-      });
-    } catch {}
+  // Calculate user's live stats
+  const allUsers = loadAllAdminUsers();
+  const targetUser = allUsers.find(u => 
+    (cleanId && u.id && u.id.toLowerCase() === cleanId) ||
+    (cleanEmail && (u.email || "").toLowerCase().trim() === cleanEmail) ||
+    ((u as any).referralCode && String((u as any).referralCode).toUpperCase().trim() === clean)
+  );
 
-    // 2. Fallback direct table update on Supabase referral_rewards table
-    try {
-      await supabase
-        .from("referral_rewards")
-        .update({ status: "Paid", paid_date: new Date().toISOString() })
-        .or(`referrer_code.ilike.${clean},referrer_email.ilike.${cleanEmail}`)
-        .eq("status", "Available");
-    } catch {}
+  const stats = getUserReferralStats(targetUser || { id: cleanId, email: cleanEmail, referralCode: clean });
+  const finalClearAmount = (typeof explicitAmount === "number" && explicitAmount > 0)
+    ? explicitAmount
+    : (rewardSum > 0 ? rewardSum : stats.availableEarnings);
 
-    logActivity(
-      "Referral Payout Cleared",
-      "system",
-      `Paid out ₦${amount.toLocaleString()} (${count} rewards) to ${referrerCodeOrEmail}`,
-      "admin"
-    );
-
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(new CustomEvent("pondtora:referrals_updated"));
-      window.dispatchEvent(new CustomEvent("pondtora:users_updated"));
-    }
+  if (finalClearAmount <= 0 && count === 0) {
+    return { count: 0, amount: 0 };
   }
 
-  return { count, amount };
+  // Save updated rewards
+  saveAllReferralRewards(updatedRewards);
+
+  // Generate unique ID and create clearance record
+  const payoutId = "payout-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8);
+  const payoutRecord: ReferralPayoutRecord = {
+    id: payoutId,
+    userId: targetUser?.id || (cleanId ? cleanId : undefined),
+    userEmail: targetUser?.email || cleanEmail,
+    userName: targetUser?.name || cleanEmail.split("@")[0] || "Farmer",
+    referralCode: clean || stats.referralCode,
+    amount: finalClearAmount,
+    clearedAt: new Date().toISOString(),
+    clearedBy: adminIdentifier || "Admin",
+    paymentMethod: "Bank Transfer",
+    notes: "Settled referral balance payout (Bank Transfer)",
+    status: "Paid",
+  };
+
+  // Prepend to payouts ledger and persist
+  const allPayouts = loadAllReferralPayouts();
+  const updatedPayouts = [payoutRecord, ...allPayouts.filter(p => p.id !== payoutRecord.id)];
+  saveAllReferralPayouts(updatedPayouts);
+
+  // 1. Update Supabase via clear_user_referral_balance RPC
+  try {
+    await supabase.rpc("clear_user_referral_balance", {
+      p_referrer_code: clean,
+      p_referrer_email: cleanEmail,
+      p_user_id: targetUser?.id || (cleanId ? cleanId : null),
+      p_user_name: targetUser?.name || cleanEmail,
+      p_amount: finalClearAmount,
+      p_cleared_by: adminIdentifier || "Admin",
+      p_notes: "Settled referral balance payout (Bank Transfer)",
+    });
+  } catch {}
+
+  // 2. Direct table insert to referral_payouts table in Supabase
+  try {
+    await supabase.from("referral_payouts").insert({
+      id: /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(payoutRecord.id)
+        ? payoutRecord.id
+        : undefined,
+      user_id: targetUser?.id && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(targetUser.id)
+        ? targetUser.id
+        : null,
+      user_email: payoutRecord.userEmail,
+      user_name: payoutRecord.userName,
+      referral_code: payoutRecord.referralCode,
+      amount: payoutRecord.amount,
+      cleared_at: payoutRecord.clearedAt,
+      cleared_by: payoutRecord.clearedBy,
+      payment_method: payoutRecord.paymentMethod,
+      notes: payoutRecord.notes,
+      status: "Paid",
+    });
+  } catch {}
+
+  // 3. Fallback direct table update on Supabase referral_rewards table
+  try {
+    await supabase
+      .from("referral_rewards")
+      .update({ status: "Paid", paid_date: new Date().toISOString() })
+      .or(`referrer_code.ilike.${clean},referrer_email.ilike.${cleanEmail}`)
+      .eq("status", "Available");
+  } catch {}
+
+  logActivity(
+    "Referral Payout Cleared",
+    adminIdentifier || "admin",
+    `Paid out ₦${finalClearAmount.toLocaleString()} to ${targetUser?.name || cleanEmail}`,
+    "admin"
+  );
+
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("pondtora:referrals_updated"));
+    window.dispatchEvent(new CustomEvent("pondtora:payouts_updated", { detail: updatedPayouts }));
+    window.dispatchEvent(new CustomEvent("pondtora:users_updated"));
+  }
+
+  return { count: Math.max(count, 1), amount: finalClearAmount, payout: payoutRecord };
 }
 
 /**

@@ -11,7 +11,7 @@ import type { AdminUser, AdminPlan, AccountStatus } from "../types";
 import { fmtDate, trialDaysLeft, fmtMoney, computeSubscriptionStatus, effectivePrice } from "../types";
 import { supabase } from "../../lib/supabase";
 import { isStaffUser } from "../../lib/userSync";
-import { getUserReferralStats, markReferralRewardsPaid, clearUserReferralBalance, syncReferralOnUserPayment } from "../../lib/referralStore";
+import { getUserReferralStats, markReferralRewardsPaid, clearUserReferralBalance, syncReferralOnUserPayment, deleteReferralPayout, type ReferralPayoutRecord, type ReferralStats } from "../../lib/referralStore";
 import { toast } from "sonner";
 
 function getWhatsAppUrl(phone?: string, name?: string): string | null {
@@ -352,6 +352,134 @@ interface ActiveMenu {
   right: number;
 }
 
+function ClearanceHistorySection({
+  payouts,
+  paidOutEarnings,
+  onDeletePayout,
+}: {
+  payouts?: ReferralPayoutRecord[];
+  paidOutEarnings: number;
+  onDeletePayout?: (id: string) => void;
+}) {
+  const [expanded, setExpanded] = useState(true);
+
+  return (
+    <div className="mt-3.5 pt-3 border-t border-slate-100">
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-1.5">
+          <Clock size={13} className="text-amber-600" />
+          <h4 className="text-[11px] font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+            Clearance History
+            {payouts && payouts.length > 0 && (
+              <span className="bg-emerald-100 text-emerald-800 text-[10px] font-extrabold px-1.5 py-0.2 rounded-full font-mono">
+                {payouts.length}
+              </span>
+            )}
+          </h4>
+        </div>
+        <div className="flex items-center gap-2">
+          {paidOutEarnings > 0 && (
+            <span className="text-[11px] font-semibold text-slate-500">
+              Total Settled: <strong className="text-emerald-700 font-bold font-mono">₦{paidOutEarnings.toLocaleString()}</strong>
+            </span>
+          )}
+          {payouts && payouts.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setExpanded(!expanded)}
+              className="text-[11px] text-slate-400 hover:text-slate-600 font-medium ml-1"
+            >
+              {expanded ? "Hide" : "Show"}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {!payouts || payouts.length === 0 ? (
+        <div className="bg-slate-50/70 border border-dashed border-slate-200 rounded-xl p-3 text-center">
+          <p className="text-xs font-semibold text-slate-600">No clearance history yet</p>
+          <p className="text-[10px] text-slate-400 mt-0.5">
+            When you click &ldquo;Clear Balance (Paid)&rdquo;, payouts will be recorded here with settlement timestamps and audit trails.
+          </p>
+        </div>
+      ) : (
+        expanded && (
+          <div className="border border-slate-200 rounded-xl overflow-hidden shadow-2xs divide-y divide-slate-100 bg-white">
+            <div className="bg-slate-50/80 px-3 py-1.5 grid grid-cols-12 gap-2 text-[10px] font-bold uppercase text-slate-400 tracking-wider">
+              <span className="col-span-4 sm:col-span-3">Date & Time</span>
+              <span className="col-span-3 sm:col-span-2 text-right">Amount</span>
+              <span className="col-span-2 text-center hidden sm:block">Method</span>
+              <span className="col-span-2 hidden sm:block">Cleared By</span>
+              <span className="col-span-3 sm:col-span-2 text-center">Status</span>
+              <span className="col-span-2 sm:col-span-1 text-center">Action</span>
+            </div>
+            {payouts.map((p) => {
+              const formattedDate = (() => {
+                try {
+                  const d = new Date(p.clearedAt);
+                  return d.toLocaleDateString("en-GB", {
+                    day: "2-digit",
+                    month: "short",
+                    year: "numeric",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  });
+                } catch {
+                  return p.clearedAt;
+                }
+              })();
+
+              return (
+                <div key={p.id} className="px-3 py-2 grid grid-cols-12 gap-2 items-center text-xs hover:bg-slate-50/60 transition-colors">
+                  <div className="col-span-4 sm:col-span-3 min-w-0">
+                    <span className="font-semibold text-slate-700 text-[11px] block truncate">
+                      {formattedDate}
+                    </span>
+                    {p.notes && (
+                      <span className="text-[10px] text-slate-400 block truncate" title={p.notes}>
+                        {p.notes}
+                      </span>
+                    )}
+                  </div>
+                  <div className="col-span-3 sm:col-span-2 text-right font-bold text-emerald-700 font-mono text-xs">
+                    ₦{p.amount.toLocaleString()}
+                  </div>
+                  <div className="col-span-2 text-center hidden sm:block">
+                    <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-blue-50 text-blue-700 border border-blue-200">
+                      {p.paymentMethod || "Bank Transfer"}
+                    </span>
+                  </div>
+                  <div className="col-span-2 truncate text-[11px] text-slate-600 hidden sm:block">
+                    {p.clearedBy || "Admin"}
+                  </div>
+                  <div className="col-span-3 sm:col-span-2 text-center">
+                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                      <CheckCircle size={10} className="text-emerald-600" />
+                      {p.status || "Paid"}
+                    </span>
+                  </div>
+                  <div className="col-span-2 sm:col-span-1 text-center">
+                    {onDeletePayout && (
+                      <button
+                        type="button"
+                        onClick={() => onDeletePayout(p.id)}
+                        className="text-slate-300 hover:text-red-600 p-1 rounded hover:bg-red-50 transition-colors"
+                        title="Remove clearance record (reverts available balance)"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )
+      )}
+    </div>
+  );
+}
+
 export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onExportCSV, onRefresh, isRefreshing }: Props) {
   const [q, setQ] = useState("");
   const [filterStatus, setFilterStatus] = useState("All");
@@ -367,6 +495,39 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
   const [form, setForm] = useState<Partial<AdminUser>>({ ...BLANK });
   const [fErr, setFErr] = useState<Record<string, string>>({});
   const [farmerDataTab, setFarmerDataTab] = useState<"summary" | "referrals" | "ponds" | "feed" | "finance" | "staff" | "farms">("summary");
+  const [referralRefreshNonce, setReferralRefreshNonce] = useState(0);
+
+  useEffect(() => {
+    const onRefUpdated = () => setReferralRefreshNonce(n => n + 1);
+    window.addEventListener("pondtora:referrals_updated", onRefUpdated);
+    window.addEventListener("pondtora:payouts_updated", onRefUpdated);
+    return () => {
+      window.removeEventListener("pondtora:referrals_updated", onRefUpdated);
+      window.removeEventListener("pondtora:payouts_updated", onRefUpdated);
+    };
+  }, []);
+
+  const handleClearReferralBalance = async (rStats: ReferralStats) => {
+    if (!viewUser) return;
+    if (window.confirm(`Clear available referral balance of ₦${rStats.availableEarnings.toLocaleString()} for ${viewUser.name || viewUser.email} (paid via bank transfer)?`)) {
+      const res = await clearUserReferralBalance(
+        rStats.referralCode || viewUser.email || "",
+        viewUser.id,
+        "Admin",
+        rStats.availableEarnings
+      );
+      setReferralRefreshNonce(n => n + 1);
+      toast.success(`Cleared ₦${res.amount.toLocaleString()} available referral balance and recorded clearance history!`);
+    }
+  };
+
+  const handleDeleteReferralPayout = async (payoutId: string) => {
+    if (window.confirm("Are you sure you want to delete this clearance record? This will revert the cleared amount back to Available Payout.")) {
+      await deleteReferralPayout(payoutId);
+      setReferralRefreshNonce(n => n + 1);
+      toast.success("Clearance record removed and balance reverted.");
+    }
+  };
 
   const [userExtra, setUserExtra] = useState<{
     loading: boolean;
@@ -1708,22 +1869,30 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                                 ₦{rStats.availableEarnings.toLocaleString()}
                               </p>
                             </div>
-                            {rStats.availableEarnings > 0 && (
+                            {rStats.availableEarnings > 0 ? (
                               <button
                                 onClick={async (e) => {
                                   e.stopPropagation();
-                                  if (window.confirm(`Clear available referral balance of ₦${rStats.availableEarnings.toLocaleString()} for ${viewUser.name || viewUser.email} (paid via bank transfer)?`)) {
-                                    const res = await clearUserReferralBalance(rStats.referralCode || viewUser.email || "", viewUser.id);
-                                    toast.success(`Cleared ₦${res.amount.toLocaleString()} available referral balance!`);
-                                  }
+                                  await handleClearReferralBalance(rStats);
                                 }}
                                 className="mt-1.5 w-full py-1 px-1.5 bg-amber-600 hover:bg-amber-700 text-white font-bold text-[10px] rounded-lg transition-colors shadow-xs"
                               >
                                 Clear Balance (Paid)
                               </button>
+                            ) : (
+                              <div className="mt-1.5 py-0.5 px-1.5 bg-slate-100/90 rounded text-[10px] font-semibold text-slate-500">
+                                Settled (₦0)
+                              </div>
                             )}
                           </div>
                         </div>
+
+                        {/* Clearance History Table (Directly below the 4 referral cards) */}
+                        <ClearanceHistorySection
+                          payouts={rStats.payouts}
+                          paidOutEarnings={rStats.paidOutEarnings}
+                          onDeletePayout={handleDeleteReferralPayout}
+                        />
                       </div>
                     );
                   })()}
@@ -1782,21 +1951,29 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                                 </p>
                               )}
                             </div>
-                            {rStats.availableEarnings > 0 && (
+                            {rStats.availableEarnings > 0 ? (
                               <button
                                 onClick={async () => {
-                                  if (window.confirm(`Confirm payment of ₦${rStats.availableEarnings.toLocaleString()} to ${viewUser.name || viewUser.email} via bank transfer and clear their available balance?`)) {
-                                    const res = await clearUserReferralBalance(rStats.referralCode || viewUser.email || "", viewUser.id);
-                                    toast.success(`Cleared ₦${res.amount.toLocaleString()} (${res.count} reward${res.count !== 1 ? "s" : ""}) available referral balance!`);
-                                  }
+                                  await handleClearReferralBalance(rStats);
                                 }}
                                 className="mt-2 w-full py-1.5 px-2 bg-amber-600 hover:bg-amber-700 text-white font-bold text-[11px] rounded-lg transition-colors shadow-xs flex items-center justify-center gap-1"
                               >
                                 <CheckCircle size={12} /> Clear Balance (Mark Paid)
                               </button>
+                            ) : (
+                              <div className="mt-2 py-1 px-2 bg-slate-100 text-slate-500 font-semibold text-[11px] rounded-lg text-center">
+                                All Commissions Settled (₦0 Available)
+                              </div>
                             )}
                           </div>
                         </div>
+
+                        {/* Clearance History Table in Referrals Tab */}
+                        <ClearanceHistorySection
+                          payouts={rStats.payouts}
+                          paidOutEarnings={rStats.paidOutEarnings}
+                          onDeletePayout={handleDeleteReferralPayout}
+                        />
 
                         {/* Referral Link Quick Copy Box */}
                         <div className="bg-slate-50 border border-slate-200 p-3 rounded-xl flex items-center justify-between gap-3">
