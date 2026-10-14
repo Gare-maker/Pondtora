@@ -8823,7 +8823,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
               document.documentElement.scrollTo({ top: 0, behavior: "smooth" });
             }}
             aria-label="Scroll to top"
-            className="fixed bottom-6 lg:bottom-8 left-1/2 -translate-x-1/2 z-50 bg-emerald-600 hover:bg-emerald-700 active:scale-90 text-white w-12 h-12 rounded-full shadow-2xl border-2 border-white ring-4 ring-emerald-500/20 flex items-center justify-center transition-all duration-300 animate-in fade-in zoom-in-95 cursor-pointer"
+            className="fixed bottom-6 lg:bottom-8 left-1/2 -translate-x-1/2 z-30 bg-emerald-600 hover:bg-emerald-700 active:scale-90 text-white w-12 h-12 rounded-full shadow-2xl border-2 border-white ring-4 ring-emerald-500/20 flex items-center justify-center transition-all duration-300 animate-in fade-in zoom-in-95 cursor-pointer"
             title="Scroll to top"
           >
             <ChevronUp size={24} strokeWidth={3} className="text-white drop-shadow-xs" />
