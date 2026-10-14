@@ -32,8 +32,23 @@ function toLocalYMD(dateVal: string | Date | undefined): string {
   return `${y}-${m}-${day}`;
 }
 
-// Helper to format date for display e.g. "14 Oct 2026"
-function formatReadableDate(ymd: string): string {
+// Helper to format date for short display e.g. "Oct 14" (matching Feeding Records)
+function formatShortDate(ymd: string | null | undefined): string {
+  if (!ymd || ymd === "All") return "All Dates";
+  const parts = ymd.split("-");
+  if (parts.length === 3) {
+    const y = parts[0];
+    const mIdx = parseInt(parts[1], 10) - 1;
+    const d = parseInt(parts[2], 10);
+    const curYear = new Date().getFullYear();
+    const mon = MON_NAMES[mIdx] || parts[1];
+    return Number(y) === curYear ? `${mon} ${d}` : `${mon} ${d}, ${y}`;
+  }
+  return ymd;
+}
+
+// Helper to format date for full display e.g. "14 Oct 2026"
+function formatReadableDate(ymd: string | null | undefined): string {
   if (!ymd || ymd === "All") return "All dates";
   const parts = ymd.split("-");
   if (parts.length === 3) {
@@ -111,7 +126,7 @@ export default function SalesCalculatorPage({
 
   // ── Date Filtering (Feeding Records Style Calendar) ──
   const todayYMD = toLocalYMD(new Date());
-  const [selectedDate, setSelectedDate] = useState<string | null>(null); // null = "All"
+  const [selectedDate, setSelectedDate] = useState<string | null>(todayYMD); // Default to today e.g. "2026-10-14"
   const [showCalDropdown, setShowCalDropdown] = useState(false);
 
   // Calendar View month/year navigation
@@ -491,84 +506,48 @@ export default function SalesCalculatorPage({
   return (
     <div className="p-4 sm:p-6 space-y-5 w-full max-w-6xl mx-auto pb-24 sm:pb-12">
       {/* ── Top Header Bar ── */}
-      <div className="lg:sticky lg:top-0 lg:z-30 lg:bg-[#f5f7fa] lg:-mx-6 lg:-mt-6 lg:px-6 lg:py-4 flex flex-wrap items-center justify-between gap-3 border-b border-slate-200/60 pb-3">
-        <div>
-          <h1 className="text-xl sm:text-2xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] tracking-tight flex items-center gap-2">
-            <Calculator className="text-green-600 shrink-0" size={24} />
-            Sales Management
-          </h1>
-          <p className="text-xs text-slate-500 mt-0.5">Calculate purchases, save customer details, track payments, and monitor sales totals.</p>
-        </div>
+      <div className="lg:sticky lg:top-0 lg:z-30 lg:bg-[#f5f7fa] lg:-mx-6 lg:-mt-6 lg:px-6 lg:py-4 space-y-2.5">
+        {/* Top Row: Title + Date Selector (Top Right, matching Feeding Records exactly) */}
+        <div className="flex items-start justify-between gap-2.5 sm:gap-4">
+          <div className="min-w-0 flex-1">
+            <h1 className="text-xl sm:text-2xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] tracking-tight">
+              Sales Management
+            </h1>
+            <p className="text-xs text-slate-400 mt-0.5 leading-tight break-words">
+              Calculate purchases, save customer details, track payments, and monitor sales totals.
+            </p>
+          </div>
 
-        {/* 2 Primary Action Buttons */}
-        <div className="flex flex-wrap items-center gap-2">
-          {/* Button 1: Update Price Groups */}
-          <PBtn
-            sm
-            outline
-            onClick={() => { setShowGroupsPanel(true); setGroupFormMode(false); setEditGroup(null); }}
-          >
-            <Tag size={13} /> Update Price Groups ({activePriceGroups.length})
-          </PBtn>
-
-          {/* Button 2: Calculator */}
-          {canCreate && (
-            <PBtn sm onClick={() => setShowCalculatorModal(true)}>
-              <Calculator size={13} /> Calculator
-            </PBtn>
-          )}
-        </div>
-      </div>
-
-      {/* ── Date Filter Bar (Feeding Records Calendar Style) ── */}
-      <div className="bg-white border border-slate-200/80 rounded-2xl p-3 sm:p-3.5 shadow-2xs flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wide flex items-center gap-1.5 mr-1">
-            <CalendarIcon size={13} className="text-green-600" /> Filter Date:
-          </span>
-
-          {/* All Dates Button */}
-          <button
-            type="button"
-            onClick={() => { setSelectedDate(null); setShowCalDropdown(false); }}
-            className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
-              selectedDate === null || selectedDate === "All"
-                ? "bg-green-600 text-white shadow-xs font-bold"
-                : "bg-slate-100 text-slate-600 hover:bg-slate-200/80"
-            }`}
-          >
-            All Dates
-          </button>
-
-          {/* Select Date Calendar Trigger */}
-          <div className="relative">
+          {/* Date selector (Top Right) */}
+          <div className="shrink-0 relative">
             <button
               type="button"
               onClick={() => setShowCalDropdown(p => !p)}
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all border ${
-                selectedDate && selectedDate !== "All"
-                  ? "bg-orange-50 border-orange-300 text-orange-800 shadow-2xs"
-                  : "bg-white border-slate-200 text-slate-700 hover:border-green-400"
-              }`}
+              className="flex items-center gap-2 sm:gap-2.5 px-3 sm:px-3.5 py-2 bg-white border border-slate-200 rounded-xl shadow-xs hover:border-green-400 hover:shadow-sm transition-all text-slate-800"
             >
-              <CalendarIcon size={13} className={selectedDate ? "text-orange-600" : "text-slate-400"} />
-              <span>{selectedDate && selectedDate !== "All" ? formatReadableDate(selectedDate) : "Select Date"}</span>
-              <ChevronDown size={13} className={`text-slate-400 transition-transform ${showCalDropdown ? "rotate-180" : ""}`} />
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-green-500 shrink-0">
+                <rect x="3" y="4" width="18" height="18" rx="2" />
+                <path d="M16 2v4M8 2v4M3 10h18" />
+              </svg>
+              <span className="font-['Barlow_Condensed',sans-serif] text-sm sm:text-base font-bold tracking-tight whitespace-nowrap">
+                {formatShortDate(selectedDate)}
+              </span>
+              <ChevronDown size={14} className={`text-slate-400 transition-transform ${showCalDropdown ? "rotate-180" : ""}`} />
             </button>
 
             {/* Calendar Dropdown Popover */}
             {showCalDropdown && (
               <>
                 <div className="fixed inset-0 z-30" onClick={() => setShowCalDropdown(false)} />
-                <div className="absolute left-0 sm:left-auto sm:right-0 top-full mt-2 z-40 bg-white border border-slate-200 rounded-2xl shadow-xl p-4 w-[280px] animate-in fade-in zoom-in-95 duration-100">
+                <div className="absolute right-0 top-full mt-2 z-40 bg-white border border-slate-200 rounded-2xl shadow-xl p-4 w-[280px]">
                   <div className="flex items-center justify-between mb-3">
-                    <button onClick={() => navMonth(-1)} className="p-1.5 rounded-lg hover:bg-slate-100 transition-colors text-slate-500">
+                    <button type="button" onClick={() => navMonth(-1)} className="p-1.5 rounded-lg hover:bg-slate-100 transition-colors text-slate-500">
                       <ChevronLeft size={15}/>
                     </button>
                     <span className="text-sm font-bold text-slate-800 font-['Barlow_Condensed',sans-serif] tracking-wide">
                       {curMonLabel} {viewYear}
                     </span>
-                    <button onClick={() => navMonth(1)} className="p-1.5 rounded-lg hover:bg-slate-100 transition-colors text-slate-500">
+                    <button type="button" onClick={() => navMonth(1)} className="p-1.5 rounded-lg hover:bg-slate-100 transition-colors text-slate-500">
                       <ChevronRight size={15}/>
                     </button>
                   </div>
@@ -605,7 +584,7 @@ export default function SalesCalculatorPage({
                         >
                           {day}
                           {hasRec && !isSel && (
-                            <span className="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-orange-500" />
+                            <span className="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full" style={{ backgroundColor: "#F97316" }} />
                           )}
                         </button>
                       );
@@ -615,19 +594,33 @@ export default function SalesCalculatorPage({
                   <div className="mt-3 pt-3 border-t border-slate-100 space-y-2">
                     <div className="flex items-center justify-between text-[11px] text-slate-400">
                       <span className="flex items-center gap-1.5">
-                        <span className="w-2 h-2 rounded-full bg-orange-500 inline-block" />Has records
+                        <span className="w-2 h-2 rounded-full inline-block" style={{ backgroundColor: "#F97316" }} />Has records
                       </span>
                       <span className="flex items-center gap-1.5">
                         <span className="w-2.5 h-2.5 rounded-full bg-green-600 inline-block" />Selected
                       </span>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => { setSelectedDate(null); setShowCalDropdown(false); }}
-                      className="w-full text-center py-1.5 text-xs font-semibold text-green-700 bg-green-50 hover:bg-green-100 rounded-lg transition-colors"
-                    >
-                      Reset to All Dates
-                    </button>
+                    <div className="flex items-center gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedDate(todayYMD);
+                          setViewYear(initialDateObj.getFullYear());
+                          setViewMonth(initialDateObj.getMonth());
+                          setShowCalDropdown(false);
+                        }}
+                        className="flex-1 text-center py-1.5 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
+                      >
+                        Today
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setSelectedDate(null); setShowCalDropdown(false); }}
+                        className="flex-1 text-center py-1.5 text-xs font-semibold text-green-700 bg-green-50 hover:bg-green-100 rounded-lg transition-colors"
+                      >
+                        All Dates
+                      </button>
+                    </div>
                   </div>
                 </div>
               </>
@@ -635,26 +628,48 @@ export default function SalesCalculatorPage({
           </div>
         </div>
 
-        {/* Selected Date Context Tag */}
-        {selectedDate && selectedDate !== "All" && (
-          <div className="inline-flex items-center gap-1.5 bg-orange-50 border border-orange-200 text-orange-800 px-2.5 py-1 rounded-xl text-xs font-medium">
-            <span>Filtered: <strong>{formatReadableDate(selectedDate)}</strong></span>
-            <button
-              onClick={() => setSelectedDate(null)}
-              className="text-orange-500 hover:text-orange-800 rounded p-0.5"
-              title="Clear date filter"
+        {/* Action Buttons Row (NO divider underneath) */}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Button 1: Update Price Groups */}
+            <PBtn
+              sm
+              outline
+              onClick={() => { setShowGroupsPanel(true); setGroupFormMode(false); setEditGroup(null); }}
             >
-              <X size={12} />
-            </button>
+              <Tag size={13} /> Update Price Groups ({activePriceGroups.length})
+            </PBtn>
+
+            {/* Button 2: Calculator */}
+            {canCreate && (
+              <PBtn sm onClick={() => setShowCalculatorModal(true)}>
+                <Calculator size={13} /> Calculator
+              </PBtn>
+            )}
           </div>
-        )}
+
+          {/* Active Filter Indicator Tag */}
+          {selectedDate && selectedDate !== "All" && (
+            <div className="inline-flex items-center gap-1.5 bg-orange-50 border border-orange-200 text-orange-800 px-2.5 py-1 rounded-xl text-xs font-medium">
+              <span>Date: <strong>{formatReadableDate(selectedDate)}</strong></span>
+              <button
+                type="button"
+                onClick={() => setSelectedDate(null)}
+                className="text-orange-500 hover:text-orange-800 rounded p-0.5"
+                title="Reset to All Dates"
+              >
+                <X size={12} />
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* ── Two Statistics Cards ── */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-        {/* Card 1: Total Calculations */}
+      {/* ── Two Statistics Cards (Side-by-side on mobile and desktop) ── */}
+      <div className="grid grid-cols-2 gap-2.5 sm:gap-3.5">
+        {/* Card 1: Total Customers Calculation */}
         <StatCard
-          label="Total Calculations"
+          label="Total Customers Calculation"
           value={totalCalculationsCount.toLocaleString()}
           sub={statDateSubLabel}
           icon={Calculator}
@@ -1006,53 +1021,53 @@ export default function SalesCalculatorPage({
       {/* ── Calculator Modal (Integrated Call-Up Price Calculator) ── */}
       {showCalculatorModal && (
         <Modal
-          title="Sales Management & Customer Order"
+          title="Customer Purchase Calculator"
           onClose={() => { if (!isSavingCalc) setShowCalculatorModal(false); }}
           wide
         >
-          <div className="space-y-4">
-            {/* Customer Details Form */}
-            <div className="bg-slate-50 border border-slate-200/90 rounded-2xl p-3.5 space-y-3">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-600 block flex items-center gap-1.5">
-                <User size={13} className="text-green-600" /> Customer Information
-              </span>
+          <div className="space-y-3.5 pb-2">
+            {/* Customer Details Form: Side-by-side on all screens */}
+            <div className="grid grid-cols-2 gap-2.5 sm:gap-3">
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1 uppercase tracking-wide">
+                  Customer Name <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={customerName}
+                  onChange={e => setCustomerName(e.target.value)}
+                  placeholder="e.g. Alhaji Musa"
+                  className={`${IC} text-xs py-2`}
+                />
+                {calcFormErr.customerName && <p className="text-red-500 text-[10px] mt-0.5">{calcFormErr.customerName}</p>}
+              </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {/* Customer Name: Required */}
-                <F label="Customer Name *" error={calcFormErr.customerName}>
-                  <input
-                    type="text"
-                    value={customerName}
-                    onChange={e => setCustomerName(e.target.value)}
-                    placeholder="e.g. Alhaji Musa Ibrahim"
-                    className={`${IC} text-xs py-2`}
-                  />
-                </F>
-
-                {/* Customer Phone Number: Optional */}
-                <F label="Customer Phone Number (Optional)" error={calcFormErr.customerPhone}>
-                  <input
-                    type="tel"
-                    value={customerPhone}
-                    onChange={e => setCustomerPhone(e.target.value)}
-                    placeholder="e.g. 08012345678 or +234..."
-                    className={`${IC} text-xs py-2`}
-                  />
-                </F>
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1 uppercase tracking-wide">
+                  Phone <span className="text-slate-400 font-normal text-[10px]">(Optional)</span>
+                </label>
+                <input
+                  type="tel"
+                  value={customerPhone}
+                  onChange={e => setCustomerPhone(e.target.value)}
+                  placeholder="e.g. 08012345678"
+                  className={`${IC} text-xs py-2`}
+                />
+                {calcFormErr.customerPhone && <p className="text-red-500 text-[10px] mt-0.5">{calcFormErr.customerPhone}</p>}
               </div>
             </div>
 
-            {/* Discount Bar */}
-            <div className="bg-slate-50 border border-slate-200/80 rounded-xl px-3 py-2.5 flex flex-wrap items-center justify-between gap-3 text-xs">
+            {/* Discount Bar (Compact and clean) */}
+            <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 bg-slate-50 border border-slate-200/80 rounded-xl text-xs">
               <div className="flex items-center gap-2">
-                <span className="text-[11px] font-bold text-slate-600 uppercase tracking-wide flex items-center gap-1.5">
-                  <Percent size={12} className="text-green-600" /> Discount Mode
+                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wide flex items-center gap-1">
+                  <Percent size={12} className="text-green-600" /> Discount:
                 </span>
-                <div className="inline-flex bg-slate-200/70 p-0.5 rounded-lg text-xs font-medium border border-slate-200/60">
+                <div className="inline-flex bg-slate-200/70 p-0.5 rounded-lg text-xs font-medium">
                   <button
                     type="button"
                     onClick={() => setDiscountType("general")}
-                    className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-all ${
+                    className={`px-2 py-0.5 rounded-md text-[11px] font-semibold transition-all ${
                       discountType === "general"
                         ? "bg-white text-green-700 shadow-2xs font-bold"
                         : "text-slate-500 hover:text-slate-800"
@@ -1063,7 +1078,7 @@ export default function SalesCalculatorPage({
                   <button
                     type="button"
                     onClick={() => setDiscountType("individual")}
-                    className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-all ${
+                    className={`px-2 py-0.5 rounded-md text-[11px] font-semibold transition-all ${
                       discountType === "individual"
                         ? "bg-white text-green-700 shadow-2xs font-bold"
                         : "text-slate-500 hover:text-slate-800"
@@ -1075,18 +1090,18 @@ export default function SalesCalculatorPage({
               </div>
 
               {discountType === "general" && (
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-medium text-slate-600">Discount per kg:</span>
-                  <div className="relative w-32">
-                    <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[11px] font-semibold text-slate-400 pointer-events-none">{cs}</span>
+                <div className="flex items-center gap-1.5 ml-auto">
+                  <span className="text-[11px] text-slate-500 font-medium">Per kg:</span>
+                  <div className="relative w-24">
+                    <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 pointer-events-none">{cs}</span>
                     <NumInput
                       value={generalDiscPerKg}
                       onChange={setGeneralDiscPerKg}
                       placeholder="0"
-                      className={`${IC} text-xs py-1.5 pl-6 pr-8 text-right font-medium`}
+                      className={`${IC} text-xs py-1 pl-5 pr-6 text-right font-medium`}
                       allowDecimal={true}
                     />
-                    <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 pointer-events-none">/kg</span>
+                    <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[9px] text-slate-400 pointer-events-none">/kg</span>
                   </div>
                 </div>
               )}
@@ -1195,29 +1210,31 @@ export default function SalesCalculatorPage({
             </div>
 
             {/* Fish Items List (Mobile) */}
-            <div className="sm:hidden space-y-3">
+            <div className="sm:hidden space-y-2.5">
               {calculatedRows.map((row, idx) => (
-                <div key={row.id} className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 space-y-2.5">
+                <div key={row.id} className="bg-slate-50/80 border border-slate-200/90 rounded-xl p-3 space-y-2">
                   <div className="flex items-center justify-between gap-1">
-                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">Fish Item #{idx + 1}</span>
-                    {calculatedRows.length > 1 && (
-                      <button
-                        type="button"
-                        onClick={() => removeCalcItem(row.id)}
-                        className="text-slate-400 hover:text-rose-600 p-1"
-                        title="Remove item"
-                      >
-                        <Trash2 size={13} />
-                      </button>
-                    )}
+                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">Item #{idx + 1}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-slate-800 font-mono">{fmt(row.lineTotal, cs)}</span>
+                      {calculatedRows.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => removeCalcItem(row.id)}
+                          className="text-slate-400 hover:text-rose-600 p-0.5"
+                          title="Remove item"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      )}
+                    </div>
                   </div>
 
                   <div>
-                    <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1">Price Group</label>
                     <select
                       value={row.groupId}
                       onChange={e => updateCalcItem(row.id, "groupId", e.target.value)}
-                      className={`${SC} text-xs py-1.5 px-2.5`}
+                      className={`${SC} text-xs py-1.5 px-2`}
                     >
                       <option value="">Select Price Group...</option>
                       {activePriceGroups.map(g => (
@@ -1226,21 +1243,15 @@ export default function SalesCalculatorPage({
                         </option>
                       ))}
                     </select>
-                    {row.pricePerKg > 0 && (
-                      <p className="text-[10px] text-green-700 mt-1 pl-0.5 font-medium">
-                        Rate: {fmt(row.pricePerKg, cs)}/kg
-                      </p>
-                    )}
                   </div>
 
                   <div className={`grid ${discountType === "individual" ? "grid-cols-2" : "grid-cols-1"} gap-2`}>
                     <div>
-                      <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1">Weight (KG)</label>
                       <div className="relative">
                         <NumInput
                           value={row.qtyKg}
                           onChange={v => updateCalcItem(row.id, "qtyKg", v)}
-                          placeholder="0"
+                          placeholder="Weight in kg"
                           className={`${IC} text-xs py-1.5 pr-8 text-right font-medium`}
                           allowDecimal={true}
                         />
@@ -1250,13 +1261,12 @@ export default function SalesCalculatorPage({
 
                     {discountType === "individual" && (
                       <div>
-                        <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1">Discount ({cs}/kg)</label>
                         <div className="relative">
                           <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[11px] font-semibold text-slate-400 pointer-events-none">{cs}</span>
                           <NumInput
                             value={row.discountPerKg}
                             onChange={v => updateCalcItem(row.id, "discountPerKg", v)}
-                            placeholder="0"
+                            placeholder="Disc/kg"
                             className={`${IC} text-xs py-1.5 pl-6 pr-8 text-right font-medium`}
                             allowDecimal={true}
                           />
@@ -1265,98 +1275,61 @@ export default function SalesCalculatorPage({
                       </div>
                     )}
                   </div>
-
-                  <div className="flex justify-between items-center pt-2 border-t border-slate-200/60 text-xs">
-                    <span className="text-[11px] font-medium text-slate-500">Subtotal:</span>
-                    <div className="text-right">
-                      <span className="text-xs font-bold text-slate-900 font-mono">
-                        {fmt(row.lineTotal, cs)}
-                      </span>
-                      {row.rowDiscount > 0 && (
-                        <span className="text-[10px] text-rose-500 block">
-                          −{fmt(row.rowDiscount, cs)} discount
-                        </span>
-                      )}
-                    </div>
-                  </div>
                 </div>
               ))}
             </div>
 
-            {/* Add Row Button */}
-            <div>
+            {/* Add Row & Reset Buttons */}
+            <div className="flex items-center justify-between pt-1">
               <PBtn sm outline onClick={() => addCalcItem()}>
                 <Plus size={13} /> Add Fish Size
               </PBtn>
-            </div>
-
-            {/* Calculation Totals & Summary Card */}
-            <div className="bg-slate-900 text-white rounded-2xl p-4 space-y-3 shadow-md">
-              {/* Summary by Group */}
-              {calculatedRows.filter(r => r.qtyKgNum > 0 && r.group).length > 0 && (
-                <div className="space-y-1 pb-2 border-b border-slate-800 text-xs">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
-                    Summary by Price Group
-                  </span>
-                  {calculatedRows.filter(r => r.qtyKgNum > 0 && r.group).map(row => (
-                    <div key={row.id} className="flex items-center justify-between gap-2 text-slate-300 text-xs">
-                      <div className="flex items-center gap-1.5 min-w-0">
-                        <span className="text-[10px] font-bold bg-slate-800 px-1.5 py-0.5 rounded text-green-400 font-mono shrink-0">
-                          {row.group?.group}
-                        </span>
-                        <span className="truncate text-slate-200">{row.group?.displayName}</span>
-                        <span className="text-[11px] text-slate-400 shrink-0">({row.qtyKgNum.toLocaleString()} kg)</span>
-                      </div>
-                      <div className="text-right shrink-0">
-                        <span className="font-semibold text-white text-xs">{fmt(row.lineTotal, cs)}</span>
-                        {row.rowDiscount > 0 && (
-                          <span className="text-[10px] text-rose-400 block">−{fmt(row.rowDiscount, cs)}</span>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* Totals Breakdown */}
-              <div className="flex items-center justify-between gap-3 pt-0.5">
-                <div>
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Total KG</span>
-                  <span className="text-base sm:text-lg font-bold text-white font-mono">
-                    {totalKg.toLocaleString()} <span className="text-xs font-normal text-slate-300">kg</span>
-                  </span>
-                </div>
-
-                <div className="text-right">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-green-400 block">Final Amount Payable</span>
-                  <span className="text-xl sm:text-2xl font-extrabold text-green-400 font-mono">
-                    {fmt(grandTotal, cs)}
-                  </span>
-                  {totalDiscount > 0 && (
-                    <span className="text-[10px] text-rose-400 block">
-                      (−{fmt(totalDiscount, cs)} discount applied)
-                    </span>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Modal Actions */}
-            <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-200">
               <button
                 type="button"
                 onClick={resetCalculator}
-                className="px-3 py-1.5 text-xs text-slate-500 hover:text-slate-800 flex items-center gap-1"
+                className="px-2.5 py-1 text-xs text-slate-400 hover:text-slate-700 flex items-center gap-1 transition-colors"
                 disabled={isSavingCalc}
               >
-                <RotateCcw size={12} /> Clear
+                <RotateCcw size={11} /> Reset
               </button>
+            </div>
+
+            {/* Summary by Group (if multiple groups) */}
+            {calculatedRows.filter(r => r.qtyKgNum > 0 && r.group).length > 1 && (
+              <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-2.5 space-y-1 text-xs">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                  Summary Breakdown
+                </span>
+                {calculatedRows.filter(r => r.qtyKgNum > 0 && r.group).map(row => (
+                  <div key={row.id} className="flex items-center justify-between text-slate-600 text-[11px]">
+                    <span className="truncate">Group {row.group?.group} ({row.qtyKgNum.toLocaleString()} kg)</span>
+                    <span className="font-semibold text-slate-900 font-mono">{fmt(row.lineTotal, cs)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Sticky Bottom Action & Save Bar (Always Visible!) */}
+            <div className="sticky bottom-0 z-20 bg-white border-t border-slate-200 px-4 py-3 -mx-5 -mb-4 flex items-center justify-between gap-3 shadow-lg">
+              <div>
+                <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">
+                  Total ({totalKg.toLocaleString()} kg)
+                </span>
+                <span className="text-xl sm:text-2xl font-extrabold text-green-700 font-['Barlow_Condensed',sans-serif] font-mono leading-none">
+                  {fmt(grandTotal, cs)}
+                </span>
+                {totalDiscount > 0 && (
+                  <span className="text-[10px] text-rose-500 block">
+                    −{fmt(totalDiscount, cs)} discount
+                  </span>
+                )}
+              </div>
 
               <div className="flex items-center gap-2">
                 <button
                   type="button"
                   onClick={() => setShowCalculatorModal(false)}
-                  className="px-3 py-1.5 text-xs text-slate-600 hover:text-slate-900"
+                  className="px-3 py-2 text-xs font-semibold text-slate-500 hover:text-slate-800 transition-colors"
                   disabled={isSavingCalc}
                 >
                   Cancel
@@ -1364,7 +1337,7 @@ export default function SalesCalculatorPage({
                 <PBtn
                   onClick={handleSaveCalculation}
                   disabled={isSavingCalc}
-                  className="px-4 py-2 text-xs font-bold"
+                  className="px-4 py-2 text-xs font-bold shadow-sm"
                 >
                   <CheckCircle size={14} /> {isSavingCalc ? "Saving..." : "Save Calculation"}
                 </PBtn>
