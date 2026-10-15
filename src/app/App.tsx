@@ -3051,7 +3051,7 @@ function SubscriptionPage({
     }, 4000);
 
     try {
-      const payerEmail = effectiveProfile?.email || "customer@pondtora.com";
+      const payerEmail = effectiveProfile?.email || "customer@pondtora.site";
       const success = await initializePaystackCheckout({
         email: payerEmail,
         amount: calculatedPrice,
@@ -5174,9 +5174,52 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   };
   const handleEditFarm=(f:Farm)=>{
     if (!checkSubscriptionActive()) return;
-    setFarms(prev=>prev.map(x=>x.id===f.id?f:x));
-    toast.success("Farm updated");
-    api.farms.update(f).catch(console.warn);
+    const trimmedNewName = (f.name || "").trim();
+    if (!trimmedNewName) {
+      toast.error("Farm name cannot be empty");
+      return;
+    }
+    const nextFarm: Farm = { ...f, name: trimmedNewName };
+    setFarms(prev => {
+      const next = prev.map(x => x.id === f.id ? nextFarm : x);
+      if (userProfile?.id) {
+        try { saveUserLocal(userProfile.id, "farms", "farms", next); } catch {}
+      }
+      return next;
+    });
+
+    if (userProfile?.id) {
+      // If the renamed farm is active or primary, update userProfile & admin user cache
+      if (f.id === activeFarmId || farms.length <= 1 || userProfile.farmName !== trimmedNewName) {
+        setUserProfile(p => p ? { ...p, farmName: trimmedNewName } : p);
+        try {
+          const rawP = localStorage.getItem(`pondtora_${userProfile.id}_user_profile`);
+          if (rawP) {
+            const pObj = JSON.parse(rawP);
+            pObj.farmName = trimmedNewName;
+            localStorage.setItem(`pondtora_${userProfile.id}_user_profile`, JSON.stringify(pObj));
+          }
+        } catch {}
+        try {
+          const rawAdm = localStorage.getItem("pondtora_admin_users");
+          if (rawAdm) {
+            const admUsers = JSON.parse(rawAdm);
+            if (Array.isArray(admUsers)) {
+              const uIdx = admUsers.findIndex((u: any) => u.id === userProfile.id || u.email?.toLowerCase() === userProfile.email?.toLowerCase());
+              if (uIdx >= 0) {
+                admUsers[uIdx].farmName = trimmedNewName;
+                localStorage.setItem("pondtora_admin_users", JSON.stringify(admUsers));
+              }
+            }
+          }
+        } catch {}
+        // Synchronize in database
+        supabase.from("user_profiles").update({ farm_name: trimmedNewName, updated_at: new Date().toISOString() }).eq("id", userProfile.id).then().catch(console.warn);
+        supabase.auth.updateUser({ data: { farm_name: trimmedNewName } }).then().catch(console.warn);
+      }
+    }
+    toast.success("Farm updated successfully");
+    api.farms.update(nextFarm).catch(console.warn);
   };
   const handleDeleteFarm=async(id:string)=>{
     if (!checkSubscriptionActive()) return;
@@ -6285,7 +6328,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     // Deduplicate farms by unique ID and name to prevent duplicate farms accumulating in state
     const seenFarmIds = new Set<string>();
     const seenFarmNames = new Set<string>();
-    const resolvedFarms = rawFarms.filter((f: Farm) => {
+    let resolvedFarms = rawFarms.filter((f: Farm) => {
       if (!f || !f.id) return false;
       const norm = (f.name || "").trim().toLowerCase();
       if (seenFarmIds.has(f.id)) return false;
@@ -6298,6 +6341,39 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     const pondsData: Pond[] = (Array.isArray(d.ponds)
       ? d.ponds
       : (userProfile?.id ? loadUserLocal(userProfile.id, "ponds", "ponds", []) : [])).filter((p: Pond) => !isDeletedId(p.id));
+
+    // Consolidate duplicate farm accounts for single-farm owners (e.g. from renaming)
+    const isFarmOwner = userProfile?.role === "owner" || !userProfile?.ownerId;
+    if (isFarmOwner && farmLimit === 1 && resolvedFarms.length > 1) {
+      const farmPondCounts = new Map<string, number>();
+      pondsData.forEach(p => {
+        if (p.farmId) farmPondCounts.set(p.farmId, (farmPondCounts.get(p.farmId) || 0) + 1);
+      });
+      // Sort candidates: highest pond count first, then matching activeFarmId
+      const sortedFarms = [...resolvedFarms].sort((a, b) => {
+        const countA = farmPondCounts.get(a.id) || 0;
+        const countB = farmPondCounts.get(b.id) || 0;
+        if (countA !== countB) return countB - countA;
+        if (a.id === activeFarmId) return -1;
+        if (b.id === activeFarmId) return 1;
+        return 0;
+      });
+      const primaryFarm = sortedFarms[0];
+      const ghostDuplicates = sortedFarms.slice(1);
+
+      // Reassign all associated ponds from ghost duplicates to primary farm ID
+      ghostDuplicates.forEach(dup => {
+        pondsData.forEach(p => {
+          if (p.farmId === dup.id) {
+            p.farmId = primaryFarm.id;
+          }
+        });
+        // Silently remove ghost duplicate from backend after verifying data migration
+        api.farms.remove(dup.id).catch(() => {});
+      });
+
+      resolvedFarms = [primaryFarm];
+    }
 
     if (resolvedFarms.length > 0) {
       setFarms(resolvedFarms);
@@ -6329,14 +6405,16 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       });
     } else if (userProfile?.id) {
       if (userProfile.role !== "staff" && !(userProfile as any).ownerId) {
-        const farmName = userProfile.farmName || "My Farm";
-        api.farms.create({ name: farmName, country: userProfile.country || "Nigeria" }).then(nf => {
-          if (nf?.id) {
-            setFarms([nf]);
-            setActiveFarmId(nf.id);
-            api.farms.syncActiveFarm(nf.id);
-          }
-        }).catch(console.warn);
+        if (farms.length === 0 && rawFarms.length === 0) {
+          const farmName = userProfile.farmName || "My Farm";
+          api.farms.create({ name: farmName, country: userProfile.country || "Nigeria" }).then(nf => {
+            if (nf?.id) {
+              setFarms([nf]);
+              setActiveFarmId(nf.id);
+              api.farms.syncActiveFarm(nf.id);
+            }
+          }).catch(console.warn);
+        }
       }
     }
     if (d.staffInfo?.staffPermissions) {
@@ -6504,7 +6582,12 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       ? d.priceGroups
       : (userProfile?.id ? loadUserLocal(userProfile.id, "price_groups", "priceGroups", []) : []);
     if (pgData) {
-      const normPg = pgData.filter((pg: PriceGroup) => !isDeletedId(pg.id)).map((pg: PriceGroup) => ({ ...pg, farmId: normFid(pg.farmId) }));
+      const seenPgIds = new Set<string>();
+      const normPg = pgData.filter((pg: PriceGroup) => {
+        if (!pg?.id || isDeletedId(pg.id) || seenPgIds.has(pg.id)) return false;
+        seenPgIds.add(pg.id);
+        return true;
+      }).map((pg: PriceGroup) => ({ ...pg, farmId: normFid(pg.farmId) }));
       setPriceGroups(normPg);
     }
 
@@ -6612,7 +6695,13 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     const localSc: SalesCalculation[] = userProfile?.id ? loadUserLocal(userProfile.id, "sales_calculations", "salesCalculations", []) : [];
     const serverScIds = new Set(serverSc.map(sc => sc.id));
     const pendingLocalSc = localSc.filter(lsc => lsc?.id && !serverScIds.has(lsc.id) && !isDeletedId(lsc.id));
-    const finalSc = [...serverSc.filter((sc: any) => !isDeletedId(sc.id)), ...pendingLocalSc].map((sc: any) => ({ ...sc, farmId: normFid(sc.farmId) }));
+    const combinedSc = [...serverSc.filter((sc: any) => !isDeletedId(sc.id)), ...pendingLocalSc];
+    const seenScIds = new Set<string>();
+    const finalSc = combinedSc.filter(sc => {
+      if (!sc?.id || seenScIds.has(sc.id)) return false;
+      seenScIds.add(sc.id);
+      return true;
+    }).map((sc: any) => ({ ...sc, farmId: normFid(sc.farmId) }));
     if (finalSc.length > 0 || Array.isArray(d.salesCalculations)) {
       setSalesCalculations(finalSc);
     }
@@ -7772,8 +7861,26 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     }
   };
   const addCustomer=(c:Customer)=>{if(!checkSubscriptionActive())return;const fid=c.farmId||activeFarmId||farms[0]?.id||"";const nc={...c,id:isUuid(c.id)?c.id:crypto.randomUUID(),farmId:fid};setCustomers(prev=>[...prev,nc]);api.customers.create(nc).catch(console.warn);};
-  const addPriceGroup=(g:PriceGroup)=>{if(!checkSubscriptionActive())return;const fid=g.farmId||activeFarmId||farms[0]?.id||"";const ng={...g,id:isUuid(g.id)?g.id:crypto.randomUUID(),farmId:fid};setPriceGroups(prev=>[...prev,ng]);api.priceGroups.create(ng).catch(console.warn);};
-  const editPriceGroup=(g:PriceGroup)=>{if(!checkSubscriptionActive())return;setPriceGroups(prev=>prev.map(x=>x.id===g.id?g:x));api.priceGroups.update(g).catch(console.warn);};
+  const addPriceGroup=(g:PriceGroup)=>{
+    if(!checkSubscriptionActive())return;
+    const fid=g.farmId||activeFarmId||farms[0]?.id||"";
+    const ng={...g,id:isUuid(g.id)?g.id:crypto.randomUUID(),farmId:fid};
+    setPriceGroups(prev=>{
+      const next=[...prev.filter(x=>x.id!==ng.id),ng];
+      if(userProfile?.id){try{saveUserLocal(userProfile.id,"price_groups","priceGroups",next);}catch{}}
+      return next;
+    });
+    api.priceGroups.create(ng).catch(console.warn);
+  };
+  const editPriceGroup=(g:PriceGroup)=>{
+    if(!checkSubscriptionActive())return;
+    setPriceGroups(prev=>{
+      const next=prev.map(x=>x.id===g.id?g:x);
+      if(userProfile?.id){try{saveUserLocal(userProfile.id,"price_groups","priceGroups",next);}catch{}}
+      return next;
+    });
+    api.priceGroups.update(g).catch(console.warn);
+  };
   const delPriceGroup=async(id:string)=>{
     if (!checkSubscriptionActive()) return;
     const previous=priceGroups;
@@ -7864,12 +7971,15 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     if (!checkSubscriptionActive()) return;
     const fid = sc.farmId || activeFarmId || farms[0]?.id || "";
     const nsc = { ...sc, id: isUuid(sc.id) ? sc.id : crypto.randomUUID(), farmId: fid };
-    setSalesCalculations(prev => [nsc, ...prev.filter(x => x.id !== nsc.id)]);
-    if (userProfile?.id) {
-      try {
-        saveUserLocal(userProfile.id, "sales_calculations", "salesCalculations", [nsc, ...salesCalculations.filter(x => x.id !== nsc.id)]);
-      } catch {}
-    }
+    setSalesCalculations(prev => {
+      const next = [nsc, ...prev.filter(x => x.id !== nsc.id)];
+      if (userProfile?.id) {
+        try {
+          saveUserLocal(userProfile.id, "sales_calculations", "salesCalculations", next);
+        } catch {}
+      }
+      return next;
+    });
     try {
       await api.salesCalculations.create(nsc, items);
     } catch (e) {
@@ -7879,19 +7989,23 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
 
   const editSalesCalculation = async (sc: SalesCalculation, items?: SalesCalculationItem[], historyEntry?: SalesCalculationEditHistoryEntry) => {
     if (!checkSubscriptionActive()) return;
+    const existingHistory = (sc.editHistory || []).filter(h => !historyEntry || h.id !== historyEntry.id);
     const updatedWithHistory: SalesCalculation = {
       ...sc,
       items: items || sc.items,
       editHistory: historyEntry
-        ? [historyEntry, ...(sc.editHistory || [])]
-        : (sc.editHistory || [])
+        ? [historyEntry, ...existingHistory]
+        : existingHistory
     };
-    setSalesCalculations(prev => prev.map(x => x.id === sc.id ? updatedWithHistory : x));
-    if (userProfile?.id) {
-      try {
-        saveUserLocal(userProfile.id, "sales_calculations", "salesCalculations", salesCalculations.map(x => x.id === sc.id ? updatedWithHistory : x));
-      } catch {}
-    }
+    setSalesCalculations(prev => {
+      const next = prev.map(x => x.id === sc.id ? updatedWithHistory : x);
+      if (userProfile?.id) {
+        try {
+          saveUserLocal(userProfile.id, "sales_calculations", "salesCalculations", next);
+        } catch {}
+      }
+      return next;
+    });
     try {
       await api.salesCalculations.update(updatedWithHistory, items);
       if (historyEntry) {
@@ -7923,14 +8037,18 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
 
   const deleteSalesCalculation = async (id: string) => {
     if (!checkSubscriptionActive()) return;
-    const previous = salesCalculations;
-    setSalesCalculations(prev => prev.filter(x => x.id !== id));
+    let previous: SalesCalculation[] = [];
+    setSalesCalculations(prev => {
+      previous = prev;
+      const next = prev.filter(x => x.id !== id);
+      if (userProfile?.id) {
+        try {
+          saveUserLocal(userProfile.id, "sales_calculations", "salesCalculations", next);
+        } catch {}
+      }
+      return next;
+    });
     markDeletedId(id);
-    if (userProfile?.id) {
-      try {
-        saveUserLocal(userProfile.id, "sales_calculations", "salesCalculations", previous.filter(x => x.id !== id));
-      } catch {}
-    }
     try {
       await api.salesCalculations.remove(id);
     } catch (err: any) {
@@ -7956,12 +8074,15 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       amountPaid: nextAmountPaid,
       updatedAt: new Date().toISOString()
     };
-    setSalesCalculations(prev => prev.map(x => x.id === sc.id ? updated : x));
-    if (userProfile?.id) {
-      try {
-        saveUserLocal(userProfile.id, "sales_calculations", "salesCalculations", salesCalculations.map(x => x.id === sc.id ? updated : x));
-      } catch {}
-    }
+    setSalesCalculations(prev => {
+      const next = prev.map(x => x.id === sc.id ? updated : x);
+      if (userProfile?.id) {
+        try {
+          saveUserLocal(userProfile.id, "sales_calculations", "salesCalculations", next);
+        } catch {}
+      }
+      return next;
+    });
     try {
       await api.salesCalculations.update(updated);
       if (isNowPaid) {

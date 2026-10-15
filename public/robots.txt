@@ -9,4 +9,4 @@ Allow: /
 User-agent: Bingbot
 Allow: /
 
-Sitemap: https://pondtora.com/sitemap.xml
+Sitemap: https://pondtora.site/sitemap.xml

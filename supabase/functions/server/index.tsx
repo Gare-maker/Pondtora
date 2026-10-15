@@ -745,7 +745,8 @@ app.post(`${P}/staff-members/invite`, async (c) => {
 
   let staffAuthId: string | null = null;
   let inviteError = null;
-  const baseAppUrl = (appUrl || "https://pondtora.com").replace(/\/+$/, "");
+  const defaultDomain = Deno.env.get("APP_URL") || "https://pondtora.site";
+  const baseAppUrl = (appUrl || defaultDomain).replace(/\/+$/, "");
   const redirectTo = `${baseAppUrl}/create-password`;
 
   if (SVC_KEY()) {
@@ -896,8 +897,8 @@ app.post(`${P}/staff-members/resend-invite`, async (c) => {
   const { email, appUrl, staffId } = await c.req.json();
   if (!email) return c.json({ error: "Email is required" }, 400);
   const svc = adminDb();
-  const cleanEmail = email.trim().toLowerCase();
-  const baseAppUrl = (appUrl || "https://pondtora.com").replace(/\/+$/, "");
+  const defaultDomain = Deno.env.get("APP_URL") || "https://pondtora.site";
+  const baseAppUrl = (appUrl || defaultDomain).replace(/\/+$/, "");
   const redirectTo = `${baseAppUrl}/create-password`;
 
   let emailSent = false;
@@ -1416,7 +1417,7 @@ app.post(`${P}/investors/send-receipt-email`, async (c) => {
     const resendApiKey = Deno.env.get("RESEND_API_KEY");
 
     if (resendApiKey) {
-      const fromEmail = Deno.env.get("SENDER_EMAIL") || "notifications@pondtora.com";
+      const fromEmail = Deno.env.get("SENDER_EMAIL") || "notifications@pondtora.site";
       const resp = await fetch("https://api.resend.com/emails", {
         method: "POST",
         headers: {

@@ -121,6 +121,8 @@ export default function SalesCalculatorPage({
   const [editGroup, setEditGroup] = useState<PriceGroup | null>(null);
   const [groupF, setGroupF] = useState({ group: "", displayName: "", description: "", pricePerKg: "", status: "Active" as "Active" | "Inactive" });
   const [groupErr, setGroupErr] = useState<Record<string, string>>({});
+  const [isSavingGroup, setIsSavingGroup] = useState(false);
+  const [isTogglingPayment, setIsTogglingPayment] = useState(false);
 
   // Details View Modal
   const [selectedCalc, setSelectedCalc] = useState<SalesCalculation | null>(null);
@@ -338,6 +340,8 @@ export default function SalesCalculatorPage({
 
   // ── Save Calculation Handler ──
   const handleSaveCalculation = async () => {
+    if (isSavingCalc) return;
+
     const errors: Record<string, string> = {};
     const trimmedName = customerName.trim();
     if (!trimmedName) {
@@ -412,6 +416,8 @@ export default function SalesCalculatorPage({
           ? "Partially Paid"
           : "Unpaid";
 
+      const cleanExistingHistory = (editingCalcTarget.editHistory || []).filter(h => h && h.id !== historyEntry.id);
+
       const updatedCalculation: SalesCalculation = {
         ...editingCalcTarget,
         customerName: trimmedName,
@@ -424,7 +430,7 @@ export default function SalesCalculatorPage({
         amountPaid: existingPaid,
         paymentStatus: nextStatus,
         items: snapshotItems,
-        editHistory: [historyEntry, ...(editingCalcTarget.editHistory || [])],
+        editHistory: [historyEntry, ...cleanExistingHistory],
         updatedAt: nowIso
       };
 
@@ -511,7 +517,7 @@ export default function SalesCalculatorPage({
 
   // ── Record Payment (Full or Partial) ──
   const handleRecordPayment = async () => {
-    if (!paymentModalCalc) return;
+    if (!paymentModalCalc || isRecordingPayment) return;
     const payNum = Number(payAmountInput);
     if (isNaN(payNum) || payNum <= 0) {
       toast.error("Please enter a valid amount greater than 0");
@@ -552,7 +558,7 @@ export default function SalesCalculatorPage({
         console.warn("Audit payment log:", e);
       }
 
-      toast.success(`Payment of ${fmt(payNum, cs)} recorded (${nextStatus})`);
+      toast.success(`Payment of ${fmt(payNum, cs)} recorded successfully (${nextStatus})!`);
       setPaymentModalCalc(null);
       if (selectedCalc && selectedCalc.id === paymentModalCalc.id) {
         setSelectedCalc(updated);
@@ -566,6 +572,8 @@ export default function SalesCalculatorPage({
 
   // ── Toggle Payment Status ──
   const handleTogglePayment = async (c: SalesCalculation) => {
+    if (isTogglingPayment) return;
+    setIsTogglingPayment(true);
     try {
       if (onTogglePayment) {
         await onTogglePayment(c);
@@ -573,7 +581,7 @@ export default function SalesCalculatorPage({
       const isNowPaid = c.paymentStatus !== "Paid";
       const newStatus: "Paid" | "Unpaid" = isNowPaid ? "Paid" : "Unpaid";
       const newAmountPaid = isNowPaid ? c.totalAmount : 0;
-      toast.success(`Marked as ${newStatus}`);
+      toast.success(`Calculation marked as ${newStatus} successfully!`);
       if (selectedCalc && selectedCalc.id === c.id) {
         setSelectedCalc({
           ...selectedCalc,
@@ -583,6 +591,8 @@ export default function SalesCalculatorPage({
       }
     } catch (err: any) {
       toast.error(err?.message || "Failed to update payment status");
+    } finally {
+      setIsTogglingPayment(false);
     }
   };
 
@@ -591,16 +601,20 @@ export default function SalesCalculatorPage({
     const farmTitle = settings?.farmName || "Pondtora Farm";
     const farmPhone = settings?.farmPhone || "";
     const farmAddress = settings?.farmAddress || "";
-    const items = c.items && c.items.length > 0 ? c.items : [
+    let rawItems: any = c.items;
+    if (typeof rawItems === "string") {
+      try { rawItems = JSON.parse(rawItems); } catch { rawItems = []; }
+    }
+    const items: SalesCalculationItem[] = (Array.isArray(rawItems) && rawItems.length > 0) ? rawItems : [
       {
         id: "default",
         priceGroupCode: "",
         priceGroupName: "Fish Stock",
         quantityKg: 0,
         unitPrice: 0,
-        subtotal: c.subtotal || c.totalAmount,
+        subtotal: Number(c.subtotal) || Number(c.totalAmount) || 0,
         individualDiscountAmount: 0,
-        finalAmount: c.totalAmount
+        finalAmount: Number(c.totalAmount) || 0
       } as any
     ];
     const totalKg = items.reduce((s, it) => s + (Number(it.quantityKg) || 0), 0);
@@ -877,16 +891,42 @@ export default function SalesCalculatorPage({
   <div class="footer-note">
     Thank you for your business!
   </div>
-  <script>
-    window.addEventListener("DOMContentLoaded", function() {
-      setTimeout(function() {
-        window.focus();
-        window.print();
-      }, 300);
-    });
-  </script>
 </body>
 </html>`;
+
+    try {
+      let printFrame = document.getElementById("pondtora-print-frame") as HTMLIFrameElement | null;
+      if (!printFrame) {
+        printFrame = document.createElement("iframe");
+        printFrame.id = "pondtora-print-frame";
+        printFrame.style.position = "fixed";
+        printFrame.style.right = "0";
+        printFrame.style.bottom = "0";
+        printFrame.style.width = "0";
+        printFrame.style.height = "0";
+        printFrame.style.border = "0";
+        printFrame.style.visibility = "hidden";
+        document.body.appendChild(printFrame);
+      }
+      const frameDoc = printFrame.contentDocument || printFrame.contentWindow?.document;
+      if (frameDoc && printFrame.contentWindow) {
+        frameDoc.open();
+        frameDoc.write(html);
+        frameDoc.close();
+        const fWin = printFrame.contentWindow;
+        setTimeout(() => {
+          try {
+            fWin.focus();
+            fWin.print();
+          } catch (e) {
+            console.error("Iframe print error:", e);
+          }
+        }, 300);
+        return;
+      }
+    } catch (e) {
+      console.warn("Iframe print error, falling back to popup:", e);
+    }
 
     const printWin = window.open("", "_blank");
     if (printWin) {
@@ -901,16 +941,6 @@ export default function SalesCalculatorPage({
           console.error("Print popup error:", e);
         }
       }, 400);
-    } else {
-      // Direct window.print fallback
-      const printDiv = document.createElement("div");
-      printDiv.id = "pondtora-print-slip";
-      printDiv.innerHTML = html;
-      document.body.appendChild(printDiv);
-      window.print();
-      setTimeout(() => {
-        if (document.body.contains(printDiv)) document.body.removeChild(printDiv);
-      }, 1000);
     }
   };
 
@@ -962,8 +992,11 @@ export default function SalesCalculatorPage({
 
   // Filtered list for table (combines date filter with search and status filters)
   const filteredCalculations = useMemo(() => {
+    const seenIds = new Set<string>();
     return dateScopedCalculations.filter(c => {
-      if (!c) return false;
+      if (!c || !c.id) return false;
+      if (seenIds.has(c.id)) return false;
+      seenIds.add(c.id);
       if (search.trim()) {
         const q = search.toLowerCase().trim();
         const matchName = (c.customerName || "").toLowerCase().includes(q);
@@ -990,35 +1023,41 @@ export default function SalesCalculatorPage({
   }, [selectedDate, search, statusFilter]);
 
   // Price Group management handlers
-  const handleSaveGroup = () => {
+  const handleSaveGroup = async () => {
+    if (isSavingGroup) return;
     const errs: Record<string, string> = {};
     if (!groupF.group.trim()) errs.group = "Group code required (e.g. A)";
     if (!groupF.displayName.trim()) errs.displayName = "Display name required";
     if (!groupF.pricePerKg || Number(groupF.pricePerKg) <= 0) errs.pricePerKg = "Valid price per kg required";
     if (Object.keys(errs).length) { setGroupErr(errs); return; }
 
-    const payload: PriceGroup = {
-      id: editGroup?.id || uid(),
-      group: groupF.group.trim().toUpperCase(),
-      displayName: groupF.displayName.trim(),
-      description: groupF.description.trim(),
-      pricePerKg: Number(groupF.pricePerKg),
-      status: groupF.status,
-      farmId: editGroup?.farmId || activeFarmId
-    };
+    setIsSavingGroup(true);
+    try {
+      const payload: PriceGroup = {
+        id: editGroup?.id || uid(),
+        group: groupF.group.trim().toUpperCase(),
+        displayName: groupF.displayName.trim(),
+        description: groupF.description.trim(),
+        pricePerKg: Number(groupF.pricePerKg),
+        status: groupF.status,
+        farmId: editGroup?.farmId || activeFarmId
+      };
 
-    if (editGroup) {
-      onEditPriceGroup(payload);
-      toast.success(`Price Group ${payload.group} updated`);
-    } else {
-      onAddPriceGroup(payload);
-      toast.success(`Price Group ${payload.group} created`);
+      if (editGroup) {
+        await onEditPriceGroup(payload);
+        toast.success(`Price Group ${payload.group} updated successfully!`);
+      } else {
+        await onAddPriceGroup(payload);
+        toast.success(`Price Group ${payload.group} created successfully!`);
+      }
+
+      setGroupFormMode(false);
+      setEditGroup(null);
+      setGroupF({ group: "", displayName: "", description: "", pricePerKg: "", status: "Active" });
+      setGroupErr({});
+    } finally {
+      setIsSavingGroup(false);
     }
-
-    setGroupFormMode(false);
-    setEditGroup(null);
-    setGroupF({ group: "", displayName: "", description: "", pricePerKg: "", status: "Active" });
-    setGroupErr({});
   };
 
   const handleEditClick = (g: PriceGroup) => {
@@ -2022,6 +2061,70 @@ export default function SalesCalculatorPage({
           title={`Calculation Details — ${selectedCalc.customerName}`}
           onClose={() => setSelectedCalc(null)}
           wide
+          footer={
+            <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-2.5 w-full">
+              {/* Left Group: Dismiss / Close button */}
+              <div className="flex items-center">
+                <button
+                  type="button"
+                  onClick={() => setSelectedCalc(null)}
+                  className="w-full sm:w-auto px-4 py-2 text-xs font-semibold text-slate-600 bg-white hover:bg-slate-100 hover:text-slate-900 border border-slate-200 rounded-xl transition-all shadow-2xs text-center"
+                >
+                  Close
+                </button>
+              </div>
+
+              {/* Right Group: Action buttons logically organized with clear hierarchy */}
+              <div className="flex flex-wrap items-center gap-2 justify-end w-full sm:w-auto">
+                <button
+                  type="button"
+                  onClick={() => handlePrintCalculation(selectedCalc)}
+                  className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 hover:text-emerald-700 rounded-xl transition-all shadow-2xs"
+                >
+                  <Printer size={14} className="text-slate-500 shrink-0" />
+                  <span>Print Slip</span>
+                </button>
+
+                {canEdit && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const calcToEdit = selectedCalc;
+                      setSelectedCalc(null);
+                      openEditCalculation(calcToEdit);
+                    }}
+                    className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-xl transition-all shadow-2xs"
+                  >
+                    <Pencil size={14} className="text-emerald-600 shrink-0" />
+                    <span>Edit Calculation</span>
+                  </button>
+                )}
+
+                {canEdit && (
+                  <button
+                    type="button"
+                    onClick={() => openPaymentModal(selectedCalc)}
+                    className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-emerald-900 bg-emerald-100 hover:bg-emerald-200 border border-emerald-300 rounded-xl transition-all shadow-2xs"
+                  >
+                    <Plus size={14} className="text-emerald-700 shrink-0" />
+                    <span>Record Payment</span>
+                  </button>
+                )}
+
+                {canEdit && (
+                  <PBtn
+                    sm
+                    onClick={() => handleTogglePayment(selectedCalc)}
+                    disabled={isTogglingPayment}
+                    className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-bold rounded-xl shadow-xs"
+                  >
+                    <Check size={14} />
+                    <span>{isTogglingPayment ? "Updating..." : `Mark as ${selectedCalc.paymentStatus === "Paid" ? "Unpaid" : "Paid"}`}</span>
+                  </PBtn>
+                )}
+              </div>
+            </div>
+          }
         >
           <div className="space-y-4">
             {/* Header info (Light Green Fill, NO border, matching discount section) */}
@@ -2137,109 +2240,71 @@ export default function SalesCalculatorPage({
               </div>
             </div>
 
-            {/* Edit History Section */}
+            {/* Edit History Section (Deduplicated) */}
             <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 space-y-2.5">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-slate-800 uppercase tracking-wide flex items-center gap-1.5">
-                  <History size={13} className="text-slate-500" /> Edit History
-                </span>
-                <span className="text-[11px] font-semibold text-slate-400">
-                  {(selectedCalc.editHistory || []).length} {(selectedCalc.editHistory || []).length === 1 ? "edit" : "edits"}
-                </span>
-              </div>
+              {(() => {
+                const historyList = selectedCalc.editHistory || [];
+                const seenHist = new Set<string>();
+                const deduplicatedHistory = historyList.filter(h => {
+                  if (!h || !h.id) return false;
+                  if (seenHist.has(h.id)) return false;
+                  seenHist.add(h.id);
+                  return true;
+                });
 
-              {(!selectedCalc.editHistory || selectedCalc.editHistory.length === 0) ? (
-                <p className="text-[11px] text-slate-400 italic">No edits recorded for this calculation yet.</p>
-              ) : (
-                <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
-                  {selectedCalc.editHistory.map(entry => (
-                    <div key={entry.id} className="bg-white border border-slate-200/90 rounded-lg p-2.5 text-xs space-y-1 shadow-2xs">
-                      <div className="flex items-center justify-between text-[11px]">
-                        <span className="font-semibold text-slate-700 flex items-center gap-1">
-                          <User size={11} className="text-slate-400" /> {entry.changedBy || "Staff"}
-                        </span>
-                        <span className="text-slate-400 font-mono text-[10px]">
-                          {formatDateTime(entry.createdAt)}
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between text-[11px] pt-1 border-t border-slate-100">
-                        <span className="text-slate-500">Calculation Change:</span>
-                        <span className="font-mono font-bold text-slate-800">
-                          {fmt(entry.previousTotal, cs)} → {fmt(entry.newTotal, cs)}
-                          {entry.difference !== 0 && (
-                            <span className={`ml-1 text-[10px] ${entry.difference > 0 ? "text-emerald-600" : "text-rose-500"}`}>
-                              ({entry.difference > 0 ? "+" : ""}{fmt(entry.difference, cs)})
-                            </span>
-                          )}
-                        </span>
-                      </div>
-                      {entry.itemsSummary && (
-                        <p className="text-[10px] text-slate-500 truncate" title={entry.itemsSummary}>
-                          <span className="font-semibold text-slate-600">Items:</span> {entry.itemsSummary}
-                        </p>
-                      )}
-                      {entry.actionReason && (
-                        <p className="text-[10px] text-slate-600 italic bg-slate-50 px-2 py-1 rounded">
-                          "{entry.actionReason}"
-                        </p>
-                      )}
+                return (
+                  <>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-slate-800 uppercase tracking-wide flex items-center gap-1.5">
+                        <History size={13} className="text-slate-500" /> Edit History
+                      </span>
+                      <span className="text-[11px] font-semibold text-slate-400">
+                        {deduplicatedHistory.length} {deduplicatedHistory.length === 1 ? "edit" : "edits"}
+                      </span>
                     </div>
-                  ))}
-                </div>
-              )}
-            </div>
 
-            {/* Quick Actions in Modal */}
-            <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-200">
-              {canEdit && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    const calcToEdit = selectedCalc;
-                    setSelectedCalc(null);
-                    openEditCalculation(calcToEdit);
-                  }}
-                  className="px-3 py-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg flex items-center gap-1.5 transition-colors shadow-2xs"
-                >
-                  <Pencil size={13} /> Edit Calculation
-                </button>
-              )}
-
-              <div className="flex flex-wrap items-center gap-2 ml-auto">
-                <button
-                  type="button"
-                  onClick={() => handlePrintCalculation(selectedCalc)}
-                  className="px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 hover:text-green-700 rounded-lg flex items-center gap-1.5 transition-colors shadow-2xs"
-                >
-                  <Printer size={13} /> Print Slip
-                </button>
-                {canEdit && (
-                  <button
-                    type="button"
-                    onClick={() => { openPaymentModal(selectedCalc); }}
-                    className="px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-green-50 hover:text-green-700 rounded-lg flex items-center gap-1.5 transition-colors shadow-2xs"
-                  >
-                    <Plus size={13} /> Record Payment
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() => setSelectedCalc(null)}
-                  className="px-3 py-1.5 text-xs text-slate-500 hover:text-slate-800"
-                >
-                  Close
-                </button>
-                {canEdit && (
-                  <PBtn
-                    sm
-                    onClick={() => handleTogglePayment(selectedCalc)}
-                    className="text-xs"
-                  >
-                    <Check size={13} />
-                    Mark as {selectedCalc.paymentStatus === "Paid" ? "Unpaid" : "Paid"}
-                  </PBtn>
-                )}
-              </div>
+                    {deduplicatedHistory.length === 0 ? (
+                      <p className="text-[11px] text-slate-400 italic">No edits recorded for this calculation yet.</p>
+                    ) : (
+                      <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
+                        {deduplicatedHistory.map(entry => (
+                          <div key={entry.id} className="bg-white border border-slate-200/90 rounded-lg p-2.5 text-xs space-y-1 shadow-2xs">
+                            <div className="flex items-center justify-between text-[11px]">
+                              <span className="font-semibold text-slate-700 flex items-center gap-1">
+                                <User size={11} className="text-slate-400" /> {entry.changedBy || "Staff"}
+                              </span>
+                              <span className="text-slate-400 font-mono text-[10px]">
+                                {formatDateTime(entry.createdAt)}
+                              </span>
+                            </div>
+                            <div className="flex items-center justify-between text-[11px] pt-1 border-t border-slate-100">
+                              <span className="text-slate-500">Calculation Change:</span>
+                              <span className="font-mono font-bold text-slate-800">
+                                {fmt(entry.previousTotal, cs)} → {fmt(entry.newTotal, cs)}
+                                {entry.difference !== 0 && (
+                                  <span className={`ml-1 text-[10px] ${entry.difference > 0 ? "text-emerald-600" : "text-rose-500"}`}>
+                                    ({entry.difference > 0 ? "+" : ""}{fmt(entry.difference, cs)})
+                                  </span>
+                                )}
+                              </span>
+                            </div>
+                            {entry.itemsSummary && (
+                              <p className="text-[10px] text-slate-500 truncate" title={entry.itemsSummary}>
+                                <span className="font-semibold text-slate-600">Items:</span> {entry.itemsSummary}
+                              </p>
+                            )}
+                            {entry.actionReason && (
+                              <p className="text-[10px] text-slate-600 italic bg-slate-50 px-2 py-1 rounded">
+                                "{entry.actionReason}"
+                              </p>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
             </div>
           </div>
         </Modal>

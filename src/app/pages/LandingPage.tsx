@@ -109,7 +109,7 @@ function AppWindowShell({ activeNav, activeFarmName = "Crown Fisheries", onSelec
           <div className="w-3 h-3 rounded-full bg-red-500/80" />
           <div className="w-3 h-3 rounded-full bg-amber-500/80" />
           <div className="w-3 h-3 rounded-full bg-emerald-500/80" />
-          <span className="ml-2 text-slate-400 text-[11px] font-mono hidden sm:inline">app.pondtora.com</span>
+          <span className="ml-2 text-slate-400 text-[11px] font-mono hidden sm:inline">app.pondtora.site</span>
         </div>
         <div className="flex items-center gap-2 text-slate-300 text-[11px]">
           <span className="w-2 h-2 rounded-full bg-[#00bb58] animate-pulse" />

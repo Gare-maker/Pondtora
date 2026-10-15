@@ -128,7 +128,7 @@ export default function AdminLogin({ onLogin, onExit }: AdminLoginProps) {
                   type="email"
                   value={email}
                   onChange={e => { setEmail(e.target.value); setError(null); }}
-                  placeholder="admin@pondtora.com"
+                  placeholder="admin@pondtora.site"
                   autoComplete="email"
                   className="w-full pl-10 pr-3.5 py-2.5 text-sm bg-slate-950 border border-slate-700/80 rounded-xl text-white placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-green-500/50 focus:border-green-500 transition-all"
                 />
