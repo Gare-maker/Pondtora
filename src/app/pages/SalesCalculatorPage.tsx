@@ -393,6 +393,37 @@ export default function SalesCalculatorPage({
         .map(it => `${it.priceGroupCode ? `Group ${it.priceGroupCode}` : it.priceGroupName}: ${it.quantityKg}kg`)
         .join(", ");
 
+      // Detect discount change to reflect in audit history
+      const prevDiscountType = editingCalcTarget.generalDiscountType || "none";
+      const prevDiscountValue = Number(editingCalcTarget.generalDiscountValue) || 0;
+      const prevDiscountAmount = Number(editingCalcTarget.generalDiscountAmount) || 0;
+
+      const newDiscountType = discountType;
+      const newDiscountValue = discountType === "general" ? (Number(generalDiscPerKg) || 0) : 0;
+      const newDiscountAmount = totalDiscount;
+
+      const discountChanged =
+        Math.abs(prevDiscountAmount - newDiscountAmount) > 0.001 ||
+        prevDiscountType !== newDiscountType ||
+        (discountType === "general" && Math.abs(prevDiscountValue - newDiscountValue) > 0.001);
+
+      let discountChangeSummary = "";
+      if (discountChanged) {
+        const describeDisc = (dtype: string, dval: number, damt: number) => {
+          if (dtype === "none" || damt <= 0) return "None";
+          if (dtype === "general") return `${cs}${dval}/kg (${cs}${damt.toLocaleString()})`;
+          return `Individual (${cs}${damt.toLocaleString()})`;
+        };
+        const prevDesc = describeDisc(prevDiscountType, prevDiscountValue, prevDiscountAmount);
+        const newDesc = describeDisc(newDiscountType, newDiscountValue, newDiscountAmount);
+        discountChangeSummary = `Discount changed from ${prevDesc} to ${newDesc}`;
+      }
+
+      const userReason = editReasonInput.trim();
+      const finalReason = userReason
+        ? (discountChangeSummary ? `${userReason} • ${discountChangeSummary}` : userReason)
+        : (discountChangeSummary || `Calculation edited (${fmt(prevTotal, cs)} → ${fmt(grandTotal, cs)})`);
+
       const historyEntry: SalesCalculationEditHistoryEntry = {
         id: uid(),
         calculationId: editingCalcTarget.id,
@@ -403,7 +434,7 @@ export default function SalesCalculatorPage({
         newWeightKg: totalKg,
         difference: diff,
         itemsSummary,
-        actionReason: editReasonInput.trim() || `Calculation edited (${fmt(prevTotal, cs)} → ${fmt(grandTotal, cs)})`,
+        actionReason: finalReason,
         changedBy: currentUser?.name || "Staff",
         createdAt: nowIso
       };
@@ -434,21 +465,20 @@ export default function SalesCalculatorPage({
         updatedAt: nowIso
       };
 
-      try {
-        if (onEditCalculation) {
-          await onEditCalculation(updatedCalculation, snapshotItems, historyEntry);
-        }
-        toast.success(`Calculation for ${trimmedName} updated successfully!`);
-        setShowCalculatorModal(false);
-        if (selectedCalc && selectedCalc.id === editingCalcTarget.id) {
-          setSelectedCalc(updatedCalculation);
-        }
-        resetCalculator();
-      } catch (err: any) {
-        console.error("Failed to update sales calculation:", err);
-        toast.error(err?.message || "Failed to update calculation. Please try again.");
-      } finally {
-        setIsSavingCalc(false);
+      // Optimistic instant update: close modal & update UI immediately
+      toast.success(`Calculation for ${trimmedName} updated successfully!`);
+      setShowCalculatorModal(false);
+      if (selectedCalc && selectedCalc.id === editingCalcTarget.id) {
+        setSelectedCalc(updatedCalculation);
+      }
+      resetCalculator();
+      setIsSavingCalc(false);
+
+      if (onEditCalculation) {
+        onEditCalculation(updatedCalculation, snapshotItems, historyEntry).catch(err => {
+          console.error("Failed to update sales calculation in cloud:", err);
+          toast.error("Failed to sync updated calculation with cloud database.");
+        });
       }
       return;
     }
@@ -489,29 +519,24 @@ export default function SalesCalculatorPage({
       updatedAt: nowIso
     };
 
-    try {
-      if (onAddCalculation) {
-        await onAddCalculation(newCalculation, snapshotItems);
-      }
-      toast.success(`Calculation for ${trimmedName} saved successfully!`);
-      setShowCalculatorModal(false);
-      resetCalculator();
-    } catch (err: any) {
-      console.error("Failed to save sales calculation:", err);
-      toast.error(err?.message || "Failed to save calculation. Please check your network.");
-    } finally {
-      setIsSavingCalc(false);
+    // Optimistic instant update: close modal & update UI immediately
+    toast.success(`Calculation for ${trimmedName} saved successfully!`);
+    setShowCalculatorModal(false);
+    resetCalculator();
+    setIsSavingCalc(false);
+
+    if (onAddCalculation) {
+      onAddCalculation(newCalculation, snapshotItems).catch(err => {
+        console.error("Failed to save sales calculation in cloud:", err);
+        toast.error("Failed to sync new calculation with cloud database.");
+      });
     }
   };
 
   // ── Open Payment Recording Modal ──
   const openPaymentModal = (c: SalesCalculation) => {
-    const paid = c.paymentStatus === "Paid"
-      ? (c.amountPaid > 0 ? c.amountPaid : c.totalAmount)
-      : (Number(c.amountPaid) || 0);
-    const outstanding = Math.max(0, c.totalAmount - paid);
     setPaymentModalCalc(c);
-    setPayAmountInput(outstanding > 0 ? String(outstanding) : "");
+    setPayAmountInput("");
     setPayMethodInput("Cash");
   };
 
@@ -544,25 +569,21 @@ export default function SalesCalculatorPage({
         updatedAt: new Date().toISOString()
       };
 
-      if (onEditCalculation) {
-        await onEditCalculation(updated);
-      }
-      try {
-        await api.salesCalculations.recordPayment(
-          paymentModalCalc.id,
-          payNum,
-          payMethodInput,
-          currentUser?.name || "Staff"
-        );
-      } catch (e) {
-        console.warn("Audit payment log:", e);
-      }
-
       toast.success(`Payment of ${fmt(payNum, cs)} recorded successfully (${nextStatus})!`);
       setPaymentModalCalc(null);
       if (selectedCalc && selectedCalc.id === paymentModalCalc.id) {
         setSelectedCalc(updated);
       }
+
+      if (onEditCalculation) {
+        onEditCalculation(updated).catch(e => console.warn(e));
+      }
+      api.salesCalculations.recordPayment(
+        paymentModalCalc.id,
+        payNum,
+        payMethodInput,
+        currentUser?.name || "Staff"
+      ).catch(e => console.warn("Audit payment log:", e));
     } catch (err: any) {
       toast.error(err?.message || "Failed to record payment");
     } finally {
@@ -894,18 +915,41 @@ export default function SalesCalculatorPage({
 </body>
 </html>`;
 
+    // Try popup window first (most reliable direct print trigger in Chromium browsers)
+    try {
+      const printWin = window.open("", "_blank", "width=600,height=800");
+      if (printWin) {
+        printWin.document.open();
+        printWin.document.write(html);
+        printWin.document.close();
+        printWin.focus();
+        setTimeout(() => {
+          try {
+            printWin.print();
+          } catch (e) {
+            console.error("Print popup error:", e);
+          }
+        }, 350);
+        return;
+      }
+    } catch (e) {
+      console.warn("Popup print blocked, falling back to offscreen iframe:", e);
+    }
+
+    // Fallback: offscreen iframe with non-zero dimensions and opacity (Chromium ignores print() on visibility:hidden or 0x0)
     try {
       let printFrame = document.getElementById("pondtora-print-frame") as HTMLIFrameElement | null;
       if (!printFrame) {
         printFrame = document.createElement("iframe");
         printFrame.id = "pondtora-print-frame";
         printFrame.style.position = "fixed";
-        printFrame.style.right = "0";
-        printFrame.style.bottom = "0";
-        printFrame.style.width = "0";
-        printFrame.style.height = "0";
-        printFrame.style.border = "0";
-        printFrame.style.visibility = "hidden";
+        printFrame.style.left = "-9999px";
+        printFrame.style.top = "0";
+        printFrame.style.width = "600px";
+        printFrame.style.height = "800px";
+        printFrame.style.border = "none";
+        printFrame.style.opacity = "0.01";
+        printFrame.style.pointerEvents = "none";
         document.body.appendChild(printFrame);
       }
       const frameDoc = printFrame.contentDocument || printFrame.contentWindow?.document;
@@ -921,26 +965,10 @@ export default function SalesCalculatorPage({
           } catch (e) {
             console.error("Iframe print error:", e);
           }
-        }, 300);
-        return;
+        }, 350);
       }
     } catch (e) {
-      console.warn("Iframe print error, falling back to popup:", e);
-    }
-
-    const printWin = window.open("", "_blank");
-    if (printWin) {
-      printWin.document.open();
-      printWin.document.write(html);
-      printWin.document.close();
-      printWin.focus();
-      setTimeout(() => {
-        try {
-          printWin.print();
-        } catch (e) {
-          console.error("Print popup error:", e);
-        }
-      }, 400);
+      console.error("Print fallback error:", e);
     }
   };
 
@@ -2342,7 +2370,6 @@ export default function SalesCalculatorPage({
             const outstanding = Math.max(0, paymentModalCalc.totalAmount - prevPaid);
             const enteredAmount = Number(payAmountInput) || 0;
             const remainingAfterPayment = Math.max(0, outstanding - enteredAmount);
-            const halfOutstanding = Math.round(outstanding / 2);
 
             return (
               <div className="space-y-3.5 pb-1">
@@ -2374,24 +2401,6 @@ export default function SalesCalculatorPage({
                     <label className="text-[11px] font-bold text-slate-700 uppercase tracking-wide">
                       Amount Paid Now ({cs}) <span className="text-red-500">*</span>
                     </label>
-                    {outstanding > 0 && (
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => setPayAmountInput(String(halfOutstanding))}
-                          className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-2 py-0.5 rounded transition-colors"
-                        >
-                          Half (50%)
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setPayAmountInput(String(outstanding))}
-                          className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-2 py-0.5 rounded transition-colors"
-                        >
-                          Full Balance
-                        </button>
-                      </div>
-                    )}
                   </div>
                   <div className="relative">
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-500 pointer-events-none">
