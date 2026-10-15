@@ -58,7 +58,16 @@ main, .overflow-y-auto {
 
 /* Hide floating scroll-to-top button when any modal overlay or dialog is open */
 body:has(.fixed.inset-0) [aria-label="Scroll to top"],
-body:has([role="dialog"]) [aria-label="Scroll to top"] {
+body:has([role="dialog"]) [aria-label="Scroll to top"],
+body.modal-open [aria-label="Scroll to top"] {
   display: none !important;
+}
+
+/* Modal open lock: prevent underlying page scrolling or mobile pull-to-refresh while modals are open */
+body.modal-open,
+body:has(.fixed.inset-0) {
+  overflow: hidden !important;
+  overscroll-behavior: contain !important;
+  overscroll-behavior-y: contain !important;
 }
 

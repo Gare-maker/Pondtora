@@ -29,6 +29,17 @@ export default function PullToRefresh({
     (e: TouchEvent) => {
       if (disabled || isRefreshing) return;
 
+      // Do not initiate pull-to-refresh if a modal/overlay is open or if touching inside a modal
+      if (
+        typeof document !== "undefined" &&
+        (document.body.classList.contains("modal-open") ||
+          document.querySelector(".fixed.inset-0") ||
+          (e.target as HTMLElement | null)?.closest(".fixed, [role='dialog'], [data-modal], .overflow-y-auto"))
+      ) {
+        canPullRef.current = false;
+        return;
+      }
+
       const target = e.target as HTMLElement | null;
       // Do not initiate pull-to-refresh if touching form inputs or sliders
       if (target && target.closest("input, select, textarea, [role='slider'], button")) {

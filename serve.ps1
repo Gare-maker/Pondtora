@@ -87,9 +87,14 @@ try {
 
         $filePath = Join-Path $root $urlPath
 
+        $hasExtension = [System.IO.Path]::HasExtension($urlPath)
+        $isAssetRequest = $urlPath.StartsWith("assets/") -or $urlPath.StartsWith("assets\")
+
         if (-not (Test-Path $filePath -PathType Leaf)) {
-            # SPA fallback: if not a file with extension, serve index.html
-            $filePath = Join-Path $root "index.html"
+            # SPA fallback: ONLY fallback to index.html if not an asset or file with extension
+            if (-not $isAssetRequest -and -not $hasExtension) {
+                $filePath = Join-Path $root "index.html"
+            }
         }
 
         if (Test-Path $filePath -PathType Leaf) {
@@ -97,6 +102,14 @@ try {
             $contentType = "application/octet-stream"
             if ($mimeTypes.ContainsKey($ext)) {
                 $contentType = $mimeTypes[$ext]
+            }
+
+            if ($ext -eq ".html") {
+                $response.Headers.Add("Cache-Control", "no-cache, no-store, must-revalidate")
+                $response.Headers.Add("Pragma", "no-cache")
+                $response.Headers.Add("Expires", "0")
+            } elseif ($isAssetRequest) {
+                $response.Headers.Add("Cache-Control", "public, max-age=31536000, immutable")
             }
 
             $bytes = [System.IO.File]::ReadAllBytes($filePath)

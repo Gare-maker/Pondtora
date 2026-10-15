@@ -128,14 +128,43 @@ export const Tip=({active,payload,label,yFmt}:any)=>{
 };
 export function Modal({title,onClose,children,wide,size,maxW,footer}:{title:string;onClose:()=>void;children:ReactNode;wide?:boolean;size?:string;maxW?:string;footer?:ReactNode}){
   const widthClass = maxW ? "" : size === "sm" ? "sm:max-w-sm" : wide ? "sm:max-w-lg" : "sm:max-w-md";
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const prevOverflow = document.body.style.overflow;
+    const prevOverscroll = document.body.style.overscrollBehavior;
+    document.body.style.overflow = "hidden";
+    document.body.style.overscrollBehavior = "contain";
+    document.body.classList.add("modal-open");
+
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      document.body.style.overscrollBehavior = prevOverscroll;
+      document.body.classList.remove("modal-open");
+    };
+  }, []);
+
   return(
-    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-[70] p-0 sm:p-4 overscroll-contain" style={{ overscrollBehavior: "contain" }} onClick={e=>e.target===e.currentTarget&&onClose()}>
-      <div className={`bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full ${widthClass} max-h-[92vh] sm:max-h-[90vh] flex flex-col overscroll-contain overflow-hidden`} style={{ ...(maxW ? { maxWidth: maxW } : {}), overscrollBehavior: "contain" }}>
+    <div
+      className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-[70] p-0 sm:p-4 touch-none overscroll-none"
+      style={{ overscrollBehavior: "none", touchAction: "none" }}
+      onClick={e=>e.target===e.currentTarget&&onClose()}
+    >
+      <div
+        className={`bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full ${widthClass} max-h-[92vh] sm:max-h-[90vh] flex flex-col overscroll-contain overflow-hidden`}
+        style={{ ...(maxW ? { maxWidth: maxW } : {}), overscrollBehavior: "contain" }}
+        onClick={e => e.stopPropagation()}
+      >
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 shrink-0 bg-white">
           <h2 className="text-base font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">{title}</h2>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-700 p-1"><X size={18}/></button>
         </div>
-        <div className="px-5 py-4 space-y-3 overflow-y-auto flex-1 overscroll-contain" style={{ overscrollBehaviorY: "contain", WebkitOverflowScrolling: "touch" }}>{children}</div>
+        <div
+          className="px-5 py-4 space-y-3 overflow-y-auto flex-1 overscroll-contain"
+          style={{ overscrollBehaviorY: "contain", overscrollBehavior: "contain", WebkitOverflowScrolling: "touch", touchAction: "pan-y" }}
+        >
+          {children}
+        </div>
         {footer && (
           <div className="border-t border-slate-200 bg-white px-4 sm:px-5 py-3 shrink-0 rounded-b-2xl">
             {footer}

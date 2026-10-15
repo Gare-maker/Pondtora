@@ -8,7 +8,7 @@ import type {
   TreatmentRecord, StaffMember, Report, Customer, PriceGroup,
   Invoice, InvSettings, Investor, Investment, InvestmentPayment, PondReport,
   FarmEquipment, FishCountHistoryEntry, InvestmentEditHistoryEntry, FarmToolQuantityHistoryEntry,
-  SalesCalculation, SalesCalculationItem, SalesCalculationPayment,
+  SalesCalculation, SalesCalculationItem, SalesCalculationPayment, SalesCalculationEditHistoryEntry,
 } from "../app/types";
 import { INIT_K, INIT_C } from "../app/questionsData";
 
@@ -2661,8 +2661,32 @@ export const api = {
       }
       return created;
     },
-    update: async (c: SalesCalculation) => {
-      return dbUpdate<SalesCalculation>("sales_calculations", c, "salesCalculations");
+    update: async (c: SalesCalculation, items?: SalesCalculationItem[]) => {
+      const res = await dbUpdate<SalesCalculation>("sales_calculations", c, "salesCalculations");
+      if (items && items.length > 0 && c.id) {
+        try {
+          const calcId = isUuid(c.id) ? c.id : toUuid(c.id);
+          await supabase.from("sales_calculation_items").delete().eq("calculation_id", calcId);
+          const dbItems = items.map(it => ({
+            id: it.id && isUuid(it.id) ? it.id : crypto.randomUUID(),
+            calculation_id: calcId,
+            price_group_id: it.priceGroupId && isUuid(it.priceGroupId) ? it.priceGroupId : null,
+            price_group_name: it.priceGroupName || null,
+            price_group_code: it.priceGroupCode || null,
+            quantity_kg: Number(it.quantityKg) || 0,
+            unit_price: Number(it.unitPrice) || 0,
+            subtotal: Number(it.subtotal) || 0,
+            individual_discount_type: it.individualDiscountType || null,
+            individual_discount_value: Number(it.individualDiscountValue) || 0,
+            individual_discount_amount: Number(it.individualDiscountAmount) || 0,
+            final_amount: Number(it.finalAmount) || 0,
+          }));
+          await supabase.from("sales_calculation_items").insert(dbItems);
+        } catch (err) {
+          console.warn("Failed to sync updated sales_calculation_items:", err);
+        }
+      }
+      return res;
     },
     remove: async (id: string) => {
       return dbDelete("sales_calculations", id, "salesCalculations");
@@ -2964,6 +2988,12 @@ export const api = {
   toolQuantityHistory: {
     list: () => dbList<FarmToolQuantityHistoryEntry>("farm_tool_quantity_history", "toolQuantityHistory"),
     create: (h: Partial<FarmToolQuantityHistoryEntry>) => dbInsert<FarmToolQuantityHistoryEntry>("farm_tool_quantity_history", h as FarmToolQuantityHistoryEntry, "toolQuantityHistory"),
+  },
+
+  // ── Sales Calculation Edit History ─────────────────────────────────────────
+  salesCalculationHistory: {
+    list: () => dbList<SalesCalculationEditHistoryEntry>("sales_calculation_edit_history", "salesCalculationHistory"),
+    create: (h: Partial<SalesCalculationEditHistoryEntry>) => dbInsert<SalesCalculationEditHistoryEntry>("sales_calculation_edit_history", h as SalesCalculationEditHistoryEntry, "salesCalculationHistory"),
   },
 
   // ── Public assessment (no auth) ────────────────────────────────────────────

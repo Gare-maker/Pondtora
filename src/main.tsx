@@ -4,12 +4,26 @@ import "./styles/index.css";
 import App from "./app/App";
 import AdminApp from "./admin/AdminApp";
 
-// Listen for Vite chunk preload errors and automatically reload to fetch fresh assets
+// Listen for Vite chunk preload errors and safely reload to fetch fresh assets without infinite loops
 if (typeof window !== "undefined") {
   window.addEventListener("vite:preloadError", (event) => {
     event.preventDefault();
-    console.warn("Vite chunk preload error encountered, reloading to fetch latest app assets...");
-    window.location.reload();
+    console.warn("Vite chunk preload error encountered, checking reload guard...");
+    try {
+      const lastReload = sessionStorage.getItem("pondtora_preload_reload");
+      const now = Date.now();
+      if (!lastReload || now - Number(lastReload) > 10000) {
+        sessionStorage.setItem("pondtora_preload_reload", String(now));
+        // Bust URL cache when reloading
+        const url = new URL(window.location.href);
+        url.searchParams.set("v", now.toString());
+        window.location.replace(url.toString());
+      } else {
+        console.error("Vite chunk preload error persists. Skipping reload to avoid loop.");
+      }
+    } catch {
+      window.location.reload();
+    }
   });
 }
 

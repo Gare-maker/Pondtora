@@ -19,7 +19,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell, Legend
 } from "recharts";
-import type { View, SortDir, MonthData, FeedItem, Pond, Expense, Revenue, FeedingRecord, FeedEditEntry, MortalityEntry, BagOpenLog, FeedRemainingLog, StaffMember, Report, UserProfile, StockEvent, PriceGroup, Customer, InvSettings, InvoiceLineItem, Invoice, Farm, TreatmentRecord, WItem, EditEntry, Investor, Investment, InvestmentPayment, PondReport, FarmEquipment, FishCountHistoryEntry, InvestmentEditHistoryEntry, FarmToolQuantityHistoryEntry, SalesCalculation, SalesCalculationItem } from "./types";
+import type { View, SortDir, MonthData, FeedItem, Pond, Expense, Revenue, FeedingRecord, FeedEditEntry, MortalityEntry, BagOpenLog, FeedRemainingLog, StaffMember, Report, UserProfile, StockEvent, PriceGroup, Customer, InvSettings, InvoiceLineItem, Invoice, Farm, TreatmentRecord, WItem, EditEntry, Investor, Investment, InvestmentPayment, PondReport, FarmEquipment, FishCountHistoryEntry, InvestmentEditHistoryEntry, FarmToolQuantityHistoryEntry, SalesCalculation, SalesCalculationItem, SalesCalculationEditHistoryEntry } from "./types";
 import { EXPENSE_CATS, REVENUE_SRCS, POND_TYPES, POND_SPECIES, MORT_CAUSES, TODAY, getTodayStr, fmt, yFmt, uid, toMon, toYr, PAYMENT_METHODS, INV_STATUSES, STAFF_PERMISSIONS, STAFF_ROLES_ALL, INIT_INV_SETTINGS, ADMIN_NAME, downloadCSV, openPrintWindow, COUNTRY_CURRENCIES, COUNTRIES, DIAL_CODES, FLAG_EMOJI, convertNGN, fmtStockingDate, formatFishStockDate, formatFishStock, isSameDate, isStockMatch } from "./data";
 import { Card, Bdg, PBtn, Pagination, PER_PAGE, StatCard, Tip, Modal, F, IC, SC, SearchableSelect, SelDrop, DMONTHS_S, DateFilter, SearchableCountrySelect, SH, useSort, DateInput, NumInput } from "./shared";
 import InvoicesPage from "./pages/InvoicesPage";
@@ -6800,6 +6800,10 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       return;
     }
 
+    const authFallbackTimer = setTimeout(() => {
+      setAuthLoading(false);
+    }, 3500);
+
     supabase.auth.getSession().then(async ({data:{session}})=>{
       try {
         if(session?.user){
@@ -7034,8 +7038,13 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       } catch (err) {
         console.error("Auth init error:", err);
       } finally {
+        clearTimeout(authFallbackTimer);
         setAuthLoading(false);
       }
+    }).catch((err) => {
+      console.warn("Auth getSession error:", err);
+      clearTimeout(authFallbackTimer);
+      setAuthLoading(false);
     });
     const {data:{subscription}}=supabase.auth.onAuthStateChange(async (event,session)=>{
       if(event==="SIGNED_OUT"){
@@ -7868,16 +7877,45 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     }
   };
 
-  const editSalesCalculation = async (sc: SalesCalculation) => {
+  const editSalesCalculation = async (sc: SalesCalculation, items?: SalesCalculationItem[], historyEntry?: SalesCalculationEditHistoryEntry) => {
     if (!checkSubscriptionActive()) return;
-    setSalesCalculations(prev => prev.map(x => x.id === sc.id ? sc : x));
+    const updatedWithHistory: SalesCalculation = {
+      ...sc,
+      items: items || sc.items,
+      editHistory: historyEntry
+        ? [historyEntry, ...(sc.editHistory || [])]
+        : (sc.editHistory || [])
+    };
+    setSalesCalculations(prev => prev.map(x => x.id === sc.id ? updatedWithHistory : x));
     if (userProfile?.id) {
       try {
-        saveUserLocal(userProfile.id, "sales_calculations", "salesCalculations", salesCalculations.map(x => x.id === sc.id ? sc : x));
+        saveUserLocal(userProfile.id, "sales_calculations", "salesCalculations", salesCalculations.map(x => x.id === sc.id ? updatedWithHistory : x));
       } catch {}
     }
     try {
-      await api.salesCalculations.update(sc);
+      await api.salesCalculations.update(updatedWithHistory, items);
+      if (historyEntry) {
+        try {
+          await supabase.from("sales_calculation_edit_history").insert({
+            id: crypto.randomUUID(),
+            user_id: userProfile?.id,
+            farm_id: activeFarmId,
+            calculation_id: sc.id,
+            customer_name: sc.customerName,
+            previous_total: historyEntry.previousTotal,
+            new_total: historyEntry.newTotal,
+            previous_weight_kg: historyEntry.previousWeightKg || 0,
+            new_weight_kg: historyEntry.newWeightKg || 0,
+            difference: historyEntry.difference || 0,
+            items_summary: historyEntry.itemsSummary || null,
+            action_reason: historyEntry.actionReason || "Edited calculation",
+            changed_by: historyEntry.changedBy || "Staff",
+            created_at: new Date().toISOString()
+          });
+        } catch (e) {
+          console.warn("Audit sales edit history:", e);
+        }
+      }
     } catch (e) {
       console.warn("Failed to update sales calculation", e);
     }

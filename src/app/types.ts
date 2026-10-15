@@ -58,6 +58,7 @@ export interface SalesCalculation {
   amountPaid: number;
   paymentStatus: "Paid" | "Unpaid" | "Partially Paid";
   items?: SalesCalculationItem[];
+  editHistory?: SalesCalculationEditHistoryEntry[];
   createdBy?: string;
   createdById?: string;
   createdAt?: string;
@@ -220,6 +221,25 @@ export interface FarmToolQuantityHistoryEntry {
   newQuantity: number;
   difference: number;
   location?: string;
+  actionReason?: string;
+  reason?: string;
+  changedBy: string;
+  changedById?: string;
+  createdAt: string;
+}
+
+export interface SalesCalculationEditHistoryEntry {
+  id: string;
+  userId?: string;
+  farmId?: string;
+  calculationId: string;
+  customerName?: string;
+  previousTotal: number;
+  newTotal: number;
+  previousWeightKg?: number;
+  newWeightKg?: number;
+  difference?: number;
+  itemsSummary?: string;
   actionReason?: string;
   reason?: string;
   changedBy: string;

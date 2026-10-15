@@ -3,10 +3,10 @@ import {
   Calculator, Plus, Trash2, RotateCcw, Tag, CheckCircle,
   Pencil, Percent, Calendar as CalendarIcon, ChevronLeft, ChevronRight,
   ChevronDown, MoreVertical, Eye, Check, Search, X, Clock,
-  Phone, User, TrendingUp, AlertCircle, Printer
+  Phone, User, TrendingUp, AlertCircle, Printer, History
 } from "lucide-react";
 import { toast } from "sonner";
-import type { PriceGroup, InvSettings, SalesCalculation, SalesCalculationItem } from "../types";
+import type { PriceGroup, InvSettings, SalesCalculation, SalesCalculationItem, SalesCalculationEditHistoryEntry } from "../types";
 import { fmt, uid } from "../data";
 import { Card, Bdg, PBtn, Modal, F, IC, SC, NumInput, StatCard, Pagination, PER_PAGE } from "../shared";
 import { api } from "../../lib/api";
@@ -93,7 +93,7 @@ export default function SalesCalculatorPage({
   priceGroups: PriceGroup[];
   calculations?: SalesCalculation[];
   onAddCalculation?: (c: SalesCalculation, items?: SalesCalculationItem[]) => Promise<void> | void;
-  onEditCalculation?: (c: SalesCalculation) => Promise<void> | void;
+  onEditCalculation?: (c: SalesCalculation, items?: SalesCalculationItem[], historyEntry?: SalesCalculationEditHistoryEntry) => Promise<void> | void;
   onDeleteCalculation?: (id: string) => Promise<void> | void;
   onTogglePayment?: (c: SalesCalculation) => Promise<void> | void;
   onAddPriceGroup: (g: PriceGroup) => void;
@@ -185,6 +185,8 @@ export default function SalesCalculatorPage({
   }, []);
 
   // ── Calculator Form State ──
+  const [editingCalcTarget, setEditingCalcTarget] = useState<SalesCalculation | null>(null);
+  const [editReasonInput, setEditReasonInput] = useState("");
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
   const [discountType, setDiscountType] = useState<"none" | "general" | "individual">("none");
@@ -196,6 +198,8 @@ export default function SalesCalculatorPage({
   const [paymentModalCalc, setPaymentModalCalc] = useState<SalesCalculation | null>(null);
   const [payAmountInput, setPayAmountInput] = useState("");
   const [payMethodInput, setPayMethodInput] = useState("Cash");
+  const [payDateInput, setPayDateInput] = useState(toLocalYMD(new Date()));
+  const [payNotesInput, setPayNotesInput] = useState("");
   const [isRecordingPayment, setIsRecordingPayment] = useState(false);
 
   const [calcItems, setCalcItems] = useState<SalesCalculatorItemState[]>(() => {
@@ -216,16 +220,18 @@ export default function SalesCalculatorPage({
     return [{ id: uid(), groupId: "", qtyKg: "", discountPerKg: "" }];
   });
 
-  // Keep draft in local storage
+  // Keep draft in local storage (only when creating new calculation)
   useEffect(() => {
-    try {
-      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(calcItems));
-    } catch {}
-  }, [calcItems]);
+    if (!editingCalcTarget) {
+      try {
+        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(calcItems));
+      } catch {}
+    }
+  }, [calcItems, editingCalcTarget]);
 
   // Set default group when activePriceGroups load if items are empty
   useEffect(() => {
-    if (activePriceGroups.length > 0) {
+    if (activePriceGroups.length > 0 && !editingCalcTarget) {
       setCalcItems(prev => {
         if (prev.length === 1 && !prev[0].groupId) {
           return [{ ...prev[0], groupId: activePriceGroups[0].id }];
@@ -233,7 +239,7 @@ export default function SalesCalculatorPage({
         return prev;
       });
     }
-  }, [activePriceGroups]);
+  }, [activePriceGroups, editingCalcTarget]);
 
   const addCalcItem = (groupId?: string) => {
     const gid = groupId || activePriceGroups[0]?.id || "";
@@ -251,7 +257,34 @@ export default function SalesCalculatorPage({
     setCalcItems(prev => prev.map(x => x.id === id ? { ...x, [field]: val } : x));
   };
 
+  const openEditCalculation = (c: SalesCalculation) => {
+    setEditingCalcTarget(c);
+    setCustomerName(c.customerName || "");
+    setCustomerPhone(c.customerPhone || "");
+    setDiscountType(c.generalDiscountType || (c.generalDiscountAmount ? "general" : "none"));
+    setGeneralDiscPerKg(c.generalDiscountValue ? String(c.generalDiscountValue) : "");
+    setEditReasonInput("");
+    setCalcFormErr({});
+
+    if (c.items && c.items.length > 0) {
+      setCalcItems(
+        c.items.map(it => ({
+          id: it.id || uid(),
+          groupId: it.priceGroupId || "",
+          qtyKg: String(it.quantityKg || ""),
+          discountPerKg: String(it.individualDiscountValue || "")
+        }))
+      );
+    } else {
+      setCalcItems([{ id: uid(), groupId: activePriceGroups[0]?.id || "", qtyKg: "", discountPerKg: "" }]);
+    }
+
+    setShowCalculatorModal(true);
+  };
+
   const resetCalculator = () => {
+    setEditingCalcTarget(null);
+    setEditReasonInput("");
     setCustomerName("");
     setCustomerPhone("");
     setDiscountType("none");
@@ -329,8 +362,92 @@ export default function SalesCalculatorPage({
     setCalcFormErr({});
     setIsSavingCalc(true);
 
-    const calcId = uid();
     const nowIso = new Date().toISOString();
+
+    if (editingCalcTarget) {
+      const prevTotal = Number(editingCalcTarget.totalAmount) || 0;
+      const prevWeightKg = (editingCalcTarget.items || []).reduce((s, it) => s + (Number(it.quantityKg) || 0), 0);
+      const diff = grandTotal - prevTotal;
+
+      const snapshotItems: SalesCalculationItem[] = validItems.map(r => ({
+        id: uid(),
+        calculationId: editingCalcTarget.id,
+        priceGroupId: r.group?.id,
+        priceGroupName: r.group?.displayName || "",
+        priceGroupCode: r.group?.group || "",
+        quantityKg: r.qtyKgNum,
+        unitPrice: r.pricePerKg,
+        subtotal: r.baseSubtotal,
+        individualDiscountType: discountType === "none" ? undefined : discountType,
+        individualDiscountValue: r.discPerKg,
+        individualDiscountAmount: r.rowDiscount,
+        finalAmount: r.lineTotal,
+        createdAt: nowIso
+      }));
+
+      const itemsSummary = snapshotItems
+        .map(it => `${it.priceGroupCode ? `Group ${it.priceGroupCode}` : it.priceGroupName}: ${it.quantityKg}kg`)
+        .join(", ");
+
+      const historyEntry: SalesCalculationEditHistoryEntry = {
+        id: uid(),
+        calculationId: editingCalcTarget.id,
+        customerName: trimmedName,
+        previousTotal: prevTotal,
+        newTotal: grandTotal,
+        previousWeightKg: prevWeightKg,
+        newWeightKg: totalKg,
+        difference: diff,
+        itemsSummary,
+        actionReason: editReasonInput.trim() || `Calculation edited (${fmt(prevTotal, cs)} → ${fmt(grandTotal, cs)})`,
+        changedBy: currentUser?.name || "Staff",
+        createdAt: nowIso
+      };
+
+      const existingPaid = Number(editingCalcTarget.amountPaid) || 0;
+      const nextStatus: "Paid" | "Partially Paid" | "Unpaid" =
+        existingPaid >= grandTotal
+          ? "Paid"
+          : existingPaid > 0
+          ? "Partially Paid"
+          : "Unpaid";
+
+      const updatedCalculation: SalesCalculation = {
+        ...editingCalcTarget,
+        customerName: trimmedName,
+        customerPhone: trimmedPhone ? trimmedPhone : null,
+        subtotal: baseSubtotal,
+        generalDiscountType: discountType === "none" ? undefined : discountType,
+        generalDiscountValue: discountType === "general" ? Number(generalDiscPerKg) || 0 : 0,
+        generalDiscountAmount: totalDiscount,
+        totalAmount: grandTotal,
+        amountPaid: existingPaid,
+        paymentStatus: nextStatus,
+        items: snapshotItems,
+        editHistory: [historyEntry, ...(editingCalcTarget.editHistory || [])],
+        updatedAt: nowIso
+      };
+
+      try {
+        if (onEditCalculation) {
+          await onEditCalculation(updatedCalculation, snapshotItems, historyEntry);
+        }
+        toast.success(`Calculation for ${trimmedName} updated successfully!`);
+        setShowCalculatorModal(false);
+        if (selectedCalc && selectedCalc.id === editingCalcTarget.id) {
+          setSelectedCalc(updatedCalculation);
+        }
+        resetCalculator();
+      } catch (err: any) {
+        console.error("Failed to update sales calculation:", err);
+        toast.error(err?.message || "Failed to update calculation. Please try again.");
+      } finally {
+        setIsSavingCalc(false);
+      }
+      return;
+    }
+
+    const calcId = uid();
 
     const snapshotItems: SalesCalculationItem[] = validItems.map(r => ({
       id: uid(),
@@ -760,55 +877,40 @@ export default function SalesCalculatorPage({
   <div class="footer-note">
     Thank you for your business!
   </div>
+  <script>
+    window.addEventListener("DOMContentLoaded", function() {
+      setTimeout(function() {
+        window.focus();
+        window.print();
+      }, 300);
+    });
+  </script>
 </body>
 </html>`;
 
-    const iframe = document.createElement("iframe");
-    Object.assign(iframe.style, {
-      position: "fixed",
-      left: "-9999px",
-      top: "-9999px",
-      width: "1px",
-      height: "1px",
-      border: "none"
-    });
-    document.body.appendChild(iframe);
-    const doc = iframe.contentWindow!.document;
-    doc.open();
-    doc.write(html);
-    doc.close();
-    const doPrint = () => {
-      try {
-        iframe.contentWindow?.focus();
-        iframe.contentWindow?.print();
-      } catch (e) {
-        console.error("Print calculation error:", e);
-      }
+    const printWin = window.open("", "_blank");
+    if (printWin) {
+      printWin.document.open();
+      printWin.document.write(html);
+      printWin.document.close();
+      printWin.focus();
       setTimeout(() => {
-        if (document.body.contains(iframe)) document.body.removeChild(iframe);
-      }, 3000);
-    };
-    if (iframe.contentDocument?.readyState === "complete") {
-      doPrint();
+        try {
+          printWin.print();
+        } catch (e) {
+          console.error("Print popup error:", e);
+        }
+      }, 400);
     } else {
-      iframe.onload = doPrint;
-      setTimeout(doPrint, 600);
-    }
-  };
-
-  // ── Delete Calculation ──
-  const handleDeleteCalc = async (id: string, name: string) => {
-    if (!confirm(`Are you sure you want to delete the calculation for ${name}?`)) return;
-    try {
-      if (onDeleteCalculation) {
-        await onDeleteCalculation(id);
-      }
-      toast.success("Calculation deleted");
-      if (selectedCalc?.id === id) {
-        setSelectedCalc(null);
-      }
-    } catch (err: any) {
-      toast.error(err?.message || "Failed to delete calculation");
+      // Direct window.print fallback
+      const printDiv = document.createElement("div");
+      printDiv.id = "pondtora-print-slip";
+      printDiv.innerHTML = html;
+      document.body.appendChild(printDiv);
+      window.print();
+      setTimeout(() => {
+        if (document.body.contains(printDiv)) document.body.removeChild(printDiv);
+      }, 1000);
     }
   };
 
@@ -1078,36 +1180,18 @@ export default function SalesCalculatorPage({
         </div>
       </div>
 
-      {/* ── Four Statistics Cards (2 cols mobile, 4 cols desktop) ── */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3.5">
-        {/* Card 1: Total Calculations */}
+      {/* ── Statistics Cards: Received & Outstanding (2 equal columns) ── */}
+      <div className="grid grid-cols-2 gap-2.5 sm:gap-3.5">
+        {/* Card 1: Payment Received */}
         <StatCard
-          label="Total Calculations"
-          value={totalCalculationsCount.toLocaleString()}
-          sub={statDateSubLabel}
-          icon={Calculator}
-          color="blue"
-        />
-
-        {/* Card 2: Amount Calculated */}
-        <StatCard
-          label="Amount Calculated"
-          value={fmt(totalAmountCalculated, cs)}
-          sub="Total calculated"
-          icon={TrendingUp}
-          hi
-        />
-
-        {/* Card 3: Payment Collected */}
-        <StatCard
-          label="Payment Collected"
+          label="Received"
           value={fmt(totalPaymentCollected, cs)}
           sub={`${paidCount} paid in full`}
           icon={CheckCircle}
           color="green"
         />
 
-        {/* Card 4: Outstanding */}
+        {/* Card 2: Outstanding */}
         <StatCard
           label="Outstanding"
           value={fmt(totalOutstanding, cs)}
@@ -1128,19 +1212,19 @@ export default function SalesCalculatorPage({
           </p>
         </div>
 
-        {/* Filter by status & search input: side-by-side on all screens */}
-        <div className="flex items-center gap-2 w-full sm:w-auto">
-          <div className="relative flex-1 sm:w-56">
+        {/* Filter by status & search input: side-by-side, equal width on mobile maintaining system padding */}
+        <div className="grid grid-cols-2 gap-2 w-full sm:flex sm:w-auto sm:items-center">
+          <div className="relative w-full sm:w-56">
             <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
             <input
               type="text"
               value={search}
               onChange={e => setSearch(e.target.value)}
-              placeholder="Search customer or phone..."
+              placeholder="Search customer..."
               className={`${IC} text-xs py-1.5 pl-8 pr-7 w-full`}
             />
             {search && (
-              <button onClick={() => setSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+              <button type="button" onClick={() => setSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
                 <X size={12} />
               </button>
             )}
@@ -1149,7 +1233,7 @@ export default function SalesCalculatorPage({
           <select
             value={statusFilter}
             onChange={e => setStatusFilter(e.target.value as any)}
-            className={`${SC} text-xs py-1.5 px-2.5 shrink-0 w-auto`}
+            className={`${SC} text-xs py-1.5 px-2.5 w-full sm:w-40`}
           >
             <option value="All">All Statuses</option>
             <option value="Paid">Paid</option>
@@ -1328,13 +1412,13 @@ export default function SalesCalculatorPage({
                                     <Check size={13} /> Mark as {isPaid ? "Unpaid" : "Paid in Full"}
                                   </button>
                                 )}
-                                {canDelete && (
+                                {canEdit && (
                                   <button
                                     type="button"
-                                    onClick={() => { handleDeleteCalc(c.id, c.customerName); setOpenActionMenuId(null); }}
-                                    className="w-full text-left px-3 py-1.5 text-rose-600 hover:bg-rose-50 flex items-center gap-2 border-t border-slate-100"
+                                    onClick={() => { openEditCalculation(c); setOpenActionMenuId(null); }}
+                                    className="w-full text-left px-3 py-1.5 text-slate-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-2 border-t border-slate-100"
                                   >
-                                    <Trash2 size={13} /> Delete
+                                    <Pencil size={13} /> Edit Calculation
                                   </button>
                                 )}
                               </div>
@@ -1453,13 +1537,13 @@ export default function SalesCalculatorPage({
                         >
                           <Printer size={13} /> Print Slip
                         </button>
-                        {canDelete && (
+                        {canEdit && (
                           <button
                             type="button"
-                            onClick={() => { handleDeleteCalc(c.id, c.customerName); setOpenActionMenuId(null); }}
-                            className="w-full text-left px-3 py-1.5 text-rose-600 hover:bg-rose-50 flex items-center gap-2 border-t border-slate-100"
+                            onClick={() => { openEditCalculation(c); setOpenActionMenuId(null); }}
+                            className="w-full text-left px-3 py-1.5 text-slate-700 hover:bg-green-50 flex items-center gap-2 border-t border-slate-100"
                           >
-                            <Trash2 size={13} /> Delete
+                            <Pencil size={13} /> Edit Calculation
                           </button>
                         )}
                       </div>
@@ -1557,8 +1641,13 @@ export default function SalesCalculatorPage({
       {/* ── Calculator Modal (Integrated Call-Up Price Calculator) ── */}
       {showCalculatorModal && (
         <Modal
-          title="Customer Purchase Calculator"
-          onClose={() => { if (!isSavingCalc) setShowCalculatorModal(false); }}
+          title={editingCalcTarget ? `Edit Calculation — ${editingCalcTarget.customerName}` : "Customer Purchase Calculator"}
+          onClose={() => {
+            if (!isSavingCalc) {
+              setShowCalculatorModal(false);
+              resetCalculator();
+            }
+          }}
           wide
           footer={
             <div className="flex items-center justify-between gap-3">
@@ -1579,7 +1668,10 @@ export default function SalesCalculatorPage({
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => setShowCalculatorModal(false)}
+                  onClick={() => {
+                    setShowCalculatorModal(false);
+                    resetCalculator();
+                  }}
                   className="px-3 py-2 text-xs font-semibold text-slate-500 hover:text-slate-800 transition-colors"
                   disabled={isSavingCalc}
                 >
@@ -1590,7 +1682,10 @@ export default function SalesCalculatorPage({
                   disabled={isSavingCalc}
                   className="px-4 py-2 text-xs font-bold shadow-sm"
                 >
-                  <CheckCircle size={14} /> {isSavingCalc ? "Saving..." : "Save Calculation"}
+                  <CheckCircle size={14} />
+                  {isSavingCalc
+                    ? (editingCalcTarget ? "Updating..." : "Saving...")
+                    : (editingCalcTarget ? "Update Calculation" : "Save Calculation")}
                 </PBtn>
               </div>
             </div>
@@ -1627,6 +1722,23 @@ export default function SalesCalculatorPage({
                 {calcFormErr.customerPhone && <p className="text-red-500 text-[10px] mt-0.5">{calcFormErr.customerPhone}</p>}
               </div>
             </div>
+
+            {/* Optional Reason for Edit (Shown only when editing an existing calculation) */}
+            {editingCalcTarget && (
+              <div className="bg-amber-50/80 border border-amber-200/90 rounded-xl p-3 space-y-1">
+                <label className="block text-[11px] font-bold text-amber-900 uppercase tracking-wide flex items-center gap-1.5">
+                  <History size={12} className="text-amber-700 shrink-0" />
+                  Reason for Edit / Modification Note <span className="text-amber-600/70 font-normal text-[10px]">(Optional)</span>
+                </label>
+                <input
+                  type="text"
+                  value={editReasonInput}
+                  onChange={e => setEditReasonInput(e.target.value)}
+                  placeholder="e.g. Adjusted weight after reweighing batch, applied customer loyalty discount"
+                  className={`${IC} text-xs py-1.5 bg-white border-amber-300 focus:ring-amber-500`}
+                />
+              </div>
+            )}
 
             {/* Discount Section (Light Green Fill, NO stroke, high contrast) */}
             <div className="bg-emerald-50 rounded-xl p-3.5 space-y-2.5 border-0">
@@ -1912,14 +2024,14 @@ export default function SalesCalculatorPage({
           wide
         >
           <div className="space-y-4">
-            {/* Header info */}
-            <div className="bg-slate-50 border border-slate-200/90 rounded-2xl p-3.5 space-y-2.5">
+            {/* Header info (Light Green Fill, NO border, matching discount section) */}
+            <div className="bg-emerald-50 rounded-2xl p-3.5 space-y-2.5 border-0">
               <div className="flex items-start justify-between gap-2">
                 <div>
-                  <h3 className="text-base font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">
+                  <h3 className="text-base font-bold text-emerald-950 font-['Barlow_Condensed',sans-serif]">
                     {selectedCalc.customerName}
                   </h3>
-                  <p className="text-xs text-slate-400 flex items-center gap-1 mt-0.5">
+                  <p className="text-xs text-emerald-700/80 flex items-center gap-1 mt-0.5">
                     <Clock size={12} /> {formatDateTime(selectedCalc.createdAt)}
                   </p>
                 </div>
@@ -1929,18 +2041,18 @@ export default function SalesCalculatorPage({
                 />
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2 border-t border-slate-200/60 text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2 border-t border-emerald-200/60 text-xs">
                 {/* Customer Phone: Only show if provided, completely omitted otherwise */}
                 {selectedCalc.customerPhone && selectedCalc.customerPhone.trim() !== "" && (
-                  <div className="flex items-center gap-1.5 text-slate-600">
-                    <Phone size={13} className="text-slate-400 shrink-0" />
-                    <span>Phone: <strong className="text-slate-800 font-mono">{selectedCalc.customerPhone}</strong></span>
+                  <div className="flex items-center gap-1.5 text-emerald-900">
+                    <Phone size={13} className="text-emerald-700 shrink-0" />
+                    <span>Phone: <strong className="text-emerald-950 font-mono">{selectedCalc.customerPhone}</strong></span>
                   </div>
                 )}
                 {selectedCalc.createdBy && (
-                  <div className="flex items-center gap-1.5 text-slate-600">
-                    <User size={13} className="text-slate-400 shrink-0" />
-                    <span>Recorded By: <strong className="text-slate-800">{selectedCalc.createdBy}</strong></span>
+                  <div className="flex items-center gap-1.5 text-emerald-900">
+                    <User size={13} className="text-emerald-700 shrink-0" />
+                    <span>Recorded By: <strong className="text-emerald-950">{selectedCalc.createdBy}</strong></span>
                   </div>
                 )}
               </div>
@@ -2025,15 +2137,71 @@ export default function SalesCalculatorPage({
               </div>
             </div>
 
+            {/* Edit History Section */}
+            <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-800 uppercase tracking-wide flex items-center gap-1.5">
+                  <History size={13} className="text-slate-500" /> Edit History
+                </span>
+                <span className="text-[11px] font-semibold text-slate-400">
+                  {(selectedCalc.editHistory || []).length} {(selectedCalc.editHistory || []).length === 1 ? "edit" : "edits"}
+                </span>
+              </div>
+
+              {(!selectedCalc.editHistory || selectedCalc.editHistory.length === 0) ? (
+                <p className="text-[11px] text-slate-400 italic">No edits recorded for this calculation yet.</p>
+              ) : (
+                <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
+                  {selectedCalc.editHistory.map(entry => (
+                    <div key={entry.id} className="bg-white border border-slate-200/90 rounded-lg p-2.5 text-xs space-y-1 shadow-2xs">
+                      <div className="flex items-center justify-between text-[11px]">
+                        <span className="font-semibold text-slate-700 flex items-center gap-1">
+                          <User size={11} className="text-slate-400" /> {entry.changedBy || "Staff"}
+                        </span>
+                        <span className="text-slate-400 font-mono text-[10px]">
+                          {formatDateTime(entry.createdAt)}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between text-[11px] pt-1 border-t border-slate-100">
+                        <span className="text-slate-500">Calculation Change:</span>
+                        <span className="font-mono font-bold text-slate-800">
+                          {fmt(entry.previousTotal, cs)} → {fmt(entry.newTotal, cs)}
+                          {entry.difference !== 0 && (
+                            <span className={`ml-1 text-[10px] ${entry.difference > 0 ? "text-emerald-600" : "text-rose-500"}`}>
+                              ({entry.difference > 0 ? "+" : ""}{fmt(entry.difference, cs)})
+                            </span>
+                          )}
+                        </span>
+                      </div>
+                      {entry.itemsSummary && (
+                        <p className="text-[10px] text-slate-500 truncate" title={entry.itemsSummary}>
+                          <span className="font-semibold text-slate-600">Items:</span> {entry.itemsSummary}
+                        </p>
+                      )}
+                      {entry.actionReason && (
+                        <p className="text-[10px] text-slate-600 italic bg-slate-50 px-2 py-1 rounded">
+                          "{entry.actionReason}"
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
             {/* Quick Actions in Modal */}
             <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-200">
-              {canDelete && (
+              {canEdit && (
                 <button
                   type="button"
-                  onClick={() => handleDeleteCalc(selectedCalc.id, selectedCalc.customerName)}
-                  className="px-3 py-1.5 text-xs text-rose-600 hover:text-rose-700 hover:bg-rose-50 rounded-lg flex items-center gap-1 transition-colors"
+                  onClick={() => {
+                    const calcToEdit = selectedCalc;
+                    setSelectedCalc(null);
+                    openEditCalculation(calcToEdit);
+                  }}
+                  className="px-3 py-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg flex items-center gap-1.5 transition-colors shadow-2xs"
                 >
-                  <Trash2 size={13} /> Delete Calculation
+                  <Pencil size={13} /> Edit Calculation
                 </button>
               )}
 
@@ -2074,6 +2242,141 @@ export default function SalesCalculatorPage({
               </div>
             </div>
           </div>
+        </Modal>
+      )}
+
+      {/* ── Record Payment Modal ── */}
+      {paymentModalCalc && (
+        <Modal
+          title={`Record Payment — ${paymentModalCalc.customerName}`}
+          onClose={() => { if (!isRecordingPayment) setPaymentModalCalc(null); }}
+          footer={
+            <div className="flex items-center justify-between gap-3 w-full">
+              <button
+                type="button"
+                onClick={() => setPaymentModalCalc(null)}
+                className="px-3 py-2 text-xs font-semibold text-slate-500 hover:text-slate-800 transition-colors"
+                disabled={isRecordingPayment}
+              >
+                Cancel
+              </button>
+              <PBtn
+                onClick={handleRecordPayment}
+                disabled={isRecordingPayment || !payAmountInput || Number(payAmountInput) <= 0}
+                className="px-4 py-2 text-xs font-bold shadow-sm"
+              >
+                <CheckCircle size={14} /> {isRecordingPayment ? "Recording..." : "Save Payment"}
+              </PBtn>
+            </div>
+          }
+        >
+          {(() => {
+            const prevPaid = paymentModalCalc.paymentStatus === "Paid"
+              ? (paymentModalCalc.amountPaid > 0 ? paymentModalCalc.amountPaid : paymentModalCalc.totalAmount)
+              : (Number(paymentModalCalc.amountPaid) || 0);
+            const outstanding = Math.max(0, paymentModalCalc.totalAmount - prevPaid);
+            const enteredAmount = Number(payAmountInput) || 0;
+            const remainingAfterPayment = Math.max(0, outstanding - enteredAmount);
+            const halfOutstanding = Math.round(outstanding / 2);
+
+            return (
+              <div className="space-y-3.5 pb-1">
+                {/* Balance Summary Card */}
+                <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 grid grid-cols-3 gap-2 text-center">
+                  <div>
+                    <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">Total</span>
+                    <span className="text-xs sm:text-sm font-bold text-slate-800 font-mono">
+                      {fmt(paymentModalCalc.totalAmount, cs)}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">Paid So Far</span>
+                    <span className="text-xs sm:text-sm font-bold text-emerald-700 font-mono">
+                      {fmt(prevPaid, cs)}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">Balance</span>
+                    <span className="text-xs sm:text-sm font-bold text-amber-600 font-mono">
+                      {fmt(outstanding, cs)}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Amount to Pay Input */}
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-[11px] font-bold text-slate-700 uppercase tracking-wide">
+                      Amount Paid Now ({cs}) <span className="text-red-500">*</span>
+                    </label>
+                    {outstanding > 0 && (
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setPayAmountInput(String(halfOutstanding))}
+                          className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-2 py-0.5 rounded transition-colors"
+                        >
+                          Half (50%)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setPayAmountInput(String(outstanding))}
+                          className="text-[10px] font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-2 py-0.5 rounded transition-colors"
+                        >
+                          Full Balance
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-500 pointer-events-none">
+                      {cs}
+                    </span>
+                    <NumInput
+                      value={payAmountInput}
+                      onChange={setPayAmountInput}
+                      placeholder="0.00"
+                      className={`${IC} text-sm py-2 pl-7 pr-3 text-left font-semibold`}
+                      allowDecimal={true}
+                    />
+                  </div>
+                </div>
+
+                {/* Payment Method */}
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1 uppercase tracking-wide">
+                    Payment Method
+                  </label>
+                  <select
+                    value={payMethodInput}
+                    onChange={e => setPayMethodInput(e.target.value)}
+                    className={`${SC} text-xs py-2`}
+                  >
+                    <option value="Cash">Cash</option>
+                    <option value="Transfer">Bank Transfer</option>
+                    <option value="POS">POS / Card</option>
+                    <option value="Cheque">Cheque</option>
+                  </select>
+                </div>
+
+                {/* Balance Projection Banner */}
+                {enteredAmount > 0 && (
+                  <div className={`p-2.5 rounded-xl text-xs flex items-center justify-between border ${
+                    remainingAfterPayment === 0
+                      ? "bg-emerald-50 border-emerald-200 text-emerald-800"
+                      : "bg-amber-50 border-amber-200 text-amber-800"
+                  }`}>
+                    <span>
+                      {remainingAfterPayment === 0 ? "✓ This payment fully clears the balance" : "Remaining balance after payment:"}
+                    </span>
+                    <span className="font-mono font-bold">
+                      {fmt(remainingAfterPayment, cs)}
+                    </span>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
         </Modal>
       )}
 
