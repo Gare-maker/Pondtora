@@ -201,8 +201,6 @@ function FeedDocumentation({
   /* ── Feeding Status Filter: all | fed | not_fed ── */
   const [feedStatusFilter, setFeedStatusFilter] = useState<"all" | "fed" | "not_fed">("all");
 
-  /* ── search state for tabs ── */
-  const [bagsSearch, setBagsSearch] = useState("");
 
   useEffect(() => {
     const h = (e: MouseEvent) => {
@@ -1786,6 +1784,26 @@ function FeedDocumentation({
       }
 
       const carryoverKg = getPriorCarryover(fs, size, selDate);
+      const fedForSize = fedForStock.filter(r => size === "—" || isSamePelletSize(r.size, size));
+      const totalFed = fedForSize.reduce((s, r) => s + (Number(r.total) || ((Number(r.morning) || 0) + (Number(r.evening) || 0))), 0);
+
+      // Check if there is an explicit leftover log for today
+      const matchingRemain = dayRemainLogs.find(r =>
+        isStockMatch(r.fishStock, fs) &&
+        (size === "—" || isSamePelletSize(r.size, size)) &&
+        (brand === "—" || !r.brand || r.brand.toLowerCase().trim() === brand.toLowerCase().trim())
+      );
+
+      let feedRemainingToday: number | null = null;
+      if (matchingRemain) {
+        feedRemainingToday = Number(matchingRemain.remainingKg) || 0;
+      } else if (carryoverKg > 0 || totalFed > 0) {
+        // Carryover from yesterday minus today's fed amount (e.g. 15kg leftover - 12kg fed = 3kg remaining)
+        feedRemainingToday = Math.max(0, Math.round((carryoverKg - totalFed) * 10) / 10);
+      } else {
+        feedRemainingToday = 0;
+      }
+
       const k = `${brand.toLowerCase().trim()}||${size.toLowerCase().trim()}||${key}`;
 
       map.set(k, {
@@ -1795,9 +1813,9 @@ function FeedDocumentation({
         stockDate: stockInfo.stockDate,
         bagsOpened: 0,
         totalKgOpened: 0,
-        remainingKg: 0,
+        remainingKg: feedRemainingToday ?? 0,
         carryoverKg,
-        feedRemainingToday: null,
+        feedRemainingToday,
         hasBagLog: false,
         lastBagLog: null
       });
@@ -1814,15 +1832,8 @@ function FeedDocumentation({
         normalizeFishStock(r.fishStock).toLowerCase() === normalizeFishStock(selectedStockFilter).toLowerCase()
       );
     }
-    if (!bagsSearch.trim()) return list;
-    const q = bagsSearch.toLowerCase().trim();
-    return list.filter(r =>
-      (r.brand && r.brand.toLowerCase().includes(q)) ||
-      (r.size && r.size.toLowerCase().includes(q)) ||
-      (r.fishStock && r.fishStock.toLowerCase().includes(q)) ||
-      (r.stockDate && r.stockDate.toLowerCase().includes(q))
-    );
-  }, [mergedBagRows, selectedStockFilter, bagsSearch]);
+    return list;
+  }, [mergedBagRows, selectedStockFilter]);
 
   /* ── bulk log (Log Feeding — All Ponds) ── */
   const [bulkDate, setBulkDate] = useState(TODAY);
@@ -2367,35 +2378,20 @@ function FeedDocumentation({
 
           {/* Mobile Feeding Records: Table / Card View with Toggle */}
           <div className="md:hidden space-y-3">
-            {/* Mobile Controls Toolbar: Stock Filter + Feeding Status Filter */}
-            <div className="flex items-center justify-between gap-2 flex-wrap bg-white border border-slate-200/80 rounded-2xl p-2 shadow-2xs">
-              {/* Stock Filter */}
-              <div className="flex items-center gap-1.5 flex-1 min-w-[130px]">
-                <span className="text-xs text-slate-400 shrink-0 font-medium">Stock:</span>
-                <select
-                  value={selectedStockFilter}
-                  onChange={e => setSelectedStockFilter(e.target.value)}
-                  className={`${SC} py-1 text-xs w-full max-w-[180px]`}
-                >
-                  <option value="All">All Stocks</option>
-                  {stockFilterOptions.map(s => (
-                    <option key={s.key} value={s.name}>{s.label}</option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Feeding Status Filter */}
-              <div className="flex items-center gap-1 bg-slate-100 p-0.5 rounded-xl border border-slate-200/60 shrink-0">
+            {/* Mobile Controls Toolbar: Feeding Status Filter First + Stock Filter Side-by-Side */}
+            <div className="flex items-center justify-between gap-1.5 flex-nowrap bg-white border border-slate-200/80 rounded-2xl p-1.5 sm:p-2 shadow-2xs">
+              {/* Feeding Status Filter (First) */}
+              <div className="flex items-center gap-0.5 bg-slate-100 p-0.5 rounded-xl border border-slate-200/60 shrink-0">
                 {(["all", "fed", "not_fed"] as const).map(st => {
                   const count = st === "all" ? totalPonds : st === "fed" ? pondsFedToday : pondsRemaining;
-                  const name = st === "all" ? "All" : st === "fed" ? "Fed" : "Remaining";
+                  const name = st === "all" ? "All" : st === "fed" ? "Fed" : "Rem";
                   const isSelected = feedStatusFilter === st;
                   return (
                     <button
                       key={st}
                       type="button"
                       onClick={() => setFeedStatusFilter(st)}
-                      className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs transition-all ${
+                      className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] sm:text-xs transition-all ${
                         isSelected
                           ? "bg-white text-slate-900 font-bold shadow-xs border border-slate-200/80"
                           : "text-slate-500 hover:text-slate-800 font-medium"
@@ -2403,7 +2399,7 @@ function FeedDocumentation({
                     >
                       <span>{name}</span>
                       <span
-                        className={`text-[10px] font-bold px-1.5 py-0.2 rounded-full leading-none ${
+                        className={`text-[9px] sm:text-[10px] font-bold px-1 py-0.5 rounded-full leading-none ${
                           isSelected
                             ? st === "fed" ? "bg-emerald-100 text-emerald-800" : st === "not_fed" ? "bg-amber-100 text-amber-800" : "bg-slate-100 text-slate-700"
                             : "bg-slate-200/60 text-slate-500"
@@ -2414,6 +2410,21 @@ function FeedDocumentation({
                     </button>
                   );
                 })}
+              </div>
+
+              {/* Stock Filter (Second, side-by-side, shrunk to fit without wrapping) */}
+              <div className="flex items-center min-w-0 flex-1 max-w-[140px] sm:max-w-[170px] justify-end">
+                <select
+                  value={selectedStockFilter}
+                  onChange={e => setSelectedStockFilter(e.target.value)}
+                  className={`${SC} py-1 px-2 text-[11px] sm:text-xs w-full truncate`}
+                  aria-label="Filter by Stock"
+                >
+                  <option value="All">All Stocks</option>
+                  {stockFilterOptions.map(s => (
+                    <option key={s.key} value={s.name}>{s.label}</option>
+                  ))}
+                </select>
               </div>
             </div>
 
@@ -2591,10 +2602,6 @@ function FeedDocumentation({
                       ))}
                     </select>
                   </div>
-                  <div className="relative">
-                    <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" />
-                    <input value={bagsSearch} onChange={e => setBagsSearch(e.target.value)} placeholder="Search stock, brand, or size…" className={`${IC} pl-8 w-52 text-xs py-1.5`} />
-                  </div>
                 </div>
               </div>
 
@@ -2698,12 +2705,12 @@ function FeedDocumentation({
                           {/* Feed Remaining Today */}
                           <td className={`px-4 py-3 relative z-0 transition-all ${isRemainColHighlighted ? "bg-amber-50 ring-1 ring-amber-400 ring-inset rounded" : ""}`}>
                             <div className="font-semibold text-xs">
-                              {row.hasBagLog && row.feedRemainingToday !== null && row.feedRemainingToday !== undefined ? (
+                              {row.feedRemainingToday !== null && row.feedRemainingToday !== undefined ? (
                                 <span className={isRemainMismatch ? "text-red-600 font-bold" : "text-slate-800 font-bold"}>
                                   {row.feedRemainingToday} kg
                                 </span>
                               ) : (
-                                <span className="text-slate-400 font-normal">—</span>
+                                <span className="text-slate-400 font-normal">0 kg</span>
                               )}
                             </div>
                             {row.hasBagLog && expData.hasFed && (
@@ -2738,30 +2745,18 @@ function FeedDocumentation({
 
           {/* Mobile Isolated Cards View */}
           <div className="md:hidden space-y-3">
-            {/* Mobile Controls Toolbar: Stock Filter + Search */}
-            <div className="flex items-center justify-between gap-2 flex-wrap bg-white border border-slate-200/80 rounded-2xl p-2 shadow-2xs">
-              <div className="flex items-center gap-1.5 flex-1 min-w-[130px]">
-                <span className="text-xs text-slate-400 shrink-0 font-medium">Stock:</span>
-                <select
-                  value={selectedStockFilter}
-                  onChange={e => setSelectedStockFilter(e.target.value)}
-                  className={`${SC} py-1 text-xs w-full`}
-                >
-                  <option value="All">All Stocks</option>
-                  {stockFilterOptions.map(s => (
-                    <option key={s.key} value={s.name}>{s.label}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="relative flex-1 min-w-[120px]">
-                <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-300" />
-                <input
-                  value={bagsSearch}
-                  onChange={e => setBagsSearch(e.target.value)}
-                  placeholder="Search bags…"
-                  className={`${IC} pl-7 w-full text-xs py-1`}
-                />
-              </div>
+            {/* Mobile Controls: Stock Filter on its own without outer card fill */}
+            <div className="flex items-center gap-2">
+              <select
+                value={selectedStockFilter}
+                onChange={e => setSelectedStockFilter(e.target.value)}
+                className={`${SC} py-1.5 px-3 text-xs w-full max-w-[200px] bg-white border border-slate-200 rounded-xl shadow-2xs font-medium text-slate-700`}
+              >
+                <option value="All">All Stocks</option>
+                {stockFilterOptions.map(s => (
+                  <option key={s.key} value={s.name}>{s.label}</option>
+                ))}
+              </select>
             </div>
 
             {/* Dismissible Highlighting Banner */}
@@ -2914,10 +2909,10 @@ function FeedDocumentation({
                       <div className={`rounded-lg p-2 transition-all ${isRemainColHighlighted ? "bg-amber-100/90 border border-amber-400 ring-1 ring-amber-400" : isRemainMismatch ? "bg-red-50/80 border border-red-200" : "bg-slate-50"}`}>
                         <span className={`text-[10px] block mb-0.5 font-medium ${isRemainMismatch ? "text-red-600 font-bold" : "text-slate-400"}`}>Feed Remaining Today</span>
                         <span className={`font-semibold text-xs ${isRemainMismatch ? "text-red-600 font-bold" : "text-slate-800"}`}>
-                          {row.hasBagLog && row.feedRemainingToday !== null && row.feedRemainingToday !== undefined ? (
+                          {row.feedRemainingToday !== null && row.feedRemainingToday !== undefined ? (
                             `${row.feedRemainingToday} kg`
                           ) : (
-                            <span className="text-slate-400 font-normal">—</span>
+                            "0 kg"
                           )}
                         </span>
                         {row.hasBagLog && expData.hasFed && (
@@ -4079,9 +4074,9 @@ function FeedDocumentation({
                 <div className="bg-amber-50 rounded-xl p-3 border border-amber-200">
                   <p className="text-[10px] uppercase tracking-wider text-amber-600 mb-0.5">Feed Remaining Today</p>
                   <p className="text-sm font-bold text-amber-800">
-                    {viewBagDetail.hasBagLog && viewBagDetail.feedRemainingToday !== null && viewBagDetail.feedRemainingToday !== undefined
+                    {viewBagDetail.feedRemainingToday !== null && viewBagDetail.feedRemainingToday !== undefined
                       ? `${viewBagDetail.feedRemainingToday} kg`
-                      : "—"}
+                      : "0 kg"}
                   </p>
                 </div>
               </div>
