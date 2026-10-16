@@ -102,6 +102,9 @@ export type MergedBagRow = {
   totalKgOpened: number;
   remainingKg: number;
   lastBagLog: BagOpenLog | null;
+  carryoverKg?: number;
+  feedRemainingToday?: number | null;
+  hasBagLog?: boolean;
 };
 
 export type BagRow = {
@@ -179,7 +182,6 @@ function FeedDocumentation({
   const [deleteRecId, setDeleteRecId] = useState<string | null>(null);
   const [docTab, setDocTab] = useState<"daily" | "bags" | "mismatch">("daily");
   const [bulkMobileView, setBulkMobileView] = useState<"table" | "card">("table");
-  const [isDailySearchOpen, setIsDailySearchOpen] = useState(false);
   const [bagsHighlight, setBagsHighlight] = useState<{
     stock: string;
     size: string;
@@ -193,11 +195,13 @@ function FeedDocumentation({
   const [activeDailyMenuId, setActiveDailyMenuId] = useState<string | null>(null);
   const [activeBagMenuId, setActiveBagMenuId] = useState<string | null>(null);
 
+  /* ── Stock Selection Filter (Pond Management style) ── */
+  const [selectedStockFilter, setSelectedStockFilter] = useState<string>("All");
+
   /* ── Feeding Status Filter: all | fed | not_fed ── */
   const [feedStatusFilter, setFeedStatusFilter] = useState<"all" | "fed" | "not_fed">("all");
 
   /* ── search state for tabs ── */
-  const [dailySearch, setDailySearch] = useState("");
   const [bagsSearch, setBagsSearch] = useState("");
 
   useEffect(() => {
@@ -675,6 +679,26 @@ function FeedDocumentation({
       label: `${opt.name} — Ponds: ${opt.ponds.join(", ")}`
     }));
   }, [activePonds, ponds]);
+
+  /* ── stockFilterOptions for filtering Feeding Record by stock ── */
+  const stockFilterOptions = useMemo(() => {
+    const list: { key: string; label: string; name: string }[] = [];
+    const seen = new Set<string>();
+
+    activePonds.forEach(p => {
+      const stockName = getPondFishStock(p);
+      if (!stockName || stockName === "—" || stockName === "General Stock") return;
+      const key = normalizeFishStock(stockName).toLowerCase().trim();
+      if (!seen.has(key)) {
+        seen.add(key);
+        const dStr = p.stockingDate && p.stockingDate !== "—" ? formatFishStockDate(p.stockingDate) : "";
+        const label = dStr && dStr !== stockName ? `${stockName} (${dStr})` : stockName;
+        list.push({ key, label, name: stockName });
+      }
+    });
+
+    return list;
+  }, [activePonds]);
 
   /* ── helper: count bags opened for a given fish stock + brand + pellet size on a date ── */
   const getBagsLoggedTodayForStockAndSize = (stockName: string, brandName: string, palletSize: string, checkDate: string): number => {
@@ -1203,6 +1227,11 @@ function FeedDocumentation({
           b && isSameDate(b.date, selDate) && isStockMatch(b.fishStock, stockInfo.stockName) && (size === "—" || !b.size || b.size === "—" || isSamePelletSize(b.size, size))
         );
         const hasBagLog = bagLogsForSize.length > 0;
+        // Mismatch validation is INACTIVE until Bags Opened Today is submitted for this stock
+        if (!hasBagLog) {
+          return;
+        }
+
         const recordedBags = bagLogsForSize.reduce((s, b) => s + (Number(b.bagsOpened) || 0), 0);
 
         // Expected remaining feed calculation
@@ -1214,36 +1243,21 @@ function FeedDocumentation({
           r && isSameDate(r.date, selDate) && isStockMatch(r.fishStock, stockInfo.stockName) && (size === "—" || !r.size || r.size === "—" || isSamePelletSize(r.size, size))
         );
         const hasRemainLog = remainLogsForSize.length > 0;
-        // If leftover log exists, use it. If bags open was saved without leftover, treat as 0 leftover. If neither exists, record is null (missing).
         const recordedRemaining = hasRemainLog 
           ? (Number(remainLogsForSize[remainLogsForSize.length - 1].remainingKg) || 0) 
-          : (hasBagLog ? 0 : null);
+          : null;
 
         // Determine discrepancies
-        const isMissingBagLog = expectedBags > 0 && !hasBagLog;
-        const isBagCountMismatch = hasBagLog ? (recordedBags !== expectedBags) : (expectedBags > 0);
-        
-        // Leftover is only considered missing if NEITHER bags opened NOR leftover was logged for this fed stock
-        const isMissingRemainLog = !hasRemainLog && !hasBagLog && (sizeFedKg > 0 || expectedBags > 0);
+        const isBagCountMismatch = recordedBags !== expectedBags;
         const isRemainValueMismatch = recordedRemaining !== null && Math.abs(recordedRemaining - expectedRemaining) > 0.05;
-        const isRemainingMismatch = isMissingRemainLog || isRemainValueMismatch;
+        const isRemainingMismatch = isRemainValueMismatch;
 
-        let status: "Not Opened" | "Bag Mismatch" | "Remaining Mismatch" | "Multiple Mismatches" | null = null;
+        let status: "Bag Mismatch" | "Remaining Mismatch" | "Multiple Mismatches" | null = null;
         let reason = "";
 
-        if (isMissingBagLog && isMissingRemainLog) {
-          status = "Not Opened";
-          reason = `You fed this fish stock, but have not registered the bags opened and leftover feed for it. Expected ${expectedBags} bag${expectedBags !== 1 ? "s" : ""} (${sizeFedKg} kg fed) and ${expectedRemaining} kg leftover.`;
-        } else if (isMissingBagLog) {
-          status = "Not Opened";
-          reason = `You fed this fish stock, but have not registered the bags you opened for it. Expected ${expectedBags} bag${expectedBags !== 1 ? "s" : ""} (${sizeFedKg} kg fed, ${carryoverKg} kg carryover).`;
-        } else if (isBagCountMismatch && isRemainingMismatch) {
+        if (isBagCountMismatch && isRemainingMismatch) {
           status = "Multiple Mismatches";
-          if (isMissingRemainLog) {
-            reason = `Recorded ${recordedBags} bag${recordedBags !== 1 ? "s" : ""} (expected ${expectedBags}) and leftover feed not recorded (expected ${expectedRemaining} kg).`;
-          } else {
-            reason = `Recorded ${recordedBags} bag${recordedBags !== 1 ? "s" : ""} (expected ${expectedBags}) and leftover recorded as ${recordedRemaining} kg (expected ${expectedRemaining} kg).`;
-          }
+          reason = `Recorded ${recordedBags} bag${recordedBags !== 1 ? "s" : ""} (expected ${expectedBags}) and leftover recorded as ${recordedRemaining} kg (expected ${expectedRemaining} kg).`;
         } else if (isBagCountMismatch) {
           status = "Bag Mismatch";
           if (recordedBags < expectedBags) {
@@ -1253,11 +1267,7 @@ function FeedDocumentation({
           }
         } else if (isRemainingMismatch) {
           status = "Remaining Mismatch";
-          if (isMissingRemainLog) {
-            reason = `Leftover feed was not recorded. Calculated expected leftover is ${expectedRemaining} kg.`;
-          } else {
-            reason = `Recorded leftover is ${recordedRemaining} kg, but calculated expected leftover is ${expectedRemaining} kg.`;
-          }
+          reason = `Recorded leftover is ${recordedRemaining} kg, but calculated expected leftover is ${expectedRemaining} kg.`;
         }
 
         if (status) {
@@ -1280,8 +1290,15 @@ function FeedDocumentation({
       });
     });
 
+    if (selectedStockFilter !== "All") {
+      return rows.filter(r =>
+        isStockMatch(selectedStockFilter, r.stockName) ||
+        normalizeFishStock(r.stockName).toLowerCase() === normalizeFishStock(selectedStockFilter).toLowerCase()
+      );
+    }
+
     return rows;
-  }, [ponds, bagLogs, feedingRecords, remainLogs, inventory, selDate, selMonLabel, selDay, selYear, viewYear, viewMonth, getPriorCarryover]);
+  }, [ponds, bagLogs, feedingRecords, remainLogs, inventory, selDate, selMonLabel, selDay, selYear, viewYear, viewMonth, getPriorCarryover, selectedStockFilter]);
 
   const handleMismatchClick = (row: MismatchStockRow) => {
     const targetDate = getIsoDateForSelDate(selDate);
@@ -1380,71 +1397,34 @@ function FeedDocumentation({
   /* ── day view ── */
   const dayRecords = (feedingRecords || []).filter(r => r && isSameDate(r.date, selDate));
   const dayGrand = dayRecords.reduce((s, r) => s + (Number(r.total) || 0), 0);
-  const dayRows = activePonds.map(pond => { const rec = dayRecords.find(r => r.pond === pond.name); return { pond, rec }; });
-  const totalPonds = activePonds.length;
-  const pondsFedToday = [...new Set(dayRecords.map(r => r.pond))].length;
-  const pondsRemaining = Math.max(0, totalPonds - pondsFedToday);
-  const bagsOpenedToday = (bagLogs || []).filter(b => b && isSameDate(b.date, selDate)).reduce((s, b) => s + (Number(b.bagsOpened) || 0), 0);
 
-  /* ── Unlogged Bags Warning: Feed logged for a Fish Stock on selDate but no opened bags logged ── */
-  const unloggedStockAlerts = useMemo(() => {
-    const dayFeedRecords = (feedingRecords || []).filter(
-      r => r && isSameDate(r.date, selDate) && (Number(r.total) > 0 || Number(r.morning) > 0 || Number(r.evening) > 0)
+  const activePondsForSelectedStock = useMemo(() => {
+    if (selectedStockFilter === "All") return activePonds;
+    return activePonds.filter(p =>
+      isStockMatch(selectedStockFilter, getPondFishStock(p)) ||
+      isStockMatch(selectedStockFilter, p.fishStock) ||
+      isStockMatch(selectedStockFilter, pondToStock(p.name)) ||
+      isStockMatch(selectedStockFilter, p.name)
     );
-    if (dayFeedRecords.length === 0) return [];
+  }, [activePonds, selectedStockFilter]);
 
-    const dayBagLogs = (bagLogs || []).filter(b => b && isSameDate(b.date, selDate));
-
-    // Map stocks that were fed today
-    const stocksMap = new Map<string, { stockName: string; stockDate: string; totalFedKg: number; sizes: Set<string> }>();
-
-    dayFeedRecords.forEach(f => {
-      const fs = pondToStock(f.pond) || "General Stock";
-      const matchingPond = (ponds || []).find(p => p && (pondToStock(p.name) === fs || p.name === fs || isStockMatch(p.name, fs)));
-      const stockDate = matchingPond?.stockingDate && matchingPond.stockingDate !== "—"
-        ? formatFishStockDate(matchingPond.stockingDate)
-        : (fs && /^\d{4}-\d{2}-\d{2}/.test(fs) ? formatFishStockDate(fs) : (fs !== "—" && fs !== "General Stock" ? formatFishStock(fs) : ""));
-
-      const stockKey = fs.toLowerCase().trim();
-      const existing = stocksMap.get(stockKey);
-      const fedKg = Number(f.total) || (Number(f.morning) || 0) + (Number(f.evening) || 0);
-
-      if (existing) {
-        existing.totalFedKg += fedKg;
-        if (f.size) existing.sizes.add(f.size);
-      } else {
-        stocksMap.set(stockKey, {
-          stockName: fs,
-          stockDate,
-          totalFedKg: fedKg,
-          sizes: new Set(f.size ? [f.size] : []),
-        });
-      }
+  const dayRows = useMemo(() => {
+    return activePondsForSelectedStock.map(pond => {
+      const rec = dayRecords.find(r => r.pond === pond.name);
+      return { pond, rec };
     });
+  }, [activePondsForSelectedStock, dayRecords]);
 
-    // Check which stocks do NOT have bag open logs with qty > 0 on selDate
-    const unlogged: { stockName: string; stockDate: string; totalFedKg: number; sizes: string[] }[] = [];
-
-    stocksMap.forEach((stockInfo, stockKey) => {
-      const hasBag = dayBagLogs.some(b => {
-        const bFs = normalizeFishStock(b.fishStock) || "—";
-        const isMatch = isStockMatch(bFs, stockInfo.stockName) || bFs.toLowerCase().trim() === stockKey;
-        const qty = Number(b.bagsOpened) || 0;
-        return isMatch && qty > 0;
-      });
-
-      if (!hasBag && stockInfo.totalFedKg > 0) {
-        unlogged.push({
-          stockName: stockInfo.stockName,
-          stockDate: stockInfo.stockDate,
-          totalFedKg: Math.round(stockInfo.totalFedKg * 100) / 100,
-          sizes: Array.from(stockInfo.sizes),
-        });
-      }
-    });
-
-    return unlogged;
-  }, [feedingRecords, bagLogs, selDate, ponds]);
+  const totalPonds = activePondsForSelectedStock.length;
+  const pondsFedToday = useMemo(() => {
+    return [...new Set(dayRecords.filter(r => activePondsForSelectedStock.some(p => p.name === r.pond)).map(r => r.pond))].length;
+  }, [dayRecords, activePondsForSelectedStock]);
+  const pondsRemaining = Math.max(0, totalPonds - pondsFedToday);
+  const bagsOpenedToday = useMemo(() => {
+    return (bagLogs || [])
+      .filter(b => b && isSameDate(b.date, selDate) && (selectedStockFilter === "All" || isStockMatch(selectedStockFilter, b.fishStock)))
+      .reduce((s, b) => s + (Number(b.bagsOpened) || 0), 0);
+  }, [bagLogs, selDate, selectedStockFilter]);
 
   const filteredDayRows = useMemo(() => {
     let list = dayRows;
@@ -1453,19 +1433,8 @@ function FeedDocumentation({
     } else if (feedStatusFilter === "not_fed") {
       list = list.filter(({ rec }) => !rec);
     }
-    if (!dailySearch.trim()) return list;
-    const q = dailySearch.toLowerCase().trim();
-    return list.filter(({ pond, rec }) => {
-      const fs = pondToStock(pond.name);
-      return (
-        pond.name.toLowerCase().includes(q) ||
-        (pond.species && pond.species.toLowerCase().includes(q)) ||
-        fs.toLowerCase().includes(q) ||
-        (rec?.size && rec.size.toLowerCase().includes(q)) ||
-        (rec?.recordedBy && rec.recordedBy.toLowerCase().includes(q))
-      );
-    });
-  }, [dayRows, dailySearch, feedStatusFilter, ponds]);
+    return list;
+  }, [dayRows, feedStatusFilter]);
 
   const openEditRec = (rec: FeedingRecord) => setEditRec({ ...rec });
 
@@ -1573,7 +1542,7 @@ function FeedDocumentation({
         kgPerBag: editDocBag.kgPerBag,
         totalKg: editDocBag.bagsOpened * editDocBag.kgPerBag
       });
-    } else if (editDocBag.bagsOpened > 0) {
+    } else if (editDocBag.bagsOpened >= 0) {
       onAddBagLog && onAddBagLog({
         ...editDocBag,
         id: editDocBag.id || uid(),
@@ -1627,11 +1596,47 @@ function FeedDocumentation({
   };
 
 
-  /* ── merged bags rows for display (includes bags opened and leftover records) ── */
+  /* ── merged bags rows for display (includes all active stocks, bags opened, and feed tracking) ── */
   const mergedBagRows = useMemo((): MergedBagRow[] => {
     const dayBagLogs = (bagLogs || []).filter(b => b && (isSameDate(b.date, selDate) || isSameDate(b.date, toDateLabel(selDate))));
+    const dayRemainLogs = (remainLogs || []).filter(r => r && (isSameDate(r.date, selDate) || isSameDate(r.date, toDateLabel(selDate))));
+    const dayFeedRecords = (feedingRecords || []).filter(r => r && (isSameDate(r.date, selDate) || isSameDate(r.date, toDateLabel(selDate))));
+
     const map = new Map<string, MergedBagRow>();
 
+    // 1. Map all active stocks from active ponds (status === "Active")
+    const activePondsList = (ponds || []).filter(p => p && p.status === "Active");
+    const activeStocksMap = new Map<string, {
+      stockName: string;
+      stockDate: string;
+      species: string;
+      pondNames: string[];
+      defaultPellet?: string;
+    }>();
+
+    activePondsList.forEach(p => {
+      const stockName = getPondFishStock(p);
+      if (!stockName || stockName === "—" || stockName === "General Stock") return;
+      const key = normalizeFishStock(stockName).toLowerCase().trim();
+      const stockDate = p.stockingDate && p.stockingDate !== "—" ? formatFishStockDate(p.stockingDate) : "—";
+      const existing = activeStocksMap.get(key);
+      if (existing) {
+        if (!existing.pondNames.includes(p.name)) existing.pondNames.push(p.name);
+        if (!existing.defaultPellet && p.defaultPellet) existing.defaultPellet = p.defaultPellet;
+      } else {
+        activeStocksMap.set(key, {
+          stockName,
+          stockDate,
+          species: p.species || "—",
+          pondNames: [p.name],
+          defaultPellet: p.defaultPellet
+        });
+      }
+    });
+
+    const populatedStockKeys = new Set<string>();
+
+    // 2. Process dayBagLogs (stocks with bags opened logged today)
     dayBagLogs.forEach(b => {
       const fs = normalizeFishStock(b.fishStock) || "—";
       const brand = b.brand || "—";
@@ -1639,18 +1644,47 @@ function FeedDocumentation({
       const k = `${brand.toLowerCase().trim()}||${size.toLowerCase().trim()}||${fs.toLowerCase().trim()}`;
       const existing = map.get(k);
       const bags = Number(b.bagsOpened) || 0;
-      const kgPb = Number(b.kgPerBag) || 15;
+      const invItem = (inventory || []).find(f => f && (brand !== "—" ? f.brand.toLowerCase().trim() === brand.toLowerCase().trim() : true) && (size !== "—" ? isSamePelletSize(f.size, size) : true));
+      const kgPb = Number(b.kgPerBag) || invItem?.weightPerBag || 15;
       const totalKg = Number(b.totalKg) || (bags * kgPb);
+
       const matchingPond = (ponds || []).find(p => p && (pondToStock(p.name) === fs || p.name === fs || isStockMatch(p.name, fs)));
       const stockDate = matchingPond?.stockingDate && matchingPond.stockingDate !== "—"
         ? formatFishStockDate(matchingPond.stockingDate)
         : (fs && /^\d{4}-\d{2}-\d{2}/.test(fs) ? formatFishStockDate(fs) : (fs !== "—" && fs !== "General Stock" ? formatFishStock(fs) : "—"));
 
+      const carryoverKg = getPriorCarryover(fs, size, selDate);
+
+      // Feeding records for this stock and size today
+      const fedForSize = dayFeedRecords.filter(r =>
+        (isStockMatch(r.fishStock, fs) || isStockMatch(pondToStock(r.pond), fs) || isStockMatch(r.pond, fs)) &&
+        (size === "—" || isSamePelletSize(r.size, size))
+      );
+      const totalFed = fedForSize.reduce((s, r) => s + (Number(r.total) || ((Number(r.morning) || 0) + (Number(r.evening) || 0))), 0);
+
+      // Check for explicit leftover entry
+      const matchingRemain = dayRemainLogs.find(r =>
+        isStockMatch(r.fishStock, fs) &&
+        (size === "—" || isSamePelletSize(r.size, size)) &&
+        (brand === "—" || !r.brand || r.brand.toLowerCase().trim() === brand.toLowerCase().trim())
+      );
+
+      let feedRemainingToday: number | null = null;
+      if (matchingRemain) {
+        feedRemainingToday = Number(matchingRemain.remainingKg) || 0;
+      } else {
+        const totalAvailable = carryoverKg + totalKg;
+        feedRemainingToday = Math.max(0, Math.round((totalAvailable - totalFed) * 10) / 10);
+      }
+
       if (existing) {
-        // Keep single entry per stock and pallet size rather than accumulating duplicate entries
         existing.bagsOpened = bags;
         existing.totalKgOpened = totalKg;
         existing.lastBagLog = b;
+        existing.hasBagLog = true;
+        existing.carryoverKg = carryoverKg;
+        existing.feedRemainingToday = feedRemainingToday;
+        existing.remainingKg = feedRemainingToday ?? 0;
       } else {
         map.set(k, {
           brand,
@@ -1659,13 +1693,18 @@ function FeedDocumentation({
           stockDate: stockDate !== fs ? stockDate : "—",
           bagsOpened: bags,
           totalKgOpened: totalKg,
-          remainingKg: 0,
+          remainingKg: feedRemainingToday ?? 0,
+          carryoverKg,
+          feedRemainingToday,
+          hasBagLog: true,
           lastBagLog: b
         });
       }
+      populatedStockKeys.add(fs.toLowerCase().trim());
+      populatedStockKeys.add(normalizeFishStock(fs).toLowerCase().trim());
     });
 
-    const dayRemainLogs = (remainLogs || []).filter(r => r && (isSameDate(r.date, selDate) || isSameDate(r.date, toDateLabel(selDate))));
+    // 3. Process dayRemainLogs without bagLog
     dayRemainLogs.forEach(r => {
       const fs = normalizeFishStock(r.fishStock) || "—";
       const brand = r.brand || "—";
@@ -1673,13 +1712,16 @@ function FeedDocumentation({
       const k = `${brand.toLowerCase().trim()}||${size.toLowerCase().trim()}||${fs.toLowerCase().trim()}`;
       const remVal = Number(r.remainingKg) || 0;
       const existing = map.get(k);
+
       if (existing) {
         existing.remainingKg = remVal;
+        existing.feedRemainingToday = remVal;
       } else {
         const matchingPond = (ponds || []).find(p => p && (pondToStock(p.name) === fs || p.name === fs || isStockMatch(p.name, fs)));
         const stockDate = matchingPond?.stockingDate && matchingPond.stockingDate !== "—"
           ? formatFishStockDate(matchingPond.stockingDate)
           : (fs && /^\d{4}-\d{2}-\d{2}/.test(fs) ? formatFishStockDate(fs) : (fs !== "—" && fs !== "General Stock" ? formatFishStock(fs) : "—"));
+        const carryoverKg = getPriorCarryover(fs, size, selDate);
 
         map.set(k, {
           brand,
@@ -1689,24 +1731,98 @@ function FeedDocumentation({
           bagsOpened: 0,
           totalKgOpened: 0,
           remainingKg: remVal,
+          carryoverKg,
+          feedRemainingToday: remVal,
+          hasBagLog: false,
           lastBagLog: null
         });
       }
+      populatedStockKeys.add(fs.toLowerCase().trim());
+      populatedStockKeys.add(normalizeFishStock(fs).toLowerCase().trim());
+    });
+
+    // 4. Ensure EVERY active stock appears even before logging begins
+    activeStocksMap.forEach((stockInfo, key) => {
+      if (populatedStockKeys.has(key) || populatedStockKeys.has(stockInfo.stockName.toLowerCase().trim())) {
+        return;
+      }
+
+      const fs = stockInfo.stockName;
+      const fedForStock = dayFeedRecords.filter(r =>
+        isStockMatch(r.fishStock, fs) || isStockMatch(pondToStock(r.pond), fs) || isStockMatch(r.pond, fs)
+      );
+
+      let size = "—";
+      let brand = "—";
+
+      if (fedForStock.length > 0 && fedForStock[0].size) {
+        size = fedForStock[0].size;
+        brand = fedForStock[0].brand || "—";
+      } else {
+        const priorRemain = (remainLogs || []).filter(r => isStockMatch(r.fishStock, fs)).sort((a, b) => (dateToIso(b.date) || "").localeCompare(dateToIso(a.date) || ""))[0];
+        const priorBag = (bagLogs || []).filter(b => isStockMatch(b.fishStock, fs)).sort((a, b) => (dateToIso(b.date) || "").localeCompare(dateToIso(a.date) || ""))[0];
+        const associated = getAssociatedPalletsForStock(fs, selDate);
+
+        if (priorRemain && priorRemain.size && priorRemain.size !== "—") {
+          size = priorRemain.size;
+          brand = priorRemain.brand || "—";
+        } else if (priorBag && priorBag.size && priorBag.size !== "—") {
+          size = priorBag.size;
+          brand = priorBag.brand || "—";
+        } else if (stockInfo.defaultPellet) {
+          size = stockInfo.defaultPellet;
+        } else if (associated.length > 0) {
+          size = associated[0];
+        } else if (availablePelletSizes.length > 0) {
+          size = availablePelletSizes[0];
+        } else {
+          size = "2.0 mm";
+        }
+
+        if (brand === "—" || !brand) {
+          const matchingBrands = getMatchingBrandsForPallet(size);
+          brand = matchingBrands[0] || (inventory[0]?.brand || FEED_BRANDS[0] || "Coppens");
+        }
+      }
+
+      const carryoverKg = getPriorCarryover(fs, size, selDate);
+      const k = `${brand.toLowerCase().trim()}||${size.toLowerCase().trim()}||${key}`;
+
+      map.set(k, {
+        brand,
+        size,
+        fishStock: fs,
+        stockDate: stockInfo.stockDate,
+        bagsOpened: 0,
+        totalKgOpened: 0,
+        remainingKg: 0,
+        carryoverKg,
+        feedRemainingToday: null,
+        hasBagLog: false,
+        lastBagLog: null
+      });
     });
 
     return Array.from(map.values());
-  }, [bagLogs, remainLogs, selDate, ponds]);
+  }, [bagLogs, remainLogs, feedingRecords, selDate, ponds, inventory, getPriorCarryover, dateToIso, getAssociatedPalletsForStock, getMatchingBrandsForPallet, availablePelletSizes]);
 
   const filteredMergedBagRows = useMemo(() => {
-    if (!bagsSearch.trim()) return mergedBagRows;
+    let list = mergedBagRows;
+    if (selectedStockFilter !== "All") {
+      list = list.filter(r =>
+        isStockMatch(selectedStockFilter, r.fishStock) ||
+        normalizeFishStock(r.fishStock).toLowerCase() === normalizeFishStock(selectedStockFilter).toLowerCase()
+      );
+    }
+    if (!bagsSearch.trim()) return list;
     const q = bagsSearch.toLowerCase().trim();
-    return mergedBagRows.filter(r =>
+    return list.filter(r =>
       (r.brand && r.brand.toLowerCase().includes(q)) ||
       (r.size && r.size.toLowerCase().includes(q)) ||
       (r.fishStock && r.fishStock.toLowerCase().includes(q)) ||
       (r.stockDate && r.stockDate.toLowerCase().includes(q))
     );
-  }, [mergedBagRows, bagsSearch]);
+  }, [mergedBagRows, selectedStockFilter, bagsSearch]);
 
   /* ── bulk log (Log Feeding — All Ponds) ── */
   const [bulkDate, setBulkDate] = useState(TODAY);
@@ -2147,9 +2263,19 @@ function FeedDocumentation({
                     })}
                   </div>
 
-                  <div className="relative">
-                    <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" />
-                    <input value={dailySearch} onChange={e => setDailySearch(e.target.value)} placeholder="Search pond, stock, or size…" className={`${IC} pl-8 w-44 sm:w-52 text-xs py-1.5`} />
+                  {/* Stock Selection Filter */}
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs text-slate-400">Stock:</span>
+                    <select
+                      value={selectedStockFilter}
+                      onChange={e => setSelectedStockFilter(e.target.value)}
+                      className={`${SC} py-1.5 text-xs w-auto`}
+                    >
+                      <option value="All">All Stocks</option>
+                      {stockFilterOptions.map(s => (
+                        <option key={s.key} value={s.name}>{s.label}</option>
+                      ))}
+                    </select>
                   </div>
                 </div>
               </div>
@@ -2232,7 +2358,7 @@ function FeedDocumentation({
               {filteredDayRows.length === 0 && (
                 <div className="py-12 text-center">
                   <Droplets size={32} className="text-slate-200 mx-auto mb-3" />
-                  <p className="text-sm font-semibold text-slate-400">{dailySearch ? "No ponds match search" : `No feeding recorded on ${selDate}`}</p>
+                  <p className="text-sm font-semibold text-slate-400">{selectedStockFilter !== "All" ? `No ponds found for ${selectedStockFilter}` : `No feeding recorded on ${selDate}`}</p>
                   <p className="text-xs text-slate-300 mt-1">Select a highlighted date or log a new session</p>
                 </div>
               )}
@@ -2241,10 +2367,25 @@ function FeedDocumentation({
 
           {/* Mobile Feeding Records: Table / Card View with Toggle */}
           <div className="md:hidden space-y-3">
-            {/* Mobile Controls Toolbar: Filter + Table/Card Toggle + Search */}
+            {/* Mobile Controls Toolbar: Stock Filter + Feeding Status Filter */}
             <div className="flex items-center justify-between gap-2 flex-wrap bg-white border border-slate-200/80 rounded-2xl p-2 shadow-2xs">
+              {/* Stock Filter */}
+              <div className="flex items-center gap-1.5 flex-1 min-w-[130px]">
+                <span className="text-xs text-slate-400 shrink-0 font-medium">Stock:</span>
+                <select
+                  value={selectedStockFilter}
+                  onChange={e => setSelectedStockFilter(e.target.value)}
+                  className={`${SC} py-1 text-xs w-full max-w-[180px]`}
+                >
+                  <option value="All">All Stocks</option>
+                  {stockFilterOptions.map(s => (
+                    <option key={s.key} value={s.name}>{s.label}</option>
+                  ))}
+                </select>
+              </div>
+
               {/* Feeding Status Filter */}
-              <div className="flex items-center gap-1 bg-slate-100 p-0.5 rounded-xl border border-slate-200/60">
+              <div className="flex items-center gap-1 bg-slate-100 p-0.5 rounded-xl border border-slate-200/60 shrink-0">
                 {(["all", "fed", "not_fed"] as const).map(st => {
                   const count = st === "all" ? totalPonds : st === "fed" ? pondsFedToday : pondsRemaining;
                   const name = st === "all" ? "All" : st === "fed" ? "Fed" : "Remaining";
@@ -2274,52 +2415,13 @@ function FeedDocumentation({
                   );
                 })}
               </div>
-
-              {/* Mobile Search Button */}
-              <div className="flex items-center gap-1.5 ml-auto">
-                <button
-                  type="button"
-                  onClick={() => setIsDailySearchOpen(p => !p)}
-                  className={`p-1.5 rounded-xl border transition-colors ${
-                    dailySearch || isDailySearchOpen
-                      ? "bg-green-50 border-green-300 text-green-700"
-                      : "bg-slate-50 border-slate-200 text-slate-500 hover:text-slate-800"
-                  }`}
-                  title="Search ponds"
-                >
-                  <Search size={14} />
-                </button>
-              </div>
             </div>
-
-            {/* Collapsible Mobile Search Input */}
-            {(isDailySearchOpen || dailySearch) && (
-              <div className="relative animate-in fade-in slide-in-from-top-1 duration-150">
-                <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                <input
-                  value={dailySearch}
-                  onChange={e => setDailySearch(e.target.value)}
-                  placeholder="Search pond, stock, or size…"
-                  className={`${IC} pl-8 pr-8 w-full text-xs py-2 bg-white`}
-                  autoFocus
-                />
-                {dailySearch && (
-                  <button
-                    type="button"
-                    onClick={() => { setDailySearch(""); setIsDailySearchOpen(false); }}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 p-0.5 rounded"
-                  >
-                    <X size={14} />
-                  </button>
-                )}
-              </div>
-            )}
 
             {/* Mobile Card View */}
             {filteredDayRows.length === 0 ? (
               <div className="py-10 text-center bg-white border border-slate-200/80 rounded-2xl p-4 shadow-xs">
                   <Droplets size={28} className="text-slate-300 mx-auto mb-2" />
-                  <p className="text-xs font-semibold text-slate-500">{dailySearch ? "No ponds match search" : `No feeding recorded on ${selDate}`}</p>
+                  <p className="text-xs font-semibold text-slate-500">{selectedStockFilter !== "All" ? `No ponds found for ${selectedStockFilter}` : `No feeding recorded on ${selDate}`}</p>
                   <p className="text-[11px] text-slate-400 mt-1">Select a date or log feeding</p>
                 </div>
               ) : (
@@ -2474,9 +2576,25 @@ function FeedDocumentation({
                   <p className="text-xs font-bold uppercase tracking-wider text-slate-600">Bags Opened — {selDate}</p>
                   <p className="text-[11px] text-slate-400">{filteredMergedBagRows.length} entries</p>
                 </div>
-                <div className="relative">
-                  <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" />
-                  <input value={bagsSearch} onChange={e => setBagsSearch(e.target.value)} placeholder="Search stock, brand, or size…" className={`${IC} pl-8 w-52 text-xs py-1.5`} />
+                <div className="flex items-center gap-3">
+                  {/* Stock Selection Filter */}
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs text-slate-400">Stock:</span>
+                    <select
+                      value={selectedStockFilter}
+                      onChange={e => setSelectedStockFilter(e.target.value)}
+                      className={`${SC} py-1.5 text-xs w-auto`}
+                    >
+                      <option value="All">All Stocks</option>
+                      {stockFilterOptions.map(s => (
+                        <option key={s.key} value={s.name}>{s.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="relative">
+                    <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" />
+                    <input value={bagsSearch} onChange={e => setBagsSearch(e.target.value)} placeholder="Search stock, brand, or size…" className={`${IC} pl-8 w-52 text-xs py-1.5`} />
+                  </div>
                 </div>
               </div>
 
@@ -2508,9 +2626,9 @@ function FeedDocumentation({
                       </th>
                       <th className="text-left px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Feed Brand</th>
                       <th className="text-left px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Pellet Size</th>
-                      <th className="text-left px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Bags Opened</th>
-                      <th className="text-left px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Feed Deducted</th>
-                      <th className="text-left px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Leftover Feed</th>
+                      <th className="text-left px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Feed Remaining</th>
+                      <th className="text-left px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Bags Opened Today</th>
+                      <th className="text-left px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Feed Remaining Today</th>
                       <th className="px-3 py-3 w-10" />
                     </tr>
                   </thead>
@@ -2535,8 +2653,8 @@ function FeedDocumentation({
                       const isRemainColHighlighted = isHighlightedRow && (bagsHighlight?.col === "remaining" || bagsHighlight?.col === "all" || !bagsHighlight?.col);
 
                       const expData = getExpectedFeedData(selDate, row.fishStock, row.brand, row.size, row.bagsOpened);
-                      const isBagsMismatch = expData.hasFed && row.bagsOpened !== expData.expectedBags;
-                      const isRemainMismatch = expData.hasFed && Math.abs((row.remainingKg || 0) - expData.expectedRemaining) > 0.05;
+                      const isBagsMismatch = Boolean(row.hasBagLog && expData.hasFed && row.bagsOpened !== expData.expectedBags);
+                      const isRemainMismatch = Boolean(row.hasBagLog && expData.hasFed && Math.abs(((row.feedRemainingToday ?? row.remainingKg) || 0) - expData.expectedRemaining) > 0.05);
 
                       return (
                         <tr
@@ -2556,7 +2674,12 @@ function FeedDocumentation({
                           {/* Pellet Size */}
                           <td className="px-4 py-3"><Bdg label={row.size} color="blue" /></td>
 
-                          {/* Bags Opened */}
+                          {/* Feed Remaining (Carryover) */}
+                          <td className="px-4 py-3 font-semibold text-slate-800 text-xs whitespace-nowrap">
+                            {row.carryoverKg !== undefined ? `${row.carryoverKg} kg` : "0 kg"}
+                          </td>
+
+                          {/* Bags Opened Today */}
                           <td className={`px-4 py-3 relative z-0 transition-all ${isBagsColHighlighted ? "bg-orange-50 ring-1 ring-orange-400 ring-inset rounded" : ""}`}>
                             <div className={`font-bold text-xs ${isBagsMismatch ? "text-red-600 font-bold" : "text-slate-900"}`}>
                               {row.bagsOpened > 0 ? (
@@ -2565,30 +2688,25 @@ function FeedDocumentation({
                                 <span className={isBagsMismatch ? "text-red-600 font-bold" : "text-slate-700"}>0 bags</span>
                               )}
                             </div>
-                            {expData.hasFed && (
+                            {row.hasBagLog && expData.hasFed && (
                               <p className={`text-[11px] font-medium mt-0.5 leading-tight ${isBagsMismatch ? "text-red-600 font-semibold" : "text-slate-400"}`}>
                                 Exp: {expData.expectedBags} bag{expData.expectedBags !== 1 ? "s" : ""}
                               </p>
                             )}
                           </td>
 
-                          {/* Feed Deducted (kg) */}
-                          <td className="px-4 py-3 font-bold text-green-700 font-['Barlow_Condensed',sans-serif] text-base whitespace-nowrap">
-                            {row.totalKgOpened > 0 ? `${row.totalKgOpened} kg` : <span className="text-slate-400 text-xs font-normal">0 kg</span>}
-                          </td>
-
-                          {/* Leftover Feed (kg) */}
+                          {/* Feed Remaining Today */}
                           <td className={`px-4 py-3 relative z-0 transition-all ${isRemainColHighlighted ? "bg-amber-50 ring-1 ring-amber-400 ring-inset rounded" : ""}`}>
                             <div className="font-semibold text-xs">
-                              {row.remainingKg > 0 ? (
+                              {row.hasBagLog && row.feedRemainingToday !== null && row.feedRemainingToday !== undefined ? (
                                 <span className={isRemainMismatch ? "text-red-600 font-bold" : "text-slate-800 font-bold"}>
-                                  {row.remainingKg} kg
+                                  {row.feedRemainingToday} kg
                                 </span>
                               ) : (
-                                <span className={isRemainMismatch ? "text-red-600 font-bold" : "text-slate-700"}>0 kg</span>
+                                <span className="text-slate-400 font-normal">—</span>
                               )}
                             </div>
-                            {expData.hasFed && (
+                            {row.hasBagLog && expData.hasFed && (
                               <p className={`text-[11px] font-medium mt-0.5 leading-tight ${isRemainMismatch ? "text-red-600 font-semibold" : "text-slate-400"}`}>
                                 Exp: {expData.expectedRemaining} kg
                               </p>
@@ -2599,7 +2717,7 @@ function FeedDocumentation({
                           <td className="px-3 py-3 text-right">
                             {canEdit && (
                               isRecordEditable(row.lastBagLog?.date || selDate) ? (
-                                <button onClick={() => openEditMergedRow(row)} className="p-1.5 rounded text-slate-400 hover:text-green-600 hover:bg-green-50 transition-colors" title="Edit entry">
+                                <button onClick={() => openEditMergedRow(row)} className="p-1.5 rounded text-slate-400 hover:text-green-600 hover:bg-green-50 transition-colors" title={row.hasBagLog ? "Edit entry" : "Log bags / leftover"}>
                                   <Pencil size={13} />
                                 </button>
                               ) : (
@@ -2620,6 +2738,32 @@ function FeedDocumentation({
 
           {/* Mobile Isolated Cards View */}
           <div className="md:hidden space-y-3">
+            {/* Mobile Controls Toolbar: Stock Filter + Search */}
+            <div className="flex items-center justify-between gap-2 flex-wrap bg-white border border-slate-200/80 rounded-2xl p-2 shadow-2xs">
+              <div className="flex items-center gap-1.5 flex-1 min-w-[130px]">
+                <span className="text-xs text-slate-400 shrink-0 font-medium">Stock:</span>
+                <select
+                  value={selectedStockFilter}
+                  onChange={e => setSelectedStockFilter(e.target.value)}
+                  className={`${SC} py-1 text-xs w-full`}
+                >
+                  <option value="All">All Stocks</option>
+                  {stockFilterOptions.map(s => (
+                    <option key={s.key} value={s.name}>{s.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="relative flex-1 min-w-[120px]">
+                <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-300" />
+                <input
+                  value={bagsSearch}
+                  onChange={e => setBagsSearch(e.target.value)}
+                  placeholder="Search bags…"
+                  className={`${IC} pl-7 w-full text-xs py-1`}
+                />
+              </div>
+            </div>
+
             {/* Dismissible Highlighting Banner */}
             {bagsHighlight && (
               <div className="px-3.5 py-2.5 bg-orange-50 border border-orange-200 rounded-2xl flex items-center justify-between text-xs text-orange-950 shadow-xs">
@@ -2663,8 +2807,8 @@ function FeedDocumentation({
                 const isRemainColHighlighted = isHighlightedRow && (bagsHighlight?.col === "remaining" || bagsHighlight?.col === "all" || !bagsHighlight?.col);
 
                 const expData = getExpectedFeedData(selDate, row.fishStock, row.brand, row.size, row.bagsOpened);
-                const isBagsMismatch = expData.hasFed && row.bagsOpened !== expData.expectedBags;
-                const isRemainMismatch = expData.hasFed && Math.abs((row.remainingKg || 0) - expData.expectedRemaining) > 0.05;
+                const isBagsMismatch = Boolean(row.hasBagLog && expData.hasFed && row.bagsOpened !== expData.expectedBags);
+                const isRemainMismatch = Boolean(row.hasBagLog && expData.hasFed && Math.abs(((row.feedRemainingToday ?? row.remainingKg) || 0) - expData.expectedRemaining) > 0.05);
                 const isMenuOpen = activeBagMenuId === `${row.fishStock}__${row.brand}__${row.size}`;
 
                 return (
@@ -2683,7 +2827,7 @@ function FeedDocumentation({
                           <AlertCircle size={11} className="text-orange-600 shrink-0" /> Discrepancy Highlighted
                         </span>
                         {isBagsColHighlighted && <span className="text-[10px] text-orange-800 font-semibold">Check Bags Opened</span>}
-                        {isRemainColHighlighted && !isBagsColHighlighted && <span className="text-[10px] text-amber-800 font-semibold">Check Leftover Feed</span>}
+                        {isRemainColHighlighted && !isBagsColHighlighted && <span className="text-[10px] text-amber-800 font-semibold">Check Feed Remaining</span>}
                       </div>
                     )}
                     <div className="flex items-start justify-between gap-2">
@@ -2725,7 +2869,7 @@ function FeedDocumentation({
                                     onClick={() => { setActiveBagMenuId(null); openEditMergedRow(row); }}
                                     className="w-full px-3 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2"
                                   >
-                                    <Pencil size={13} className="text-green-600" /> Edit Entry
+                                    <Pencil size={13} className="text-green-600" /> {row.hasBagLog ? "Edit Entry" : "Log Bags"}
                                   </button>
                                 ) : (
                                   <div className="px-3 py-1.5 text-[11px] text-slate-400 flex items-center gap-1.5">
@@ -2741,9 +2885,17 @@ function FeedDocumentation({
 
                     {/* Card Metrics Grid */}
                     <div className="mt-3 pt-2.5 border-t border-slate-100 grid grid-cols-3 gap-2 text-xs">
-                      {/* Bags Opened */}
+                      {/* Feed Remaining (Carryover) */}
+                      <div className="bg-slate-50 rounded-lg p-2">
+                        <span className="text-[10px] text-slate-400 block mb-0.5 font-medium">Feed Remaining</span>
+                        <span className="font-bold text-slate-800 text-xs">
+                          {row.carryoverKg !== undefined ? `${row.carryoverKg} kg` : "0 kg"}
+                        </span>
+                      </div>
+
+                      {/* Bags Opened Today */}
                       <div className={`rounded-lg p-2 transition-all ${isBagsColHighlighted ? "bg-orange-100/90 border border-orange-400 ring-1 ring-orange-400" : isBagsMismatch ? "bg-red-50/80 border border-red-200" : "bg-slate-50"}`}>
-                        <span className={`text-[10px] block mb-0.5 ${isBagsMismatch ? "text-red-600 font-bold" : "text-slate-400"}`}>Bags Opened</span>
+                        <span className={`text-[10px] block mb-0.5 font-medium ${isBagsMismatch ? "text-red-600 font-bold" : "text-slate-400"}`}>Bags Opened Today</span>
                         <span className={`font-bold text-xs ${isBagsMismatch ? "text-red-600 font-bold" : "text-slate-900"}`}>
                           {row.bagsOpened > 0 ? (
                             `${row.bagsOpened} bag${row.bagsOpened !== 1 ? "s" : ""}`
@@ -2751,32 +2903,24 @@ function FeedDocumentation({
                             <span className={isBagsMismatch ? "text-red-600 font-bold" : "text-slate-700"}>0 bags</span>
                           )}
                         </span>
-                        {expData.hasFed && (
+                        {row.hasBagLog && expData.hasFed && (
                           <p className={`text-[10px] font-medium mt-0.5 ${isBagsMismatch ? "text-red-600 font-semibold" : "text-slate-400"}`}>
                             Exp: {expData.expectedBags}
                           </p>
                         )}
                       </div>
 
-                      {/* Feed Deducted */}
-                      <div className="bg-slate-50 rounded-lg p-2">
-                        <span className="text-[10px] text-slate-400 block mb-0.5">Feed Deducted</span>
-                        <span className="font-bold text-green-700 font-['Barlow_Condensed',sans-serif] text-sm">
-                          {row.totalKgOpened > 0 ? `${row.totalKgOpened} kg` : "0 kg"}
-                        </span>
-                      </div>
-
-                      {/* Leftover Feed */}
+                      {/* Feed Remaining Today */}
                       <div className={`rounded-lg p-2 transition-all ${isRemainColHighlighted ? "bg-amber-100/90 border border-amber-400 ring-1 ring-amber-400" : isRemainMismatch ? "bg-red-50/80 border border-red-200" : "bg-slate-50"}`}>
-                        <span className={`text-[10px] block mb-0.5 ${isRemainMismatch ? "text-red-600 font-bold" : "text-slate-400"}`}>Leftover Feed</span>
+                        <span className={`text-[10px] block mb-0.5 font-medium ${isRemainMismatch ? "text-red-600 font-bold" : "text-slate-400"}`}>Feed Remaining Today</span>
                         <span className={`font-semibold text-xs ${isRemainMismatch ? "text-red-600 font-bold" : "text-slate-800"}`}>
-                          {row.remainingKg > 0 ? (
-                            `${row.remainingKg} kg`
+                          {row.hasBagLog && row.feedRemainingToday !== null && row.feedRemainingToday !== undefined ? (
+                            `${row.feedRemainingToday} kg`
                           ) : (
-                            <span className={isRemainMismatch ? "text-red-600 font-bold" : "text-slate-700"}>0 kg</span>
+                            <span className="text-slate-400 font-normal">—</span>
                           )}
                         </span>
-                        {expData.hasFed && (
+                        {row.hasBagLog && expData.hasFed && (
                           <p className={`text-[10px] font-medium mt-0.5 ${isRemainMismatch ? "text-red-600 font-semibold" : "text-slate-400"}`}>
                             Exp: {expData.expectedRemaining} kg
                           </p>
@@ -3925,16 +4069,20 @@ function FeedDocumentation({
 
               <div className="grid grid-cols-3 gap-2">
                 <div className="bg-slate-50 rounded-xl p-3">
-                  <p className="text-[10px] uppercase tracking-wider text-slate-400 mb-0.5">Bags Opened</p>
+                  <p className="text-[10px] uppercase tracking-wider text-slate-400 mb-0.5">Feed Remaining</p>
+                  <p className="text-sm font-bold text-slate-800">{viewBagDetail.carryoverKg !== undefined ? `${viewBagDetail.carryoverKg} kg` : "0 kg"}</p>
+                </div>
+                <div className="bg-slate-50 rounded-xl p-3">
+                  <p className="text-[10px] uppercase tracking-wider text-slate-400 mb-0.5">Bags Opened Today</p>
                   <p className="text-sm font-bold text-slate-800">{viewBagDetail.bagsOpened} bag{viewBagDetail.bagsOpened !== 1 ? "s" : ""}</p>
                 </div>
-                <div className="bg-green-50 rounded-xl p-3 border border-green-200">
-                  <p className="text-[10px] uppercase tracking-wider text-green-600 mb-0.5">Total Deducted</p>
-                  <p className="text-sm font-black text-green-700">{viewBagDetail.totalKgOpened} kg</p>
-                </div>
                 <div className="bg-amber-50 rounded-xl p-3 border border-amber-200">
-                  <p className="text-[10px] uppercase tracking-wider text-amber-600 mb-0.5">Leftover Feed</p>
-                  <p className="text-sm font-bold text-amber-800">{viewBagDetail.remainingKg} kg</p>
+                  <p className="text-[10px] uppercase tracking-wider text-amber-600 mb-0.5">Feed Remaining Today</p>
+                  <p className="text-sm font-bold text-amber-800">
+                    {viewBagDetail.hasBagLog && viewBagDetail.feedRemainingToday !== null && viewBagDetail.feedRemainingToday !== undefined
+                      ? `${viewBagDetail.feedRemainingToday} kg`
+                      : "—"}
+                  </p>
                 </div>
               </div>
             </div>

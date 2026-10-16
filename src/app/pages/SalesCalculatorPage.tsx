@@ -3,7 +3,7 @@ import {
   Calculator, Plus, Trash2, RotateCcw, Tag, CheckCircle,
   Pencil, Percent, Calendar as CalendarIcon, ChevronLeft, ChevronRight,
   ChevronDown, MoreVertical, Eye, Check, Search, X, Clock,
-  Phone, User, TrendingUp, AlertCircle, Printer, History
+  Phone, User, TrendingUp, AlertCircle, History
 } from "lucide-react";
 import { toast } from "sonner";
 import type { PriceGroup, InvSettings, SalesCalculation, SalesCalculationItem, SalesCalculationEditHistoryEntry } from "../types";
@@ -617,360 +617,7 @@ export default function SalesCalculatorPage({
     }
   };
 
-  // ── Print Calculation Slip (Customer-facing, excludes staff who recorded) ──
-  const handlePrintCalculation = (c: SalesCalculation) => {
-    const farmTitle = settings?.farmName || "Pondtora Farm";
-    const farmPhone = settings?.farmPhone || "";
-    const farmAddress = settings?.farmAddress || "";
-    let rawItems: any = c.items;
-    if (typeof rawItems === "string") {
-      try { rawItems = JSON.parse(rawItems); } catch { rawItems = []; }
-    }
-    const items: SalesCalculationItem[] = (Array.isArray(rawItems) && rawItems.length > 0) ? rawItems : [
-      {
-        id: "default",
-        priceGroupCode: "",
-        priceGroupName: "Fish Stock",
-        quantityKg: 0,
-        unitPrice: 0,
-        subtotal: Number(c.subtotal) || Number(c.totalAmount) || 0,
-        individualDiscountAmount: 0,
-        finalAmount: Number(c.totalAmount) || 0
-      } as any
-    ];
-    const totalKg = items.reduce((s, it) => s + (Number(it.quantityKg) || 0), 0);
-    const dateFormatted = formatDateTime(c.createdAt);
-    const subtotal = Number(c.subtotal) || Number(c.totalAmount) || 0;
-    const generalDisc = Number(c.generalDiscountAmount) || 0;
-    const grandTotal = Number(c.totalAmount) || 0;
-    const paidAmount = c.paymentStatus === "Paid"
-      ? (c.amountPaid > 0 ? c.amountPaid : grandTotal)
-      : (Number(c.amountPaid) || 0);
-    const outstanding = Math.max(0, grandTotal - paidAmount);
 
-    const rowsHtml = items.map((it, idx) => {
-      const gCode = it.priceGroupCode ? `Group ${it.priceGroupCode}` : "";
-      const gName = it.priceGroupName || "";
-      const label = [gCode, gName].filter(Boolean).join(" – ") || "Fish Purchase";
-      const disc = Number(it.individualDiscountAmount) > 0 ? `−${cs}${Number(it.individualDiscountAmount).toLocaleString()}` : "—";
-      const weight = (Number(it.quantityKg) || 0).toLocaleString();
-      const unitPrice = (Number(it.unitPrice) || 0).toLocaleString();
-      const lineTotal = (Number(it.finalAmount) || Number(it.subtotal) || 0).toLocaleString();
-      return `
-        <tr>
-          <td style="padding: 9px 12px; border-bottom: 1px solid #e2e8f0; font-size: 12px; text-align: center; color: #64748b;">${idx + 1}</td>
-          <td style="padding: 9px 12px; border-bottom: 1px solid #e2e8f0; font-size: 12px; color: #0f172a;">
-            <strong>${label}</strong>
-          </td>
-          <td style="padding: 9px 12px; border-bottom: 1px solid #e2e8f0; font-size: 12px; text-align: right; color: #334155; font-family: monospace;">
-            ${cs}${unitPrice}/kg
-          </td>
-          <td style="padding: 9px 12px; border-bottom: 1px solid #e2e8f0; font-size: 12px; text-align: right; font-weight: 600; color: #0f172a; font-family: monospace;">
-            ${weight} kg
-          </td>
-          <td style="padding: 9px 12px; border-bottom: 1px solid #e2e8f0; font-size: 12px; text-align: right; color: #dc2626; font-family: monospace;">
-            ${disc}
-          </td>
-          <td style="padding: 9px 12px; border-bottom: 1px solid #e2e8f0; font-size: 12px; text-align: right; font-weight: 700; color: #0f172a; font-family: monospace;">
-            ${cs}${lineTotal}
-          </td>
-        </tr>
-      `;
-    }).join("");
-
-    const html = `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8" />
-  <title>Sales Slip - ${c.customerName}</title>
-  <style>
-    @page { size: auto; margin: 12mm; }
-    * { box-sizing: border-box; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      color: #0f172a;
-      margin: 0;
-      padding: 16px;
-      font-size: 13px;
-      line-height: 1.4;
-    }
-    .header {
-      border-bottom: 2px solid #059669;
-      padding-bottom: 12px;
-      margin-bottom: 16px;
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
-    }
-    .farm-name {
-      font-size: 20px;
-      font-weight: 800;
-      color: #065f46;
-      margin: 0;
-      letter-spacing: -0.3px;
-    }
-    .farm-sub {
-      font-size: 11px;
-      color: #64748b;
-      margin-top: 2px;
-    }
-    .slip-badge {
-      background: #ecfdf5;
-      border: 1px solid #a7f3d0;
-      color: #047857;
-      font-size: 11px;
-      font-weight: 800;
-      padding: 6px 12px;
-      border-radius: 6px;
-      text-align: right;
-      letter-spacing: 0.5px;
-    }
-    .meta-grid {
-      display: grid;
-      grid-template-columns: repeat(2, 1fr);
-      gap: 10px;
-      margin-bottom: 16px;
-      background: #f8fafc;
-      border: 1px solid #e2e8f0;
-      border-radius: 8px;
-      padding: 12px;
-    }
-    .meta-item { font-size: 12px; }
-    .meta-label {
-      color: #64748b;
-      text-transform: uppercase;
-      font-size: 10px;
-      font-weight: 700;
-      margin-bottom: 2px;
-      letter-spacing: 0.5px;
-    }
-    .meta-value {
-      font-weight: 600;
-      color: #0f172a;
-    }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      margin-bottom: 16px;
-    }
-    th {
-      background: #f1f5f9;
-      padding: 8px 10px;
-      text-align: left;
-      font-size: 11px;
-      text-transform: uppercase;
-      color: #475569;
-      border-bottom: 2px solid #cbd5e1;
-      font-weight: 700;
-    }
-    .total-weight-banner {
-      background: #f0fdf4;
-      border: 1px solid #bbf7d0;
-      padding: 7px 12px;
-      font-size: 12px;
-      font-weight: 700;
-      color: #166534;
-      border-radius: 6px;
-      margin-bottom: 16px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
-    .summary-card {
-      margin-left: auto;
-      width: 290px;
-      background: #f8fafc;
-      border: 1px solid #e2e8f0;
-      border-radius: 8px;
-      padding: 12px;
-    }
-    .summary-row {
-      display: flex;
-      justify-content: space-between;
-      margin-bottom: 6px;
-      font-size: 12px;
-    }
-    .summary-row.total {
-      border-top: 2px solid #cbd5e1;
-      padding-top: 6px;
-      font-size: 15px;
-      font-weight: 800;
-      color: #065f46;
-    }
-    .status-tag {
-      display: inline-block;
-      padding: 2px 8px;
-      border-radius: 4px;
-      font-size: 11px;
-      font-weight: 700;
-      text-transform: uppercase;
-    }
-    .status-paid { background: #dcfce7; color: #15803d; }
-    .status-partial { background: #dbeafe; color: #1e40af; }
-    .status-unpaid { background: #fef3c7; color: #b45309; }
-    .footer-note {
-      text-align: center;
-      margin-top: 24px;
-      font-size: 11px;
-      color: #94a3b8;
-      border-top: 1px solid #f1f5f9;
-      padding-top: 12px;
-    }
-    @media print {
-      body { padding: 0; }
-    }
-  </style>
-</head>
-<body>
-  <div class="header">
-    <div>
-      <h1 class="farm-name">${farmTitle}</h1>
-      ${farmAddress ? `<div class="farm-sub">${farmAddress}</div>` : ""}
-      ${farmPhone ? `<div class="farm-sub">Phone: ${farmPhone}</div>` : ""}
-    </div>
-    <div class="slip-badge">
-      CUSTOMER SALES SLIP
-      <div style="font-size: 10px; font-weight: normal; color: #64748b; margin-top: 2px;">${dateFormatted}</div>
-    </div>
-  </div>
-
-  <div class="meta-grid">
-    <div class="meta-item">
-      <div class="meta-label">Customer Name</div>
-      <div class="meta-value">${c.customerName}</div>
-    </div>
-    <div class="meta-item">
-      <div class="meta-label">Date & Time</div>
-      <div class="meta-value">${dateFormatted}</div>
-    </div>
-    <div class="meta-item">
-      <div class="meta-label">Payment Status</div>
-      <div class="meta-value">
-        <span class="status-tag status-${c.paymentStatus === 'Paid' ? 'paid' : c.paymentStatus === 'Partially Paid' ? 'partial' : 'unpaid'}">
-          ${c.paymentStatus}
-        </span>
-      </div>
-    </div>
-    ${c.customerPhone ? `
-    <div class="meta-item">
-      <div class="meta-label">Phone Number</div>
-      <div class="meta-value" style="font-family: monospace;">${c.customerPhone}</div>
-    </div>` : `
-    <div class="meta-item">
-      <div class="meta-label">Slip Ref</div>
-      <div class="meta-value" style="font-family: monospace; color: #64748b;">${c.id.slice(0, 8).toUpperCase()}</div>
-    </div>`}
-  </div>
-
-  <table>
-    <thead>
-      <tr>
-        <th style="width: 30px; text-align: center;">#</th>
-        <th>Price Group / Description</th>
-        <th style="text-align: right;">Unit Price</th>
-        <th style="text-align: right;">Weight</th>
-        <th style="text-align: right;">Discount</th>
-        <th style="text-align: right;">Amount</th>
-      </tr>
-    </thead>
-    <tbody>
-      ${rowsHtml}
-    </tbody>
-  </table>
-
-  ${totalKg > 0 ? `
-  <div class="total-weight-banner">
-    <span>Total Quantity / Fish Weight:</span>
-    <span style="font-family: monospace; font-size: 13px;">${totalKg.toLocaleString()} kg</span>
-  </div>` : ""}
-
-  <div class="summary-card">
-    <div class="summary-row">
-      <span style="color: #64748b;">Subtotal</span>
-      <span style="font-weight: 600; font-family: monospace;">${cs}${subtotal.toLocaleString()}</span>
-    </div>
-    ${generalDisc > 0 ? `
-    <div class="summary-row" style="color: #dc2626;">
-      <span>General Discount</span>
-      <span style="font-family: monospace;">−${cs}${generalDisc.toLocaleString()}</span>
-    </div>` : ""}
-    <div class="summary-row total">
-      <span>Total Payable</span>
-      <span style="font-family: monospace;">${cs}${grandTotal.toLocaleString()}</span>
-    </div>
-    <div class="summary-row" style="margin-top: 8px; color: #15803d;">
-      <span>Amount Paid</span>
-      <span style="font-weight: 600; font-family: monospace;">${cs}${paidAmount.toLocaleString()}</span>
-    </div>
-    ${outstanding > 0 ? `
-    <div class="summary-row" style="color: #b45309; font-weight: bold;">
-      <span>Outstanding Balance</span>
-      <span style="font-family: monospace;">${cs}${outstanding.toLocaleString()}</span>
-    </div>` : ""}
-  </div>
-
-  <div class="footer-note">
-    Thank you for your business!
-  </div>
-</body>
-</html>`;
-
-    // Try popup window first (most reliable direct print trigger in Chromium browsers)
-    try {
-      const printWin = window.open("", "_blank", "width=600,height=800");
-      if (printWin) {
-        printWin.document.open();
-        printWin.document.write(html);
-        printWin.document.close();
-        printWin.focus();
-        setTimeout(() => {
-          try {
-            printWin.print();
-          } catch (e) {
-            console.error("Print popup error:", e);
-          }
-        }, 350);
-        return;
-      }
-    } catch (e) {
-      console.warn("Popup print blocked, falling back to offscreen iframe:", e);
-    }
-
-    // Fallback: offscreen iframe with non-zero dimensions and opacity (Chromium ignores print() on visibility:hidden or 0x0)
-    try {
-      let printFrame = document.getElementById("pondtora-print-frame") as HTMLIFrameElement | null;
-      if (!printFrame) {
-        printFrame = document.createElement("iframe");
-        printFrame.id = "pondtora-print-frame";
-        printFrame.style.position = "fixed";
-        printFrame.style.left = "-9999px";
-        printFrame.style.top = "0";
-        printFrame.style.width = "600px";
-        printFrame.style.height = "800px";
-        printFrame.style.border = "none";
-        printFrame.style.opacity = "0.01";
-        printFrame.style.pointerEvents = "none";
-        document.body.appendChild(printFrame);
-      }
-      const frameDoc = printFrame.contentDocument || printFrame.contentWindow?.document;
-      if (frameDoc && printFrame.contentWindow) {
-        frameDoc.open();
-        frameDoc.write(html);
-        frameDoc.close();
-        const fWin = printFrame.contentWindow;
-        setTimeout(() => {
-          try {
-            fWin.focus();
-            fWin.print();
-          } catch (e) {
-            console.error("Iframe print error:", e);
-          }
-        }, 350);
-      }
-    } catch (e) {
-      console.error("Print fallback error:", e);
-    }
-  };
 
   // ── Date Filtering & Statistics Calculations ──
   // Calculate values across ALL farm calculations matching the active date filter
@@ -1423,15 +1070,6 @@ export default function SalesCalculatorPage({
                       {/* Actions */}
                       <td className="px-3.5 py-3 text-center" onClick={e => e.stopPropagation()}>
                         <div className="flex items-center justify-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() => handlePrintCalculation(c)}
-                            title="Print Customer Slip"
-                            className="p-1.5 rounded-lg text-slate-400 hover:text-green-700 hover:bg-green-50 transition-colors"
-                          >
-                            <Printer size={14} />
-                          </button>
-
                           <div className="relative inline-block text-left">
                             <button
                               type="button"
@@ -1453,13 +1091,6 @@ export default function SalesCalculatorPage({
                                   className="w-full text-left px-3 py-1.5 text-slate-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-2"
                                 >
                                   <Eye size={13} /> View Details
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => { handlePrintCalculation(c); setOpenActionMenuId(null); }}
-                                  className="w-full text-left px-3 py-1.5 text-slate-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-2"
-                                >
-                                  <Printer size={13} /> Print Slip
                                 </button>
                                 {canEdit && (
                                   <button
@@ -1550,14 +1181,6 @@ export default function SalesCalculatorPage({
                     label={c.paymentStatus || "Unpaid"}
                     color={c.paymentStatus === "Paid" ? "green" : c.paymentStatus === "Partially Paid" ? "blue" : "amber"}
                   />
-                  <button
-                    type="button"
-                    onClick={() => handlePrintCalculation(c)}
-                    title="Print Customer Slip"
-                    className="p-1 rounded-lg text-slate-400 hover:text-green-700 hover:bg-green-50 transition-colors"
-                  >
-                    <Printer size={14} />
-                  </button>
                   <div className="relative">
                     <button
                       type="button"
@@ -1597,13 +1220,6 @@ export default function SalesCalculatorPage({
                             <Check size={13} /> Mark as {isPaid ? "Unpaid" : "Paid in Full"}
                           </button>
                         )}
-                        <button
-                          type="button"
-                          onClick={() => { handlePrintCalculation(c); setOpenActionMenuId(null); }}
-                          className="w-full text-left px-3 py-1.5 text-slate-700 hover:bg-green-50 flex items-center gap-2"
-                        >
-                          <Printer size={13} /> Print Slip
-                        </button>
                         {canEdit && (
                           <button
                             type="button"
@@ -2104,15 +1720,6 @@ export default function SalesCalculatorPage({
 
               {/* Right Group: Action buttons logically organized with clear hierarchy */}
               <div className="flex flex-wrap items-center gap-2 justify-end w-full sm:w-auto">
-                <button
-                  type="button"
-                  onClick={() => handlePrintCalculation(selectedCalc)}
-                  className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 hover:text-emerald-700 rounded-xl transition-all shadow-2xs"
-                >
-                  <Printer size={14} className="text-slate-500 shrink-0" />
-                  <span>Print Slip</span>
-                </button>
-
                 {canEdit && (
                   <button
                     type="button"
