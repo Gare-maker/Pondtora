@@ -237,8 +237,17 @@ export async function resolveFullUserProfile(user: any): Promise<UserProfile> {
     dbProf?.raw_data?.onboardingCompleted === true ||
     meta.onboarding_completed === true ||
     meta.onboardingCompleted === true ||
-    (userId && typeof localStorage !== "undefined" && localStorage.getItem(`pondtora_${userId}_onboarding_completed`) === "true") ||
-    (cleanEmail && typeof localStorage !== "undefined" && localStorage.getItem(`pondtora_onboarding_completed_${cleanEmail}`) === "true") ||
+    (userId && typeof localStorage !== "undefined" && (
+      localStorage.getItem(`pondtora_${userId}_onboarding_completed`) === "true" ||
+      localStorage.getItem(`pondtora_onboarding_completed_${userId}`) === "true" ||
+      localStorage.getItem(`pondtora_onboarding_done_${userId}`) === "true" ||
+      Boolean(localStorage.getItem(`pondtora_${userId}_plan`))
+    )) ||
+    (cleanEmail && typeof localStorage !== "undefined" && (
+      localStorage.getItem(`pondtora_onboarding_completed_${cleanEmail}`) === "true" ||
+      localStorage.getItem(`pondtora_onboarding_done_${cleanEmail}`) === "true"
+    )) ||
+    (typeof localStorage !== "undefined" && localStorage.getItem("pondtora_global_onboarding_completed") === "true") ||
     hasDbSelectedPlan ||
     isUserPaid ||
     staffRole === "staff"

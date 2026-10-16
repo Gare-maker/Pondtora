@@ -1222,7 +1222,39 @@ export const api = {
         safeQuery(supabase.from("staff_members").select("*").eq("staff_auth_id", userId).maybeSingle()),
       ]);
 
-      const userProfilesList = (profilesRes?.data || []).map((r: any) => objToCamel<UserProfile>(r));
+      const userProfilesList = (profilesRes?.data || []).map((r: any) => {
+        const item = objToCamel<UserProfile>(r);
+        const itemEmail = (item.email || r.email || "").toLowerCase().trim();
+        const isLocallyDone = Boolean(
+          (userId && typeof localStorage !== "undefined" && (
+            localStorage.getItem(`pondtora_${userId}_onboarding_completed`) === "true" ||
+            localStorage.getItem(`pondtora_onboarding_completed_${userId}`) === "true" ||
+            localStorage.getItem(`pondtora_onboarding_done_${userId}`) === "true" ||
+            localStorage.getItem(`pondtora_${userId}_plan`)
+          )) ||
+          (itemEmail && typeof localStorage !== "undefined" && (
+            localStorage.getItem(`pondtora_onboarding_completed_${itemEmail}`) === "true" ||
+            localStorage.getItem(`pondtora_onboarding_done_${itemEmail}`) === "true"
+          )) ||
+          (typeof localStorage !== "undefined" && localStorage.getItem("pondtora_global_onboarding_completed") === "true")
+        );
+        const isDone = Boolean(
+          r?.onboarding_completed === true ||
+          item.onboardingCompleted === true ||
+          r?.raw_data?.onboarding_completed === true ||
+          r?.raw_data?.onboardingCompleted === true ||
+          Boolean(item.activePlan && String(item.activePlan).trim() !== "") ||
+          Boolean(item.trialStartDate) ||
+          Boolean(item.hasPaid) ||
+          Boolean(item.paystackReference) ||
+          Boolean(item.subscriptionStatus && item.subscriptionStatus !== "Trial") ||
+          isLocallyDone
+        );
+        if (isDone) {
+          item.onboardingCompleted = true;
+        }
+        return item;
+      });
       if (!userEmail && userProfilesList[0]?.email) {
         userEmail = (userProfilesList[0].email || "").toLowerCase().trim();
       }
@@ -1534,9 +1566,27 @@ export const api = {
     updatePlan: async (plan: string, trialStartDate?: string | null) => {
       const userId = await getUserId();
       if (!userId) return {} as UserProfile;
-      const payload: any = { active_plan: plan };
+      try {
+        if (typeof localStorage !== "undefined") {
+          localStorage.setItem(`pondtora_${userId}_onboarding_completed`, "true");
+          localStorage.setItem(`pondtora_onboarding_completed_${userId}`, "true");
+          localStorage.setItem(`pondtora_onboarding_done_${userId}`, "true");
+          localStorage.setItem(`pondtora_${userId}_plan`, plan);
+          localStorage.setItem("pondtora_global_onboarding_completed", "true");
+        }
+      } catch {}
+      const payload: any = {
+        active_plan: plan,
+        onboarding_completed: true,
+      };
       if (trialStartDate !== undefined) payload.trial_start_date = trialStartDate;
-      const { data } = await supabase.from("user_profiles").update(payload).eq("id", userId).select().single();
+      const { data, error } = await supabase.from("user_profiles").update(payload).eq("id", userId).select().maybeSingle();
+      if (error) {
+        const fallback: any = { active_plan: plan };
+        if (trialStartDate !== undefined) fallback.trial_start_date = trialStartDate;
+        const { data: fbData } = await supabase.from("user_profiles").update(fallback).eq("id", userId).select().maybeSingle();
+        return fbData ? objToCamel<UserProfile>(fbData) : ({} as UserProfile);
+      }
       return data ? objToCamel<UserProfile>(data) : ({} as UserProfile);
     },
     recordPayment: async (p: {

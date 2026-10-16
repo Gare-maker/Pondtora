@@ -6423,13 +6423,39 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
 
     if (d.userProfiles?.length > 0) {
       const up = d.userProfiles[0];
+      const uid = up.id || userProfile?.id;
+      const uemail = (up.email || userProfile?.email || "").toLowerCase().trim();
+      const isLocallyDone = Boolean(
+        (uid && (
+          localStorage.getItem(`pondtora_${uid}_onboarding_completed`) === "true" ||
+          localStorage.getItem(`pondtora_onboarding_completed_${uid}`) === "true" ||
+          localStorage.getItem(`pondtora_onboarding_done_${uid}`) === "true" ||
+          Boolean(localStorage.getItem(`pondtora_${uid}_plan`))
+        )) ||
+        (uemail && (
+          localStorage.getItem(`pondtora_onboarding_completed_${uemail}`) === "true" ||
+          localStorage.getItem(`pondtora_onboarding_done_${uemail}`) === "true"
+        )) ||
+        localStorage.getItem("pondtora_global_onboarding_completed") === "true" ||
+        (typeof window !== "undefined" && Boolean((window as any).__pondtora_onboarding_done))
+      );
+
       if (up.activePlan) setActivePlan(up.activePlan);
       if (up.trialStartDate) setTrialStartDate(up.trialStartDate);
       setUserProfile(prev => {
         const next = { ...(prev || {}), ...up };
-        if (up.id) {
+        if (prev?.onboardingCompleted || isLocallyDone || up.onboardingCompleted || Boolean(next.activePlan)) {
+          next.onboardingCompleted = true;
+        }
+        if (prev?.activePlan && !next.activePlan) {
+          next.activePlan = prev.activePlan;
+        }
+        if (prev?.trialStartDate && !next.trialStartDate) {
+          next.trialStartDate = prev.trialStartDate;
+        }
+        if (next.id) {
           try {
-            localStorage.setItem(`pondtora_${up.id}_user_profile`, JSON.stringify(next));
+            localStorage.setItem(`pondtora_${next.id}_user_profile`, JSON.stringify(next));
           } catch {}
         }
         return next;
@@ -7034,8 +7060,18 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
             prof?.raw_data?.onboardingCompleted === true ||
             meta.onboarding_completed === true ||
             meta.onboardingCompleted === true ||
-            (session.user.id && localStorage.getItem(`pondtora_${session.user.id}_onboarding_completed`) === "true") ||
-            (session.user.email && localStorage.getItem(`pondtora_onboarding_completed_${session.user.email.toLowerCase().trim()}`) === "true") ||
+            (session.user.id && (
+              localStorage.getItem(`pondtora_${session.user.id}_onboarding_completed`) === "true" ||
+              localStorage.getItem(`pondtora_onboarding_completed_${session.user.id}`) === "true" ||
+              localStorage.getItem(`pondtora_onboarding_done_${session.user.id}`) === "true" ||
+              Boolean(localStorage.getItem(`pondtora_${session.user.id}_plan`))
+            )) ||
+            (session.user.email && (
+              localStorage.getItem(`pondtora_onboarding_completed_${session.user.email.toLowerCase().trim()}`) === "true" ||
+              localStorage.getItem(`pondtora_onboarding_done_${session.user.email.toLowerCase().trim()}`) === "true"
+            )) ||
+            localStorage.getItem("pondtora_global_onboarding_completed") === "true" ||
+            (typeof window !== "undefined" && Boolean((window as any).__pondtora_onboarding_done)) ||
             Boolean(prof?.active_plan && prof.active_plan.trim() !== "") ||
             Boolean(prof?.trial_start_date) ||
             Boolean(prof?.subscription_status && prof.subscription_status !== "Trial") ||
@@ -7303,8 +7339,18 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
           prof?.raw_data?.onboardingCompleted === true ||
           meta.onboarding_completed === true ||
           meta.onboardingCompleted === true ||
-          (session.user.id && localStorage.getItem(`pondtora_${session.user.id}_onboarding_completed`) === "true") ||
-          (session.user.email && localStorage.getItem(`pondtora_onboarding_completed_${session.user.email.toLowerCase().trim()}`) === "true") ||
+          (session.user.id && (
+            localStorage.getItem(`pondtora_${session.user.id}_onboarding_completed`) === "true" ||
+            localStorage.getItem(`pondtora_onboarding_completed_${session.user.id}`) === "true" ||
+            localStorage.getItem(`pondtora_onboarding_done_${session.user.id}`) === "true" ||
+            Boolean(localStorage.getItem(`pondtora_${session.user.id}_plan`))
+          )) ||
+          (session.user.email && (
+            localStorage.getItem(`pondtora_onboarding_completed_${session.user.email.toLowerCase().trim()}`) === "true" ||
+            localStorage.getItem(`pondtora_onboarding_done_${session.user.email.toLowerCase().trim()}`) === "true"
+          )) ||
+          localStorage.getItem("pondtora_global_onboarding_completed") === "true" ||
+          (typeof window !== "undefined" && Boolean((window as any).__pondtora_onboarding_done)) ||
           Boolean(prof?.active_plan && prof.active_plan.trim() !== "") ||
           Boolean(prof?.trial_start_date) ||
           Boolean(prof?.subscription_status && prof.subscription_status !== "Trial") ||
@@ -7465,7 +7511,24 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     isDataLoadedRef.current = false;
     setIsDataLoading(true);
     resetAllState();
-    setUserProfile(profile);
+    const uid = profile?.id;
+    const uemail = (profile?.email || "").toLowerCase().trim();
+    const isLocalDone = Boolean(
+      (uid && (
+        localStorage.getItem(`pondtora_${uid}_onboarding_completed`) === "true" ||
+        localStorage.getItem(`pondtora_onboarding_completed_${uid}`) === "true" ||
+        localStorage.getItem(`pondtora_onboarding_done_${uid}`) === "true" ||
+        Boolean(localStorage.getItem(`pondtora_${uid}_plan`))
+      )) ||
+      (uemail && (
+        localStorage.getItem(`pondtora_onboarding_completed_${uemail}`) === "true" ||
+        localStorage.getItem(`pondtora_onboarding_done_${uemail}`) === "true"
+      )) ||
+      localStorage.getItem("pondtora_global_onboarding_completed") === "true" ||
+      (typeof window !== "undefined" && Boolean((window as any).__pondtora_onboarding_done))
+    );
+    const enrichedProfile = isLocalDone ? { ...profile, onboardingCompleted: true } : profile;
+    setUserProfile(enrichedProfile);
     setActive("financial");
     setIsAuth(true);
     setShowLanding(false);
@@ -7483,6 +7546,57 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   const handleSignup=(profile:UserProfile)=>{
     handleLogin(profile);
   };
+
+  const handleDismissOnboarding = useCallback(async () => {
+    if (!userProfile) return;
+    const todayStr = TODAY;
+    const defaultPlan = activePlan || userProfile.activePlan || "Starter";
+    const updatedProfile: UserProfile = {
+      ...userProfile,
+      activePlan: defaultPlan,
+      trialStartDate: userProfile.trialStartDate || todayStr,
+      onboardingCompleted: true,
+      rawData: {
+        ...(userProfile.rawData || {}),
+        onboarding_completed: true,
+      },
+      raw_data: {
+        ...(userProfile.raw_data || {}),
+        onboarding_completed: true,
+      },
+    };
+    setUserProfile(updatedProfile);
+    if (typeof window !== "undefined") {
+      (window as any).__pondtora_onboarding_done = true;
+    }
+    if (userProfile.id) {
+      try {
+        localStorage.setItem(`pondtora_${userProfile.id}_onboarding_completed`, "true");
+        localStorage.setItem(`pondtora_onboarding_completed_${userProfile.id}`, "true");
+        localStorage.setItem(`pondtora_onboarding_done_${userProfile.id}`, "true");
+        if (userProfile.email) {
+          const em = userProfile.email.toLowerCase().trim();
+          localStorage.setItem(`pondtora_onboarding_completed_${em}`, "true");
+          localStorage.setItem(`pondtora_onboarding_done_${em}`, "true");
+        }
+        localStorage.setItem("pondtora_global_onboarding_completed", "true");
+        localStorage.setItem(`pondtora_${userProfile.id}_plan`, defaultPlan);
+        saveLocal(`pondtora_${userProfile.id}_user_profile`, updatedProfile);
+      } catch {}
+    }
+    try {
+      await supabase.from("user_profiles").update({
+        onboarding_completed: true,
+        active_plan: defaultPlan,
+        raw_data: {
+          ...(userProfile.raw_data || {}),
+          onboarding_completed: true,
+          onboardingCompleted: true,
+        },
+        updated_at: new Date().toISOString(),
+      }).eq("id", userProfile.id);
+    } catch {}
+  }, [userProfile, activePlan]);
 
   const handleCompleteOnboarding = async (planName: string, farmType: "single" | "multi") => {
     if (!userProfile) return;
@@ -7510,14 +7624,25 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       };
 
       setUserProfile(updatedProfile);
+      if (typeof window !== "undefined") {
+        (window as any).__pondtora_onboarding_done = true;
+      }
       if (userProfile.id) {
         try {
           localStorage.setItem(`pondtora_${userProfile.id}_onboarding_completed`, "true");
+          localStorage.setItem(`pondtora_onboarding_completed_${userProfile.id}`, "true");
+          localStorage.setItem(`pondtora_onboarding_done_${userProfile.id}`, "true");
           if (userProfile.email) {
-            localStorage.setItem(`pondtora_onboarding_completed_${userProfile.email.toLowerCase().trim()}`, "true");
+            const cleanEm = userProfile.email.toLowerCase().trim();
+            localStorage.setItem(`pondtora_onboarding_completed_${cleanEm}`, "true");
+            localStorage.setItem(`pondtora_onboarding_done_${cleanEm}`, "true");
           }
+          localStorage.setItem("pondtora_global_onboarding_completed", "true");
           localStorage.setItem(`pondtora_${userProfile.id}_plan`, planName);
+          localStorage.setItem("pondtora_plan", planName);
+          localStorage.setItem(`pondtora_${userProfile.id}_farm_type`, farmType);
           localStorage.setItem(`pondtora_${userProfile.id}_trial_start`, todayStr);
+          localStorage.setItem("pondtora_trial_start", todayStr);
           saveLocal(`pondtora_${userProfile.id}_user_profile`, updatedProfile);
         } catch {}
       }
@@ -7553,6 +7678,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
             onboardingCompleted: true,
             active_plan: planName,
             trial_start_date: todayStr,
+            farm_type: farmType,
           },
         });
       } catch {}
@@ -8807,7 +8933,46 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   );
 
   const hasSelectedPlan = Boolean(
-    userProfile?.activePlan && String(userProfile.activePlan).trim() !== ""
+    (userProfile?.activePlan && String(userProfile.activePlan).trim() !== "") ||
+    (activePlan && String(activePlan).trim() !== "")
+  );
+
+  const localOnboardingDone = Boolean(
+    (userProfile?.id && (
+      localStorage.getItem(`pondtora_${userProfile.id}_onboarding_completed`) === "true" ||
+      localStorage.getItem(`pondtora_onboarding_completed_${userProfile.id}`) === "true" ||
+      localStorage.getItem(`pondtora_onboarding_done_${userProfile.id}`) === "true" ||
+      Boolean(localStorage.getItem(`pondtora_${userProfile.id}_plan`))
+    )) ||
+    (userProfile?.email && (
+      localStorage.getItem(`pondtora_onboarding_completed_${userProfile.email.toLowerCase().trim()}`) === "true" ||
+      localStorage.getItem(`pondtora_onboarding_done_${userProfile.email.toLowerCase().trim()}`) === "true"
+    )) ||
+    localStorage.getItem("pondtora_global_onboarding_completed") === "true" ||
+    (typeof window !== "undefined" && Boolean((window as any).__pondtora_onboarding_done))
+  );
+
+  const hasExistingFarmData = Boolean(
+    (ponds && ponds.length > 0) ||
+    (feeding && feeding.length > 0) ||
+    (inventory && inventory.length > 0) ||
+    (expenses && expenses.length > 0) ||
+    (revenues && revenues.length > 0) ||
+    (reports && reports.length > 0)
+  );
+
+  const isOnboardingFinished = Boolean(
+    userProfile?.onboardingCompleted === true ||
+    userProfile?.rawData?.onboarding_completed === true ||
+    userProfile?.raw_data?.onboarding_completed === true ||
+    userProfile?.rawData?.onboardingCompleted === true ||
+    userProfile?.raw_data?.onboardingCompleted === true ||
+    hasSelectedPlan ||
+    Boolean(userProfile?.trialStartDate && String(userProfile.trialStartDate).trim() !== "") ||
+    Boolean(trialStartDate && String(trialStartDate).trim() !== "") ||
+    Boolean(userProfile?.paystackReference) ||
+    localOnboardingDone ||
+    hasExistingFarmData
   );
 
   const showOnboardingOverlay = Boolean(
@@ -8815,8 +8980,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     isOwner &&
     userProfile &&
     !isPaidSubscriber &&
-    !hasSelectedPlan &&
-    !userProfile.onboardingCompleted &&
+    !isOnboardingFinished &&
     userProfile.email?.toLowerCase().trim() !== "edafejesugarec@gmail.com"
   );
 
@@ -8830,6 +8994,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
           currencySymbol={cs}
           loading={onboardingSubmitting}
           onConfirm={handleCompleteOnboarding}
+          onDismiss={handleDismissOnboarding}
         />
       )}
       {/* ── Database Setup Wizard ── */}

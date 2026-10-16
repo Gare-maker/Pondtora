@@ -1,16 +1,18 @@
 import React, { useState } from "react";
-import { Sparkles, Loader2, CheckCircle2, Fish, Building2 } from "lucide-react";
+import { Sparkles, Loader2, CheckCircle2, Fish, Building2, X } from "lucide-react";
 import { useDynamicPlans } from "../pricingData";
 
 interface OnboardingPlanOverlayProps {
   currencySymbol?: string;
   onConfirm: (planName: string, farmType: "single" | "multi") => Promise<void> | void;
+  onDismiss?: () => void;
   loading?: boolean;
 }
 
 export default function OnboardingPlanOverlay({
   currencySymbol = "₦",
   onConfirm,
+  onDismiss,
   loading = false,
 }: OnboardingPlanOverlayProps) {
   const { singleFarmPlans = [], multiFarmPlans = [] } = useDynamicPlans();
@@ -40,8 +42,26 @@ export default function OnboardingPlanOverlay({
   const isStartDisabled = !farmType || !selectedPlan || loading;
 
   return (
-    <div className="fixed inset-0 z-[100] bg-slate-950/75 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto font-['Barlow',sans-serif]">
-      <div className="bg-white rounded-3xl max-w-xl w-full p-6 sm:p-8 shadow-2xl border border-slate-100 my-auto animate-in fade-in zoom-in-95 duration-200">
+    <div
+      onClick={(e) => {
+        if (e.target === e.currentTarget && onDismiss) onDismiss();
+      }}
+      className="fixed inset-0 z-[100] bg-slate-950/75 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto font-['Barlow',sans-serif]"
+    >
+      <div className="relative bg-white rounded-3xl max-w-xl w-full p-6 sm:p-8 shadow-2xl border border-slate-100 my-auto animate-in fade-in zoom-in-95 duration-200">
+        {/* Top-Right Dismiss Button */}
+        {onDismiss && (
+          <button
+            type="button"
+            onClick={onDismiss}
+            aria-label="Dismiss plan selection"
+            title="Dismiss"
+            className="absolute top-4 right-4 sm:top-5 sm:right-5 p-2 rounded-full text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
+          >
+            <X size={18} />
+          </button>
+        )}
+
         {/* Header Badge & Title */}
         <div className="text-center mb-5">
           <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-bold uppercase tracking-wider mb-2">
@@ -247,6 +267,19 @@ export default function OnboardingPlanOverlay({
               <span>Start Free Trial</span>
             )}
           </button>
+
+          {/* Optional Dismiss Link */}
+          {onDismiss && (
+            <div className="text-center pt-0.5">
+              <button
+                type="button"
+                onClick={onDismiss}
+                className="text-xs font-semibold text-slate-400 hover:text-slate-600 transition-colors py-1 px-3 cursor-pointer"
+              >
+                I&apos;ll choose later
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>
