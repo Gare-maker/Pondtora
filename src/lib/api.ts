@@ -2843,7 +2843,7 @@ export const api = {
               "Content-Type": "application/json",
             },
             body: JSON.stringify({
-              from: `${farmName || "Pondtora"} <investments@pondtora.site>`,
+              from: `${farmName || "Pondtora"} <investments@pondtora.com>`,
               to: [to],
               subject: `Investment Certificate & Receipt - ${receiptRef}`,
               html: htmlContent,

@@ -109,7 +109,7 @@ function AppWindowShell({ activeNav, activeFarmName = "Crown Fisheries", onSelec
           <div className="w-3 h-3 rounded-full bg-red-500/80" />
           <div className="w-3 h-3 rounded-full bg-amber-500/80" />
           <div className="w-3 h-3 rounded-full bg-emerald-500/80" />
-          <span className="ml-2 text-slate-400 text-[11px] font-mono hidden sm:inline">app.pondtora.site</span>
+          <span className="ml-2 text-slate-400 text-[11px] font-mono hidden sm:inline">pondtora.com</span>
         </div>
         <div className="flex items-center gap-2 text-slate-300 text-[11px]">
           <span className="w-2 h-2 rounded-full bg-[#00bb58] animate-pulse" />
@@ -3071,8 +3071,8 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
               <ul className="space-y-2.5 text-xs text-slate-300">
                 <li>
                   <span className="block text-[10px] text-slate-500 uppercase font-bold">Email Support</span>
-                  <a href="mailto:pondtora.site@gmail.com" className="hover:text-white font-medium text-emerald-400 break-all">
-                    pondtora.site@gmail.com
+                  <a href="mailto:pondtora.com@gmail.com" className="hover:text-white font-medium text-emerald-400 break-all">
+                    pondtora.com@gmail.com
                   </a>
                 </li>
                 <li>

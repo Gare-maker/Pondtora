@@ -3051,7 +3051,7 @@ function SubscriptionPage({
     }, 4000);
 
     try {
-      const payerEmail = effectiveProfile?.email || "customer@pondtora.site";
+      const payerEmail = effectiveProfile?.email || "customer@pondtora.com";
       const success = await initializePaystackCheckout({
         email: payerEmail,
         amount: calculatedPrice,
