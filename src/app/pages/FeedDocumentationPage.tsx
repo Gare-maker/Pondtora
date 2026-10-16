@@ -195,8 +195,9 @@ function FeedDocumentation({
   const [activeDailyMenuId, setActiveDailyMenuId] = useState<string | null>(null);
   const [activeBagMenuId, setActiveBagMenuId] = useState<string | null>(null);
 
-  /* ── Stock Selection Filter (Pond Management style) ── */
-  const [selectedStockFilter, setSelectedStockFilter] = useState<string>("All");
+  /* ── Stock Selection Filters (Independent per tab) ── */
+  const [dailyStockFilter, setDailyStockFilter] = useState<string>("All");
+  const [bagsStockFilter, setBagsStockFilter] = useState<string>("All");
 
   /* ── Feeding Status Filter: all | fed | not_fed ── */
   const [feedStatusFilter, setFeedStatusFilter] = useState<"all" | "fed" | "not_fed">("all");
@@ -1288,15 +1289,8 @@ function FeedDocumentation({
       });
     });
 
-    if (selectedStockFilter !== "All") {
-      return rows.filter(r =>
-        isStockMatch(selectedStockFilter, r.stockName) ||
-        normalizeFishStock(r.stockName).toLowerCase() === normalizeFishStock(selectedStockFilter).toLowerCase()
-      );
-    }
-
     return rows;
-  }, [ponds, bagLogs, feedingRecords, remainLogs, inventory, selDate, selMonLabel, selDay, selYear, viewYear, viewMonth, getPriorCarryover, selectedStockFilter]);
+  }, [ponds, bagLogs, feedingRecords, remainLogs, inventory, selDate, selMonLabel, selDay, selYear, viewYear, viewMonth, getPriorCarryover]);
 
   const handleMismatchClick = (row: MismatchStockRow) => {
     const targetDate = getIsoDateForSelDate(selDate);
@@ -1397,14 +1391,14 @@ function FeedDocumentation({
   const dayGrand = dayRecords.reduce((s, r) => s + (Number(r.total) || 0), 0);
 
   const activePondsForSelectedStock = useMemo(() => {
-    if (selectedStockFilter === "All") return activePonds;
+    if (dailyStockFilter === "All") return activePonds;
     return activePonds.filter(p =>
-      isStockMatch(selectedStockFilter, getPondFishStock(p)) ||
-      isStockMatch(selectedStockFilter, p.fishStock) ||
-      isStockMatch(selectedStockFilter, pondToStock(p.name)) ||
-      isStockMatch(selectedStockFilter, p.name)
+      isStockMatch(dailyStockFilter, getPondFishStock(p)) ||
+      isStockMatch(dailyStockFilter, p.fishStock) ||
+      isStockMatch(dailyStockFilter, pondToStock(p.name)) ||
+      isStockMatch(dailyStockFilter, p.name)
     );
-  }, [activePonds, selectedStockFilter]);
+  }, [activePonds, dailyStockFilter]);
 
   const dayRows = useMemo(() => {
     return activePondsForSelectedStock.map(pond => {
@@ -1420,9 +1414,9 @@ function FeedDocumentation({
   const pondsRemaining = Math.max(0, totalPonds - pondsFedToday);
   const bagsOpenedToday = useMemo(() => {
     return (bagLogs || [])
-      .filter(b => b && isSameDate(b.date, selDate) && (selectedStockFilter === "All" || isStockMatch(selectedStockFilter, b.fishStock)))
+      .filter(b => b && isSameDate(b.date, selDate) && (dailyStockFilter === "All" || isStockMatch(dailyStockFilter, b.fishStock)))
       .reduce((s, b) => s + (Number(b.bagsOpened) || 0), 0);
-  }, [bagLogs, selDate, selectedStockFilter]);
+  }, [bagLogs, selDate, dailyStockFilter]);
 
   const filteredDayRows = useMemo(() => {
     let list = dayRows;
@@ -1826,14 +1820,14 @@ function FeedDocumentation({
 
   const filteredMergedBagRows = useMemo(() => {
     let list = mergedBagRows;
-    if (selectedStockFilter !== "All") {
+    if (bagsStockFilter !== "All") {
       list = list.filter(r =>
-        isStockMatch(selectedStockFilter, r.fishStock) ||
-        normalizeFishStock(r.fishStock).toLowerCase() === normalizeFishStock(selectedStockFilter).toLowerCase()
+        isStockMatch(bagsStockFilter, r.fishStock) ||
+        normalizeFishStock(r.fishStock).toLowerCase() === normalizeFishStock(bagsStockFilter).toLowerCase()
       );
     }
     return list;
-  }, [mergedBagRows, selectedStockFilter]);
+  }, [mergedBagRows, bagsStockFilter]);
 
   /* ── bulk log (Log Feeding — All Ponds) ── */
   const [bulkDate, setBulkDate] = useState(TODAY);
@@ -2278,8 +2272,8 @@ function FeedDocumentation({
                   <div className="flex items-center gap-1.5">
                     <span className="text-xs text-slate-400">Stock:</span>
                     <select
-                      value={selectedStockFilter}
-                      onChange={e => setSelectedStockFilter(e.target.value)}
+                      value={dailyStockFilter}
+                      onChange={e => setDailyStockFilter(e.target.value)}
                       className={`${SC} py-1.5 text-xs w-auto`}
                     >
                       <option value="All">All Stocks</option>
@@ -2369,7 +2363,7 @@ function FeedDocumentation({
               {filteredDayRows.length === 0 && (
                 <div className="py-12 text-center">
                   <Droplets size={32} className="text-slate-200 mx-auto mb-3" />
-                  <p className="text-sm font-semibold text-slate-400">{selectedStockFilter !== "All" ? `No ponds found for ${selectedStockFilter}` : `No feeding recorded on ${selDate}`}</p>
+                  <p className="text-sm font-semibold text-slate-400">{dailyStockFilter !== "All" ? `No ponds found for ${dailyStockFilter}` : `No feeding recorded on ${selDate}`}</p>
                   <p className="text-xs text-slate-300 mt-1">Select a highlighted date or log a new session</p>
                 </div>
               )}
@@ -2384,22 +2378,22 @@ function FeedDocumentation({
               <div className="flex items-center gap-0.5 bg-slate-100 p-0.5 rounded-xl border border-slate-200/60 shrink-0">
                 {(["all", "fed", "not_fed"] as const).map(st => {
                   const count = st === "all" ? totalPonds : st === "fed" ? pondsFedToday : pondsRemaining;
-                  const name = st === "all" ? "All" : st === "fed" ? "Fed" : "Rem";
+                  const name = st === "all" ? "All" : st === "fed" ? "Fed" : "Remaining";
                   const isSelected = feedStatusFilter === st;
                   return (
                     <button
                       key={st}
                       type="button"
                       onClick={() => setFeedStatusFilter(st)}
-                      className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] sm:text-xs transition-all ${
+                      className={`flex items-center gap-1 px-1.5 sm:px-2 py-1 rounded-lg text-[10.5px] sm:text-xs transition-all ${
                         isSelected
                           ? "bg-white text-slate-900 font-bold shadow-xs border border-slate-200/80"
                           : "text-slate-500 hover:text-slate-800 font-medium"
                       }`}
                     >
-                      <span>{name}</span>
+                      <span className="truncate max-w-[58px] sm:max-w-none">{name}</span>
                       <span
-                        className={`text-[9px] sm:text-[10px] font-bold px-1 py-0.5 rounded-full leading-none ${
+                        className={`text-[9px] sm:text-[10px] font-bold px-1 py-0.5 rounded-full leading-none shrink-0 ${
                           isSelected
                             ? st === "fed" ? "bg-emerald-100 text-emerald-800" : st === "not_fed" ? "bg-amber-100 text-amber-800" : "bg-slate-100 text-slate-700"
                             : "bg-slate-200/60 text-slate-500"
@@ -2413,10 +2407,10 @@ function FeedDocumentation({
               </div>
 
               {/* Stock Filter (Second, side-by-side, shrunk to fit without wrapping) */}
-              <div className="flex items-center min-w-0 flex-1 max-w-[140px] sm:max-w-[170px] justify-end">
+              <div className="flex items-center min-w-0 flex-1 max-w-[130px] sm:max-w-[170px] justify-end">
                 <select
-                  value={selectedStockFilter}
-                  onChange={e => setSelectedStockFilter(e.target.value)}
+                  value={dailyStockFilter}
+                  onChange={e => setDailyStockFilter(e.target.value)}
                   className={`${SC} py-1 px-2 text-[11px] sm:text-xs w-full truncate`}
                   aria-label="Filter by Stock"
                 >
@@ -2432,7 +2426,7 @@ function FeedDocumentation({
             {filteredDayRows.length === 0 ? (
               <div className="py-10 text-center bg-white border border-slate-200/80 rounded-2xl p-4 shadow-xs">
                   <Droplets size={28} className="text-slate-300 mx-auto mb-2" />
-                  <p className="text-xs font-semibold text-slate-500">{selectedStockFilter !== "All" ? `No ponds found for ${selectedStockFilter}` : `No feeding recorded on ${selDate}`}</p>
+                  <p className="text-xs font-semibold text-slate-500">{dailyStockFilter !== "All" ? `No ponds found for ${dailyStockFilter}` : `No feeding recorded on ${selDate}`}</p>
                   <p className="text-[11px] text-slate-400 mt-1">Select a date or log feeding</p>
                 </div>
               ) : (
@@ -2592,8 +2586,8 @@ function FeedDocumentation({
                   <div className="flex items-center gap-1.5">
                     <span className="text-xs text-slate-400">Stock:</span>
                     <select
-                      value={selectedStockFilter}
-                      onChange={e => setSelectedStockFilter(e.target.value)}
+                      value={bagsStockFilter}
+                      onChange={e => setBagsStockFilter(e.target.value)}
                       className={`${SC} py-1.5 text-xs w-auto`}
                     >
                       <option value="All">All Stocks</option>
@@ -2633,7 +2627,7 @@ function FeedDocumentation({
                       </th>
                       <th className="text-left px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Feed Brand</th>
                       <th className="text-left px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Pellet Size</th>
-                      <th className="text-left px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Feed Remaining</th>
+                      <th className="text-left px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Feed Remaining from Previous Day</th>
                       <th className="text-left px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Bags Opened Today</th>
                       <th className="text-left px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Feed Remaining Today</th>
                       <th className="px-3 py-3 w-10" />
@@ -2681,14 +2675,14 @@ function FeedDocumentation({
                           {/* Pellet Size */}
                           <td className="px-4 py-3"><Bdg label={row.size} color="blue" /></td>
 
-                          {/* Feed Remaining (Carryover) */}
-                          <td className="px-4 py-3 font-semibold text-slate-800 text-xs whitespace-nowrap">
+                          {/* Feed Remaining from Previous Day */}
+                          <td className="px-4 py-3 font-bold text-slate-800 text-sm whitespace-nowrap font-['Barlow_Condensed',sans-serif]">
                             {row.carryoverKg !== undefined ? `${row.carryoverKg} kg` : "0 kg"}
                           </td>
 
                           {/* Bags Opened Today */}
                           <td className={`px-4 py-3 relative z-0 transition-all ${isBagsColHighlighted ? "bg-orange-50 ring-1 ring-orange-400 ring-inset rounded" : ""}`}>
-                            <div className={`font-bold text-xs ${isBagsMismatch ? "text-red-600 font-bold" : "text-slate-900"}`}>
+                            <div className={`font-bold text-sm font-['Barlow_Condensed',sans-serif] ${isBagsMismatch ? "text-red-600 font-bold" : "text-slate-900"}`}>
                               {row.bagsOpened > 0 ? (
                                 `${row.bagsOpened} bag${row.bagsOpened !== 1 ? "s" : ""}`
                               ) : (
@@ -2704,9 +2698,9 @@ function FeedDocumentation({
 
                           {/* Feed Remaining Today */}
                           <td className={`px-4 py-3 relative z-0 transition-all ${isRemainColHighlighted ? "bg-amber-50 ring-1 ring-amber-400 ring-inset rounded" : ""}`}>
-                            <div className="font-semibold text-xs">
+                            <div className="font-bold text-sm font-['Barlow_Condensed',sans-serif]">
                               {row.feedRemainingToday !== null && row.feedRemainingToday !== undefined ? (
-                                <span className={isRemainMismatch ? "text-red-600 font-bold" : "text-slate-800 font-bold"}>
+                                <span className={isRemainMismatch ? "text-red-600 font-bold" : "text-emerald-800 font-bold"}>
                                   {row.feedRemainingToday} kg
                                 </span>
                               ) : (
@@ -2748,8 +2742,8 @@ function FeedDocumentation({
             {/* Mobile Controls: Stock Filter on its own without outer card fill */}
             <div className="flex items-center gap-2">
               <select
-                value={selectedStockFilter}
-                onChange={e => setSelectedStockFilter(e.target.value)}
+                value={bagsStockFilter}
+                onChange={e => setBagsStockFilter(e.target.value)}
                 className={`${SC} py-1.5 px-3 text-xs w-full max-w-[200px] bg-white border border-slate-200 rounded-xl shadow-2xs font-medium text-slate-700`}
               >
                 <option value="All">All Stocks</option>
@@ -2880,22 +2874,26 @@ function FeedDocumentation({
 
                     {/* Card Metrics Grid */}
                     <div className="mt-3 pt-2.5 border-t border-slate-100 grid grid-cols-3 gap-2 text-xs">
-                      {/* Feed Remaining (Carryover) */}
-                      <div className="bg-slate-50 rounded-lg p-2">
-                        <span className="text-[10px] text-slate-400 block mb-0.5 font-medium">Feed Remaining</span>
-                        <span className="font-bold text-slate-800 text-xs">
+                      {/* Feed Remaining from Previous Day (First on the left) */}
+                      <div className="bg-slate-50 rounded-xl p-2.5 flex flex-col justify-between">
+                        <span className="text-[10px] text-slate-500 block mb-1 font-semibold leading-tight">
+                          Feed Remaining from Previous Day
+                        </span>
+                        <span className="font-bold text-slate-900 text-sm sm:text-base font-['Barlow_Condensed',sans-serif] tracking-tight">
                           {row.carryoverKg !== undefined ? `${row.carryoverKg} kg` : "0 kg"}
                         </span>
                       </div>
 
                       {/* Bags Opened Today */}
-                      <div className={`rounded-lg p-2 transition-all ${isBagsColHighlighted ? "bg-orange-100/90 border border-orange-400 ring-1 ring-orange-400" : isBagsMismatch ? "bg-red-50/80 border border-red-200" : "bg-slate-50"}`}>
-                        <span className={`text-[10px] block mb-0.5 font-medium ${isBagsMismatch ? "text-red-600 font-bold" : "text-slate-400"}`}>Bags Opened Today</span>
-                        <span className={`font-bold text-xs ${isBagsMismatch ? "text-red-600 font-bold" : "text-slate-900"}`}>
+                      <div className={`rounded-xl p-2.5 flex flex-col justify-between transition-all ${isBagsColHighlighted ? "bg-orange-100/90 border border-orange-400 ring-1 ring-orange-400" : isBagsMismatch ? "bg-red-50/80 border border-red-200" : "bg-slate-50"}`}>
+                        <span className={`text-[10px] block mb-1 font-semibold leading-tight ${isBagsMismatch ? "text-red-600 font-bold" : "text-slate-500"}`}>
+                          Bags Opened Today
+                        </span>
+                        <span className={`font-bold text-sm sm:text-base font-['Barlow_Condensed',sans-serif] tracking-tight ${isBagsMismatch ? "text-red-600 font-bold" : "text-slate-900"}`}>
                           {row.bagsOpened > 0 ? (
                             `${row.bagsOpened} bag${row.bagsOpened !== 1 ? "s" : ""}`
                           ) : (
-                            <span className={isBagsMismatch ? "text-red-600 font-bold" : "text-slate-700"}>0 bags</span>
+                            <span className={isBagsMismatch ? "text-red-600 font-bold" : "text-slate-600"}>0 bags</span>
                           )}
                         </span>
                         {row.hasBagLog && expData.hasFed && (
@@ -2906,9 +2904,11 @@ function FeedDocumentation({
                       </div>
 
                       {/* Feed Remaining Today */}
-                      <div className={`rounded-lg p-2 transition-all ${isRemainColHighlighted ? "bg-amber-100/90 border border-amber-400 ring-1 ring-amber-400" : isRemainMismatch ? "bg-red-50/80 border border-red-200" : "bg-slate-50"}`}>
-                        <span className={`text-[10px] block mb-0.5 font-medium ${isRemainMismatch ? "text-red-600 font-bold" : "text-slate-400"}`}>Feed Remaining Today</span>
-                        <span className={`font-semibold text-xs ${isRemainMismatch ? "text-red-600 font-bold" : "text-slate-800"}`}>
+                      <div className={`rounded-xl p-2.5 flex flex-col justify-between transition-all ${isRemainColHighlighted ? "bg-amber-100/90 border border-amber-400 ring-1 ring-amber-400" : isRemainMismatch ? "bg-red-50/80 border border-red-200" : "bg-emerald-50/50 border border-emerald-100/60"}`}>
+                        <span className={`text-[10px] block mb-1 font-semibold leading-tight ${isRemainMismatch ? "text-red-600 font-bold" : "text-slate-500"}`}>
+                          Feed Remaining Today
+                        </span>
+                        <span className={`font-bold text-sm sm:text-base font-['Barlow_Condensed',sans-serif] tracking-tight ${isRemainMismatch ? "text-red-600 font-bold" : "text-emerald-800"}`}>
                           {row.feedRemainingToday !== null && row.feedRemainingToday !== undefined ? (
                             `${row.feedRemainingToday} kg`
                           ) : (
@@ -4064,16 +4064,16 @@ function FeedDocumentation({
 
               <div className="grid grid-cols-3 gap-2">
                 <div className="bg-slate-50 rounded-xl p-3">
-                  <p className="text-[10px] uppercase tracking-wider text-slate-400 mb-0.5">Feed Remaining</p>
-                  <p className="text-sm font-bold text-slate-800">{viewBagDetail.carryoverKg !== undefined ? `${viewBagDetail.carryoverKg} kg` : "0 kg"}</p>
+                  <p className="text-[10px] uppercase tracking-wider text-slate-400 mb-0.5">Feed Remaining from Previous Day</p>
+                  <p className="text-base font-bold text-slate-800 font-['Barlow_Condensed',sans-serif]">{viewBagDetail.carryoverKg !== undefined ? `${viewBagDetail.carryoverKg} kg` : "0 kg"}</p>
                 </div>
                 <div className="bg-slate-50 rounded-xl p-3">
                   <p className="text-[10px] uppercase tracking-wider text-slate-400 mb-0.5">Bags Opened Today</p>
-                  <p className="text-sm font-bold text-slate-800">{viewBagDetail.bagsOpened} bag{viewBagDetail.bagsOpened !== 1 ? "s" : ""}</p>
+                  <p className="text-base font-bold text-slate-800 font-['Barlow_Condensed',sans-serif]">{viewBagDetail.bagsOpened} bag{viewBagDetail.bagsOpened !== 1 ? "s" : ""}</p>
                 </div>
                 <div className="bg-amber-50 rounded-xl p-3 border border-amber-200">
                   <p className="text-[10px] uppercase tracking-wider text-amber-600 mb-0.5">Feed Remaining Today</p>
-                  <p className="text-sm font-bold text-amber-800">
+                  <p className="text-base font-bold text-amber-800 font-['Barlow_Condensed',sans-serif]">
                     {viewBagDetail.feedRemainingToday !== null && viewBagDetail.feedRemainingToday !== undefined
                       ? `${viewBagDetail.feedRemainingToday} kg`
                       : "0 kg"}
