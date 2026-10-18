@@ -304,11 +304,19 @@ function FeedDocumentation({
   const isSelInView = selMonLabel === curMonLabel && (!selYear || selYear === viewYear);
 
   /* ── pondToStock & normalizeFishStock helpers ── */
+  const isPondName = useCallback((str?: string | null): boolean => {
+    if (!str || str === "—" || typeof str !== "string" || !str.trim()) return false;
+    const lower = str.trim().toLowerCase();
+    return (ponds || []).some(p => p && p.name && p.name.trim().toLowerCase() === lower);
+  }, [ponds]);
+
   const pondToStock = (pondName: string): string => {
     if (!pondName) return "General Stock";
     const p = (ponds || []).find(x => x && x.name && x.name.toLowerCase().trim() === pondName.toLowerCase().trim());
-    if (!p) return pondName;
-    return getPondFishStock(p);
+    if (!p) return isPondName(pondName) ? "General Stock" : pondName;
+    const s = getPondFishStock(p);
+    if (!s || s === "—" || isPondName(s)) return "General Stock";
+    return s;
   };
 
   const pondToStockDate = (pondName: string): string => {
@@ -320,11 +328,14 @@ function FeedDocumentation({
   const normalizeFishStock = (stock?: string | null): string => {
     if (!stock || stock === "—" || typeof stock !== "string" || !stock.trim()) return "—";
     const trimmed = stock.trim();
+    if (isPondName(trimmed)) {
+      return pondToStock(trimmed);
+    }
     const matchingPond = (ponds || []).find(p => p && p.name && typeof p.name === "string" && p.name.toLowerCase().trim() === trimmed.toLowerCase());
     if (matchingPond) {
       return pondToStock(matchingPond.name);
     }
-    const activeStock = (ponds || []).map(p => p ? getPondFishStock(p) : "").find(s => s && typeof s === "string" && s.toLowerCase().trim() === trimmed.toLowerCase());
+    const activeStock = (ponds || []).map(p => p ? getPondFishStock(p) : "").find(s => s && typeof s === "string" && !isPondName(s) && s.toLowerCase().trim() === trimmed.toLowerCase());
     if (activeStock) {
       return activeStock;
     }
@@ -655,49 +666,98 @@ function FeedDocumentation({
   /* ── activeFishStockOptions for Bags Opened & Tracking ── */
   const activeFishStockOptions = useMemo((): FishStockOption[] => {
     const map = new Map<string, FishStockOption>();
-    const pool = [...activePonds, ...(ponds || []).filter(p => p && !activePonds.some(ap => ap.id === p.id))];
-    pool.forEach(p => {
-      const stockName = getPondFishStock(p);
+
+    // 1. Collect only from active stocked ponds in the farm
+    activePonds.forEach(p => {
+      if (!p) return;
+      let stockName = "";
       const dStr = p.stockingDate && p.stockingDate !== "—" ? formatFishStockDate(p.stockingDate) : "";
+
+      if (p.fishStock && p.fishStock.trim() && p.fishStock !== "—" && !isPondName(p.fishStock)) {
+        stockName = formatFishStock(p.fishStock.trim());
+      } else if (dStr && dStr !== "—") {
+        stockName = dStr;
+      } else if (p.species && p.species !== "—" && !isPondName(p.species)) {
+        stockName = p.species.trim();
+      }
+
+      // Never allow a pond name or empty/placeholder stock to be treated as a fish stock option
+      if (!stockName || stockName === "—" || stockName === "General Stock" || isPondName(stockName)) return;
+
       const existing = map.get(stockName);
       if (existing) {
         if (!existing.ponds.includes(p.name)) existing.ponds.push(p.name);
+        if (dStr && dStr !== "—" && (!existing.stockDate || existing.stockDate === "—")) {
+          existing.stockDate = dStr;
+        }
       } else {
+        const label = dStr && dStr !== "—" && !stockName.toLowerCase().includes(dStr.toLowerCase())
+          ? `${stockName} (${dStr})`
+          : stockName;
         map.set(stockName, {
           id: stockName,
           name: stockName,
           stockDate: dStr || "—",
           species: p.species || "—",
           ponds: [p.name],
-          label: `${stockName} — ${p.name}`
+          label
         });
       }
     });
-    return Array.from(map.values()).map(opt => ({
-      ...opt,
-      label: `${opt.name} — Ponds: ${opt.ponds.join(", ")}`
-    }));
-  }, [activePonds, ponds]);
+
+    // 2. Also include valid fish stocks recorded in bagLogs, remainLogs, or feedingRecords for this farm
+    [
+      ...(bagLogs || []).map(b => b.fishStock),
+      ...(remainLogs || []).map(r => r.fishStock),
+      ...(feedingRecords || []).map(f => f.fishStock)
+    ].forEach(fs => {
+      if (!fs || fs === "—" || fs === "General Stock") return;
+      const trimmed = fs.trim();
+      if (isPondName(trimmed)) return;
+      const formatted = formatFishStock(trimmed);
+      if (isPondName(formatted) || formatted === "General Stock") return;
+
+      const key = normalizeFishStock(formatted).toLowerCase().trim();
+      const alreadyInMap = Array.from(map.values()).some(opt =>
+        opt.name.toLowerCase().trim() === formatted.toLowerCase().trim() ||
+        normalizeFishStock(opt.name).toLowerCase().trim() === key ||
+        isStockMatch(opt.name, formatted)
+      );
+
+      if (!alreadyInMap) {
+        const dStr = /^\d{4}-\d{2}-\d{2}/.test(trimmed) ? formatFishStockDate(trimmed) : "—";
+        const label = dStr && dStr !== "—" && !formatted.toLowerCase().includes(dStr.toLowerCase())
+          ? `${formatted} (${dStr})`
+          : formatted;
+        map.set(formatted, {
+          id: formatted,
+          name: formatted,
+          stockDate: dStr,
+          species: "—",
+          ponds: [],
+          label
+        });
+      }
+    });
+
+    return Array.from(map.values());
+  }, [activePonds, ponds, bagLogs, remainLogs, feedingRecords, isPondName]);
 
   /* ── stockFilterOptions for filtering Feeding Record by stock ── */
   const stockFilterOptions = useMemo(() => {
     const list: { key: string; label: string; name: string }[] = [];
     const seen = new Set<string>();
 
-    activePonds.forEach(p => {
-      const stockName = getPondFishStock(p);
-      if (!stockName || stockName === "—" || stockName === "General Stock") return;
-      const key = normalizeFishStock(stockName).toLowerCase().trim();
+    activeFishStockOptions.forEach(opt => {
+      const key = normalizeFishStock(opt.name).toLowerCase().trim();
       if (!seen.has(key)) {
         seen.add(key);
-        const dStr = p.stockingDate && p.stockingDate !== "—" ? formatFishStockDate(p.stockingDate) : "";
-        const label = dStr && dStr !== stockName ? `${stockName} (${dStr})` : stockName;
-        list.push({ key, label, name: stockName });
+        list.push({ key, label: opt.label, name: opt.name });
       }
     });
 
     return list;
-  }, [activePonds]);
+  }, [activeFishStockOptions]);
 
   /* ── helper: count bags opened for a given fish stock + brand + pellet size on a date ── */
   const getBagsLoggedTodayForStockAndSize = (stockName: string, brandName: string, palletSize: string, checkDate: string): number => {
@@ -774,7 +834,8 @@ function FeedDocumentation({
   };
 
   const blankBagRow = (targetDate?: string, preferredStock?: string, preferredSize?: string): BagRow => {
-    const fs = preferredStock || activeFishStockOptions[0]?.name || "";
+    const rawFs = preferredStock || activeFishStockOptions[0]?.name || "";
+    const fs = isPondName(rawFs) ? (activeFishStockOptions[0]?.name || "") : rawFs;
     const associated = getAssociatedPalletsForStock(fs, targetDate || bagsDate);
     const pallet = preferredSize || (associated.length > 0 ? associated[0] : "");
     const matchingBrands = pallet ? getMatchingBrandsForPallet(pallet) : [];
@@ -803,7 +864,8 @@ function FeedDocumentation({
         normalizeFishStock(opt.name) === normalizeFishStock(b.fishStock) ||
         opt.ponds.some(p => p === b.fishStock || isStockMatch(p, b.fishStock))
       );
-      const fs = matchedOpt?.name || b.fishStock || (activeFishStockOptions[0]?.name || "");
+      const resolvedFs = matchedOpt?.name || (isPondName(b.fishStock) ? pondToStock(b.fishStock) : b.fishStock) || (activeFishStockOptions[0]?.name || "");
+      const fs = isPondName(resolvedFs) ? (activeFishStockOptions[0]?.name || "") : resolvedFs;
       const associatedPallets = getAssociatedPalletsForStock(fs, checkDate);
       const size = b.size || (associatedPallets[0] || (invSizesForBrand(b.brand)[0] || ""));
       const matchingBrands = getMatchingBrandsForPallet(size);
@@ -838,7 +900,8 @@ function FeedDocumentation({
         normalizeFishStock(opt.name) === normalizeFishStock(r.fishStock) ||
         opt.ponds.some(p => p === r.fishStock || isStockMatch(p, r.fishStock))
       );
-      const fs = matchedOpt?.name || r.fishStock || (activeFishStockOptions[0]?.name || "");
+      const resolvedFs = matchedOpt?.name || (isPondName(r.fishStock) ? pondToStock(r.fishStock) : r.fishStock) || (activeFishStockOptions[0]?.name || "");
+      const fs = isPondName(resolvedFs) ? (activeFishStockOptions[0]?.name || "") : resolvedFs;
       const associatedPallets = getAssociatedPalletsForStock(fs, checkDate);
       const size = r.size || (associatedPallets[0] || "");
       const matchingBrands = getMatchingBrandsForPallet(size);
@@ -1304,7 +1367,8 @@ function FeedDocumentation({
       normalizeFishStock(opt.name) === normalizeFishStock(row.stockName) ||
       opt.ponds.some(p => p === row.stockName || isStockMatch(p, row.stockName))
     );
-    const fs = matchedOpt?.name || row.stockName || (activeFishStockOptions[0]?.name || "");
+    const resolvedFs = matchedOpt?.name || (isPondName(row.stockName) ? pondToStock(row.stockName) : row.stockName) || (activeFishStockOptions[0]?.name || "");
+    const fs = isPondName(resolvedFs) ? (activeFishStockOptions[0]?.name || "") : resolvedFs;
 
     // 2. Identify associated pallets and select appropriate pallet
     const associatedPallets = getAssociatedPalletsForStock(fs, targetDate);
@@ -1476,7 +1540,8 @@ function FeedDocumentation({
       normalizeFishStock(opt.name) === normalizeFishStock(row.fishStock) ||
       opt.ponds.some(p => p === row.fishStock || isStockMatch(p, row.fishStock))
     );
-    const fs = matchedOpt?.name || row.fishStock || (activeFishStockOptions[0]?.name || "");
+    const resolvedFs = matchedOpt?.name || (isPondName(row.fishStock) ? pondToStock(row.fishStock) : row.fishStock) || (activeFishStockOptions[0]?.name || "");
+    const fs = isPondName(resolvedFs) ? (activeFishStockOptions[0]?.name || "") : resolvedFs;
 
     const associated = getAssociatedPalletsForStock(fs, selDate);
     const size = row.size && row.size !== "—" ? row.size : (associated[0] || (availablePelletSizes[0] || ""));
@@ -3523,6 +3588,9 @@ function FeedDocumentation({
                           {activeFishStockOptions.map(opt => (
                             <option key={opt.name} value={opt.name}>{opt.label}</option>
                           ))}
+                          {row.fishStock && !activeFishStockOptions.some(opt => opt.name === row.fishStock) && !isPondName(row.fishStock) && (
+                            <option value={row.fishStock}>{row.fishStock}</option>
+                          )}
                         </select>
                         {(bagsErr[`fs_${i}`] || bagsErr[`stock_${i}`]) && (
                           <p className="text-[10px] text-red-500 mt-1">{bagsErr[`fs_${i}`] || bagsErr[`stock_${i}`]}</p>
@@ -3859,6 +3927,9 @@ function FeedDocumentation({
                   {activeFishStockOptions.map(opt => (
                     <option key={opt.name} value={opt.name}>{opt.label}</option>
                   ))}
+                  {editDocBag.fishStock && !activeFishStockOptions.some(opt => opt.name === editDocBag.fishStock) && !isPondName(editDocBag.fishStock) && (
+                    <option value={editDocBag.fishStock}>{editDocBag.fishStock}</option>
+                  )}
                 </select>
               </div>
 
