@@ -187,6 +187,7 @@ function PondDetail({
     : "";
 
   const unifiedTreatments = useMemo(() => {
+    if (pond.status === "Empty") return [];
     const rawTreatments = treatments.filter(t => t.pondId === pond.id);
     const repTreatments = (pondReports || []).filter(r => r.pondId === pond.id && r.reportType === "treatment");
 
@@ -253,6 +254,7 @@ function PondDetail({
   }, [treatments, pondReports, pond, defaultFishStockLabel, activeFishStockLabel]);
 
   const otherIssues = useMemo(() => {
+    if (pond.status === "Empty") return [];
     return (pondReports || [])
       .filter(r => {
         if (r.pondId !== pond.id || r.reportType === "treatment") return false;
@@ -355,10 +357,10 @@ function PondDetail({
       notes: ""
     });
   };
-  const logs = mortality.filter(m=>m.pondId===pond.id);
-  const dead = logs.reduce((s,m)=>s+m.count,0);
-  const mRate = pond.initialStock>0?((dead/pond.initialStock)*100).toFixed(2):"0.00";
-  const history = feedingRecords.filter(r => {
+  const logs = pond.status === "Empty" ? [] : mortality.filter(m=>m.pondId===pond.id);
+  const dead = pond.status === "Empty" ? 0 : logs.reduce((s,m)=>s+m.count,0);
+  const mRate = pond.initialStock>0 && pond.status!=="Empty" ? ((dead/pond.initialStock)*100).toFixed(2) : "0.00";
+  const history = pond.status === "Empty" ? [] : feedingRecords.filter(r => {
     if (r.pond !== pond.name) return false;
     if (r.fishStock && activeFishStockLabel) {
       return r.fishStock === activeFishStockLabel || r.fishStock === pond.species;
@@ -536,7 +538,7 @@ function PondDetail({
           {feedSummary.length>0&&<span className="text-xs font-bold text-green-700 font-['Barlow_Condensed',sans-serif]">Total: {feedSummary.reduce((s,r)=>s+r.total,0)}kg</span>}
         </div>
         {(()=>{
-          const allSizes=Array.from(new Set([...feedSummary.map(r=>r.size),...Object.keys(pond.maxKgByPallet||{})])).sort((a,b)=>parseFloat(a)-parseFloat(b));
+          const allSizes=pond.status === "Empty" ? [] : Array.from(new Set([...feedSummary.map(r=>r.size),...Object.keys(pond.maxKgByPallet||{})])).sort((a,b)=>parseFloat(a)-parseFloat(b));
           if(allSizes.length===0)return<p className="text-xs text-slate-400 text-center py-2">No feeding data recorded yet. Set Max kg / Pallet to track pallet limits.</p>;
           return(
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
@@ -820,9 +822,11 @@ function PondDetail({
       {showCountHistory && (
         <Modal title={`Fish Count Edit History — ${pond.name}`} onClose={() => setShowCountHistory(false)} wide>
           {(() => {
-            const pondHistory = (fishCountHistory || [])
-              .filter(h => h.pondId === pond.id)
-              .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+            const pondHistory = pond.status === "Empty"
+              ? []
+              : (fishCountHistory || [])
+                  .filter(h => h.pondId === pond.id)
+                  .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
             return (
               <div className="space-y-3">
                 <div className="flex items-center justify-between text-xs text-slate-500 bg-slate-50 border border-slate-200/80 rounded-xl px-4 py-2.5">
@@ -1686,9 +1690,9 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
           </tr></thead>
           <tbody className="divide-y divide-slate-50">
             {filteredPonds.slice((pondTablePage-1)*PER_PAGE,pondTablePage*PER_PAGE).map((p,i)=>{
-              const logs=mortality.filter(m=>m.pondId===p.id);
-              const dead=logs.reduce((s,m)=>s+m.count,0);
-              const mRate=p.initialStock>0?((dead/p.initialStock)*100).toFixed(1):"0.0";
+              const logs=p.status === "Empty" ? [] : mortality.filter(m=>m.pondId===p.id);
+              const dead=p.status === "Empty" ? 0 : logs.reduce((s,m)=>s+m.count,0);
+              const mRate=p.initialStock>0 && p.status!=="Empty" ? ((dead/p.initialStock)*100).toFixed(1) : "0.0";
               const isOver = dragOverPondId === p.id && activeDragId !== p.id;
               const isDragged = activeDragId === p.id;
 

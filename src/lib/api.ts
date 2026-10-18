@@ -1056,6 +1056,7 @@ const TABLE_STORAGE_KEY_MAP: Record<string, string> = {
   farms: "farms",
   expenses: "expenses",
   revenues: "revenues",
+  fish_count_history: "fish_count_history",
 };
 
 async function dbDelete(table: string, id: string, cacheKey?: string): Promise<{ success: boolean }> {
@@ -3026,6 +3027,8 @@ export const api = {
   fishCountHistory: {
     list: () => dbList<FishCountHistoryEntry>("fish_count_history", "fishCountHistory"),
     create: (h: Partial<FishCountHistoryEntry>) => dbInsert<FishCountHistoryEntry>("fish_count_history", h as FishCountHistoryEntry, "fishCountHistory"),
+    update: (h: FishCountHistoryEntry) => dbUpdate<FishCountHistoryEntry>("fish_count_history", h, "fishCountHistory"),
+    remove: (id: string) => dbDelete("fish_count_history", id, "fishCountHistory"),
   },
 
   // ── Investment Edit History ────────────────────────────────────────────────
