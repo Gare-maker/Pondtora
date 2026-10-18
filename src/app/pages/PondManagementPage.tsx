@@ -6,7 +6,7 @@ import {
   MoreVertical, TrendingUp, TrendingDown, Filter, History, GripVertical
 } from "lucide-react";
 import type { Pond, Expense, MortalityEntry, FeedingRecord, StockEvent, TreatmentRecord, BagOpenLog, FeedRemainingLog, FeedItem, Farm, PondReport, FishCountHistoryEntry } from "../types";
-import { EXPENSE_CATS, POND_TYPES, POND_SPECIES, MORT_CAUSES, TODAY, fmt, uid, toMon, toYr, downloadCSV, openPrintWindow, fmtStockingDate, getPondFishStock, formatFishStock } from "../data";
+import { EXPENSE_CATS, POND_TYPES, POND_SPECIES, MORT_CAUSES, TODAY, fmt, uid, toMon, toYr, downloadCSV, openPrintWindow, fmtStockingDate, getPondFishStock, formatFishStock, isStockMatch, isSameDate } from "../data";
 import { Card, Bdg, PBtn, Pagination, PER_PAGE, StatCard, Modal, F, IC, SC, SH, useSort, DateFilter, NumInput } from "../shared";
 import PondReportsComponent from "./PondReportsComponent";
 
@@ -72,11 +72,26 @@ function PondDetail({
   const invBrands=[...new Set(inventory.map(f=>f.brand))];
   const invSizesForBrand=(brand:string)=>[...new Set(inventory.filter(f=>f.brand===brand).map(f=>f.size))];
   const allInvSizes=[...new Set(inventory.map(f=>f.size))];
+  const supportedSpeciesList = useMemo(() => {
+    const base = ["Catfish", "Tilapia", "Carp", "Salmon", "Bass", "Trout"];
+    const extras = new Set<string>();
+    ponds.forEach(p => {
+      if (p.species && p.species !== "—" && !base.includes(p.species) && p.species !== "Other") {
+        extras.add(p.species);
+      }
+    });
+    return [...base, ...Array.from(extras), "Other"];
+  }, [ponds]);
   const [showMort,setShowMort]=useState(false);
   const [showCost,setShowCost]=useState(false);
   const [showClose,setShowClose]=useState(false);
   const [showEditFish,setShowEditFish]=useState(false);
-  const [editFishF,setEditFishF]=useState({species:pond.species==="—"?"Catfish":pond.species,count:String(pond.currentCount),stockingDate:pond.stockingDate});
+  const [editFishF,setEditFishF]=useState({
+    species: pond.species === "—" ? "Catfish" : (["Catfish", "Tilapia", "Carp", "Salmon", "Bass", "Trout"].includes(pond.species) ? pond.species : "Other"),
+    customSpecies: !["Catfish", "Tilapia", "Carp", "Salmon", "Bass", "Trout", "—"].includes(pond.species) ? pond.species : "",
+    count: String(pond.currentCount),
+    stockingDate: pond.stockingDate
+  });
   const [showUpdateQty,setShowUpdateQty]=useState(false);
   const [qtyMode,setQtyMode]=useState<"increase"|"reduce">("increase");
   const [qtyAmt,setQtyAmt]=useState("");
@@ -84,8 +99,8 @@ function PondDetail({
   const pondMenuRef=useRef<HTMLDivElement>(null);
   useEffect(()=>{const h=(e:MouseEvent)=>{if(pondMenuRef.current&&!pondMenuRef.current.contains(e.target as Node))setShowPondMenu(false);};document.addEventListener("mousedown",h);return()=>document.removeEventListener("mousedown",h);},[]);
   const handleSaveEditFish=()=>{
-    const s = editFishF.species.trim();
-    if(onEditFish)onEditFish(pond.id,{species:s||pond.species,currentCount:Number(editFishF.count)||pond.currentCount,stockingDate:editFishF.stockingDate||pond.stockingDate,fishStock:s||pond.fishStock||pond.species},{reason:"Edited fish stock details"});
+    const s = (editFishF.species === "Other" ? editFishF.customSpecies.trim() : editFishF.species.trim()) || pond.species || "Catfish";
+    if(onEditFish)onEditFish(pond.id,{species:s,currentCount:Number(editFishF.count)||pond.currentCount,stockingDate:editFishF.stockingDate||pond.stockingDate,fishStock:s||pond.fishStock||pond.species},{reason:"Edited fish stock details"});
     setShowEditFish(false);
   };
   const handleUpdateQty=(mode?: "increase" | "reduce", directAmt?: number)=>{
@@ -156,7 +171,7 @@ function PondDetail({
   const [transferF,setTransferF]=useState({toPond:"",date:TODAY,pct:"100",count:""});
   const [transferErr,setTransferErr]=useState<Record<string,string>>({});
   const emptyPonds=ponds.filter(p=>p.id!==pond.id&&p.status==="Empty"&&(Number(p.currentCount)||0)===0);
-  const [restockF,setRestockF]=useState({species:pond.species==="—"?"Catfish":pond.species,initialStock:"",stockingDate:"",supplier:""});
+  const [restockF,setRestockF]=useState({species:"Catfish",customSpecies:"",initialStock:"",stockingDate:"",supplier:""});
   const [restockErr,setRestockErr]=useState<Record<string,string>>({});
   const [mortF,setMortF]=useState({date:TODAY,count:"",cause:"Unknown",notes:""});
   const [mortErr,setMortErr]=useState<Record<string,string>>({});
@@ -172,7 +187,6 @@ function PondDetail({
     : "";
 
   const unifiedTreatments = useMemo(() => {
-    if (pond.status === "Empty") return [];
     const rawTreatments = treatments.filter(t => t.pondId === pond.id);
     const repTreatments = (pondReports || []).filter(r => r.pondId === pond.id && r.reportType === "treatment");
 
@@ -239,7 +253,6 @@ function PondDetail({
   }, [treatments, pondReports, pond, defaultFishStockLabel, activeFishStockLabel]);
 
   const otherIssues = useMemo(() => {
-    if (pond.status === "Empty") return [];
     return (pondReports || [])
       .filter(r => {
         if (r.pondId !== pond.id || r.reportType === "treatment") return false;
@@ -342,18 +355,16 @@ function PondDetail({
       notes: ""
     });
   };
-  const logs = pond.status === "Empty" ? [] : mortality.filter(m=>m.pondId===pond.id);
+  const logs = mortality.filter(m=>m.pondId===pond.id);
   const dead = logs.reduce((s,m)=>s+m.count,0);
   const mRate = pond.initialStock>0?((dead/pond.initialStock)*100).toFixed(2):"0.00";
-  const history = pond.status === "Empty"
-    ? []
-    : feedingRecords.filter(r => {
-        if (r.pond !== pond.name) return false;
-        if (r.fishStock && activeFishStockLabel) {
-          return r.fishStock === activeFishStockLabel || r.fishStock === pond.species;
-        }
-        return true;
-      });
+  const history = feedingRecords.filter(r => {
+    if (r.pond !== pond.name) return false;
+    if (r.fishStock && activeFishStockLabel) {
+      return r.fishStock === activeFishStockLabel || r.fishStock === pond.species;
+    }
+    return true;
+  });
   const fhMonths=[...new Set(history.map(r=>r.month))];
   const filtHistory=fhMonth==="All"?history:history.filter(r=>r.month===fhMonth);
   const {sorted:sortedHist,sf:hSf,sd:hSd,toggle:hToggle}=useSort(filtHistory,"date");
@@ -399,12 +410,12 @@ function PondDetail({
   const handleRestock=()=>{
     const errs:Record<string,string>={};
     if(!restockF.initialStock||Number(restockF.initialStock)<=0)errs.initialStock="Initial stock count is required";
-    if(!restockF.species)errs.species="Species is required";
+    if(restockF.species === "Other" && !restockF.customSpecies.trim()) errs.species="Please specify the species name";
     if(Object.keys(errs).length){setRestockErr(errs);return;}
-    const s = restockF.species.trim();
+    const s = (restockF.species === "Other" ? restockF.customSpecies.trim() : restockF.species.trim()) || "Catfish";
     onRestockPond(pond.id,{species:s,fishStock:s,initialStock:Number(restockF.initialStock),stockingDate:restockF.stockingDate||TODAY,stockMonth:restockF.stockingDate?toMon(restockF.stockingDate):toMon(TODAY),supplier:restockF.supplier});
     setShowRestock(false);
-    setRestockF({species:"Catfish",initialStock:"",stockingDate:"",supplier:""});
+    setRestockF({species:"Catfish",customSpecies:"",initialStock:"",stockingDate:"",supplier:""});
   };
   return(
     <div className="p-4 sm:p-6 space-y-4 w-full">
@@ -461,7 +472,16 @@ function PondDetail({
       <div className="p-5 rounded-xl border border-[#1b3e6b] shadow-md text-white" style={{ backgroundColor: "#0f2744" }}>
         <div className="flex items-center justify-between mb-4">
           <p className="text-xs font-bold uppercase tracking-wider text-blue-200">Fish Information</p>
-          {canEdit&&pond.status==="Active"&&<button onClick={()=>{setEditFishF({species:pond.species==="—"?"Catfish":pond.species,count:String(pond.currentCount),stockingDate:pond.stockingDate});setShowEditFish(true);}} className="flex items-center gap-1.5 text-xs font-semibold text-white hover:text-white bg-white/15 hover:bg-white/25 border border-white/25 rounded-lg px-3 py-1.5 transition-colors"><Pencil size={12}/> Edit</button>}
+          {canEdit&&pond.status==="Active"&&<button onClick={()=>{
+            const isStd = ["Catfish","Tilapia","Carp","Salmon","Bass","Trout"].includes(pond.species);
+            setEditFishF({
+              species: pond.species === "—" ? "Catfish" : (isStd ? pond.species : "Other"),
+              customSpecies: !isStd && pond.species !== "—" ? pond.species : "",
+              count: String(pond.currentCount),
+              stockingDate: pond.stockingDate
+            });
+            setShowEditFish(true);
+          }} className="flex items-center gap-1.5 text-xs font-semibold text-white hover:text-white bg-white/15 hover:bg-white/25 border border-white/25 rounded-lg px-3 py-1.5 transition-colors"><Pencil size={12}/> Edit</button>}
         </div>
         {pond.transferNote&&(
           <div className="mb-4 flex items-center gap-2 px-3 py-2 rounded-lg bg-white/10 border border-white/20 text-xs text-blue-100">
@@ -1019,20 +1039,26 @@ function PondDetail({
         </div>
       </Modal>}
       {showEditFish&&<Modal title="Edit Fish Information" onClose={()=>setShowEditFish(false)}>
-        <F label="Fish Stock / Species">
-          <input
-            list="edit-fish-stock-options"
+        <F label="Fish Species">
+          <select
             value={editFishF.species}
             onChange={e=>setEditFishF(p=>({...p,species:e.target.value}))}
-            className={IC}
-            placeholder="e.g. FS-001 or Catfish"
-          />
-          <datalist id="edit-fish-stock-options">
-            {existingFishStocks.map(s=><option key={s} value={s}/>)}
-            {POND_SPECIES.map(s=><option key={s} value={s}/>)}
-          </datalist>
-          <p className="text-[11px] text-slate-400 mt-1">Select an existing stock (e.g. FS-001) to link this pond to it, or enter a new fish stock identity or species.</p>
+            className={SC}
+          >
+            {supportedSpeciesList.map(s=><option key={s} value={s}>{s}</option>)}
+          </select>
         </F>
+        {editFishF.species === "Other" && (
+          <F label="Specify Species / Strain">
+            <input
+              type="text"
+              value={editFishF.customSpecies}
+              onChange={e=>setEditFishF(p=>({...p,customSpecies:e.target.value}))}
+              className={IC}
+              placeholder="e.g. Clarias gariepinus, Pangasius, Heterobranchus…"
+            />
+          </F>
+        )}
         <F label="Current Count"><input type="number" value={editFishF.count} onChange={e=>setEditFishF(p=>({...p,count:e.target.value}))} className={IC}/></F>
         <F label="Stocking Date"><input type="date" value={editFishF.stockingDate} onChange={e=>setEditFishF(p=>({...p,stockingDate:e.target.value}))} className={IC}/></F>
         <div className="flex gap-2 pt-1"><PBtn onClick={handleSaveEditFish}><CheckCircle size={14}/> Save Changes</PBtn><button onClick={()=>setShowEditFish(false)} className="px-4 py-2 text-sm text-slate-400">Cancel</button></div>
@@ -1074,20 +1100,29 @@ function PondDetail({
         <div className="bg-green-50 border border-green-200 rounded-xl px-4 py-3 text-xs text-green-700">
           <strong>{pond.name}</strong> ({pond.id}) · {pond.type} · {pond.sizeM2} ft² — enter new fish details below to activate this pond.
         </div>
-        <F label="Fish Stock / Species">
-          <input
-            list="restock-fish-stock-options"
+        <F label="Fish Species">
+          <select
             value={restockF.species}
-            onChange={e=>setRestockF(p=>({...p,species:e.target.value}))}
-            className={IC}
-            placeholder="e.g. FS-001 or Catfish"
-          />
-          <datalist id="restock-fish-stock-options">
-            {existingFishStocks.map(s=><option key={s} value={s}/>)}
-            {POND_SPECIES.map(s=><option key={s} value={s}/>)}
-          </datalist>
-          <p className="text-[11px] text-slate-400 mt-1">Select an existing stock (e.g. FS-001) to link this pond to it, or enter a new fish stock identity or species.</p>
+            onChange={e=>{const val=e.target.value;setRestockF(p=>({...p,species:val}));if(val)setRestockErr(p=>({...p,species:""}));}}
+            className={`${SC}${restockErr.species?" border-red-400":""}`}
+          >
+            {supportedSpeciesList.map(s=><option key={s} value={s}>{s}</option>)}
+          </select>
         </F>
+        {restockF.species === "Other" && (
+          <div>
+            <F label="Specify Species / Strain">
+              <input
+                type="text"
+                value={restockF.customSpecies}
+                onChange={e=>{const val=e.target.value;setRestockF(p=>({...p,customSpecies:val}));if(val.trim())setRestockErr(p=>({...p,species:""}));}}
+                className={`${IC}${restockErr.species?" border-red-400":""}`}
+                placeholder="e.g. Clarias gariepinus, Pangasius, Heterobranchus…"
+              />
+            </F>
+            {restockErr.species&&<p className="text-xs text-red-500 mt-1">{restockErr.species}</p>}
+          </div>
+        )}
         <div><F label="Initial Stock (fish)"><NumInput allowDecimal={false} value={restockF.initialStock} onChange={v=>{setRestockF(p=>({...p,initialStock:v}));if(v&&Number(v)>0)setRestockErr(p=>({...p,initialStock:""}));}} className={`${IC}${restockErr.initialStock?" border-red-400":""}`} placeholder="0"/></F>{restockErr.initialStock&&<p className="text-xs text-red-500 mt-1">{restockErr.initialStock}</p>}</div>
         <F label="Stocking Date"><input type="date" value={restockF.stockingDate} onChange={e=>setRestockF(p=>({...p,stockingDate:e.target.value}))} className={IC}/></F>
         <F label="Supplier Name (Optional)"><input type="text" value={restockF.supplier} onChange={e=>setRestockF(p=>({...p,supplier:e.target.value}))} className={IC} placeholder="e.g. XYZ Hatchery"/></F>
@@ -1994,10 +2029,20 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
               const grp=stockGroups.find(g=>g.key===stockDetailId);
               if(!grp)return <div className="p-8 text-center text-sm text-slate-400">Record not found.</div>;
               const totalCurrentFish=ponds.filter(p=>(grp.pondIds.includes(p.id)||grp.pondNames.includes(p.name))&&p.status==="Active").reduce((s,p)=>s+p.currentCount,0);
-              const allFeedRecs=feedingRecords.filter(r=>grp.pondNames.includes(r.pond)||(r.fishStock&&r.fishStock===grp.stockName));
+              const allFeedRecs=feedingRecords.filter(r=>{
+                if(r.fishStock){
+                  return isStockMatch(r.fishStock,grp.stockName,ponds) || (grp.stockingDate && isSameDate(r.fishStock,grp.stockingDate));
+                }
+                return grp.pondNames.includes(r.pond);
+              });
               const totalFeedKg=allFeedRecs.reduce((s,r)=>s+r.total,0);
               const bySize=allFeedRecs.reduce<Record<string,number>>((acc,r)=>{acc[r.size]=(acc[r.size]||0)+r.total;return acc;},{});
-              const allMort=mortality.filter(m=>grp.pondIds.includes(m.pondId));
+              const allMort=mortality.filter(m=>{
+                if((m as any).fishStock){
+                  return isStockMatch((m as any).fishStock,grp.stockName,ponds) || (grp.stockingDate && isSameDate((m as any).fishStock,grp.stockingDate));
+                }
+                return grp.pondIds.includes(m.pondId);
+              });
               const totalDead=allMort.reduce((s,m)=>s+m.count,0);
               const mortRate=grp.totalStartCount>0?((totalDead/grp.totalStartCount)*100).toFixed(1):"0.0";
               const fmtDate=(d:string)=>{try{return new Date(d).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"});}catch{return d;}};
@@ -2075,14 +2120,14 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
                         {grp.pondNames.map((pondName,pi)=>{
                           const pondId=grp.pondIds[pi];
                           const thisPond=ponds.find(p=>p.id===pondId);
-                          const pondFeed=feedingRecords.filter(r=>r.pond===pondName);
+                          const pondFeed=allFeedRecs.filter(r=>r.pond===pondName);
                           const pondFeedKg=pondFeed.reduce((s,r)=>s+r.total,0);
                           const pondBySz=pondFeed.reduce<Record<string,number>>((acc,r)=>{acc[r.size]=(acc[r.size]||0)+r.total;return acc;},{});
                           const pondMort=allMort.filter(m=>m.pondId===pondId);
                           const pondDead=pondMort.reduce((s,m)=>s+m.count,0);
                           const initCnt=stockEvents.filter(e=>e.pondId===pondId&&(e.type==="Initial"||e.type==="Restock")).reduce((s,e)=>s+e.count,0)||(thisPond?.initialStock)||1;
                           const pondMortRate=((pondDead/initCnt)*100).toFixed(1);
-                          const pondTreat=treatments.filter(t=>t.pondId===pondId);
+                          const pondTreat=treatments.filter(t=>t.pondId===pondId && (!t.fishStock || isStockMatch(t.fishStock,grp.stockName,ponds) || (grp.stockingDate && isSameDate(t.fishStock,grp.stockingDate))));
                           const clearedEv=stockEvents.find(e=>e.pondId===pondId&&e.type==="Closed");
                           const hasSale=!!((clearedEv as any)?.salePrice>0);
                           const pondStatus=thisPond?.status==="Active"?"Active":hasSale?"Sold":"Cleared";

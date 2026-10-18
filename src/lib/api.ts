@@ -222,7 +222,7 @@ const TABLE_ALLOWED_COLUMNS: Record<string, Set<string>> = {
   feeding_records: new Set([
     "id", "user_id", "farm_id", "date", "month", "year", "pond", "brand", "size",
     "morning", "evening", "total", "recorded_by", "morning_time", "evening_time",
-    "created_by", "created_by_id", "edit_history", "created_at"
+    "created_by", "created_by_id", "edit_history", "fish_stock", "created_at"
   ]),
   staff_members: new Set([
     "id", "user_id", "staff_auth_id", "name", "email", "phone", "role", "status",
@@ -260,7 +260,7 @@ const TABLE_ALLOWED_COLUMNS: Record<string, Set<string>> = {
     "count", "avg_weight", "cost", "sale_price", "type", "from_pond", "cleared_date", "supplier", "batch", "created_at"
   ]),
   mortality_entries: new Set([
-    "id", "user_id", "pond_id", "farm_id", "date", "count", "cause", "notes", "created_at"
+    "id", "user_id", "pond_id", "farm_id", "date", "count", "cause", "notes", "fish_stock", "created_at"
   ]),
   treatment_records: new Set([
     "id", "user_id", "pond_id", "farm_id", "date", "cause", "medicine", "details", "action_taken", "remarks", "fish_stock", "recorded_by", "created_at"

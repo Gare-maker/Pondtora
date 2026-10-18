@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
-import { CheckCircle, ChevronLeft, Loader2, AlertCircle, Eye, EyeOff, Mail, Check, Sparkles, Fish, ArrowRight, ShieldCheck, RefreshCw, ExternalLink } from "lucide-react";
+import { CheckCircle, ChevronLeft, Loader2, AlertCircle, Eye, EyeOff, Mail, Check, Sparkles, Fish, ArrowRight, ShieldCheck, RefreshCw, ExternalLink, Building2 } from "lucide-react";
 import { toast } from "sonner";
+import { useDynamicPlans } from "../pricingData";
 import pondtoraLogo from "../../imports/loo-2.svg";
 import type { UserProfile } from "../types";
 import { COUNTRIES, DIAL_CODES, FLAG_EMOJI, COUNTRY_CURRENCIES } from "../data";
@@ -101,10 +102,23 @@ function AuthScreen({
   const [cCity, setCCity] = useState("");
   const [cReferralCode, setCReferralCode] = useState(() => getPendingReferrerCode() || "");
   const [cErr, setCErr] = useState("");
-  const [cLoading, setCLoading] = useState(false);
   const [cAgreed, setCAgreed] = useState(false);
   const [showCPass, setShowCPass] = useState(false);
   const [signupSent, setSignupSent] = useState(false);
+
+  // ── Step 2 Plan Selection State ──
+  const [regStep, setRegStep] = useState<1 | 2>(1);
+  const [regFarmType, setRegFarmType] = useState<"single" | "multi" | null>(null);
+  const [regSelectedPlan, setRegSelectedPlan] = useState<string | null>(null);
+  const { singleFarmPlans = [], multiFarmPlans = [] } = useDynamicPlans();
+  const currentPlans = regFarmType === "single" ? singleFarmPlans : regFarmType === "multi" ? multiFarmPlans : [];
+
+  const handleFarmTypeChange = (type: "single" | "multi") => {
+    if (type !== regFarmType) {
+      setRegFarmType(type);
+      setRegSelectedPlan(null);
+    }
+  };
 
   // ── Forgot password state ──────────────────────────────────────────────────
   const [fEmail, setFEmail] = useState("");
@@ -375,8 +389,8 @@ function AuthScreen({
     }
   };
 
-  // ── Create Account & Trigger Confirmation Email ──────────────────────────
-  const handleCreateAccount = async (e: React.FormEvent) => {
+  // ── Step 1: Validate Personal & Farm Details and advance to Step 2 ──
+  const handleProceedToStep2 = async (e: React.FormEvent) => {
     e.preventDefault();
     setCErr("");
     if (!cName.trim() || !cEmail.trim() || !cPass.trim() || !cFarm.trim()) {
@@ -400,15 +414,33 @@ function AuthScreen({
     setCLoading(true);
     const cleanEmail = cEmail.trim().toLowerCase();
     try {
-      try {
-        const check = await api.staff.checkEmailExists(cleanEmail);
-        if (check.exists) {
-          setCErr("An account with this email address already exists. Please sign in.");
-          setCLoading(false);
-          return;
-        }
-      } catch {}
+      const check = await api.staff.checkEmailExists(cleanEmail);
+      if (check.exists) {
+        setCErr("An account with this email address already exists. Please sign in.");
+        setCLoading(false);
+        return;
+      }
+    } catch {}
+    setCLoading(false);
+    setRegStep(2);
+  };
 
+  // ── Step 2: Validate Plan & Create Account with 40-Day Free Trial ─────────
+  const handleProceedSignup = async () => {
+    setCErr("");
+    if (!regFarmType) {
+      setCErr("Please select whether you operate a Single Farm or Multiple Farms.");
+      return;
+    }
+    if (!regSelectedPlan) {
+      setCErr("Please select a subscription plan to continue with your 40-day free trial.");
+      return;
+    }
+
+    setCLoading(true);
+    const cleanEmail = cEmail.trim().toLowerCase();
+    const todayDateStr = new Date().toISOString().slice(0, 10);
+    try {
       const phoneStr = `${DIAL_CODES[cDialC] ?? ""} ${cPhone.trim()}`.trim();
       const pendingRef = (cReferralCode.trim() || getPendingReferrerCode() || "").toUpperCase();
 
@@ -423,7 +455,7 @@ function AuthScreen({
         phone: phoneStr,
         currencySymbol: cur.symbol,
         currencyCode: cur.code,
-        activePlan: undefined,
+        activePlan: regSelectedPlan,
         referredBy: pendingRef || undefined,
       });
 
@@ -447,11 +479,10 @@ function AuthScreen({
         }
       }
 
-      // Check if user already exists (Supabase returns empty identities array when user exists and email confirmation is on)
+      // Check if user already exists
       if (data?.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
         const { data: prof } = await supabase.from("user_profiles").select("id").ilike("email", cleanEmail).maybeSingle();
         if (!prof) {
-          // Orphaned auth user without a profile — clean up and retry
           try { await supabase.rpc("delete_user_by_email", { target_email: cleanEmail }); } catch {}
           data = await performSignUp();
         }
@@ -472,12 +503,13 @@ function AuthScreen({
         phone: phoneStr,
         currencySymbol: cur.symbol,
         currencyCode: cur.code,
-        activePlan: null,
-        trialStartDate: null,
+        activePlan: regSelectedPlan,
+        trialStartDate: todayDateStr,
         role: "owner",
         status: "Active",
         referredBy: pendingRef || undefined,
-        onboardingCompleted: false,
+        onboardingCompleted: true,
+        raw_data: { onboarding_completed: true, farm_type: regFarmType, active_plan: regSelectedPlan },
       };
 
       // Ensure user profile & primary farm are immediately in the backend database
@@ -494,12 +526,12 @@ function AuthScreen({
             phone: phoneStr,
             currency_symbol: cur.symbol,
             currency_code: cur.code,
-            active_plan: null,
-            trial_start_date: null,
+            active_plan: regSelectedPlan,
+            trial_start_date: todayDateStr,
             role: "owner",
             status: "Active",
             referred_by: pendingRef || null,
-            raw_data: { onboarding_completed: false },
+            raw_data: { onboarding_completed: true, farm_type: regFarmType, active_plan: regSelectedPlan },
             updated_at: new Date().toISOString(),
           });
           const { data: existingFarms } = await supabase.from("farms").select("id").eq("user_id", createdUserId).limit(1);
@@ -515,15 +547,20 @@ function AuthScreen({
         } catch {}
       }
 
-      // Sync into admin local state / logs immediately
-      syncUserProfileToAdmin(profile, null, 1);
+      try {
+        localStorage.setItem("pondtora_active_plan", regSelectedPlan);
+        localStorage.setItem("pondtora_trial_start", todayDateStr);
+        localStorage.setItem("pondtora_onboarding_done", "true");
+        localStorage.setItem("pondtora_farm_type", regFarmType);
+      } catch {}
+
+      syncUserProfileToAdmin(profile, regSelectedPlan, 1);
       attachReferralToNewUser({ id: createdUserId, email: cleanEmail, name: cName.trim(), farmName: cFarm.trim() }, pendingRef);
 
       // Strict enforcement: only auto-login if email is confirmed
       if (data.session && data.user?.email_confirmed_at) {
         onSignup(profile);
       } else {
-        // Sign out any session created before confirmation so unverified user cannot enter dashboard
         if (data.session) {
           await supabase.auth.signOut();
         }
@@ -721,19 +758,21 @@ function AuthScreen({
             </div>
           </div>
         )}
-        <div className="max-w-sm my-auto w-full mx-auto transition-all">
+        <div className={`${view === "create" && regStep === 2 && !signupSent ? "max-w-xl" : "max-w-sm"} my-auto w-full mx-auto transition-all`}>
           {!signupSent && (
             <>
               <h2 className="text-2xl font-extrabold text-slate-900 font-['Barlow_Condensed',sans-serif] mb-1">
                 {view === "login" ? "Welcome back"
-                  : view === "create" ? "Create your account"
+                  : view === "create"
+                    ? (regStep === 2 ? "Tell Us How You’ll Use Your Farm" : "Create your account")
                   : view === "recovery" ? "Set new password"
                   : view === "invite" ? "Accept your invitation"
                   : "Reset password"}
               </h2>
               <p className="text-sm text-slate-400 mb-7">
                 {view === "login" ? "Sign in to your Pondtora account"
-                  : view === "create" ? "Start your 40-day free trial today"
+                  : view === "create"
+                    ? (regStep === 2 ? "Select your farm operation type and preferred plan to begin your free trial" : "Start your 40-day free trial today")
                   : view === "recovery" ? "Enter your new password below"
                   : view === "invite" ? "Set a password to complete your account setup"
                   : "Enter your email to receive a reset link"}
@@ -794,9 +833,9 @@ function AuthScreen({
             </form>
           )}
 
-          {/* ── Create account Details ── */}
-          {view === "create" && !signupSent && (
-            <form onSubmit={handleCreateAccount} className="space-y-3">
+          {/* ── Create account Step 1: Personal & Farm Details ── */}
+          {view === "create" && regStep === 1 && !signupSent && (
+            <form onSubmit={handleProceedToStep2} className="space-y-3">
               <div className="grid grid-cols-2 gap-3">
                 <div><label className={LBL}>Full Name *</label><input className={AIC} placeholder="Jane Doe" value={cName} onChange={e => setCName(e.target.value)} /></div>
                 <div>
@@ -879,14 +918,228 @@ function AuthScreen({
                 {cLoading ? (
                   <>
                     <Loader2 size={16} className="animate-spin" />
-                    <span>Creating Account…</span>
+                    <span>Validating…</span>
                   </>
                 ) : (
-                  <span>Create Account</span>
+                  <>
+                    <span>Next</span>
+                    <ArrowRight size={16} />
+                  </>
                 )}
               </button>
               <button type="button" onClick={() => setView("login")} className="w-full text-center text-xs text-slate-400 hover:text-slate-600 pt-1">Already have an account? Sign in</button>
             </form>
+          )}
+
+          {/* ── Create account Step 2: Farm Type & Plan Selection ── */}
+          {view === "create" && regStep === 2 && !signupSent && (
+            <div className="space-y-5">
+              <button
+                type="button"
+                onClick={() => { setCErr(""); setRegStep(1); }}
+                className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700 hover:text-emerald-900 transition-colors cursor-pointer"
+              >
+                <ChevronLeft size={14} />
+                <span>Back to farm details</span>
+              </button>
+
+              {/* 40-Day Free Trial Notice Banner */}
+              <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-start gap-3">
+                <Sparkles size={20} className="text-emerald-600 shrink-0 mt-0.5" />
+                <div className="space-y-0.5">
+                  <p className="text-sm font-bold text-emerald-900 leading-snug">
+                    “Enjoy 40 days free. You’ll only pay for your selected plan after your free trial ends.”
+                  </p>
+                  <p className="text-xs text-emerald-700">
+                    Zero charges today. Explore all Pondtora features free for 40 days before subscription billing begins.
+                  </p>
+                </div>
+              </div>
+
+              {/* Farm Operation Type Selection */}
+              <div>
+                <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2">
+                  1. Select Your Farm Operation Type *
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  {/* Single Farm Option */}
+                  <label
+                    className={`relative flex items-start gap-3 p-3.5 rounded-2xl border-2 transition-all cursor-pointer select-none ${
+                      regFarmType === "single"
+                        ? "border-emerald-600 bg-emerald-50/40 shadow-xs"
+                        : "border-slate-200 bg-slate-50/50 hover:bg-slate-50 hover:border-slate-300"
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="reg-farm-type"
+                      value="single"
+                      checked={regFarmType === "single"}
+                      onChange={() => handleFarmTypeChange("single")}
+                      className="sr-only"
+                    />
+                    <div
+                      className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 mt-0.5 transition-all ${
+                        regFarmType === "single"
+                          ? "border-emerald-600 bg-emerald-600"
+                          : "border-slate-300 bg-white"
+                      }`}
+                    >
+                      {regFarmType === "single" && <div className="w-2 h-2 rounded-full bg-white" />}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5">
+                        <Fish size={14} className={regFarmType === "single" ? "text-emerald-600" : "text-slate-400"} />
+                        <span className="text-sm font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] tracking-wide">
+                          Single Farm
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 mt-0.5 leading-snug">
+                        For users managing one fish farm.
+                      </p>
+                    </div>
+                  </label>
+
+                  {/* Multiple Farms Option */}
+                  <label
+                    className={`relative flex items-start gap-3 p-3.5 rounded-2xl border-2 transition-all cursor-pointer select-none ${
+                      regFarmType === "multi"
+                        ? "border-emerald-600 bg-emerald-50/40 shadow-xs"
+                        : "border-slate-200 bg-slate-50/50 hover:bg-slate-50 hover:border-slate-300"
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="reg-farm-type"
+                      value="multi"
+                      checked={regFarmType === "multi"}
+                      onChange={() => handleFarmTypeChange("multi")}
+                      className="sr-only"
+                    />
+                    <div
+                      className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 mt-0.5 transition-all ${
+                        regFarmType === "multi"
+                          ? "border-emerald-600 bg-emerald-600"
+                          : "border-slate-300 bg-white"
+                      }`}
+                    >
+                      {regFarmType === "multi" && <div className="w-2 h-2 rounded-full bg-white" />}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5">
+                        <Building2 size={14} className={regFarmType === "multi" ? "text-emerald-600" : "text-slate-400"} />
+                        <span className="text-sm font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] tracking-wide">
+                          Multiple Farms
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 mt-0.5 leading-snug">
+                        For users managing more than one fish farm.
+                      </p>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              {/* Subscription Plan Radio Selection */}
+              {regFarmType && (
+                <div className="animate-in fade-in duration-150">
+                  <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2">
+                    2. Choose Subscription Plan ({regFarmType === "single" ? "Single Farm" : "Multiple Farms"}) *
+                  </label>
+                  <div className="space-y-2">
+                    {currentPlans.map((plan) => {
+                      const isSelected = regSelectedPlan === plan.name;
+                      const priceFormatted = `${cur.symbol}${plan.monthlyPrice.toLocaleString()}/month`;
+
+                      return (
+                        <label
+                          key={plan.name}
+                          className={`relative flex items-center justify-between gap-3 p-3 sm:p-3.5 rounded-2xl border-2 transition-all cursor-pointer select-none ${
+                            isSelected
+                              ? "border-emerald-600 bg-emerald-50/50 shadow-xs ring-1 ring-emerald-500"
+                              : "border-slate-200 bg-white hover:bg-slate-50/80 hover:border-slate-300"
+                          }`}
+                        >
+                          <div className="flex items-center gap-3 min-w-0">
+                            <input
+                              type="radio"
+                              name="reg-subscription-plan"
+                              value={plan.name}
+                              checked={isSelected}
+                              onChange={() => setRegSelectedPlan(plan.name)}
+                              className="sr-only"
+                            />
+                            <div
+                              className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-all ${
+                                isSelected
+                                  ? "border-emerald-600 bg-emerald-600"
+                                  : "border-slate-300 bg-white"
+                              }`}
+                            >
+                              {isSelected && <div className="w-2 h-2 rounded-full bg-white" />}
+                            </div>
+
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-sm sm:text-base font-extrabold text-slate-900 font-['Barlow_Condensed',sans-serif] tracking-wide">
+                                  {plan.name}
+                                </span>
+                                {plan.badge && (
+                                  <span
+                                    className={`text-[10px] font-bold px-2 py-0.5 rounded-md leading-none ${
+                                      plan.badge === "Popular"
+                                        ? "bg-emerald-100 text-emerald-800"
+                                        : "bg-amber-100 text-amber-800"
+                                    }`}
+                                  >
+                                    {plan.badge}
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-xs text-slate-600 font-medium mt-0.5">
+                                {regFarmType === "single"
+                                  ? plan.limit || "Up to 5 active ponds"
+                                  : `${plan.farms || "Multiple Farms"} · Unlimited ponds`}
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="text-right shrink-0 pl-2">
+                            <span className="block text-sm sm:text-base font-extrabold text-slate-900 font-['Barlow_Condensed',sans-serif]">
+                              {priceFormatted}
+                            </span>
+                            <span className="text-[10px] font-medium text-emerald-700 block">
+                              after 40-day trial
+                            </span>
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {cErr && <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2 flex items-center gap-2"><AlertCircle size={13} />{cErr}</p>}
+
+              <button
+                type="button"
+                onClick={handleProceedSignup}
+                disabled={cLoading || !regFarmType || !regSelectedPlan}
+                className="w-full py-3 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white text-sm font-bold rounded-xl transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer"
+              >
+                {cLoading ? (
+                  <>
+                    <Loader2 size={16} className="animate-spin" />
+                    <span>Saving & Sending Verification…</span>
+                  </>
+                ) : (
+                  <>
+                    <span>Proceed</span>
+                    <ArrowRight size={16} />
+                  </>
+                )}
+              </button>
+            </div>
           )}
 
           {/* ── Email confirmation pending ── */}

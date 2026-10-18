@@ -2198,9 +2198,9 @@ function FeedDocumentation({
         <StatCard label="Bags Opened" value={String(bagsOpenedToday)} sub={selDate} icon={Package} />
       </div>
 
-      {/* ── Tab bar ── */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex gap-1 bg-slate-200/80 p-1 rounded-xl w-fit">
+      {/* ── Tab bar (sticky on mobile only) ── */}
+      <div className="sticky top-0 z-20 -mx-4 px-4 py-2.5 bg-[#f5f7fa] md:static md:z-auto md:mx-0 md:px-0 md:py-0 md:bg-transparent overflow-x-auto no-scrollbar">
+        <div className="flex gap-1 bg-slate-200/80 p-1 rounded-xl w-fit shrink-0">
           {(["daily", "bags", "mismatch"] as const).map(t => (
             <button
               key={t}

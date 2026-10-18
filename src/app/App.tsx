@@ -2801,7 +2801,7 @@ function SubscriptionPage({
     try {
       const d = new Date(trialStartDate);
       if (isNaN(d.getTime())) return null;
-      d.setDate(d.getDate() + 60);
+      d.setDate(d.getDate() + 40);
       return d.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
     } catch {
       return null;
@@ -6135,30 +6135,23 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     });
     api.ponds.update(clearedFrom).catch(console.warn);
     api.ponds.update(filledTo).catch(console.warn);
-    /* remap feeding records from old pond to new pond with fishStock and persist */
-    const remappedFeeding=feeding.filter(r=>r.pond===fromPond.name).map(r=>({...r,pond:toPond.name,fishStock:r.fishStock||stockLabel}));
-    setFeeding(prev=>prev.map(r=>r.pond===fromPond.name?{...r,pond:toPond.name,fishStock:r.fishStock||stockLabel}:r));
-    remappedFeeding.forEach(r=>api.feeding.update(r).catch(console.warn));
-    /* remap treatments — create copies on destination with fishStock, persist */
-    const pondTreatments=treatments.filter(t=>t.pondId===fromId);
-    const remappedTreatments=pondTreatments.map(t=>({...t,id:uid(),pondId:toId,farmId:toPond.farmId||activeFarmId||farms[0]?.id||"",fishStock:t.fishStock||stockLabel}));
-    setTreatments(prev=>[...prev.filter(t=>t.pondId!==fromId),...remappedTreatments]);
-    remappedTreatments.forEach(t=>api.treatments.create(t).catch(console.warn));
-    /* remap pond reports — create copies on destination, persist */
-    const fromPondReports=pondReports.filter(r=>r.pondId===fromId);
-    const remappedReports=fromPondReports.map(r=>({
-      ...r,
-      id:uid(),
-      pondId:toId,
-      farmId:toPond.farmId||activeFarmId||farms[0]?.id||"",
-      fishStockId:r.fishStockId||stockLabel
-    }));
-    setPondReports(prev=>[...prev.filter(r=>r.pondId!==fromId),...remappedReports]);
-    remappedReports.forEach(r=>api.pondReports.create(r).catch(console.warn));
-    /* remap mortality */
-    setMortality(prev=>prev.map(m=>m.pondId===fromId?{...m,pondId:toId}:m));
+    /* Preserve all historical feeding, treatments, reports, and mortality on source pond.
+       Ensure source records are tagged with fishStock identity so stock-level reports can aggregate them. */
+    const stockTaggedFeeding = feeding.map(r => r.pond === fromPond.name && !r.fishStock ? { ...r, fishStock: stockLabel } : r);
+    setFeeding(stockTaggedFeeding);
+    feeding.filter(r => r.pond === fromPond.name && !r.fishStock).forEach(r => api.feeding.update({ ...r, fishStock: stockLabel }).catch(console.warn));
+
+    const stockTaggedTreatments = treatments.map(t => t.pondId === fromId && !t.fishStock ? { ...t, fishStock: stockLabel } : t);
+    setTreatments(stockTaggedTreatments);
+
+    const stockTaggedReports = pondReports.map(r => r.pondId === fromId && !r.fishStockId ? { ...r, fishStockId: stockLabel } : r);
+    setPondReports(stockTaggedReports);
+
+    const stockTaggedMortality = mortality.map(m => m.pondId === fromId && !(m as any).fishStock ? { ...m, fishStock: stockLabel } : m);
+    setMortality(stockTaggedMortality);
+
     const seTransfer={id:uid(),pondId:toId,pondName:toPond.name,date:dateLabel,species:fromPond.species,count:fromPond.currentCount,cost:fromPond.totalCost,type:"Transfer" as const,fromPond:fromPond.name,farmId:toPond.farmId||activeFarmId||farms[0]?.id||"",batch:stockLabel};
-    const seClosed={id:uid(),pondId:fromId,pondName:fromPond.name,date:dateLabel,species:fromPond.species,count:fromPond.currentCount,cost:fromPond.totalCost,type:"Closed" as const,clearedDate:dateLabel,farmId:toPond.farmId||activeFarmId||farms[0]?.id||"",batch:stockLabel};
+    const seClosed={id:uid(),pondId:fromId,pondName:fromPond.name,date:dateLabel,species:fromPond.species,count:fromPond.currentCount,cost:fromPond.totalCost,type:"Closed" as const,clearedDate:dateLabel,farmId:fromPond.farmId||activeFarmId||farms[0]?.id||"",batch:stockLabel};
     setStockEvents(prev=>[...prev,seTransfer,seClosed]);
     api.stockEvents.create(seTransfer).catch(console.warn);
     api.stockEvents.create(seClosed).catch(console.warn);
@@ -6173,13 +6166,22 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     const fromPond=ponds.find(p=>p.id===fromId);
     const toPond=ponds.find(p=>p.id===toId);
     if(!fromPond||!toPond)return;
+    if ((Number(fromPond.currentCount) || 0) <= 0) {
+      toast.error("Source pond has no fish to transfer.");
+      return;
+    }
     if (toPond.status !== "Empty" || (Number(toPond.currentCount) || 0) > 0) {
       toast.error("Destination pond must be empty to transfer stock.");
       return;
     }
+    const safeCount=Math.min(count,fromPond.currentCount);
+    if (safeCount <= 0) {
+      toast.error("Transfer count must be greater than zero.");
+      return;
+    }
     const fraction=Math.min(1,Math.max(0,pct/100));
     const dateLabel=`${toMon(date)} ${new Date(date).getDate()}, ${new Date(date).getFullYear()}`;
-    const safeCount=Math.min(count,fromPond.currentCount);
+    const stockLabel = fromPond.fishStock || (fromPond.stockingDate && fromPond.stockingDate !== "—" ? fmtStockingDate(fromPond.stockingDate) : fromPond.species);
     const costShare=fromPond.currentCount>0?fromPond.totalCost*(safeCount/fromPond.currentCount):0;
     const isFullTransfer=safeCount>=fromPond.currentCount;
 
@@ -6197,18 +6199,19 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     }
 
     const updatedFrom:Pond=isFullTransfer
-      ?{...fromPond,status:"Empty" as const,currentCount:0,initialStock:0,avgWeight:undefined,stockingDate:"—",stockMonth:"",totalCost:0,species:"—",transferNote:undefined,maxKgByPallet:{}}
+      ?{...fromPond,status:"Empty" as const,currentCount:0,initialStock:0,avgWeight:undefined,stockingDate:"—",stockMonth:"",totalCost:0,species:"—",fishStock:undefined,transferNote:`All fish transferred to ${toPond.name} on ${dateLabel}`,maxKgByPallet:{}}
       :{...fromPond,currentCount:Math.max(0,fromPond.currentCount-safeCount),totalCost:Math.max(0,fromPond.totalCost-costShare),maxKgByPallet:reducedFromMaxKg};
 
     const updatedTo:Pond={
       ...toPond,
       status:"Active" as const,
-      species:toPond.status==="Empty"?fromPond.species:toPond.species,
-      initialStock:(toPond.initialStock||0)+safeCount,
-      currentCount:(toPond.currentCount||0)+safeCount,
-      stockingDate:toPond.status==="Empty"||toPond.stockingDate==="—"?fromPond.stockingDate:toPond.stockingDate,
-      stockMonth:toPond.status==="Empty"||!toPond.stockMonth?fromPond.stockMonth:toPond.stockMonth,
-      totalCost:(toPond.totalCost||0)+costShare,
+      species:fromPond.species,
+      fishStock:stockLabel,
+      initialStock:safeCount,
+      currentCount:safeCount,
+      stockingDate:dateLabel,
+      stockMonth:toMon(date),
+      totalCost:costShare,
       maxKgByPallet:mergedToMaxKg,
       transferNote:`${safeCount.toLocaleString()} fish received from ${fromPond.name} (Nursery) on ${dateLabel}`
     };
@@ -6247,53 +6250,18 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     api.ponds.update(updatedFrom).catch(console.warn);
     api.ponds.update(updatedTo).catch(console.warn);
 
-    /* split feeding records proportionally */
-    const pondFeeding=feeding.filter(r=>r.pond===fromPond.name);
-    if(pondFeeding.length>0){
-      if(isFullTransfer){
-        /* remap all source feeding to destination */
-        const remapped=pondFeeding.map(r=>({...r,pond:toPond.name}));
-        setFeeding(prev=>prev.map(r=>r.pond===fromPond.name?{...r,pond:toPond.name}:r));
-        remapped.forEach(r=>api.feeding.update(r).catch(console.warn));
-      } else {
-        /* destination gets fraction, source keeps (1-fraction) */
-        const transferFeeding:typeof feeding=pondFeeding.map(r=>({...r,id:uid(),pond:toPond.name,morning:Math.round(r.morning*fraction*10)/10,evening:Math.round(r.evening*fraction*10)/10,total:Math.round(r.total*fraction*10)/10}));
-        const remainFraction=1-fraction;
-        const reducedSource=pondFeeding.map(r=>({...r,morning:Math.round(r.morning*remainFraction*10)/10,evening:Math.round(r.evening*remainFraction*10)/10,total:Math.round(r.total*remainFraction*10)/10}));
-        setFeeding(prev=>[
-          ...prev.map(r=>r.pond===fromPond.name?{...r,morning:Math.round(r.morning*remainFraction*10)/10,evening:Math.round(r.evening*remainFraction*10)/10,total:Math.round(r.total*remainFraction*10)/10}:r),
-          ...transferFeeding
-        ]);
-        reducedSource.forEach(r=>api.feeding.update(r).catch(console.warn));
-        transferFeeding.forEach(r=>api.feeding.create(r).catch(console.warn));
-      }
-    }
-    /* copy all treatments */
-    const pondTreatments=treatments.filter(t=>t.pondId===fromId);
-    const transferTreatments=pondTreatments.map(t=>({...t,id:uid(),pondId:toId,farmId:toPond.farmId||activeFarmId||farms[0]?.id||""}));
-    if(transferTreatments.length>0){
-      setTreatments(prev=>[...prev,...transferTreatments]);
-      transferTreatments.forEach(t=>api.treatments.create(t).catch(console.warn));
-    }
-    /* copy all pond reports for fish stock medical reference */
-    const fromPondReports=pondReports.filter(r=>r.pondId===fromId);
-    const transferReports=fromPondReports.map(r=>({
-      ...r,
-      id:uid(),
-      pondId:toId,
-      farmId:toPond.farmId||activeFarmId||farms[0]?.id||"",
-      fishStockId:r.fishStockId||(fromPond.species!=="—"?`${fromPond.species} (${fromPond.stockingDate})`:"Nursery Stock")
-    }));
-    if(transferReports.length>0){
-      setPondReports(prev=>[...prev,...transferReports]);
-      transferReports.forEach(r=>api.pondReports.create(r).catch(console.warn));
-    }
+    /* Preserve all historical operational records in their original event context on source pond without duplication */
+    setFeeding(prev=>prev.map(r=>r.pond===fromPond.name&&!r.fishStock?{...r,fishStock:stockLabel}:r));
+    setTreatments(prev=>prev.map(t=>t.pondId===fromId&&!t.fishStock?{...t,fishStock:stockLabel}:t));
+    setPondReports(prev=>prev.map(r=>r.pondId===fromId&&!r.fishStockId?{...r,fishStockId:stockLabel}:r));
+    setMortality(prev=>prev.map(m=>m.pondId===fromId&&!(m as any).fishStock?{...m,fishStock:stockLabel}:m));
+
     /* stock event */
-    const seTransfer={id:uid(),pondId:toId,pondName:toPond.name,date:dateLabel,species:fromPond.species,count:safeCount,cost:costShare,type:"Transfer" as const,fromPond:fromPond.name,farmId:toPond.farmId||activeFarmId||farms[0]?.id||""};
+    const seTransfer={id:uid(),pondId:toId,pondName:toPond.name,date:dateLabel,species:fromPond.species,count:safeCount,cost:costShare,type:"Transfer" as const,fromPond:fromPond.name,farmId:toPond.farmId||activeFarmId||farms[0]?.id||"",batch:stockLabel};
     setStockEvents(prev=>[...prev,seTransfer]);
     api.stockEvents.create(seTransfer).catch(console.warn);
     if(isFullTransfer){
-      const seClosed={id:uid(),pondId:fromId,pondName:fromPond.name,date:dateLabel,species:fromPond.species,count:safeCount,cost:costShare,type:"Closed" as const,clearedDate:dateLabel,farmId:toPond.farmId||activeFarmId||farms[0]?.id||""};
+      const seClosed={id:uid(),pondId:fromId,pondName:fromPond.name,date:dateLabel,species:fromPond.species,count:safeCount,cost:costShare,type:"Closed" as const,clearedDate:dateLabel,farmId:fromPond.farmId||activeFarmId||farms[0]?.id||"",batch:stockLabel};
       setStockEvents(prev=>[...prev,seClosed]);
       api.stockEvents.create(seClosed).catch(console.warn);
     }
@@ -8975,14 +8943,8 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     hasExistingFarmData
   );
 
-  const showOnboardingOverlay = Boolean(
-    isAuth &&
-    isOwner &&
-    userProfile &&
-    !isPaidSubscriber &&
-    !isOnboardingFinished &&
-    userProfile.email?.toLowerCase().trim() !== "edafejesugarec@gmail.com"
-  );
+  // Redundant first-login plan-selection popup is removed since plan selection is completed during registration
+  const showOnboardingOverlay = false;
 
   return(
     <div className="fixed inset-0 flex h-full w-full bg-white text-slate-900 overflow-hidden" style={{fontFamily:"'Barlow',sans-serif"}}>
