@@ -5154,17 +5154,28 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     }
     api.farms.syncActiveFarm(fid);
   },[userProfile?.id]);
-  const handleAddFarm=()=>{
+  const handleAddFarm=async()=>{
     if (!checkSubscriptionActive()) return;
-    if(!addFarmF.name)return;
+    const trimmedName = addFarmF.name.trim();
+    if(!trimmedName)return;
     if(farms.length>=farmLimit){setUpgradeModalMsg(farmLimit===1?`Your current plan supports 1 farm. Upgrade to a multi-farm plan to add more farms.`:`You've reached the limit of ${farmLimit} farms on your plan. Upgrade to add more farms.`);setShowUpgradeModal(true);setShowAddFarm(false);return;}
-    const newFarm:Farm={id:crypto.randomUUID(),name:addFarmF.name.trim(),city:addFarmF.city,state:addFarmF.state,country:addFarmF.country};
-    setFarms(prev=>[...prev,newFarm]);
+    const uid = userProfile?.id || (typeof window !== "undefined" ? getStoredAuthUser() : null);
+    const newFarm:Farm={id:crypto.randomUUID(),name:trimmedName,city:addFarmF.city,state:addFarmF.state,country:addFarmF.country,userId:uid||undefined};
+    const nextFarms = [...farms, newFarm];
+    setFarms(nextFarms);
+    if(uid){
+      try { saveUserLocal(uid, "farms", "farms", nextFarms); } catch {}
+    }
     handleSwitchFarm(newFarm.id);
     setShowAddFarm(false);
     setAddFarmF({name:"",city:"",state:"",country:"Nigeria"});
-    toast.success("Farm created");
-    api.farms.create(newFarm).catch(e=>{console.warn("Farm save failed",e);toast.error("Farm saved locally — sync when online");});
+    try {
+      await api.farms.create(newFarm);
+      toast.success("Farm created");
+    } catch(e: any) {
+      console.warn("Farm save failed", e);
+      toast.error(e?.message || "Farm saved locally — sync when online");
+    }
   };
   const handleEditFarm=(f:Farm)=>{
     if (!checkSubscriptionActive()) return;
@@ -5183,8 +5194,9 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     });
 
     if (userProfile?.id) {
-      // If the renamed farm is active or primary, update userProfile & admin user cache
-      if (f.id === activeFarmId || farms.length <= 1 || userProfile.farmName !== trimmedNewName) {
+      // Only update userProfile.farmName if this is the primary farm
+      const isPrimary = farms.length <= 1 || farms[0]?.id === f.id;
+      if (isPrimary && userProfile.farmName !== trimmedNewName) {
         setUserProfile(p => p ? { ...p, farmName: trimmedNewName } : p);
         try {
           const rawP = localStorage.getItem(`pondtora_${userProfile.id}_user_profile`);
@@ -5234,15 +5246,26 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     }
   };
   /* Create a farm directly from the Settings page (takes plain data object) */
-  const handleAddFarmDirect=(d:{name:string;city:string;state:string;country:string})=>{
+  const handleAddFarmDirect=async(d:{name:string;city:string;state:string;country:string})=>{
     if (!checkSubscriptionActive()) return;
-    if(!d.name.trim())return;
+    const trimmedName = d.name.trim();
+    if(!trimmedName)return;
     if(farms.length>=farmLimit){setUpgradeModalMsg(farmLimit===1?`Your current plan supports 1 farm. Upgrade to a multi-farm plan to add more farms.`:`You've reached the limit of ${farmLimit} farms on your plan. Upgrade to add more farms.`);setShowUpgradeModal(true);return;}
-    const newFarm:Farm={id:crypto.randomUUID(),name:d.name.trim(),city:d.city,state:d.state,country:d.country};
-    setFarms(prev=>[...prev,newFarm]);
+    const uid = userProfile?.id || (typeof window !== "undefined" ? getStoredAuthUser() : null);
+    const newFarm:Farm={id:crypto.randomUUID(),name:trimmedName,city:d.city,state:d.state,country:d.country,userId:uid||undefined};
+    const nextFarms = [...farms, newFarm];
+    setFarms(nextFarms);
+    if(uid){
+      try { saveUserLocal(uid, "farms", "farms", nextFarms); } catch {}
+    }
     handleSwitchFarm(newFarm.id);
-    toast.success("Farm created");
-    api.farms.create(newFarm).catch(console.warn);
+    try {
+      await api.farms.create(newFarm);
+      toast.success("Farm created");
+    } catch(e: any) {
+      console.warn("Farm save failed", e);
+      toast.error(e?.message || "Farm saved locally — sync when online");
+    }
   };
   const handleUpdateProfile=async(u:{name:string;phone:string})=>{
     setUserProfile(p=>p?{...p,name:u.name,phone:u.phone}:p);
@@ -5582,6 +5605,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       type:"Restock" as const,
       supplier:data.supplier,
       farmId:fid,
+      batch: data.fishStock || (data.stockingDate ? fmtStockingDate(data.stockingDate) : data.species),
     };
     const nextStockEvents = [...stockEvents, se];
     setStockEvents(nextStockEvents);
@@ -6389,55 +6413,14 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       ? d.farms
       : (userProfile?.id ? loadUserLocal(userProfile.id, "farms", "farms", []) : [])).filter((f: Farm) => !isDeletedId(f.id));
 
-    // Deduplicate farms by unique ID and name to prevent duplicate farms accumulating in state
+    // Deduplicate farms strictly by unique ID to prevent duplicate items in state
     const seenFarmIds = new Set<string>();
-    const seenFarmNames = new Set<string>();
     let resolvedFarms = rawFarms.filter((f: Farm) => {
       if (!f || !f.id) return false;
-      const norm = (f.name || "").trim().toLowerCase();
       if (seenFarmIds.has(f.id)) return false;
-      if (norm && seenFarmNames.has(norm)) return false;
       seenFarmIds.add(f.id);
-      if (norm) seenFarmNames.add(norm);
       return true;
     });
-
-    const pondsData: Pond[] = (Array.isArray(d.ponds)
-      ? d.ponds
-      : (userProfile?.id ? loadUserLocal(userProfile.id, "ponds", "ponds", []) : [])).filter((p: Pond) => !isDeletedId(p.id));
-
-    // Consolidate duplicate farm accounts for single-farm owners (e.g. from renaming)
-    const isFarmOwner = userProfile?.role === "owner" || !userProfile?.ownerId;
-    if (isFarmOwner && farmLimit === 1 && resolvedFarms.length > 1) {
-      const farmPondCounts = new Map<string, number>();
-      pondsData.forEach(p => {
-        if (p.farmId) farmPondCounts.set(p.farmId, (farmPondCounts.get(p.farmId) || 0) + 1);
-      });
-      // Sort candidates: highest pond count first, then matching activeFarmId
-      const sortedFarms = [...resolvedFarms].sort((a, b) => {
-        const countA = farmPondCounts.get(a.id) || 0;
-        const countB = farmPondCounts.get(b.id) || 0;
-        if (countA !== countB) return countB - countA;
-        if (a.id === activeFarmId) return -1;
-        if (b.id === activeFarmId) return 1;
-        return 0;
-      });
-      const primaryFarm = sortedFarms[0];
-      const ghostDuplicates = sortedFarms.slice(1);
-
-      // Reassign all associated ponds from ghost duplicates to primary farm ID
-      ghostDuplicates.forEach(dup => {
-        pondsData.forEach(p => {
-          if (p.farmId === dup.id) {
-            p.farmId = primaryFarm.id;
-          }
-        });
-        // Silently remove ghost duplicate from backend after verifying data migration
-        api.farms.remove(dup.id).catch(() => {});
-      });
-
-      resolvedFarms = [primaryFarm];
-    }
 
     if (resolvedFarms.length > 0) {
       setFarms(resolvedFarms);
@@ -8156,6 +8139,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   const farmPondReports=pondReports.filter(r=>matchesFarm(r.farmId));
   const farmEquipments=farmEquipment.filter(eq=>matchesFarm(eq.farmId));
   const farmSalesCalculations=salesCalculations.filter(sc=>matchesFarm(sc.farmId));
+  const farmStockEvents=stockEvents.filter(s=>matchesFarm(s.farmId,s.pondName));
 
   const addSalesCalculation = async (sc: SalesCalculation, items?: SalesCalculationItem[]) => {
     if (!checkSubscriptionActive()) return;
@@ -9178,16 +9162,16 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
               </div>
             ) : (
               <AppErrorBoundary key={active}>
-                {active==="financial"     &&(hasPerm("Financial Dashboard")?<FinancialDashboard expenses={farmExpenses} revenues={farmRevenues} onAddExpense={addExp} onAddRevenue={addRev} onEditExpense={editExp} onEditRevenue={editRev} stockEvents={stockEvents} ponds={farmPonds} inventory={farmInventory} bagLogs={farmBagLogs} currency={cs} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}} canCreate={canCreate("Financial Dashboard")} canEdit={canEdit("Financial Dashboard")} canDelete={canDelete("Financial Dashboard")}/>:<AccessDenied/>)}
-                {active==="ponds"         &&(hasPerm("Pond Management")?<PondManagementPage ponds={farmPonds} onAddPond={addPond} onClosePond={closePond} onRestockPond={restockPond} onTransfer={transferStock} onNurseryTransfer={nurseryTransfer} mortality={farmMortality} onAddMortality={addMort} onAddCost={addExp} feedingRecords={farmFeeding} stockEvents={stockEvents} treatments={farmTreatments} onAddTreatment={addTreatment} activeFarmId={activeFarmId} onDeletePond={deletePond} onEditFish={editFish} onSetMaxKg={setPondMaxKg} onEditPond={handleEditPond} onReorderPonds={handleReorderPonds} onScrollTop={()=>mainRef.current?.scrollTo({top:0,behavior:"instant"})} currency={cs} inventory={farmInventory} farms={farms} pondReports={farmPondReports} onAddPondReport={handleAddPondReport} fishCountHistory={fishCountHistory} canCreate={canCreate("Pond Management")} canEdit={canEdit("Pond Management")} canDelete={canDelete("Pond Management")}/>:<AccessDenied/>)}
+                {active==="financial"     &&(hasPerm("Financial Dashboard")?<FinancialDashboard expenses={farmExpenses} revenues={farmRevenues} onAddExpense={addExp} onAddRevenue={addRev} onEditExpense={editExp} onEditRevenue={editRev} stockEvents={farmStockEvents} ponds={farmPonds} inventory={farmInventory} bagLogs={farmBagLogs} currency={cs} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}} canCreate={canCreate("Financial Dashboard")} canEdit={canEdit("Financial Dashboard")} canDelete={canDelete("Financial Dashboard")}/>:<AccessDenied/>)}
+                {active==="ponds"         &&(hasPerm("Pond Management")?<PondManagementPage ponds={farmPonds} onAddPond={addPond} onClosePond={closePond} onRestockPond={restockPond} onTransfer={transferStock} onNurseryTransfer={nurseryTransfer} mortality={farmMortality} onAddMortality={addMort} onAddCost={addExp} feedingRecords={farmFeeding} stockEvents={farmStockEvents} treatments={farmTreatments} onAddTreatment={addTreatment} activeFarmId={activeFarmId} onDeletePond={deletePond} onEditFish={editFish} onSetMaxKg={setPondMaxKg} onEditPond={handleEditPond} onReorderPonds={handleReorderPonds} onScrollTop={()=>mainRef.current?.scrollTo({top:0,behavior:"instant"})} currency={cs} inventory={farmInventory} farms={farms} pondReports={farmPondReports} onAddPondReport={handleAddPondReport} fishCountHistory={fishCountHistory} canCreate={canCreate("Pond Management")} canEdit={canEdit("Pond Management")} canDelete={canDelete("Pond Management")}/>:<AccessDenied/>)}
                 {active==="inventory"     &&(hasPerm("Feed Stock")?<FeedInventoryPage inventory={farmInventory} onAdd={addInv} onDelete={delInv} feedingRecords={farmFeeding} bagLogs={farmBagLogs} remainLogs={farmRemainLogs} ponds={farmPonds} onEditBagLog={editBagLog} onEditInv={editInv} currency={cs} canEditLocked={isOwner||currentStaff?.role==="Farm Manager"} canCreate={canCreate("Feed Stock")} canEdit={canEdit("Feed Stock")} canDelete={canDelete("Feed Stock")}/>:<AccessDenied/>)}
-                {active==="documentation" &&(hasPerm("Feeding Records")?<FeedDocumentationPage feedingRecords={farmFeeding} onAddRecord={addFeed} onEditFeedRecord={editFeedRecord} onDeleteRecord={deleteFeedRecord} ponds={farmPonds} inventory={farmInventory} bagLogs={farmBagLogs} onAddBagLog={addBagLog} onEditBagLog={editBagLog} onEditInv={editInv} remainLogs={farmRemainLogs} onAddRemainLog={addRemainLog} onEditRemainLog={editRemainLog} onReconMismatches={onReconMismatches} reconFocus={reconFocus} canEditLocked={isOwner||currentStaff?.role==="Farm Manager"} currentUser={{name:currentStaff?.name||userProfile?.name||"",email:userProfile?.email||""}} canCreate={canCreate("Feeding Records")} canEdit={canEdit("Feeding Records")} canDelete={canDelete("Feeding Records")} stockEvents={stockEvents}/>:<AccessDenied/>)}
+                {active==="documentation" &&(hasPerm("Feeding Records")?<FeedDocumentationPage feedingRecords={farmFeeding} onAddRecord={addFeed} onEditFeedRecord={editFeedRecord} onDeleteRecord={deleteFeedRecord} ponds={farmPonds} inventory={farmInventory} bagLogs={farmBagLogs} onAddBagLog={addBagLog} onEditBagLog={editBagLog} onEditInv={editInv} remainLogs={farmRemainLogs} onAddRemainLog={addRemainLog} onEditRemainLog={editRemainLog} onReconMismatches={onReconMismatches} reconFocus={reconFocus} canEditLocked={isOwner||currentStaff?.role==="Farm Manager"} currentUser={{name:currentStaff?.name||userProfile?.name||"",email:userProfile?.email||""}} canCreate={canCreate("Feeding Records")} canEdit={canEdit("Feeding Records")} canDelete={canDelete("Feeding Records")} stockEvents={farmStockEvents}/>:<AccessDenied/>)}
                 {active==="invoices"      &&(hasPerm("Invoices")||hasPerm("Sales Management")||hasPerm("Sales Calculator")?<InvoicesPage ponds={farmPonds} invoices={farmInvoices} customers={farmCustomers} priceGroups={farmPriceGroups} settings={invSettings} onAddInvoice={addInvoice} onEditInvoice={editInvoice} onDeleteInvoice={deleteInvoice} onAddCustomer={addCustomer} onAddPriceGroup={addPriceGroup} onEditPriceGroup={editPriceGroup} onDeletePriceGroup={delPriceGroup} onUpdateSettings={(s)=>{setInvSettings(s);api.invSettings.update(s).catch(console.warn);}} currentUser={userProfile?.name} currency={cs} canCreate={canCreate("Invoices")} canEdit={canEdit("Invoices")} canDelete={canDelete("Invoices")}/>:<AccessDenied/>)}
                 {active==="sales_calculator"&&(hasPerm("Sales Management")||hasPerm("Sales Calculator")||hasPerm("Invoices")?<SalesCalculatorPage priceGroups={farmPriceGroups} calculations={farmSalesCalculations} onAddCalculation={addSalesCalculation} onEditCalculation={editSalesCalculation} onDeleteCalculation={deleteSalesCalculation} onTogglePayment={toggleSalesPaymentStatus} settings={invSettings} onAddPriceGroup={addPriceGroup} onEditPriceGroup={editPriceGroup} onDeletePriceGroup={delPriceGroup} currency={cs} activeFarmId={activeFarmId} currentUser={{name:currentStaff?.name||userProfile?.name||"",email:userProfile?.email||""}} canCreate={canCreate("Sales Management")||canCreate("Sales Calculator")||canCreate("Invoices")} canEdit={canEdit("Sales Management")||canEdit("Sales Calculator")||canEdit("Invoices")} canDelete={canDelete("Sales Management")||canDelete("Sales Calculator")||canDelete("Invoices")}/>:<AccessDenied/>)}
                 {active==="staff"         &&(isOwner?<StaffPage staff={staff} onAdd={addStaff} onEdit={editStaff} onDelete={delStaff} farms={farms.filter(f => f.userId === userProfile?.id || isOwner)} activeFarmId={activeFarmId} ownerEmail={userProfile?.email}/>:<AccessDenied/>)}
-                {active==="investors"     &&(hasPerm("Investors")?<InvestorsPage investors={farmInvestors} investments={farmInvestments} payments={farmPayments} farms={farms} ponds={farmPonds} stockEvents={stockEvents} activeFarmId={activeFarmId} currency={cs} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}} isOwner={isOwner} canManage={isOwner||hasPerm("Investors")} investmentHistory={investmentHistory} onRecordInvestmentEditHistory={recordInvestmentEditHistory} onAddInvestor={handleAddInvestor} onEditInvestor={handleEditInvestor} onEditInvestment={handleEditInvestment} onDeleteInvestor={handleDeleteInvestor} onRecordPayment={handleRecordPayment} onMarkPaymentPaid={handleMarkPaymentPaid} canCreate={canCreate("Investors")} canEdit={canEdit("Investors")} canDelete={canDelete("Investors")}/>:<AccessDenied/>)}
+                {active==="investors"     &&(hasPerm("Investors")?<InvestorsPage investors={farmInvestors} investments={farmInvestments} payments={farmPayments} farms={farms} ponds={farmPonds} stockEvents={farmStockEvents} activeFarmId={activeFarmId} currency={cs} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}} isOwner={isOwner} canManage={isOwner||hasPerm("Investors")} investmentHistory={investmentHistory} onRecordInvestmentEditHistory={recordInvestmentEditHistory} onAddInvestor={handleAddInvestor} onEditInvestor={handleEditInvestor} onEditInvestment={handleEditInvestment} onDeleteInvestor={handleDeleteInvestor} onRecordPayment={handleRecordPayment} onMarkPaymentPaid={handleMarkPaymentPaid} canCreate={canCreate("Investors")} canEdit={canEdit("Investors")} canDelete={canDelete("Investors")}/>:<AccessDenied/>)}
                 {active==="equipment"     &&(hasPerm("Farm Equipment")?<FarmEquipmentPage equipment={farmEquipments} toolQuantityHistory={toolQuantityHistory} onRecordToolQuantityHistory={recordToolQuantityHistory} onAdd={handleAddEquipment} onAddEquipment={handleAddEquipment} onEdit={handleEditEquipment} onEditEquipment={handleEditEquipment} onDelete={handleDeleteEquipment} onDeleteEquipment={handleDeleteEquipment} currency={cs} farms={farms} activeFarmId={activeFarmId} canCreate={canCreate("Farm Equipment")} canEdit={canEdit("Farm Equipment")} canDelete={canDelete("Farm Equipment")} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}}/>:<AccessDenied/>)}
-                {active==="reports"       &&(hasPerm("Reports")?<ReportsPage reports={farmReports} staff={staff} onAdd={addReport} onEdit={editReportFn} onDelete={deleteReport} pondReports={farmPondReports} treatments={farmTreatments} farms={farms} ponds={farmPonds} stockEvents={stockEvents} onAddPondReport={handleAddPondReport} onDeletePondReport={deletePondReport} activeFarmId={activeFarmId} canCreate={canCreate("Reports")} canEdit={canEdit("Reports")} canDelete={canDelete("Reports")} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}} isOwner={isOwner}/>:<AccessDenied/>)}
+                {active==="reports"       &&(hasPerm("Reports")?<ReportsPage reports={farmReports} staff={staff} onAdd={addReport} onEdit={editReportFn} onDelete={deleteReport} pondReports={farmPondReports} treatments={farmTreatments} farms={farms} ponds={farmPonds} stockEvents={farmStockEvents} onAddPondReport={handleAddPondReport} onDeletePondReport={deletePondReport} activeFarmId={activeFarmId} canCreate={canCreate("Reports")} canEdit={canEdit("Reports")} canDelete={canDelete("Reports")} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}} isOwner={isOwner}/>:<AccessDenied/>)}
                 {active==="assessments"   &&(hasPerm("Staff Assessments")?<EmployeeAssessmentsPage kQuestions={kQuestions} cQuestions={cQuestions} kResults={kResults} cResults={cResults} onSaveKQuestions={saveKQuestions} onSaveCQuestions={saveCQuestions} onAddKResult={addKResult} onAddCResult={addCResult} ownerId={userProfile?.id??""}/>:<AccessDenied/>)}
                 {active==="pricing"       &&(isOwner?<SubscriptionPage farmCount={farms.length} activePlan={activePlan} setActivePlan={setActivePlan} trialStartDate={trialStartDate} setTrialStartDate={setTrialStartDate} currency={cs} convertPrice={cvt} userProfile={userProfile} onProfileUpdated={(p) => setUserProfile(prev => { if (!prev) return (p as UserProfile); const next: UserProfile = { ...prev, ...p }; if(prev.id){ try{ localStorage.setItem(`pondtora_${prev.id}_user_profile`, JSON.stringify(next)); }catch{} } return next; })} activeFarmName={farms.find(f=>f.id===activeFarmId)?.name||userProfile?.farmName} onOpenReferrals={() => { setSettingsTab("referrals"); nav("settings"); }}/>:<AccessDenied/>)}
                 {active==="settings"      &&<SettingsPage farms={isOwner?farms:accessibleFarms} onAddFarm={handleAddFarmDirect} onEditFarm={handleEditFarm} onDeleteFarm={handleDeleteFarm} userProfile={userProfile} onUpdateProfile={handleUpdateProfile} isOwner={isOwner} ponds={ponds} activePlan={activePlan} initialTab={settingsTab}/>}

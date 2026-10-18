@@ -158,10 +158,15 @@ BEGIN
   IF new_farm_name IS NOT NULL AND TRIM(new_farm_name) <> '' THEN
     UPDATE public.farms
     SET name = new_farm_name, updated_at = NOW()
-    WHERE (target_user_id IS NOT NULL AND user_id = target_user_id)
-       OR (target_email IS NOT NULL AND TRIM(target_email) <> '' AND user_id IN (
-         SELECT id FROM public.user_profiles WHERE LOWER(email) = LOWER(TRIM(target_email))
-       ));
+    WHERE id = (
+      SELECT id FROM public.farms
+      WHERE (target_user_id IS NOT NULL AND user_id = target_user_id)
+         OR (target_email IS NOT NULL AND TRIM(target_email) <> '' AND user_id IN (
+           SELECT id FROM public.user_profiles WHERE LOWER(email) = LOWER(TRIM(target_email))
+         ))
+      ORDER BY created_at ASC
+      LIMIT 1
+    );
   END IF;
 END;
 $$;

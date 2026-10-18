@@ -241,11 +241,16 @@ BEGIN
     updated_at = NOW()
   WHERE id = target_user_id;
 
-  -- Also update primary farm name if changed
+  -- Also update primary farm name if changed (only the primary farm, not all farms)
   IF new_farm_name IS NOT NULL AND new_farm_name <> '' THEN
     UPDATE public.farms
     SET name = new_farm_name, updated_at = NOW()
-    WHERE user_id = target_user_id;
+    WHERE id = (
+      SELECT id FROM public.farms
+      WHERE user_id = target_user_id
+      ORDER BY created_at ASC
+      LIMIT 1
+    );
   END IF;
 
   RETURN TRUE;

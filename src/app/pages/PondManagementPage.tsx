@@ -815,7 +815,7 @@ function PondDetail({
       {showClose&&<Modal title="Clear Fish Stock" onClose={()=>setShowClose(false)}>
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800">
           <p className="font-semibold mb-1">Clear fish stock in {pond.name}?</p>
-          <p className="text-xs text-amber-700">This marks the pond as <strong>Inactive</strong> and removes all fish stock data (count, weight, stocking details) along with all feeding and treatment records. The pond ID and name are kept. You can restock it later to make it active again.</p>
+          <p className="text-xs text-amber-700">This marks the pond as empty and preserves the complete fish stock lifecycle in <strong>Fish Stock History</strong>. All historical records (stock ID, stocking date, feeding records, treatments, and fish count history) will remain permanently accessible in Fish Stock History. You can restock this pond later.</p>
         </div>
         <div className="flex gap-2 pt-1"><PBtn danger onClick={handleClose}>Confirm Clear</PBtn><button onClick={()=>setShowClose(false)} className="px-4 py-2 text-sm text-slate-400">Cancel</button></div>
       </Modal>}
@@ -1378,6 +1378,8 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
       }
       if(ev.type==="Initial"||ev.type==="Restock"){
         groups[gk].totalStartCount+=(ev.count||0);
+      } else if(ev.type==="Closed" && groups[gk].totalStartCount===0 && ev.count){
+        groups[gk].totalStartCount = ev.count;
       }
     });
 
@@ -1399,7 +1401,6 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
           isActive:true
         };
       }
-      groups[gk].isActive=true;
       if(p.species&&p.species!=="—"&&!groups[gk].speciesList.includes(p.species))groups[gk].speciesList.push(p.species);
       if(p.supplier&&!groups[gk].supplierList.includes(p.supplier))groups[gk].supplierList.push(p.supplier);
       if(p.name&&!groups[gk].pondNames.includes(p.name)){
@@ -1439,19 +1440,32 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
       }
     });
 
-    // 4. Update isActive state: active if any current pond with status "Active" belongs to this stock
+    // 4. Update isActive state: active if and only if any current pond with status "Active" and fish count > 0 currently holds this stock
     Object.values(groups).forEach(g=>{
-      const hasActivePond = ponds.some(p => p.status === "Active" && (
-        getPondFishStock(p) === g.key ||
-        g.pondIds.includes(p.id) ||
-        (p.fishStock && p.fishStock === g.stockName) ||
-        (g.pondNames.includes(p.name) && p.species && g.speciesList.includes(p.species))
-      ));
+      const hasActivePond = ponds.some(p =>
+        p.status === "Active" &&
+        (Number(p.currentCount) > 0 || (Number(p.initialStock) > 0 && (p.currentCount === undefined || p.currentCount === null))) &&
+        (
+          getPondFishStock(p) === g.key ||
+          p.fishStock === g.stockName ||
+          formatFishStock(p.fishStock || "") === g.stockName ||
+          (p.stockingDate && (fmtStockingDate(p.stockingDate) === g.key || p.stockingDate === g.stockingDate || isSameDate(p.stockingDate, g.stockingDate))) ||
+          isStockMatch(p.fishStock || "", g.stockName) ||
+          isStockMatch(getPondFishStock(p), g.key)
+        )
+      );
       g.isActive = hasActivePond;
+
       // Self-heal totalStartCount if 0
       if(g.totalStartCount === 0){
-        const matchedActivePonds = ponds.filter(p => g.pondIds.includes(p.id) || g.pondNames.includes(p.name));
-        g.totalStartCount = matchedActivePonds.reduce((s, p) => s + (p.initialStock || p.currentCount || 0), 0);
+        const matchedActivePonds = ponds.filter(p => p.status === "Active" && (
+          getPondFishStock(p) === g.key ||
+          p.fishStock === g.stockName ||
+          (p.stockingDate && (fmtStockingDate(p.stockingDate) === g.key || p.stockingDate === g.stockingDate))
+        ));
+        if (matchedActivePonds.length > 0) {
+          g.totalStartCount = matchedActivePonds.reduce((s, p) => s + (p.initialStock || p.currentCount || 0), 0);
+        }
       }
     });
 
@@ -1460,24 +1474,24 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
 
   const activeStockOptions = useMemo(() => {
     const list: string[] = [];
-    // 1. From active ponds directly (currently in the system, not cleared)
-    (ponds || []).filter(p => p.status === "Active").forEach(p => {
+    // Only from ponds that are currently active and contain fish
+    (ponds || []).filter(p => p.status === "Active" && (Number(p.currentCount) > 0 || (Number(p.initialStock) > 0 && (p.currentCount === undefined || p.currentCount === null)))).forEach(p => {
       const s = getPondFishStock(p);
       if (s && s !== "—" && s !== "General Stock" && !list.includes(s)) {
         list.push(s);
-      } else if (p.fishStock && p.fishStock !== "—" && !list.includes(p.fishStock)) {
+      }
+      if (p.fishStock && p.fishStock !== "—" && p.fishStock !== "General Stock" && !list.includes(p.fishStock)) {
         list.push(p.fishStock);
       }
     });
-    // 2. From active stockGroups
-    (stockGroups || []).filter(g => g.isActive).forEach(g => {
-      const name = g.stockName || g.key;
-      if (name && name !== "—" && name !== "General Stock" && !list.includes(name)) {
-        list.push(name);
-      }
-    });
     return list;
-  }, [ponds, stockGroups]);
+  }, [ponds]);
+
+  useEffect(() => {
+    if (fStock !== "All" && !activeStockOptions.includes(fStock)) {
+      setFStock("All");
+    }
+  }, [fStock, activeStockOptions]);
 
   const filtStockGroups=stockGroups.filter(g=>{
     if(stockHistYear!=="All"&&!g.stockingDate.startsWith(stockHistYear)&&!g.stockingDate.includes(stockHistYear))return false;
@@ -1560,13 +1574,10 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
       const pStock = getPondFishStock(p);
       const isDirectMatch = pStock === fStock ||
         (p.fishStock && (p.fishStock === fStock || formatFishStock(p.fishStock) === fStock)) ||
-        (p.stockingDate && (fmtStockingDate(p.stockingDate) === fStock || p.stockingDate === fStock));
-      const matchedGroup = stockGroups.find(g => g.stockName === fStock || g.key === fStock);
-      const isGroupMatch = matchedGroup && (
-        matchedGroup.pondIds.includes(p.id) ||
-        matchedGroup.pondNames.includes(p.name)
-      );
-      if(!isDirectMatch && !isGroupMatch) return false;
+        (p.stockingDate && (fmtStockingDate(p.stockingDate) === fStock || p.stockingDate === fStock)) ||
+        isStockMatch(p.fishStock || "", fStock) ||
+        isStockMatch(pStock, fStock);
+      if(!isDirectMatch) return false;
     }
     return true;
   });

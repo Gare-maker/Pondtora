@@ -409,8 +409,13 @@ function FeedDocumentation({
   const [editRec, setEditRec] = useState<FeedingRecord | null>(null);
   const [viewFeedRec, setViewFeedRec] = useState<FeedingRecord | null>(null);
 
-  /* ── derived ── */
-  const activePonds = (ponds || []).filter(p => p && p.status === "Active");
+  /* ── derived: ponds with active status and positive fish count ── */
+  const activePonds = (ponds || []).filter(p => {
+    if (!p || p.status !== "Active") return false;
+    const count = Number(p.currentCount);
+    const init = Number(p.initialStock);
+    return count > 0 || (init > 0 && (p.currentCount === undefined || p.currentCount === null));
+  });
   const allBrands = [...new Set((inventory || []).map(f => f?.brand).filter(Boolean))];
 
   /* Available pellet sizes drawn from all pellets in Feed Stock (inventory & opened bags) */
@@ -765,7 +770,8 @@ function FeedDocumentation({
         if (!p || p.status !== "Active") return false;
         const count = Number(p.currentCount);
         const initStock = Number(p.initialStock);
-        if (count <= 0 && initStock <= 0) return false;
+        const hasFish = count > 0 || (initStock > 0 && (p.currentCount === undefined || p.currentCount === null));
+        if (!hasFish) return false;
 
         if (p.fishStock && isStockMatch(p.fishStock, cand.name)) return true;
         if (isStockMatch(getPondFishStock(p), cand.name)) return true;
@@ -896,17 +902,10 @@ function FeedDocumentation({
   const activeFishStockOptions = useMemo(() => getFishStockOptionsForDate(selDate), [getFishStockOptionsForDate, selDate]);
   const modalFishStockOptions = useMemo(() => getFishStockOptionsForDate(bagsDate), [getFishStockOptionsForDate, bagsDate]);
 
-  /* ── stockFilterOptions for filtering Feeding Record and Bags Opened by stock ── */
+  /* ── stockFilterOptions for filtering Feeding Record and Bags Opened by stock (active ponds only) ── */
   const stockFilterOptions = useMemo(() => {
     const list: { key: string; label: string; name: string }[] = [];
     const seen = new Set<string>();
-
-    const activePonds = (ponds || []).filter(p => {
-      if (!p || p.status !== "Active") return false;
-      const count = Number(p.currentCount);
-      const init = Number(p.initialStock);
-      return count > 0 || init > 0;
-    });
 
     activePonds.forEach(p => {
       const stock = (p.fishStock && p.fishStock !== "—" && !isPondName(p.fishStock))
@@ -927,7 +926,32 @@ function FeedDocumentation({
     });
 
     return list;
-  }, [ponds, isPondName]);
+  }, [activePonds, isPondName]);
+
+  /* ── Auto-reset stock selection filters if selected stock has been cleared ── */
+  useEffect(() => {
+    if (dailyStockFilter !== "All") {
+      const exists = stockFilterOptions.some(opt =>
+        isStockMatch(opt.name, dailyStockFilter) ||
+        opt.key === normalizeFishStock(dailyStockFilter).toLowerCase().trim()
+      );
+      if (!exists) {
+        setDailyStockFilter("All");
+      }
+    }
+  }, [stockFilterOptions, dailyStockFilter]);
+
+  useEffect(() => {
+    if (bagsStockFilter !== "All") {
+      const exists = stockFilterOptions.some(opt =>
+        isStockMatch(opt.name, bagsStockFilter) ||
+        opt.key === normalizeFishStock(bagsStockFilter).toLowerCase().trim()
+      );
+      if (!exists) {
+        setBagsStockFilter("All");
+      }
+    }
+  }, [stockFilterOptions, bagsStockFilter]);
 
   /* ── helper: count bags opened for a given fish stock + brand + pellet size on a date ── */
   const getBagsLoggedTodayForStockAndSize = (stockName: string, brandName: string, palletSize: string, checkDate: string): number => {
@@ -1852,8 +1876,8 @@ function FeedDocumentation({
 
     const map = new Map<string, MergedBagRow>();
 
-    // 1. Map all active stocks from active ponds (status === "Active")
-    const activePondsList = (ponds || []).filter(p => p && p.status === "Active");
+    // 1. Map all active stocks from active ponds (status === "Active" with fish)
+    const activePondsList = activePonds;
     const activeStocksMap = new Map<string, {
       stockName: string;
       stockDate: string;
