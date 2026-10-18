@@ -1068,6 +1068,11 @@ async function dbDelete(table: string, id: string, cacheKey?: string): Promise<{
   if (!effectiveUserId) throw new Error("Unauthorized: No authenticated user session.");
   const targetId = isUuid(id) ? id : (idMap.get(id) || toUuid(id));
 
+  // Financial records protection: expenses and revenues are permanent financial records and cannot be deleted
+  if (table === "expenses" || table === "revenues") {
+    throw new Error("Financial records cannot be deleted. You can only edit them.");
+  }
+
   // Staff report protection: submitted staff reports cannot be destroyed
   if (table === "reports" || table === "pond_reports") {
     try {
@@ -2401,7 +2406,18 @@ export const api = {
 
       return dbUpdate<Pond>("ponds", dbPond as Pond, "ponds");
     },
-    remove: (id: string) => dbDelete("ponds", id, "ponds"),
+    remove: async (id: string) => {
+      const targetId = isUuid(id) ? id : (idMap.get(id) || toUuid(id));
+      try {
+        const { data: p } = await supabase.from("ponds").select("current_count, initial_stock, status, name").eq("id", targetId).maybeSingle();
+        if (p && (Number(p.current_count) > 0 || (p.status === "Active" && (Number(p.current_count) > 0 || Number(p.initial_stock) > 0)))) {
+          throw new Error(`Cannot delete pond "${p.name || ""}" because it currently contains active fish stock (${p.current_count || 0} fish). Clear or transfer all fish stock first.`);
+        }
+      } catch (checkErr: any) {
+        if (checkErr?.message && checkErr.message.includes("active fish stock")) throw checkErr;
+      }
+      return dbDelete("ponds", id, "ponds");
+    },
   },
 
   // ── Stock events ───────────────────────────────────────────────────────────
@@ -2571,7 +2587,9 @@ export const api = {
       return dbInsert<Expense>("expenses", dbExp as Expense, "expenses");
     },
     update: (e: Expense) => dbUpdate<Expense>("expenses", e, "expenses"),
-    remove: (id: string) => dbDelete("expenses", id, "expenses"),
+    remove: (_id: string) => {
+      throw new Error("Financial records cannot be deleted. You can only edit them.");
+    },
   },
 
   // ── Revenues ───────────────────────────────────────────────────────────────
@@ -2586,7 +2604,9 @@ export const api = {
       return dbInsert<Revenue>("revenues", dbRev as Revenue, "revenues");
     },
     update: (r: Revenue) => dbUpdate<Revenue>("revenues", r, "revenues"),
-    remove: (id: string) => dbDelete("revenues", id, "revenues"),
+    remove: (_id: string) => {
+      throw new Error("Financial records cannot be deleted. You can only edit them.");
+    },
   },
 
   // ── Mortality entries ──────────────────────────────────────────────────────

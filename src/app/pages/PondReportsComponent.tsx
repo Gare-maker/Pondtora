@@ -190,9 +190,9 @@ export default function PondReportsComponent({
       // If user selected a specific fish stock, only show reports belonging to that stock
       if (selectedFishStockId) {
         const repStockId = String(report.fishStockId || "");
-        // Match either exact ID or compatible current stock identifier
+        // Match either exact ID or compatible current stock identifier for the same pond
         const matches = repStockId === selectedFishStockId ||
-          (selectedFishStockId.startsWith("current-") && repStockId.startsWith("current-"));
+          (selectedFishStockId.startsWith(`current-${report.pondId}-`) && repStockId.startsWith(`current-${report.pondId}-`));
         if (!matches) return false;
       }
 

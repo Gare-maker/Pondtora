@@ -266,8 +266,6 @@ function FinancialDashboard({
   onAddRevenue,
   onEditExpense,
   onEditRevenue,
-  onDeleteExpense,
-  onDeleteRevenue,
   stockEvents,
   ponds,
   inventory,
@@ -284,8 +282,6 @@ function FinancialDashboard({
   onAddRevenue: (r: Revenue) => void;
   onEditExpense: (e: Expense) => void;
   onEditRevenue: (r: Revenue) => void;
-  onDeleteExpense?: (id: string) => void;
-  onDeleteRevenue?: (id: string) => void;
   stockEvents?: StockEvent[];
   ponds?: Pond[];
   inventory?: FeedItem[];
@@ -685,8 +681,7 @@ function FinancialDashboard({
                 <td className="px-4 py-3 text-center" onClick={ev=>ev.stopPropagation()}>
                   <div className="flex items-center justify-center gap-1">
                     {canEdit && <button onClick={()=>openEditExp(e)} title="Edit Expense" className="p-1.5 rounded-lg text-slate-300 hover:text-green-600 hover:bg-green-50 transition-colors"><Pencil size={13}/></button>}
-                    {canDelete && onDeleteExpense && <button onClick={()=>{if(confirm("Are you sure you want to delete this expense?"))onDeleteExpense(e.id);}} title="Delete Expense" className="p-1.5 rounded-lg text-slate-300 hover:text-red-600 hover:bg-red-50 transition-colors"><Trash2 size={13}/></button>}
-                    {!canEdit && !canDelete && <span className="text-slate-300 text-xs">—</span>}
+                    {!canEdit && <span className="text-slate-300 text-xs">—</span>}
                   </div>
                 </td>
               </tr>
@@ -727,8 +722,7 @@ function FinancialDashboard({
                 <td className="px-4 py-3 text-center" onClick={ev=>ev.stopPropagation()}>
                   <div className="flex items-center justify-center gap-1">
                     {canEdit && <button onClick={()=>openEditRev(r)} title="Edit Revenue" className="p-1.5 rounded-lg text-slate-300 hover:text-green-600 hover:bg-green-50 transition-colors"><Pencil size={13}/></button>}
-                    {canDelete && onDeleteRevenue && <button onClick={()=>{if(confirm("Are you sure you want to delete this revenue entry?"))onDeleteRevenue(r.id);}} title="Delete Revenue" className="p-1.5 rounded-lg text-slate-300 hover:text-red-600 hover:bg-red-50 transition-colors"><Trash2 size={13}/></button>}
-                    {!canEdit && !canDelete && <span className="text-slate-300 text-xs">—</span>}
+                    {!canEdit && <span className="text-slate-300 text-xs">—</span>}
                   </div>
                 </td>
               </tr>
@@ -5522,77 +5516,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       } catch {}
     }
 
-    // Clear all feeding records for this pond
-    const removedFeeding = feeding.filter(r => r.pond === p.name);
-    const nextFeeding = feeding.filter(r => r.pond !== p.name);
-    setFeeding(nextFeeding);
-    if (userProfile?.id) {
-      try {
-        saveUserLocal(userProfile.id, "feeding", "feedingRecords", nextFeeding);
-        if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
-          saveUserLocal(userProfile.ownerId, "feeding", "feedingRecords", nextFeeding);
-        }
-      } catch {}
-    }
-    removedFeeding.forEach(r => api.feeding.remove(r.id).catch(console.warn));
-
-    // Clear all treatments for this pond
-    const removedTreatments = treatments.filter(t => t.pondId === p.id);
-    const nextTreatments = treatments.filter(t => t.pondId !== p.id);
-    setTreatments(nextTreatments);
-    if (userProfile?.id) {
-      try {
-        saveUserLocal(userProfile.id, "treatments", "treatmentRecords", nextTreatments);
-        if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
-          saveUserLocal(userProfile.ownerId, "treatments", "treatmentRecords", nextTreatments);
-        }
-      } catch {}
-    }
-    removedTreatments.forEach(t => api.treatments.remove(t.id).catch(console.warn));
-
-    // Clear all mortality entries for this pond
-    const removedMortality = mortality.filter(m => m.pondId === p.id);
-    const nextMortality = mortality.filter(m => m.pondId !== p.id);
-    setMortality(nextMortality);
-    if (userProfile?.id) {
-      try {
-        saveUserLocal(userProfile.id, "mortality", "mortalityEntries", nextMortality);
-        if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
-          saveUserLocal(userProfile.ownerId, "mortality", "mortalityEntries", nextMortality);
-        }
-      } catch {}
-    }
-    removedMortality.forEach(m => api.mortality.remove(m.id).catch(console.warn));
-
-    // Clear all pond reports for this pond
-    const removedReports = pondReports.filter(r => r.pondId === p.id);
-    const nextReports = pondReports.filter(r => r.pondId !== p.id);
-    setPondReports(nextReports);
-    if (userProfile?.id) {
-      try {
-        saveUserLocal(userProfile.id, "pond_reports", "pondReports", nextReports);
-        if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
-          saveUserLocal(userProfile.ownerId, "pond_reports", "pondReports", nextReports);
-        }
-      } catch {}
-    }
-    removedReports.forEach(r => api.pondReports.remove(r.id).catch(console.warn));
-
-    // Clear all fish count edit history for this pond
-    const removedFch = fishCountHistory.filter(h => h.pondId === p.id);
-    const nextFch = fishCountHistory.filter(h => h.pondId !== p.id);
-    setFishCountHistory(nextFch);
-    if (userProfile?.id) {
-      try {
-        saveUserLocal(userProfile.id, "fish_count_history", "fishCountHistory", nextFch);
-        if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
-          saveUserLocal(userProfile.ownerId, "fish_count_history", "fishCountHistory", nextFch);
-        }
-      } catch {}
-    }
-    removedFch.forEach(h => api.fishCountHistory.remove(h.id).catch(console.warn));
-
-    toast.success("Fish stock and operational records cleared from pond");
+    toast.success("Pond cleared and marked empty");
     try {
       await api.ponds.update(closed);
       try {
@@ -5760,41 +5684,11 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       toast.error("You do not have permission to delete expenses.");
       return;
     }
-    const previous=expenses;
-    setExpenses(prev=>prev.filter(x=>x.id!==id));
-    markDeletedId(id);
-    if(userProfile?.id){try{saveUserLocal(userProfile.id,"expenses","expenses",previous.filter(x=>x.id!==id));}catch{}}
-    try {
-      await api.expenses.remove(id);
-      toast.success("Expense deleted");
-    } catch(err:any) {
-      console.error("Failed to delete expense:", err);
-      unmarkDeletedId(id);
-      setExpenses(previous);
-      if(userProfile?.id){try{saveUserLocal(userProfile.id,"expenses","expenses",previous);}catch{}}
-      toast.error(err?.message || "Failed to delete expense. Kept visible.");
-    }
+    toast.error("Financial records cannot be deleted. You can only edit them.");
   };
-  const deleteRev=async(id:string)=>{
+  const deleteRev=async(_id:string)=>{
     if (!checkSubscriptionActive()) return;
-    if (!canDelete("Financial Dashboard") && !canDelete("Revenue & Sales Records")) {
-      toast.error("You do not have permission to delete revenues.");
-      return;
-    }
-    const previous=revenues;
-    setRevenues(prev=>prev.filter(x=>x.id!==id));
-    markDeletedId(id);
-    if(userProfile?.id){try{saveUserLocal(userProfile.id,"revenues","revenues",previous.filter(x=>x.id!==id));}catch{}}
-    try {
-      await api.revenues.remove(id);
-      toast.success("Revenue deleted");
-    } catch(err:any) {
-      console.error("Failed to delete revenue:", err);
-      unmarkDeletedId(id);
-      setRevenues(previous);
-      if(userProfile?.id){try{saveUserLocal(userProfile.id,"revenues","revenues",previous);}catch{}}
-      toast.error(err?.message || "Failed to delete revenue. Kept visible.");
-    }
+    toast.error("Financial records cannot be deleted. You can only edit them.");
   };
   const setPondMaxKg=async(pondId:string,size:string,maxKg:number)=>{
     if (!checkSubscriptionActive()) return;
@@ -6096,6 +5990,11 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     if (!checkSubscriptionActive()) return;
     if (!canDelete("Pond Management")) {
       toast.error("You do not have permission to delete ponds.");
+      return;
+    }
+    const targetPond = ponds.find(p => p.id === id);
+    if (targetPond && (Number(targetPond.currentCount) > 0 || (targetPond.status === "Active" && (Number(targetPond.currentCount) > 0 || Number(targetPond.initialStock) > 0)))) {
+      toast.error(`Cannot delete ${targetPond.name}: pond still contains active fish stock (${targetPond.currentCount || 0} fish). Clear or transfer the fish stock first.`);
       return;
     }
     const previous=ponds;
@@ -9279,7 +9178,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
               </div>
             ) : (
               <AppErrorBoundary key={active}>
-                {active==="financial"     &&(hasPerm("Financial Dashboard")?<FinancialDashboard expenses={farmExpenses} revenues={farmRevenues} onAddExpense={addExp} onAddRevenue={addRev} onEditExpense={editExp} onEditRevenue={editRev} onDeleteExpense={deleteExp} onDeleteRevenue={deleteRev} stockEvents={stockEvents} ponds={farmPonds} inventory={farmInventory} bagLogs={farmBagLogs} currency={cs} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}} canCreate={canCreate("Financial Dashboard")} canEdit={canEdit("Financial Dashboard")} canDelete={canDelete("Financial Dashboard")}/>:<AccessDenied/>)}
+                {active==="financial"     &&(hasPerm("Financial Dashboard")?<FinancialDashboard expenses={farmExpenses} revenues={farmRevenues} onAddExpense={addExp} onAddRevenue={addRev} onEditExpense={editExp} onEditRevenue={editRev} stockEvents={stockEvents} ponds={farmPonds} inventory={farmInventory} bagLogs={farmBagLogs} currency={cs} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}} canCreate={canCreate("Financial Dashboard")} canEdit={canEdit("Financial Dashboard")} canDelete={canDelete("Financial Dashboard")}/>:<AccessDenied/>)}
                 {active==="ponds"         &&(hasPerm("Pond Management")?<PondManagementPage ponds={farmPonds} onAddPond={addPond} onClosePond={closePond} onRestockPond={restockPond} onTransfer={transferStock} onNurseryTransfer={nurseryTransfer} mortality={farmMortality} onAddMortality={addMort} onAddCost={addExp} feedingRecords={farmFeeding} stockEvents={stockEvents} treatments={farmTreatments} onAddTreatment={addTreatment} activeFarmId={activeFarmId} onDeletePond={deletePond} onEditFish={editFish} onSetMaxKg={setPondMaxKg} onEditPond={handleEditPond} onReorderPonds={handleReorderPonds} onScrollTop={()=>mainRef.current?.scrollTo({top:0,behavior:"instant"})} currency={cs} inventory={farmInventory} farms={farms} pondReports={farmPondReports} onAddPondReport={handleAddPondReport} fishCountHistory={fishCountHistory} canCreate={canCreate("Pond Management")} canEdit={canEdit("Pond Management")} canDelete={canDelete("Pond Management")}/>:<AccessDenied/>)}
                 {active==="inventory"     &&(hasPerm("Feed Stock")?<FeedInventoryPage inventory={farmInventory} onAdd={addInv} onDelete={delInv} feedingRecords={farmFeeding} bagLogs={farmBagLogs} remainLogs={farmRemainLogs} ponds={farmPonds} onEditBagLog={editBagLog} onEditInv={editInv} currency={cs} canEditLocked={isOwner||currentStaff?.role==="Farm Manager"} canCreate={canCreate("Feed Stock")} canEdit={canEdit("Feed Stock")} canDelete={canDelete("Feed Stock")}/>:<AccessDenied/>)}
                 {active==="documentation" &&(hasPerm("Feeding Records")?<FeedDocumentationPage feedingRecords={farmFeeding} onAddRecord={addFeed} onEditFeedRecord={editFeedRecord} onDeleteRecord={deleteFeedRecord} ponds={farmPonds} inventory={farmInventory} bagLogs={farmBagLogs} onAddBagLog={addBagLog} onEditBagLog={editBagLog} onEditInv={editInv} remainLogs={farmRemainLogs} onAddRemainLog={addRemainLog} onEditRemainLog={editRemainLog} onReconMismatches={onReconMismatches} reconFocus={reconFocus} canEditLocked={isOwner||currentStaff?.role==="Farm Manager"} currentUser={{name:currentStaff?.name||userProfile?.name||"",email:userProfile?.email||""}} canCreate={canCreate("Feeding Records")} canEdit={canEdit("Feeding Records")} canDelete={canDelete("Feeding Records")} stockEvents={stockEvents}/>:<AccessDenied/>)}

@@ -1757,7 +1757,26 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
                       <div className="flex items-center gap-1">
                         <button onClick={()=>setDetailId(p.id)} className="flex items-center gap-1 text-xs font-semibold text-green-600 hover:text-green-800 transition-colors"><Eye size={13}/> View</button>
                         {canEdit&&<button onClick={()=>openEditPond(p)} className="p-1.5 rounded-lg text-slate-300 hover:text-green-600 hover:bg-green-50 transition-colors" title="Edit pond"><Pencil size={13}/></button>}
-                        {canDelete&&<button onClick={()=>{if(p.status!=="Empty"||p.currentCount>0)return;setDeletePondId(p.id);}} disabled={p.status==="Active"||p.currentCount>0} className={`p-1.5 rounded-lg transition-colors ${p.status==="Empty"&&p.currentCount===0?"text-slate-300 hover:text-red-500 hover:bg-red-50":"text-slate-200 cursor-not-allowed"}`}><Trash2 size={13}/></button>}
+                        {canDelete && (
+                          <button
+                            onClick={() => {
+                              if (Number(p.currentCount || 0) > 0) {
+                                alert(`Cannot delete ${p.name}: pond still has ${Number(p.currentCount).toLocaleString()} fish. Remove all fish stock first.`);
+                                return;
+                              }
+                              setDeletePondId(p.id);
+                            }}
+                            disabled={Number(p.currentCount || 0) > 0}
+                            title={Number(p.currentCount || 0) > 0 ? "Cannot delete pond with active fish stock" : "Delete pond"}
+                            className={`p-1.5 rounded-lg transition-colors ${
+                              Number(p.currentCount || 0) === 0
+                                ? "text-slate-300 hover:text-red-500 hover:bg-red-50"
+                                : "text-slate-200 cursor-not-allowed"
+                            }`}
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        )}
                       </div>
                     )}
                   </td>
@@ -1875,13 +1894,26 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
                   <div ref={pondMenuRef} className={`absolute right-0 z-50 bg-white border border-slate-200 rounded-xl shadow-2xl overflow-hidden min-w-[160px] ${isNearBottom?"bottom-0":"top-0"}`} onClick={e=>e.stopPropagation()}>
                     <button onClick={()=>{setDetailId(p.id);setPondMobileMenu(null);}} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-2"><Eye size={14}/> View Details</button>
                     {canEdit&&<button onClick={()=>{openEditPond(p);setPondMobileMenu(null);}} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-2"><Pencil size={14}/> Edit</button>}
-                    {canDelete&&<button
-                      onClick={()=>{
-                        if(p.currentCount>0){alert(`Cannot delete ${p.name}: pond still has ${p.currentCount.toLocaleString()} fish. Remove all fish stock first.`);setPondMobileMenu(null);return;}
-                        setDeletePondId(p.id);setPondMobileMenu(null);
-                      }}
-                      className={`w-full text-left px-4 py-2.5 text-sm flex items-center gap-2 ${p.currentCount>0?"text-slate-300 cursor-not-allowed":"text-red-500 hover:bg-red-50"}`}
-                    ><Trash2 size={14}/> Delete Pond{p.currentCount>0&&<span className="text-[10px] text-slate-300 ml-auto">Not empty</span>}</button>}
+                    {canDelete && (
+                      <button
+                        onClick={() => {
+                          if (Number(p.currentCount || 0) > 0) {
+                            alert(`Cannot delete ${p.name}: pond still has ${Number(p.currentCount).toLocaleString()} fish. Remove all fish stock first.`);
+                            setPondMobileMenu(null);
+                            return;
+                          }
+                          setDeletePondId(p.id);
+                          setPondMobileMenu(null);
+                        }}
+                        disabled={Number(p.currentCount || 0) > 0}
+                        className={`w-full text-left px-4 py-2.5 text-sm flex items-center gap-2 ${
+                          Number(p.currentCount || 0) > 0 ? "text-slate-300 cursor-not-allowed" : "text-red-500 hover:bg-red-50"
+                        }`}
+                      >
+                        <Trash2 size={14} /> Delete Pond
+                        {Number(p.currentCount || 0) > 0 && <span className="text-[10px] text-slate-300 ml-auto">Has fish</span>}
+                      </button>
+                    )}
                   </div>
                 )}
               </div>

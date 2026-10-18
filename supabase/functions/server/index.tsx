@@ -581,8 +581,20 @@ function makeCrud(app: Hono, table: string) {
 
   // DELETE — no user_id filter; RLS enforces access
   app.delete(`${route}/:id`, async (c) => {
+    // 1. Permanent financial records protection
+    if (table === "expenses" || table === "revenues") {
+      return c.json({ error: "Financial records cannot be deleted. You can only edit them." }, 403);
+    }
     const token = c.get("token") as string;
-    const { error } = await userDb(token)
+    const db = userDb(token);
+    // 2. Block pond deletion if active fish stock exists
+    if (table === "ponds") {
+      const { data: p } = await db.from("ponds").select("current_count, initial_stock, status, name").eq("id", c.req.param("id")).maybeSingle();
+      if (p && (Number(p.current_count) > 0 || (p.status === "Active" && (Number(p.current_count) > 0 || Number(p.initial_stock) > 0)))) {
+        return c.json({ error: `Cannot delete pond "${p.name || ""}" because it currently contains active fish stock (${p.current_count || 0} fish). Clear or transfer all fish stock first.` }, 400);
+      }
+    }
+    const { error } = await db
       .from(table).delete().eq("id", c.req.param("id"));
     if (error) return dbErr(c, error);
     return c.json({ success: true });

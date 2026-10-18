@@ -896,40 +896,38 @@ function FeedDocumentation({
   const activeFishStockOptions = useMemo(() => getFishStockOptionsForDate(selDate), [getFishStockOptionsForDate, selDate]);
   const modalFishStockOptions = useMemo(() => getFishStockOptionsForDate(bagsDate), [getFishStockOptionsForDate, bagsDate]);
 
-  /* ── stockFilterOptions for filtering Feeding Record by stock ── */
+  /* ── stockFilterOptions for filtering Feeding Record and Bags Opened by stock ── */
   const stockFilterOptions = useMemo(() => {
     const list: { key: string; label: string; name: string }[] = [];
     const seen = new Set<string>();
 
-    activeFishStockOptions.forEach(opt => {
-      const key = normalizeFishStock(opt.name).toLowerCase().trim();
-      if (!seen.has(key)) {
-        seen.add(key);
-        list.push({ key, label: opt.label, name: opt.name });
-      }
+    const activePonds = (ponds || []).filter(p => {
+      if (!p || p.status !== "Active") return false;
+      const count = Number(p.currentCount);
+      const init = Number(p.initialStock);
+      return count > 0 || init > 0;
     });
 
-    // Also include any fish stock that actually has feeding records or bag logs on selDate
-    const dateLabel = toDateLabel(selDate);
-    const dateFeeding = (feedingRecords || []).filter(r => r && (isSameDate(r.date, selDate) || isSameDate(r.date, dateLabel)));
-    const dateBags = (bagLogs || []).filter(b => b && (isSameDate(b.date, selDate) || isSameDate(b.date, dateLabel)));
+    activePonds.forEach(p => {
+      const stock = (p.fishStock && p.fishStock !== "—" && !isPondName(p.fishStock))
+        ? formatFishStock(p.fishStock)
+        : getPondFishStock(p);
+      if (!stock || stock === "—" || stock === "General Stock" || isPondName(stock)) return;
 
-    [
-      ...dateFeeding.map(r => r.fishStock || pondToStock(r.pond)),
-      ...dateBags.map(b => b.fishStock)
-    ].forEach(fs => {
-      if (!fs || fs === "—" || fs === "General Stock" || isPondName(fs)) return;
-      const fmt = formatFishStock(fs);
-      if (!fmt || fmt === "—" || fmt === "General Stock" || isPondName(fmt)) return;
-      const key = normalizeFishStock(fmt).toLowerCase().trim();
-      if (!seen.has(key)) {
-        seen.add(key);
-        list.push({ key, label: fmt, name: fmt });
-      }
+      const norm = normalizeFishStock(stock).toLowerCase().trim();
+      if (!norm || seen.has(norm)) return;
+      seen.add(norm);
+
+      const dStr = p.stockingDate && p.stockingDate !== "—" ? formatFishStockDate(p.stockingDate) : "";
+      const label = dStr && dStr !== "—" && !stock.toLowerCase().includes(dStr.toLowerCase())
+        ? `${stock} (${dStr})`
+        : stock;
+
+      list.push({ key: norm, label, name: stock });
     });
 
     return list;
-  }, [activeFishStockOptions, feedingRecords, bagLogs, selDate, isPondName]);
+  }, [ponds, isPondName]);
 
   /* ── helper: count bags opened for a given fish stock + brand + pellet size on a date ── */
   const getBagsLoggedTodayForStockAndSize = (stockName: string, brandName: string, palletSize: string, checkDate: string): number => {
@@ -1463,8 +1461,24 @@ function FeedDocumentation({
           b && isSameDate(b.date, selDate) && isStockMatch(b.fishStock, stockInfo.stockName) && (size === "—" || !b.size || b.size === "—" || isSamePelletSize(b.size, size))
         );
         const hasBagLog = bagLogsForSize.length > 0;
-        // Mismatch validation is INACTIVE until Bags Opened Today is submitted for this stock
         if (!hasBagLog) {
+          if (expectedBags > 0) {
+            rows.push({
+              stockKey: `${key}__${brand}__${size}`,
+              stockName: stockInfo.stockName,
+              stockDate: stockInfo.stockDate,
+              brand,
+              size,
+              status: "Not Opened",
+              expectedBags,
+              recordedBags: 0,
+              expectedRemaining: Math.max(0, Math.round((carryoverKg + (expectedBags * bagWeight) - sizeFedKg) * 10) / 10),
+              recordedRemaining: null,
+              totalFed: sizeFedKg,
+              carryover: carryoverKg,
+              reason: `Feeding recorded (${sizeFedKg} kg), but bags opened have not been logged for today (expected ${expectedBags} bag${expectedBags !== 1 ? "s" : ""}).`
+            });
+          }
           return;
         }
 
@@ -2895,8 +2909,8 @@ function FeedDocumentation({
                       const isBagsColHighlighted = isHighlightedRow && (bagsHighlight?.col === "bags" || bagsHighlight?.col === "all" || !bagsHighlight?.col);
                       const isRemainColHighlighted = isHighlightedRow && (bagsHighlight?.col === "remaining" || bagsHighlight?.col === "all" || !bagsHighlight?.col);
 
-                      const expData = getExpectedFeedData(selDate, row.fishStock, row.brand, row.size, row.bagsOpened);
-                      const isBagsMismatch = Boolean(row.hasBagLog && expData.hasFed && row.bagsOpened !== expData.expectedBags);
+                      const expData = getExpectedFeedData(selDate, row.fishStock, row.brand, row.size, row.hasBagLog ? row.bagsOpened : undefined);
+                      const isBagsMismatch = Boolean(expData.hasFed && (row.bagsOpened !== expData.expectedBags || (!row.hasBagLog && expData.expectedBags > 0)));
                       const isRemainMismatch = Boolean(row.hasBagLog && expData.hasFed && Math.abs(((row.feedRemainingToday ?? row.remainingKg) || 0) - expData.expectedRemaining) > 0.05);
 
                       return (
@@ -2931,7 +2945,7 @@ function FeedDocumentation({
                                 <span className={isBagsMismatch ? "text-red-600 font-bold" : "text-slate-700"}>0 bags</span>
                               )}
                             </div>
-                            {row.hasBagLog && expData.hasFed && (
+                            {expData.hasFed && (
                               <p className={`text-[11px] font-medium mt-0.5 leading-tight ${isBagsMismatch ? "text-red-600 font-semibold" : "text-slate-400"}`}>
                                 Exp: {expData.expectedBags} bag{expData.expectedBags !== 1 ? "s" : ""}
                               </p>
@@ -2949,7 +2963,7 @@ function FeedDocumentation({
                                 <span className="text-slate-400 font-normal">0 kg</span>
                               )}
                             </div>
-                            {row.hasBagLog && expData.hasFed && (
+                            {expData.hasFed && (
                               <p className={`text-[11px] font-medium mt-0.5 leading-tight ${isRemainMismatch ? "text-red-600 font-semibold" : "text-slate-400"}`}>
                                 Exp: {expData.expectedRemaining} kg
                               </p>
@@ -3037,8 +3051,8 @@ function FeedDocumentation({
                 const isBagsColHighlighted = isHighlightedRow && (bagsHighlight?.col === "bags" || bagsHighlight?.col === "all" || !bagsHighlight?.col);
                 const isRemainColHighlighted = isHighlightedRow && (bagsHighlight?.col === "remaining" || bagsHighlight?.col === "all" || !bagsHighlight?.col);
 
-                const expData = getExpectedFeedData(selDate, row.fishStock, row.brand, row.size, row.bagsOpened);
-                const isBagsMismatch = Boolean(row.hasBagLog && expData.hasFed && row.bagsOpened !== expData.expectedBags);
+                const expData = getExpectedFeedData(selDate, row.fishStock, row.brand, row.size, row.hasBagLog ? row.bagsOpened : undefined);
+                const isBagsMismatch = Boolean(expData.hasFed && (row.bagsOpened !== expData.expectedBags || (!row.hasBagLog && expData.expectedBags > 0)));
                 const isRemainMismatch = Boolean(row.hasBagLog && expData.hasFed && Math.abs(((row.feedRemainingToday ?? row.remainingKg) || 0) - expData.expectedRemaining) > 0.05);
                 const isMenuOpen = activeBagMenuId === `${row.fishStock}__${row.brand}__${row.size}`;
 
@@ -3138,7 +3152,7 @@ function FeedDocumentation({
                             <span className={isBagsMismatch ? "text-red-600 font-bold" : "text-slate-600"}>0 bags</span>
                           )}
                         </span>
-                        {row.hasBagLog && expData.hasFed && (
+                        {expData.hasFed && (
                           <p className={`text-[10px] font-medium mt-0.5 ${isBagsMismatch ? "text-red-600 font-semibold" : "text-slate-400"}`}>
                             Exp: {expData.expectedBags}
                           </p>
@@ -3157,7 +3171,7 @@ function FeedDocumentation({
                             "0 kg"
                           )}
                         </span>
-                        {row.hasBagLog && expData.hasFed && (
+                        {expData.hasFed && (
                           <p className={`text-[10px] font-medium mt-0.5 ${isRemainMismatch ? "text-red-600 font-semibold" : "text-slate-400"}`}>
                             Exp: {expData.expectedRemaining} kg
                           </p>
