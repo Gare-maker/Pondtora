@@ -3560,12 +3560,15 @@ function SubscriptionPage({
 }
 
 /* ─── 9. Settings Page ───────────────────────────────────────── */
-function SettingsPage({farms,onAddFarm,onEditFarm,onDeleteFarm,userProfile,onUpdateProfile,isOwner,ponds,activePlan,initialTab="profile"}:{
+function SettingsPage({farms,onAddFarm,onEditFarm,onDeleteFarm,userProfile,onUpdateProfile,isOwner,ponds,activePlan,initialTab="profile",treatments=[],pondReports=[]}:{
   farms:Farm[];onAddFarm:(d:{name:string;city:string;state:string;country:string})=>void;onEditFarm:(f:Farm)=>void;onDeleteFarm:(id:string)=>void;
   userProfile:UserProfile|null;onUpdateProfile:(u:{name:string;phone:string})=>Promise<void>;isOwner:boolean;ponds:Pond[];activePlan:string|null;
   initialTab?: "profile" | "farms" | "referrals";
+  treatments?: TreatmentRecord[];
+  pondReports?: PondReport[];
 }){
   const [tab,setTab]=useState<"profile"|"farms"|"referrals">(initialTab);
+  const [farmDetailTab,setFarmDetailTab]=useState<"overview"|"treatments"|"issues">("overview");
   /* ── Referral State ── */
   const [refStats, setRefStats] = useState(() => getUserReferralStats(userProfile));
   const [copiedLink, setCopiedLink] = useState(false);
@@ -3674,6 +3677,24 @@ function SettingsPage({farms,onAddFarm,onEditFarm,onDeleteFarm,userProfile,onUpd
   };
   /* ── Farm section ── */
   const [viewFarm,setViewFarm]=useState<Farm|null>(null);
+  const farmPonds = useMemo(() => {
+    if (!viewFarm) return [];
+    return (ponds || []).filter(p => p.farmId === viewFarm.id);
+  }, [ponds, viewFarm]);
+  const farmPondIds = useMemo(() => farmPonds.map(p => p.id), [farmPonds]);
+  const pondIdToName = useMemo(() => {
+    const map: Record<string, string> = {};
+    (ponds || []).forEach(p => { map[p.id] = p.name; });
+    return map;
+  }, [ponds]);
+  const farmTreatments = useMemo(() => {
+    if (!viewFarm) return [];
+    return (treatments || []).filter(t => t.farmId === viewFarm.id || (!t.farmId && farmPondIds.includes(t.pondId)));
+  }, [treatments, viewFarm, farmPondIds]);
+  const farmIssues = useMemo(() => {
+    if (!viewFarm) return [];
+    return (pondReports || []).filter(r => (r.reportType === "other_issue" || (r as any).type === "issue") && (r.farmId === viewFarm.id || (!r.farmId && farmPondIds.includes(r.pondId))));
+  }, [pondReports, viewFarm, farmPondIds]);
   const [editFarm,setEditFarm]=useState<Farm|null>(null);
   const [editF,setEditF]=useState({name:"",city:"",state:"",country:"Nigeria"});
   const openEdit=(f:Farm)=>{setEditFarm(f);setEditF({name:f.name,city:f.city||"",state:f.state||"",country:f.country||"Nigeria"});};
@@ -4245,33 +4266,146 @@ function SettingsPage({farms,onAddFarm,onEditFarm,onDeleteFarm,userProfile,onUpd
 
       {/* View Farm Modal */}
       {viewFarm&&(
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={e=>e.target===e.currentTarget&&setViewFarm(null)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
-              <div><h2 className="text-base font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Farm Details</h2><p className="text-xs text-slate-400 mt-0.5">Read-only view</p></div>
-              <button onClick={()=>setViewFarm(null)} className="text-slate-400 hover:text-slate-700 p-1"><X size={18}/></button>
-            </div>
-            <div className="px-6 py-5">
-              <div className="grid grid-cols-2 gap-x-6 gap-y-4">
-                {[
-                  ["Farm Name",viewFarm.name],
-                  ["Country",viewFarm.country||"—"],
-                  ["City",viewFarm.city||"—"],
-                  ["State / Region",viewFarm.state||"—"],
-                  ["Total Ponds",String(ponds.filter(p=>p.farmId===viewFarm.id).length)],
-                  ["Active Ponds",String(ponds.filter(p=>p.farmId===viewFarm.id&&p.status==="Active").length)],
-                  ["Fish Stocks",String(ponds.filter(p=>p.farmId===viewFarm.id&&p.species!=="—"&&p.status==="Active").length)],
-                  ["Subscription Plan",activePlan||"Free Trial"],
-                ].map(([label,val])=>(
-                  <div key={label}>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">{label}</p>
-                    <p className="text-sm font-medium text-slate-800">{val}</p>
-                  </div>
-                ))}
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-[70] p-3 sm:p-4" onClick={e=>e.target===e.currentTarget&&setViewFarm(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl flex flex-col max-h-[90vh] overflow-hidden">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 shrink-0 bg-white">
+              <div>
+                <h2 className="text-base sm:text-lg font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Farm Details — {viewFarm.name}</h2>
+                <p className="text-xs text-slate-400 mt-0.5">Overview, treatments, and operational issues</p>
               </div>
+              <button onClick={()=>setViewFarm(null)} className="text-slate-400 hover:text-slate-700 p-1 rounded-lg hover:bg-slate-100 transition-colors"><X size={18}/></button>
             </div>
-            <div className="px-6 pb-5 pt-2 border-t border-slate-100">
-              <button onClick={()=>setViewFarm(null)} className="w-full py-2.5 border border-slate-200 rounded-xl text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors">Close</button>
+
+            {/* Farm Detail Navigation Tabs */}
+            <div className="px-6 py-2.5 bg-slate-50 border-b border-slate-100 flex items-center gap-2 shrink-0 overflow-x-auto">
+              <button
+                type="button"
+                onClick={()=>setFarmDetailTab("overview")}
+                className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors ${farmDetailTab === "overview" ? "bg-white text-emerald-700 shadow-2xs border border-slate-200" : "text-slate-600 hover:text-slate-900"}`}
+              >
+                Overview
+              </button>
+              <button
+                type="button"
+                onClick={()=>setFarmDetailTab("treatments")}
+                className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 ${farmDetailTab === "treatments" ? "bg-white text-emerald-700 shadow-2xs border border-slate-200" : "text-slate-600 hover:text-slate-900"}`}
+              >
+                Treatments
+                <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${farmDetailTab === "treatments" ? "bg-emerald-100 text-emerald-800" : "bg-slate-200 text-slate-600"}`}>{farmTreatments.length}</span>
+              </button>
+              <button
+                type="button"
+                onClick={()=>setFarmDetailTab("issues")}
+                className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 ${farmDetailTab === "issues" ? "bg-white text-emerald-700 shadow-2xs border border-slate-200" : "text-slate-600 hover:text-slate-900"}`}
+              >
+                Operational Issues
+                <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${farmDetailTab === "issues" ? "bg-amber-100 text-amber-800" : "bg-slate-200 text-slate-600"}`}>{farmIssues.length}</span>
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="px-6 py-5 overflow-y-auto flex-1 overscroll-contain">
+              {farmDetailTab === "overview" && (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-6 gap-y-4">
+                  {[
+                    ["Farm Name",viewFarm.name],
+                    ["Country",viewFarm.country||"—"],
+                    ["City",viewFarm.city||"—"],
+                    ["State / Region",viewFarm.state||"—"],
+                    ["Total Ponds",String(ponds.filter(p=>p.farmId===viewFarm.id).length)],
+                    ["Active Ponds",String(ponds.filter(p=>p.farmId===viewFarm.id&&p.status==="Active").length)],
+                    ["Fish Stocks",String(ponds.filter(p=>p.farmId===viewFarm.id&&p.species!=="—"&&p.status==="Active").length)],
+                    ["Subscription Plan",activePlan||"Free Trial"],
+                  ].map(([label,val])=>(
+                    <div key={label} className="bg-slate-50 p-3 rounded-xl border border-slate-100">
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">{label}</p>
+                      <p className="text-sm font-semibold text-slate-800">{val}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {farmDetailTab === "treatments" && (
+                <div>
+                  {farmTreatments.length === 0 ? (
+                    <div className="text-center py-12 text-slate-400 text-xs">
+                      No treatment records logged for this farm yet.
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto border border-slate-100 rounded-xl">
+                      <table className="w-full text-xs text-left">
+                        <thead className="bg-slate-50 border-b border-slate-100 text-slate-500 font-semibold uppercase tracking-wider text-[10px]">
+                          <tr>
+                            <th className="px-3 py-2.5">Date</th>
+                            <th className="px-3 py-2.5">Pond</th>
+                            <th className="px-3 py-2.5">Fish Stock</th>
+                            <th className="px-3 py-2.5">Medicine / Treatment</th>
+                            <th className="px-3 py-2.5">Cause / Reason</th>
+                            <th className="px-3 py-2.5">Dosage / Details</th>
+                            <th className="px-3 py-2.5">Remarks</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {farmTreatments.map((t, idx) => (
+                            <tr key={t.id || idx} className="hover:bg-slate-50/60 transition-colors">
+                              <td className="px-3 py-2.5 font-mono text-slate-600 whitespace-nowrap">{t.date}</td>
+                              <td className="px-3 py-2.5 font-semibold text-slate-800 whitespace-nowrap">{pondIdToName[t.pondId] || t.pondId || "—"}</td>
+                              <td className="px-3 py-2.5 text-slate-700 whitespace-nowrap">{t.fishStock || "—"}</td>
+                              <td className="px-3 py-2.5 font-medium text-emerald-800 whitespace-nowrap">{t.treatmentType || t.medicine || "—"}</td>
+                              <td className="px-3 py-2.5 text-slate-600">{t.reason || t.cause || "—"}</td>
+                              <td className="px-3 py-2.5 text-slate-600">{t.dosage || t.details || "—"}</td>
+                              <td className="px-3 py-2.5 text-slate-400 max-w-[180px] truncate">{t.notes || t.remarks || "—"}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {farmDetailTab === "issues" && (
+                <div>
+                  {farmIssues.length === 0 ? (
+                    <div className="text-center py-12 text-slate-400 text-xs">
+                      No operational issues logged for this farm yet.
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto border border-slate-100 rounded-xl">
+                      <table className="w-full text-xs text-left">
+                        <thead className="bg-slate-50 border-b border-slate-100 text-slate-500 font-semibold uppercase tracking-wider text-[10px]">
+                          <tr>
+                            <th className="px-3 py-2.5">Date</th>
+                            <th className="px-3 py-2.5">Pond</th>
+                            <th className="px-3 py-2.5">Fish Stock</th>
+                            <th className="px-3 py-2.5">Issue Title</th>
+                            <th className="px-3 py-2.5">Description</th>
+                            <th className="px-3 py-2.5">Action Taken</th>
+                            <th className="px-3 py-2.5">Logged By</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {farmIssues.map((iss, idx) => (
+                            <tr key={iss.id || idx} className="hover:bg-slate-50/60 transition-colors">
+                              <td className="px-3 py-2.5 font-mono text-slate-600 whitespace-nowrap">{iss.reportDate || (iss as any).date || "—"}</td>
+                              <td className="px-3 py-2.5 font-semibold text-slate-800 whitespace-nowrap">{pondIdToName[iss.pondId] || iss.pondId || "—"}</td>
+                              <td className="px-3 py-2.5 text-slate-700 whitespace-nowrap">{iss.fishStockId || (iss as any).fishStock || "—"}</td>
+                              <td className="px-3 py-2.5 font-semibold text-amber-800 whitespace-nowrap">{iss.issue || "—"}</td>
+                              <td className="px-3 py-2.5 text-slate-600 max-w-[200px] truncate">{iss.description || "—"}</td>
+                              <td className="px-3 py-2.5 text-slate-600 max-w-[180px] truncate">{iss.actionTaken || "—"}</td>
+                              <td className="px-3 py-2.5 text-slate-500 whitespace-nowrap">{iss.recordedBy || (iss as any).createdBy || "—"}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="px-6 pb-4 pt-3 border-t border-slate-100 shrink-0 bg-slate-50/50 flex justify-end">
+              <button onClick={()=>setViewFarm(null)} className="px-5 py-2 border border-slate-200 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 transition-colors">Close</button>
             </div>
           </div>
         </div>
@@ -5275,9 +5409,43 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     if (!checkSubscriptionActive()) return;
     const fid=t.farmId||activeFarmId||farms[0]?.id||"";
     const farmTr:TreatmentRecord={...t,id:isUuid(t.id)?t.id:crypto.randomUUID(),farmId:fid};
-    setTreatments(prev=>[farmTr,...prev]);
+    setTreatments(prev=>{
+      const next = [farmTr, ...prev];
+      if (userProfile?.id) {
+        try {
+          saveUserLocal(userProfile.id, "treatments", "treatments", next);
+          if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
+            saveUserLocal(userProfile.ownerId, "treatments", "treatments", next);
+          }
+        } catch {}
+      }
+      return next;
+    });
     toast.success("Treatment recorded");
     api.treatments.create(farmTr).catch(console.warn);
+  };
+  const handleEditTreatment=async(t:TreatmentRecord)=>{
+    if (!checkSubscriptionActive()) return;
+    if (!canEdit("Pond Management") && !canEdit("Reports")) {
+      toast.error("You do not have permission to edit treatments.");
+      return;
+    }
+    const fid=t.farmId||activeFarmId||farms[0]?.id||"";
+    const farmTr:TreatmentRecord={...t,farmId:fid};
+    setTreatments(prev=>{
+      const next = prev.map(x=>x.id===farmTr.id?farmTr:x);
+      if (userProfile?.id) {
+        try {
+          saveUserLocal(userProfile.id, "treatments", "treatments", next);
+          if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
+            saveUserLocal(userProfile.ownerId, "treatments", "treatments", next);
+          }
+        } catch {}
+      }
+      return next;
+    });
+    toast.success("Treatment updated");
+    api.treatments.update(farmTr).catch(console.warn);
   };
   const addPond=async(p:Pond)=>{
     if (!checkSubscriptionActive()) return;
@@ -5311,6 +5479,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
         }
       } catch {}
     }
+    toast.success("Pond added");
     try {
       const saved=await api.ponds.create(np);
       if(saved?.id&&saved.id!==np.id){
@@ -5324,7 +5493,6 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
           setFarms([{id:saved.farmId,name:"Main Farm",city:"",state:"",country:"Nigeria"}]);
         }
       }
-      toast.success("Pond added");
     } catch(err:any) {
       console.error("Failed to persist pond:", err);
       const msg = err?.message || "";
@@ -5397,9 +5565,9 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       setStockEvents(prev=>prev.map(s=>s.pondId===id?{...s,pondId:newId}:s));
     }
 
+    toast.success("Pond updated");
     try {
       await api.ponds.update(updatedPond);
-      toast.success("Pond updated");
     } catch(err:any) {
       console.error("Failed to persist pond updates:", err);
       toast.error(err?.message||"Failed to update pond");
@@ -5641,12 +5809,12 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     const fid=e.farmId||activeFarmId||farms[0]?.id||"";
     const ne:Expense={...e,id:isUuid(e.id)?e.id:crypto.randomUUID(),farmId:fid};
     setExpenses(prev=>[ne,...prev]);
+    toast.success("Expense added");
     try {
       const saved=await api.expenses.create(ne);
       if(saved?.id){
         setExpenses(prev=>prev.map(x=>x.id===ne.id?saved:x));
       }
-      toast.success("Expense added");
     } catch(err:any) {
       console.error("Failed to persist expense:", err);
       toast.error("Expense saved locally — sync error");
@@ -5659,9 +5827,9 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       return;
     }
     setExpenses(prev=>prev.map(x=>x.id===e.id?e:x));
+    toast.success("Expense updated");
     try {
       await api.expenses.update(e);
-      toast.success("Expense updated");
     } catch(err:any) {
       console.error("Failed to update expense:", err);
       toast.error("Expense updated locally — sync error");
@@ -5676,12 +5844,12 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     const fid=r.farmId||activeFarmId||farms[0]?.id||"";
     const nr:Revenue={...r,id:isUuid(r.id)?r.id:crypto.randomUUID(),farmId:fid};
     setRevenues(prev=>[nr,...prev]);
+    toast.success("Revenue added");
     try {
       const saved=await api.revenues.create(nr);
       if(saved?.id){
         setRevenues(prev=>prev.map(x=>x.id===nr.id?saved:x));
       }
-      toast.success("Revenue added");
     } catch(err:any) {
       console.error("Failed to persist revenue:", err);
       toast.error("Revenue saved locally — sync error");
@@ -5694,9 +5862,9 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       return;
     }
     setRevenues(prev=>prev.map(x=>x.id===r.id?r:x));
+    toast.success("Revenue updated");
     try {
       await api.revenues.update(r);
-      toast.success("Revenue updated");
     } catch(err:any) {
       console.error("Failed to update revenue:", err);
       toast.error("Revenue updated locally — sync error");
@@ -5813,7 +5981,19 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
         return;
       }
     }
-    setFeeding(prev=>prev.map(x=>x.id===farmRec.id?farmRec:x));
+    setFeeding(prev=>{
+      const next = prev.map(x=>x.id===farmRec.id?farmRec:x);
+      if (userProfile?.id) {
+        try {
+          saveUserLocal(userProfile.id, "feeding", "feeding", next);
+          if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
+            saveUserLocal(userProfile.ownerId, "feeding", "feeding", next);
+          }
+        } catch {}
+      }
+      return next;
+    });
+    toast.success("Feeding record updated");
     api.feeding.update(farmRec).catch(err => {
       console.error("Failed to update feeding record in database:", err);
     });
@@ -5964,11 +6144,140 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
 
     const prevCount = Number(targetPond.currentCount) || 0;
     const newCount = Number(u.currentCount) || 0;
+    const prevStockingDate = targetPond.stockingDate;
+    const newStockingDate = u.stockingDate || targetPond.stockingDate;
+    const isDateChanged = newStockingDate && prevStockingDate && !isSameDate(newStockingDate, prevStockingDate);
+    const newStockLabel = u.fishStock || fmtStockingDate(newStockingDate);
 
-    const np: Pond = { ...targetPond, ...u };
+    const np: Pond = {
+      ...targetPond,
+      ...u,
+      stockingDate: newStockingDate,
+      stockMonth: toMon(newStockingDate),
+      fishStock: newStockLabel,
+    };
 
     // 1. Immediate optimistic UI update
-    setPonds(prev => prev.map(p => p.id === id ? np : p));
+    const nextPonds = ponds.map(p => p.id === id ? np : p);
+    setPonds(nextPonds);
+
+    // If stock date or species was edited, update the associated StockEvent without creating a duplicate record!
+    if (isDateChanged || (u.species && u.species !== targetPond.species)) {
+      const oldStockLabel = fmtStockingDate(prevStockingDate);
+      // Find the stock event for this pond and update it in-place
+      setStockEvents(prev => {
+        const matchedIndex = prev.findIndex(e => e.pondId === targetPond.id && (e.type === "Initial" || e.type === "Restock" || isSameDate(e.date, prevStockingDate)));
+        if (matchedIndex !== -1) {
+          const updatedEvent: StockEvent = {
+            ...prev[matchedIndex],
+            date: newStockingDate,
+            batch: newStockLabel,
+            species: u.species || prev[matchedIndex].species,
+          };
+          const nextEvents = [...prev];
+          nextEvents[matchedIndex] = updatedEvent;
+          api.stockEvents.update(updatedEvent).catch(console.warn);
+          if (userProfile?.id) {
+            try {
+              saveUserLocal(userProfile.id, "stock_events", "stockEvents", nextEvents);
+              if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
+                saveUserLocal(userProfile.ownerId, "stock_events", "stockEvents", nextEvents);
+              }
+            } catch {}
+          }
+          return nextEvents;
+        }
+        return prev;
+      });
+
+      // Cascade the updated stock date to feeding records for this pond
+      setFeeding(prev => {
+        let changed = false;
+        const next = prev.map(r => {
+          if ((r.pond === targetPond.name || r.pond === targetPond.id) &&
+              (r.fishStock === oldStockLabel || r.fishStock === prevStockingDate || isSameDate(r.fishStock, prevStockingDate) || r.fishStock === targetPond.species)) {
+            changed = true;
+            const updated = { ...r, fishStock: newStockLabel };
+            api.feeding.update(updated).catch(console.warn);
+            return updated;
+          }
+          return r;
+        });
+        if (changed && userProfile?.id) {
+          try {
+            saveUserLocal(userProfile.id, "feeding", "feeding", next);
+            if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
+              saveUserLocal(userProfile.ownerId, "feeding", "feeding", next);
+            }
+          } catch {}
+        }
+        return next;
+      });
+
+      // Cascade the updated stock date to treatments for this pond
+      setTreatments(prev => {
+        let changed = false;
+        const next = prev.map(t => {
+          if (t.pondId === targetPond.id && (t.fishStock === oldStockLabel || t.fishStock === prevStockingDate || isSameDate(t.fishStock, prevStockingDate) || t.fishStock === targetPond.species)) {
+            changed = true;
+            const updated = { ...t, fishStock: newStockLabel };
+            api.treatments.update(updated).catch(console.warn);
+            return updated;
+          }
+          return t;
+        });
+        if (changed && userProfile?.id) {
+          try {
+            saveUserLocal(userProfile.id, "treatments", "treatments", next);
+            if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
+              saveUserLocal(userProfile.ownerId, "treatments", "treatments", next);
+            }
+          } catch {}
+        }
+        return next;
+      });
+
+      // Cascade the updated stock date to pond reports for this pond
+      setPondReports(prev => {
+        let changed = false;
+        const next = prev.map(r => {
+          if (r.pondId === targetPond.id && (r.fishStockId === oldStockLabel || r.fishStockId === prevStockingDate || isSameDate(r.fishStockId, prevStockingDate))) {
+            changed = true;
+            const updated = { ...r, fishStockId: newStockLabel };
+            api.pondReports.update(updated).catch(console.warn);
+            return updated;
+          }
+          return r;
+        });
+        if (changed && userProfile?.id) {
+          try {
+            saveUserLocal(userProfile.id, "pond_reports", "pondReports", next);
+            if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
+              saveUserLocal(userProfile.ownerId, "pond_reports", "pondReports", next);
+            }
+          } catch {}
+        }
+        return next;
+      });
+
+      // Also cascade to bagLogs and remainLogs
+      setBagLogs(prev => {
+        return prev.map(b => {
+          if (b.fishStock === oldStockLabel || b.fishStock === prevStockingDate || isSameDate(b.fishStock, prevStockingDate)) {
+            return { ...b, fishStock: newStockLabel };
+          }
+          return b;
+        });
+      });
+      setRemainLogs(prev => {
+        return prev.map(rem => {
+          if (rem.fishStock === oldStockLabel || rem.fishStock === prevStockingDate || isSameDate(rem.fishStock, prevStockingDate)) {
+            return { ...rem, fishStock: newStockLabel };
+          }
+          return rem;
+        });
+      });
+    }
 
     if (newCount !== prevCount) {
       const diff = newCount - prevCount;
@@ -5989,10 +6298,14 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     // 2. Immediate local storage persistence
     if (userProfile?.id) {
       try {
-        const nextList = ponds.map(p => p.id === id ? np : p);
-        saveUserLocal(userProfile.id, "ponds", "ponds", nextList);
+        saveUserLocal(userProfile.id, "ponds", "ponds", nextPonds);
+        if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
+          saveUserLocal(userProfile.ownerId, "ponds", "ponds", nextPonds);
+        }
       } catch {}
     }
+
+    toast.success("Fish stock updated");
 
     // 3. Debounce database call per pond to eliminate race conditions and delayed lags
     if (pendingFishUpdatesRef.current.has(id)) {
@@ -7976,12 +8289,12 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     const fid=inv.farmId||activeFarmId||farms[0]?.id||"";
     const ni:Invoice={...inv,id:isUuid(inv.id)?inv.id:crypto.randomUUID(),farmId:fid};
     setInvoices(prev=>[ni,...prev]);
+    toast.success("Invoice created");
     try {
       const saved=await api.invoices.create(ni);
       if(saved?.id&&saved.id!==ni.id){
         setInvoices(prev=>prev.map(x=>x.id===ni.id?saved:x));
       }
-      toast.success("Invoice created");
     } catch(err:any) {
       console.error("Failed to persist invoice:", err);
       toast.error("Invoice saved locally — sync when online");
@@ -7995,21 +8308,15 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     }
     const old=invoices.find(x=>x.id===inv.id);
     setInvoices(prev=>prev.map(x=>x.id===inv.id?inv:x));
-    try {
-      await api.invoices.update(inv);
-    } catch(err:any) {
-      console.error("Failed to update invoice:", err);
-    }
-
-    if(old&&old.status!==inv.status){
-      const farm=farms.find(f=>f.id===activeFarmId)||farms[0];
-      const nid=`inv-status-${inv.id}`;
-      setExtraNotifs(prev=>[...prev.filter(n=>n.id!==nid),{id:nid,type:"invoice" as any,farmId:activeFarmId,farmName:farm?.name||"",date:TODAY,read:false,message:`Invoice ${inv.invNumber} status: ${inv.status}`}]);
-    }
     if (inv.status === "Paid") {
       toast.success(`Invoice ${inv.invNumber} marked as Paid`);
     } else {
       toast.success(`Invoice ${inv.invNumber} updated`);
+    }
+    try {
+      await api.invoices.update(inv);
+    } catch(err:any) {
+      console.error("Failed to update invoice:", err);
     }
   };
   const deleteInvoice=async(id:string)=>{
@@ -8676,14 +8983,22 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       createdById: userProfile?.id || undefined,
       isStaffSubmission: isStaff,
     };
-    setPondReports(prev => [nr, ...prev]);
-    try {
-      await api.pondReports.create(nr);
-      toast.success("Pond report submitted successfully");
-    } catch (err: any) {
+    setPondReports(prev => {
+      const next = [nr, ...prev];
+      if (userProfile?.id) {
+        try {
+          saveUserLocal(userProfile.id, "pond_reports", "pondReports", next);
+          if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
+            saveUserLocal(userProfile.ownerId, "pond_reports", "pondReports", next);
+          }
+        } catch {}
+      }
+      return next;
+    });
+    toast.success(nr.reportType === "other_issue" || (nr as any).type === "issue" ? "Issue report recorded" : "Pond report submitted successfully");
+    api.pondReports.create(nr).catch(err => {
       console.error("Failed to persist pond report:", err);
-      toast.error("Pond report saved locally — sync error");
-    }
+    });
   };
 
   const handleAddEquipment = async (eq: FarmEquipment) => {
@@ -9028,7 +9343,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
 
   return(
     <div className="fixed inset-0 flex h-full w-full bg-white text-slate-900 overflow-hidden" style={{fontFamily:"'Barlow',sans-serif"}}>
-      <Toaster position="top-right" richColors duration={2500} visibleToasts={1} closeButton/>
+      <Toaster position="top-right" richColors duration={2500} visibleToasts={4} closeButton/>
 
       {/* ── Compulsory Farm Plan Onboarding Overlay for New Users ── */}
       {showOnboardingOverlay && (
@@ -9163,7 +9478,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
             ) : (
               <AppErrorBoundary key={active}>
                 {active==="financial"     &&(hasPerm("Financial Dashboard")?<FinancialDashboard expenses={farmExpenses} revenues={farmRevenues} onAddExpense={addExp} onAddRevenue={addRev} onEditExpense={editExp} onEditRevenue={editRev} stockEvents={farmStockEvents} ponds={farmPonds} inventory={farmInventory} bagLogs={farmBagLogs} currency={cs} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}} canCreate={canCreate("Financial Dashboard")} canEdit={canEdit("Financial Dashboard")} canDelete={canDelete("Financial Dashboard")}/>:<AccessDenied/>)}
-                {active==="ponds"         &&(hasPerm("Pond Management")?<PondManagementPage ponds={farmPonds} onAddPond={addPond} onClosePond={closePond} onRestockPond={restockPond} onTransfer={transferStock} onNurseryTransfer={nurseryTransfer} mortality={farmMortality} onAddMortality={addMort} onAddCost={addExp} feedingRecords={farmFeeding} stockEvents={farmStockEvents} treatments={farmTreatments} onAddTreatment={addTreatment} activeFarmId={activeFarmId} onDeletePond={deletePond} onEditFish={editFish} onSetMaxKg={setPondMaxKg} onEditPond={handleEditPond} onReorderPonds={handleReorderPonds} onScrollTop={()=>mainRef.current?.scrollTo({top:0,behavior:"instant"})} currency={cs} inventory={farmInventory} farms={farms} pondReports={farmPondReports} onAddPondReport={handleAddPondReport} fishCountHistory={fishCountHistory} canCreate={canCreate("Pond Management")} canEdit={canEdit("Pond Management")} canDelete={canDelete("Pond Management")}/>:<AccessDenied/>)}
+                {active==="ponds"         &&(hasPerm("Pond Management")?<PondManagementPage ponds={farmPonds} onAddPond={addPond} onClosePond={closePond} onRestockPond={restockPond} onTransfer={transferStock} onNurseryTransfer={nurseryTransfer} mortality={farmMortality} onAddMortality={addMort} onAddCost={addExp} feedingRecords={farmFeeding} stockEvents={farmStockEvents} treatments={farmTreatments} onAddTreatment={addTreatment} activeFarmId={activeFarmId} onDeletePond={deletePond} onEditFish={editFish} onSetMaxKg={setPondMaxKg} onEditPond={handleEditPond} onReorderPonds={handleReorderPonds} onScrollTop={()=>mainRef.current?.scrollTo({top:0,behavior:"instant"})} currency={cs} inventory={farmInventory} farms={farms} pondReports={farmPondReports} onAddPondReport={handleAddPondReport} fishCountHistory={fishCountHistory} onEditFeedRecord={editFeedRecord} onEditTreatment={handleEditTreatment} canCreate={canCreate("Pond Management")} canEdit={canEdit("Pond Management")} canDelete={canDelete("Pond Management")}/>:<AccessDenied/>)}
                 {active==="inventory"     &&(hasPerm("Feed Stock")?<FeedInventoryPage inventory={farmInventory} onAdd={addInv} onDelete={delInv} feedingRecords={farmFeeding} bagLogs={farmBagLogs} remainLogs={farmRemainLogs} ponds={farmPonds} onEditBagLog={editBagLog} onEditInv={editInv} currency={cs} canEditLocked={isOwner||currentStaff?.role==="Farm Manager"} canCreate={canCreate("Feed Stock")} canEdit={canEdit("Feed Stock")} canDelete={canDelete("Feed Stock")}/>:<AccessDenied/>)}
                 {active==="documentation" &&(hasPerm("Feeding Records")?<FeedDocumentationPage feedingRecords={farmFeeding} onAddRecord={addFeed} onEditFeedRecord={editFeedRecord} onDeleteRecord={deleteFeedRecord} ponds={farmPonds} inventory={farmInventory} bagLogs={farmBagLogs} onAddBagLog={addBagLog} onEditBagLog={editBagLog} onEditInv={editInv} remainLogs={farmRemainLogs} onAddRemainLog={addRemainLog} onEditRemainLog={editRemainLog} onReconMismatches={onReconMismatches} reconFocus={reconFocus} canEditLocked={isOwner||currentStaff?.role==="Farm Manager"} currentUser={{name:currentStaff?.name||userProfile?.name||"",email:userProfile?.email||""}} canCreate={canCreate("Feeding Records")} canEdit={canEdit("Feeding Records")} canDelete={canDelete("Feeding Records")} stockEvents={farmStockEvents}/>:<AccessDenied/>)}
                 {active==="invoices"      &&(hasPerm("Invoices")||hasPerm("Sales Management")||hasPerm("Sales Calculator")?<InvoicesPage ponds={farmPonds} invoices={farmInvoices} customers={farmCustomers} priceGroups={farmPriceGroups} settings={invSettings} onAddInvoice={addInvoice} onEditInvoice={editInvoice} onDeleteInvoice={deleteInvoice} onAddCustomer={addCustomer} onAddPriceGroup={addPriceGroup} onEditPriceGroup={editPriceGroup} onDeletePriceGroup={delPriceGroup} onUpdateSettings={(s)=>{setInvSettings(s);api.invSettings.update(s).catch(console.warn);}} currentUser={userProfile?.name} currency={cs} canCreate={canCreate("Invoices")} canEdit={canEdit("Invoices")} canDelete={canDelete("Invoices")}/>:<AccessDenied/>)}
@@ -9174,7 +9489,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
                 {active==="reports"       &&(hasPerm("Reports")?<ReportsPage reports={farmReports} staff={staff} onAdd={addReport} onEdit={editReportFn} onDelete={deleteReport} pondReports={farmPondReports} treatments={farmTreatments} farms={farms} ponds={farmPonds} stockEvents={farmStockEvents} onAddPondReport={handleAddPondReport} onDeletePondReport={deletePondReport} activeFarmId={activeFarmId} canCreate={canCreate("Reports")} canEdit={canEdit("Reports")} canDelete={canDelete("Reports")} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}} isOwner={isOwner}/>:<AccessDenied/>)}
                 {active==="assessments"   &&(hasPerm("Staff Assessments")?<EmployeeAssessmentsPage kQuestions={kQuestions} cQuestions={cQuestions} kResults={kResults} cResults={cResults} onSaveKQuestions={saveKQuestions} onSaveCQuestions={saveCQuestions} onAddKResult={addKResult} onAddCResult={addCResult} ownerId={userProfile?.id??""}/>:<AccessDenied/>)}
                 {active==="pricing"       &&(isOwner?<SubscriptionPage farmCount={farms.length} activePlan={activePlan} setActivePlan={setActivePlan} trialStartDate={trialStartDate} setTrialStartDate={setTrialStartDate} currency={cs} convertPrice={cvt} userProfile={userProfile} onProfileUpdated={(p) => setUserProfile(prev => { if (!prev) return (p as UserProfile); const next: UserProfile = { ...prev, ...p }; if(prev.id){ try{ localStorage.setItem(`pondtora_${prev.id}_user_profile`, JSON.stringify(next)); }catch{} } return next; })} activeFarmName={farms.find(f=>f.id===activeFarmId)?.name||userProfile?.farmName} onOpenReferrals={() => { setSettingsTab("referrals"); nav("settings"); }}/>:<AccessDenied/>)}
-                {active==="settings"      &&<SettingsPage farms={isOwner?farms:accessibleFarms} onAddFarm={handleAddFarmDirect} onEditFarm={handleEditFarm} onDeleteFarm={handleDeleteFarm} userProfile={userProfile} onUpdateProfile={handleUpdateProfile} isOwner={isOwner} ponds={ponds} activePlan={activePlan} initialTab={settingsTab}/>}
+                {active==="settings"      &&<SettingsPage farms={isOwner?farms:accessibleFarms} onAddFarm={handleAddFarmDirect} onEditFarm={handleEditFarm} onDeleteFarm={handleDeleteFarm} userProfile={userProfile} onUpdateProfile={handleUpdateProfile} isOwner={isOwner} ponds={ponds} activePlan={activePlan} initialTab={settingsTab} treatments={treatments} pondReports={pondReports}/>}
                 {active==="notifications" && (canView("Notifications") ? <NotificationsPage notifications={notifications} onMarkRead={markRead} onMarkAllRead={markAllRead} farms={farms} activeFarmId={activeFarmId} farmCount={farms.length} onDismiss={dismissNotif} onNotifNav={(n)=>{if(n.type==="reconciliation"&&n.reconDate&&n.reconKey){nav("documentation");setReconFocus({date:n.reconDate,key:n.reconKey});}}}/> : <AccessDenied/>)}
               </AppErrorBoundary>
             )}

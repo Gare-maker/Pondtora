@@ -284,6 +284,40 @@ export function fmtDate(d:string):string{
   return formatFishStockDate(d);
 }
 
+export function isFormattedDate(str: string | null | undefined): boolean {
+  if (!str || typeof str !== "string") return false;
+  const s = str.trim();
+  if (/^(\d{1,2})(st|nd|rd|th)\s+[A-Za-z]+\s+\d{4}$/i.test(s)) return true;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return true;
+  if (/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/.test(s)) return true;
+  const cleanStr = s.replace(/(st|nd|rd|th),?/gi, "").replace(/,/g, " ").replace(/\s+/g, " ").trim();
+  const parts = cleanStr.split(" ");
+  if (parts.length >= 2) {
+    const hasMonth = FULL_MONTH_NAMES.some(m => m.toLowerCase().startsWith(parts[0].toLowerCase().slice(0, 3)) || m.toLowerCase().startsWith(parts[1].toLowerCase().slice(0, 3)));
+    const hasNum = /^\d+$/.test(parts[0]) || /^\d+$/.test(parts[1]);
+    if (hasMonth && hasNum) return true;
+  }
+  return false;
+}
+
+export function getFishStockDateLabel(pond?: { species?: string; stockingDate?: string; fishStock?: string } | null): string | null {
+  if (!pond) return null;
+  if (pond.stockingDate && pond.stockingDate !== "—" && pond.stockingDate.trim()) {
+    const formatted = formatFishStockDate(pond.stockingDate);
+    if (formatted && formatted !== "—" && isFormattedDate(formatted)) {
+      return formatted;
+    }
+  }
+  if (pond.fishStock && pond.fishStock !== "—" && pond.fishStock.trim()) {
+    const formatted = formatFishStockDate(pond.fishStock);
+    if (formatted && formatted !== "—" && isFormattedDate(formatted)) {
+      return formatted;
+    }
+  }
+  return null;
+}
+
+
 export function isSameDate(d1?: string | null, d2?: string | null): boolean {
   if (!d1 || !d2) return false;
   if (d1 === d2) return true;

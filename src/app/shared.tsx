@@ -146,12 +146,12 @@ export function Modal({title,onClose,children,wide,size,maxW,footer}:{title:stri
 
   return(
     <div
-      className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-[70] p-0 sm:p-4 touch-none overscroll-none"
+      className="fixed inset-0 bg-black/40 flex items-center justify-center z-[70] p-3 sm:p-4 touch-none overscroll-none"
       style={{ overscrollBehavior: "none", touchAction: "none" }}
       onClick={e=>e.target===e.currentTarget&&onClose()}
     >
       <div
-        className={`bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full ${widthClass} max-h-[92vh] sm:max-h-[90vh] flex flex-col overscroll-contain overflow-hidden`}
+        className={`bg-white rounded-2xl shadow-2xl w-full ${widthClass} max-h-[92vh] sm:max-h-[90vh] flex flex-col overscroll-contain overflow-hidden`}
         style={{ ...(maxW ? { maxWidth: maxW } : {}), overscrollBehavior: "contain" }}
         onClick={e => e.stopPropagation()}
       >

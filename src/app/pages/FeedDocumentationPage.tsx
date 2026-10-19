@@ -3731,7 +3731,7 @@ function FeedDocumentation({
       {/* ── Log Opened Bags & Leftover Feed Modal ── */}
       {/* ── Log Opened Bags & Leftover Feed Modal ── */}
       {showBagsModal && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-3 sm:p-6" onClick={e => e.target === e.currentTarget && setShowBagsModal(false)}>
+        <div className="fixed inset-0 bg-black/50 z-[70] flex items-center justify-center p-3 sm:p-6" onClick={e => e.target === e.currentTarget && setShowBagsModal(false)}>
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col overflow-hidden max-h-[90dvh] sm:max-h-[85vh]">
             <div className="flex items-start justify-between px-4 sm:px-5 py-3 border-b border-slate-100 shrink-0">
               <div>
@@ -3796,7 +3796,6 @@ function FeedDocumentation({
                               return next;
                             });
                           }}
-                          onFocus={e => setTimeout(() => e.target.scrollIntoView({ behavior: 'smooth', block: 'center' }), 180)}
                           className="w-full text-[11px] px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-slate-800 font-normal focus:outline-none focus:ring-1 focus:ring-green-400"
                         >
                           <option value="">Select fish stock…</option>
@@ -3833,7 +3832,7 @@ function FeedDocumentation({
                                     return next;
                                   });
                                 }}
-                                onFocus={e => setTimeout(() => e.target.scrollIntoView({ behavior: 'smooth', block: 'center' }), 180)}
+                                
                                 className={`w-full text-[11px] px-2.5 py-1.5 bg-white border rounded-lg text-slate-800 font-normal focus:outline-none focus:ring-1 h-[34px] ${bagsErr[`size_${i}`] ? "border-red-300 focus:ring-red-300" : "border-slate-200 focus:ring-green-400"}`}
                               >
                                 {!row.size && <option value="">Select pallet…</option>}
@@ -3923,7 +3922,6 @@ function FeedDocumentation({
                                 return next;
                               });
                             }}
-                            onFocus={e => setTimeout(() => e.target.scrollIntoView({ behavior: 'smooth', block: 'center' }), 180)}
                             className={`w-full text-[11px] px-2 py-1 bg-slate-50/50 border ${isOverStock || bagsErr[`qty_${i}`] ? "border-red-300 focus:ring-red-100" : "border-slate-200 focus:ring-green-400"} rounded-md font-normal text-slate-800 placeholder:text-slate-300 focus:outline-none focus:ring-1`}
                             placeholder="0"
                           />
@@ -3974,7 +3972,6 @@ function FeedDocumentation({
                                 return next;
                               });
                             }}
-                            onFocus={e => setTimeout(() => e.target.scrollIntoView({ behavior: 'smooth', block: 'center' }), 180)}
                             className={`w-full text-[11px] px-2 py-1 bg-slate-50/50 border rounded-md font-normal text-slate-800 placeholder:text-slate-300 focus:outline-none focus:ring-1 ${bagsErr[`rem_${i}`] ? "border-red-300 focus:ring-red-100" : "border-slate-200 focus:ring-green-400"}`}
                             placeholder="0.0"
                           />

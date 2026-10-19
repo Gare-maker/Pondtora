@@ -6,7 +6,7 @@ import {
   MoreVertical, TrendingUp, TrendingDown, Filter, History, GripVertical
 } from "lucide-react";
 import type { Pond, Expense, MortalityEntry, FeedingRecord, StockEvent, TreatmentRecord, BagOpenLog, FeedRemainingLog, FeedItem, Farm, PondReport, FishCountHistoryEntry } from "../types";
-import { EXPENSE_CATS, POND_TYPES, POND_SPECIES, MORT_CAUSES, TODAY, fmt, uid, toMon, toYr, downloadCSV, openPrintWindow, fmtStockingDate, getPondFishStock, formatFishStock, isStockMatch, isSameDate } from "../data";
+import { EXPENSE_CATS, POND_TYPES, POND_SPECIES, MORT_CAUSES, TODAY, fmt, uid, toMon, toYr, downloadCSV, openPrintWindow, fmtStockingDate, getPondFishStock, formatFishStock, isStockMatch, isSameDate, getFishStockDateLabel, isFormattedDate } from "../data";
 import { Card, Bdg, PBtn, Pagination, PER_PAGE, StatCard, Modal, F, IC, SC, SH, useSort, DateFilter, NumInput } from "../shared";
 import PondReportsComponent from "./PondReportsComponent";
 
@@ -34,6 +34,8 @@ function PondDetail({
   pondReports=[],
   onAddPondReport,
   fishCountHistory=[],
+  onEditFeedRecord,
+  onEditTreatment,
   canCreate = true,
   canEdit = true,
   canDelete = true,
@@ -61,6 +63,8 @@ function PondDetail({
   pondReports?:PondReport[];
   onAddPondReport?:(r:PondReport)=>Promise<void>;
   fishCountHistory?:FishCountHistoryEntry[];
+  onEditFeedRecord?:(r:FeedingRecord)=>void;
+  onEditTreatment?:(t:TreatmentRecord)=>void;
   canCreate?:boolean;
   canEdit?:boolean;
   canDelete?:boolean;
@@ -100,7 +104,9 @@ function PondDetail({
   useEffect(()=>{const h=(e:MouseEvent)=>{if(pondMenuRef.current&&!pondMenuRef.current.contains(e.target as Node))setShowPondMenu(false);};document.addEventListener("mousedown",h);return()=>document.removeEventListener("mousedown",h);},[]);
   const handleSaveEditFish=()=>{
     const s = (editFishF.species === "Other" ? editFishF.customSpecies.trim() : editFishF.species.trim()) || pond.species || "Catfish";
-    if(onEditFish)onEditFish(pond.id,{species:s,currentCount:Number(editFishF.count)||pond.currentCount,stockingDate:editFishF.stockingDate||pond.stockingDate,fishStock:s||pond.fishStock||pond.species},{reason:"Edited fish stock details"});
+    const newStockDate = editFishF.stockingDate || pond.stockingDate;
+    const newStockLabel = fmtStockingDate(newStockDate);
+    if(onEditFish)onEditFish(pond.id,{species:s,currentCount:Number(editFishF.count)||pond.currentCount,stockingDate:newStockDate,fishStock:newStockLabel},{reason:"Edited fish stock details"});
     setShowEditFish(false);
   };
   const handleUpdateQty=(mode?: "increase" | "reduce", directAmt?: number)=>{
@@ -361,9 +367,18 @@ function PondDetail({
   const dead = pond.status === "Empty" ? 0 : logs.reduce((s,m)=>s+m.count,0);
   const mRate = pond.initialStock>0 && pond.status!=="Empty" ? ((dead/pond.initialStock)*100).toFixed(2) : "0.00";
   const history = pond.status === "Empty" ? [] : feedingRecords.filter(r => {
-    if (r.pond !== pond.name) return false;
-    if (r.fishStock && activeFishStockLabel) {
-      return r.fishStock === activeFishStockLabel || r.fishStock === pond.species;
+    if (r.pond !== pond.name && r.pond !== pond.id) return false;
+    if (r.fishStock) {
+      const pStockDate = pond.stockingDate && pond.stockingDate !== "—" ? pond.stockingDate : null;
+      const pDateLabel = getFishStockDateLabel(pond);
+      const isMatch = (pDateLabel && (r.fishStock === pDateLabel || isSameDate(r.fishStock, pDateLabel))) ||
+        (pStockDate && (r.fishStock === fmtStockingDate(pStockDate) || isSameDate(r.fishStock, pStockDate))) ||
+        (pond.fishStock && (r.fishStock === pond.fishStock || isSameDate(r.fishStock, pond.fishStock))) ||
+        (pond.species && r.fishStock === pond.species) ||
+        isStockMatch(r.fishStock, pDateLabel || pond.fishStock || pond.species) ||
+        r.fishStock === "Current Stock" ||
+        r.fishStock === "General Stock";
+      return Boolean(isMatch);
     }
     return true;
   });
@@ -415,7 +430,9 @@ function PondDetail({
     if(restockF.species === "Other" && !restockF.customSpecies.trim()) errs.species="Please specify the species name";
     if(Object.keys(errs).length){setRestockErr(errs);return;}
     const s = (restockF.species === "Other" ? restockF.customSpecies.trim() : restockF.species.trim()) || "Catfish";
-    onRestockPond(pond.id,{species:s,fishStock:s,initialStock:Number(restockF.initialStock),stockingDate:restockF.stockingDate||TODAY,stockMonth:restockF.stockingDate?toMon(restockF.stockingDate):toMon(TODAY),supplier:restockF.supplier});
+    const stockDate = restockF.stockingDate || TODAY;
+    const stockLabel = fmtStockingDate(stockDate);
+    onRestockPond(pond.id,{species:s,fishStock:stockLabel,initialStock:Number(restockF.initialStock),stockingDate:stockDate,stockMonth:toMon(stockDate),supplier:restockF.supplier});
     setShowRestock(false);
     setRestockF({species:"Catfish",customSpecies:"",initialStock:"",stockingDate:"",supplier:""});
   };
@@ -949,14 +966,14 @@ function PondDetail({
         </div>
         <F label="Feed Brand"><input value={editFeedRec.brand} onChange={e=>setEditFeedRec(p=>p?{...p,brand:e.target.value}:p)} className={IC}/></F>
         <F label="Feed Size"><select value={editFeedRec.size} onChange={e=>setEditFeedRec(p=>p?{...p,size:e.target.value}:p)} className={SC}>{invSizesForBrand(editFeedRec?.brand||"").length>0?invSizesForBrand(editFeedRec?.brand||"").map(s=><option key={s}>{s}</option>):allInvSizes.map(s=><option key={s}>{s}</option>)}</select></F>
-        <div className="flex gap-2 pt-1"><PBtn onClick={()=>{setEditFeedRec(null);}}><CheckCircle size={14}/> Save Changes</PBtn><button onClick={()=>setEditFeedRec(null)} className="px-4 py-2 text-sm text-slate-400">Cancel</button></div>
+        <div className="flex gap-2 pt-1"><PBtn onClick={()=>{if(onEditFeedRecord&&editFeedRec)onEditFeedRecord(editFeedRec);setEditFeedRec(null);}}><CheckCircle size={14}/> Save Changes</PBtn><button onClick={()=>setEditFeedRec(null)} className="px-4 py-2 text-sm text-slate-400">Cancel</button></div>
       </Modal>}
       {editTreatRec&&<Modal title="Edit Treatment Record" onClose={()=>setEditTreatRec(null)}>
         <F label="Date"><input type="date" value={editTreatRec.date} onChange={e=>setEditTreatRec(p=>p?{...p,date:e.target.value}:p)} className={IC}/></F>
         <F label="Medicine Applied"><input value={editTreatRec.medicine} onChange={e=>setEditTreatRec(p=>p?{...p,medicine:e.target.value}:p)} className={IC}/></F>
         <F label="Cause (Optional)"><input value={editTreatRec.cause} onChange={e=>setEditTreatRec(p=>p?{...p,cause:e.target.value}:p)} className={IC}/></F>
         <F label="Remarks (Optional)"><textarea value={editTreatRec.remarks} onChange={e=>setEditTreatRec(p=>p?{...p,remarks:e.target.value}:p)} className={`${IC} resize-none`} rows={2}/></F>
-        <div className="flex gap-2 pt-1"><PBtn onClick={()=>setEditTreatRec(null)}><CheckCircle size={14}/> Save Changes</PBtn><button onClick={()=>setEditTreatRec(null)} className="px-4 py-2 text-sm text-slate-400">Cancel</button></div>
+        <div className="flex gap-2 pt-1"><PBtn onClick={()=>{if(onEditTreatment&&editTreatRec)onEditTreatment(editTreatRec);setEditTreatRec(null);}}><CheckCircle size={14}/> Save Changes</PBtn><button onClick={()=>setEditTreatRec(null)} className="px-4 py-2 text-sm text-slate-400">Cancel</button></div>
       </Modal>}
       {showTreat&&<Modal title={`Log Treatment — ${pond.name}`} onClose={()=>setShowTreat(false)}>
         <div className="space-y-3">
@@ -1153,7 +1170,7 @@ export function getNextPondFigure(ponds: Pond[]): string {
 }
 
 /* ─── 2. Pond Management ────────────────────────────────────── */
-export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPond,onTransfer,onNurseryTransfer,mortality,onAddMortality,onAddCost,feedingRecords,stockEvents,treatments,onAddTreatment,activeFarmId,onDeletePond,onEditFish,onSetMaxKg,onEditPond,onReorderPonds,onScrollTop,currency="₦",inventory=[],farms=[],pondReports=[],onAddPondReport,fishCountHistory=[],canCreate=true,canEdit=true,canDelete=true}:{ponds:Pond[];onAddPond:(p:Pond)=>void;onClosePond:(id:string)=>void;onRestockPond:(id:string,data:{species:string;initialStock:number;stockingDate:string;stockMonth:string;supplier?:string;fishStock?:string})=>void;onTransfer:(fromId:string,toId:string,date:string)=>void;onNurseryTransfer:(fromId:string,toId:string,count:number,pct:number,date:string)=>void;mortality:MortalityEntry[];onAddMortality:(m:MortalityEntry,pondId:string)=>void;onAddCost:(e:Expense)=>void;feedingRecords:FeedingRecord[];stockEvents:StockEvent[];treatments:TreatmentRecord[];onAddTreatment:(t:TreatmentRecord)=>void;activeFarmId:string;onDeletePond?:(id:string)=>void;onEditFish?:(pondId:string,u:{species:string;currentCount:number;stockingDate:string;fishStock?:string},reasonOpt?:{reason?:string})=>void;onSetMaxKg:(pondId:string,size:string,maxKg:number)=>void;onEditPond?:(id:string,u:Partial<Pond>)=>void;onReorderPonds?:(ponds:Pond[])=>void;onScrollTop?:()=>void;currency?:string;inventory?:FeedItem[];farms?:Farm[];pondReports?:PondReport[];onAddPondReport?:(r:PondReport)=>Promise<void>;fishCountHistory?:FishCountHistoryEntry[];canCreate?:boolean;canEdit?:boolean;canDelete?:boolean;}){
+export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPond,onTransfer,onNurseryTransfer,mortality,onAddMortality,onAddCost,feedingRecords,stockEvents,treatments,onAddTreatment,activeFarmId,onDeletePond,onEditFish,onSetMaxKg,onEditPond,onReorderPonds,onScrollTop,currency="₦",inventory=[],farms=[],pondReports=[],onAddPondReport,fishCountHistory=[],onEditFeedRecord,onEditTreatment,canCreate=true,canEdit=true,canDelete=true}:{ponds:Pond[];onAddPond:(p:Pond)=>void;onClosePond:(id:string)=>void;onRestockPond:(id:string,data:{species:string;initialStock:number;stockingDate:string;stockMonth:string;supplier?:string;fishStock?:string})=>void;onTransfer:(fromId:string,toId:string,date:string)=>void;onNurseryTransfer:(fromId:string,toId:string,count:number,pct:number,date:string)=>void;mortality:MortalityEntry[];onAddMortality:(m:MortalityEntry,pondId:string)=>void;onAddCost:(e:Expense)=>void;feedingRecords:FeedingRecord[];stockEvents:StockEvent[];treatments:TreatmentRecord[];onAddTreatment:(t:TreatmentRecord)=>void;activeFarmId:string;onDeletePond?:(id:string)=>void;onEditFish?:(pondId:string,u:{species:string;currentCount:number;stockingDate:string;fishStock?:string},reasonOpt?:{reason?:string})=>void;onSetMaxKg:(pondId:string,size:string,maxKg:number)=>void;onEditPond?:(id:string,u:Partial<Pond>)=>void;onReorderPonds?:(ponds:Pond[])=>void;onScrollTop?:()=>void;currency?:string;inventory?:FeedItem[];farms?:Farm[];pondReports?:PondReport[];onAddPondReport?:(r:PondReport)=>Promise<void>;fishCountHistory?:FishCountHistoryEntry[];onEditFeedRecord?:(r:FeedingRecord)=>void;onEditTreatment?:(t:TreatmentRecord)=>void;canCreate?:boolean;canEdit?:boolean;canDelete?:boolean;}){
   const cs=currency;
   const [detailId,setDetailId]=useState<string|null>(null);
   const [showAdd,setShowAdd]=useState(false);
@@ -1476,12 +1493,9 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
     const list: string[] = [];
     // Only from ponds that are currently active and contain fish
     (ponds || []).filter(p => p.status === "Active" && (Number(p.currentCount) > 0 || (Number(p.initialStock) > 0 && (p.currentCount === undefined || p.currentCount === null)))).forEach(p => {
-      const s = getPondFishStock(p);
-      if (s && s !== "—" && s !== "General Stock" && !list.includes(s)) {
+      const s = getFishStockDateLabel(p);
+      if (s && !list.includes(s)) {
         list.push(s);
-      }
-      if (p.fishStock && p.fishStock !== "—" && p.fishStock !== "General Stock" && !list.includes(p.fishStock)) {
-        list.push(p.fishStock);
       }
     });
     return list;
@@ -1571,12 +1585,12 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
     if(fStatus!=="All"&&p.status!==fStatus)return false;
     if(fMonth!=="All"&&p.stockMonth!==fMonth)return false;
     if(fStock!=="All"){
-      const pStock = getPondFishStock(p);
-      const isDirectMatch = pStock === fStock ||
-        (p.fishStock && (p.fishStock === fStock || formatFishStock(p.fishStock) === fStock)) ||
-        (p.stockingDate && (fmtStockingDate(p.stockingDate) === fStock || p.stockingDate === fStock)) ||
+      const pDateLabel = getFishStockDateLabel(p);
+      const isDirectMatch = (pDateLabel && (pDateLabel === fStock || isSameDate(pDateLabel, fStock))) ||
+        (p.stockingDate && (fmtStockingDate(p.stockingDate) === fStock || p.stockingDate === fStock || isSameDate(p.stockingDate, fStock))) ||
+        (p.fishStock && (p.fishStock === fStock || isSameDate(p.fishStock, fStock))) ||
         isStockMatch(p.fishStock || "", fStock) ||
-        isStockMatch(pStock, fStock);
+        isStockMatch(getPondFishStock(p), fStock);
       if(!isDirectMatch) return false;
     }
     return true;
@@ -1584,7 +1598,7 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
 
   if(pond) return (
     <>
-      <PondDetail pond={pond} mortality={mortality} onAddMortality={onAddMortality} onAddCost={onAddCost} feedingRecords={feedingRecords} onBack={()=>setDetailId(null)} onClosePond={onClosePond} onRestockPond={(id,data)=>{setFStatus("All");onRestockPond(id,data);}} ponds={ponds} stockEvents={stockEvents} onTransfer={onTransfer} onNurseryTransfer={onNurseryTransfer} treatments={treatments} onAddTreatment={onAddTreatment} onEditFish={onEditFish} onSetMaxKg={onSetMaxKg} inventory={inventory} onEditThisPond={openEditPond} currency={currency} farms={farms} pondReports={pondReports} onAddPondReport={onAddPondReport} fishCountHistory={fishCountHistory} canCreate={canCreate} canEdit={canEdit} canDelete={canDelete}/>
+      <PondDetail pond={pond} mortality={mortality} onAddMortality={onAddMortality} onAddCost={onAddCost} feedingRecords={feedingRecords} onBack={()=>setDetailId(null)} onClosePond={onClosePond} onRestockPond={(id,data)=>{setFStatus("All");onRestockPond(id,data);}} ponds={ponds} stockEvents={stockEvents} onTransfer={onTransfer} onNurseryTransfer={onNurseryTransfer} treatments={treatments} onAddTreatment={onAddTreatment} onEditFish={onEditFish} onSetMaxKg={onSetMaxKg} inventory={inventory} onEditThisPond={openEditPond} currency={currency} farms={farms} pondReports={pondReports} onAddPondReport={onAddPondReport} fishCountHistory={fishCountHistory} onEditFeedRecord={onEditFeedRecord} onEditTreatment={onEditTreatment} canCreate={canCreate} canEdit={canEdit} canDelete={canDelete}/>
       {editPondModal}
     </>
   );

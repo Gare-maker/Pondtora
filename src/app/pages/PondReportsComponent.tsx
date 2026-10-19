@@ -5,7 +5,7 @@ import {
 } from "lucide-react";
 import type { Farm, Pond, StockEvent, TreatmentRecord, PondReport } from "../types";
 import { Card, Bdg, PBtn, Modal, F, IC, SC, DateInput } from "../shared";
-import { TODAY, uid, formatFishStockDate, formatFishStock } from "../data";
+import { TODAY, uid, formatFishStockDate, formatFishStock, isStockMatch, isSameDate } from "../data";
 import { toast } from "sonner";
 
 interface PondReportsProps {
@@ -190,8 +190,10 @@ export default function PondReportsComponent({
       // If user selected a specific fish stock, only show reports belonging to that stock
       if (selectedFishStockId) {
         const repStockId = String(report.fishStockId || "");
-        // Match either exact ID or compatible current stock identifier for the same pond
+        // Match either exact ID, same date, stock match, or compatible current stock identifier for the same pond
         const matches = repStockId === selectedFishStockId ||
+          isSameDate(repStockId, selectedFishStockId) ||
+          isStockMatch(repStockId, selectedFishStockId) ||
           (selectedFishStockId.startsWith(`current-${report.pondId}-`) && repStockId.startsWith(`current-${report.pondId}-`));
         if (!matches) return false;
       }
