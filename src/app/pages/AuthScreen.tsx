@@ -102,6 +102,7 @@ function AuthScreen({
   const [cCity, setCCity] = useState("");
   const [cReferralCode, setCReferralCode] = useState(() => getPendingReferrerCode() || "");
   const [cErr, setCErr] = useState("");
+  const [cLoading, setCLoading] = useState(false);
   const [cAgreed, setCAgreed] = useState(false);
   const [showCPass, setShowCPass] = useState(false);
   const [signupSent, setSignupSent] = useState(false);

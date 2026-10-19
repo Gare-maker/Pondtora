@@ -1060,7 +1060,7 @@ function FeedDocumentation({
         normalizeFishStock(opt.name) === normalizeFishStock(b.fishStock) ||
         opt.ponds.some(p => p === b.fishStock || isStockMatch(p, b.fishStock))
       );
-      const resolvedFs = matchedOpt?.name || (isPondName(b.fishStock) ? pondToStock(b.fishStock) : b.fishStock) || (dateOptions[0]?.name || "");
+      const resolvedFs = matchedOpt?.name || (b.fishStock && isPondName(b.fishStock) ? pondToStock(b.fishStock) : b.fishStock) || (dateOptions[0]?.name || "");
       const fs = isPondName(resolvedFs) ? (dateOptions[0]?.name || "") : resolvedFs;
       const associatedPallets = getAssociatedPalletsForStock(fs, checkDate);
       const size = b.size || (associatedPallets[0] || (invSizesForBrand(b.brand)[0] || ""));

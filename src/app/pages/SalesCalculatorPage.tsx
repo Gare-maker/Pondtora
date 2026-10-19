@@ -475,7 +475,7 @@ export default function SalesCalculatorPage({
       setIsSavingCalc(false);
 
       if (onEditCalculation) {
-        onEditCalculation(updatedCalculation, snapshotItems, historyEntry).catch(err => {
+        Promise.resolve(onEditCalculation(updatedCalculation, snapshotItems, historyEntry)).catch((err: any) => {
           console.error("Failed to update sales calculation in cloud:", err);
           toast.error("Failed to sync updated calculation with cloud database.");
         });
@@ -526,7 +526,7 @@ export default function SalesCalculatorPage({
     setIsSavingCalc(false);
 
     if (onAddCalculation) {
-      onAddCalculation(newCalculation, snapshotItems).catch(err => {
+      Promise.resolve(onAddCalculation(newCalculation, snapshotItems)).catch((err: any) => {
         console.error("Failed to save sales calculation in cloud:", err);
         toast.error("Failed to sync new calculation with cloud database.");
       });
@@ -576,7 +576,7 @@ export default function SalesCalculatorPage({
       }
 
       if (onEditCalculation) {
-        onEditCalculation(updated).catch(e => console.warn(e));
+        Promise.resolve(onEditCalculation(updated)).catch((e: any) => console.warn(e));
       }
       api.salesCalculations.recordPayment(
         paymentModalCalc.id,
@@ -1848,7 +1848,7 @@ export default function SalesCalculatorPage({
                 <span className="font-mono font-semibold text-slate-800">{fmt(selectedCalc.subtotal, cs)}</span>
               </div>
 
-              {selectedCalc.generalDiscountAmount > 0 && (
+              {selectedCalc.generalDiscountAmount !== undefined && Number(selectedCalc.generalDiscountAmount) > 0 && (
                 <div className="flex justify-between items-center text-rose-600">
                   <span>General Discount:</span>
                   <span className="font-mono font-semibold">−{fmt(selectedCalc.generalDiscountAmount, cs)}</span>
@@ -1916,7 +1916,7 @@ export default function SalesCalculatorPage({
                               <span className="text-slate-500">Calculation Change:</span>
                               <span className="font-mono font-bold text-slate-800">
                                 {fmt(entry.previousTotal, cs)} → {fmt(entry.newTotal, cs)}
-                                {entry.difference !== 0 && (
+                                {entry.difference !== undefined && entry.difference !== 0 && (
                                   <span className={`ml-1 text-[10px] ${entry.difference > 0 ? "text-emerald-600" : "text-rose-500"}`}>
                                     ({entry.difference > 0 ? "+" : ""}{fmt(entry.difference, cs)})
                                   </span>

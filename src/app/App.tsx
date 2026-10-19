@@ -4351,10 +4351,10 @@ function SettingsPage({farms,onAddFarm,onEditFarm,onDeleteFarm,userProfile,onUpd
                               <td className="px-3 py-2.5 font-mono text-slate-600 whitespace-nowrap">{t.date}</td>
                               <td className="px-3 py-2.5 font-semibold text-slate-800 whitespace-nowrap">{pondIdToName[t.pondId] || t.pondId || "—"}</td>
                               <td className="px-3 py-2.5 text-slate-700 whitespace-nowrap">{t.fishStock || "—"}</td>
-                              <td className="px-3 py-2.5 font-medium text-emerald-800 whitespace-nowrap">{t.treatmentType || t.medicine || "—"}</td>
-                              <td className="px-3 py-2.5 text-slate-600">{t.reason || t.cause || "—"}</td>
-                              <td className="px-3 py-2.5 text-slate-600">{t.dosage || t.details || "—"}</td>
-                              <td className="px-3 py-2.5 text-slate-400 max-w-[180px] truncate">{t.notes || t.remarks || "—"}</td>
+                              <td className="px-3 py-2.5 font-medium text-emerald-800 whitespace-nowrap">{(t as any).treatmentType || t.medicine || "—"}</td>
+                              <td className="px-3 py-2.5 text-slate-600">{(t as any).reason || t.cause || "—"}</td>
+                              <td className="px-3 py-2.5 text-slate-600">{(t as any).dosage || (t as any).details || "—"}</td>
+                              <td className="px-3 py-2.5 text-slate-400 max-w-[180px] truncate">{(t as any).notes || t.remarks || "—"}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -5354,8 +5354,8 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
           }
         } catch {}
         // Synchronize in database
-        supabase.from("user_profiles").update({ farm_name: trimmedNewName, updated_at: new Date().toISOString() }).eq("id", userProfile.id).then().catch(console.warn);
-        supabase.auth.updateUser({ data: { farm_name: trimmedNewName } }).then().catch(console.warn);
+        supabase.from("user_profiles").update({ farm_name: trimmedNewName, updated_at: new Date().toISOString() }).eq("id", userProfile.id).then(undefined, console.warn);
+        supabase.auth.updateUser({ data: { farm_name: trimmedNewName } }).then(undefined, console.warn);
       }
     }
     toast.success("Farm updated successfully");
@@ -6722,9 +6722,12 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     if (!d) return;
     isDataLoadedRef.current = true;
 
-    const rawFarms: Farm[] = (Array.isArray(d.farms)
-      ? d.farms
-      : (userProfile?.id ? loadUserLocal(userProfile.id, "farms", "farms", []) : [])).filter((f: Farm) => !isDeletedId(f.id));
+    // 1. Farms: Merge server farms and any pending local farms
+    const serverFarms: Farm[] = Array.isArray(d.farms) ? d.farms : [];
+    const localFarms: Farm[] = userProfile?.id ? loadUserLocal(userProfile.id, "farms", "farms", []) : [];
+    const serverFarmIds = new Set(serverFarms.map((f: Farm) => f.id));
+    const pendingLocalFarms = localFarms.filter((lf: Farm) => lf?.id && !serverFarmIds.has(lf.id) && !isDeletedId(lf.id));
+    const rawFarms: Farm[] = [...serverFarms.filter((f: Farm) => !isDeletedId(f.id)), ...pendingLocalFarms];
 
     // Deduplicate farms strictly by unique ID to prevent duplicate items in state
     const seenFarmIds = new Set<string>();
@@ -6735,11 +6738,32 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       return true;
     });
 
+    // Auto-sync any pending local farms to Supabase in the background
+    if (pendingLocalFarms.length > 0) {
+      pendingLocalFarms.forEach(f => {
+        api.farms.create(f).catch(err => console.warn("Background farm sync notice:", err));
+      });
+    }
+
+    // 2. Ponds: Merge server ponds and any pending local ponds
+    const serverPonds: Pond[] = Array.isArray(d.ponds) ? d.ponds : [];
+    const localPonds: Pond[] = userProfile?.id ? loadUserLocal(userProfile.id, "ponds", "ponds", []) : [];
+    const serverPondIds = new Set(serverPonds.map((p: Pond) => p.id));
+    const pendingLocalPonds = localPonds.filter((lp: Pond) => lp?.id && !serverPondIds.has(lp.id) && !isDeletedId(lp.id));
+    const pondsData: Pond[] = [...serverPonds.filter((p: Pond) => !isDeletedId(p.id)), ...pendingLocalPonds];
+
+    // Auto-sync any pending local ponds to Supabase in the background
+    if (pendingLocalPonds.length > 0) {
+      pendingLocalPonds.forEach(p => {
+        api.ponds.create(p).catch(err => console.warn("Background pond sync notice:", err));
+      });
+    }
+
     if (resolvedFarms.length > 0) {
       setFarms(resolvedFarms);
       // Smart active farm selection: pick the farm that actually contains ponds if current/stored has none
       const farmPondCounts = new Map<string, number>();
-      pondsData.forEach(p => {
+      pondsData.forEach((p: Pond) => {
         if (p.farmId) farmPondCounts.set(p.farmId, (farmPondCounts.get(p.farmId) || 0) + 1);
       });
 
@@ -6837,15 +6861,15 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       const currentUid = userProfile?.id || (typeof window !== "undefined" ? getStoredAuthUser() : null);
       if (currentUid) {
         const sortedByOrder: Pond[] = [];
-        const farmIds = Array.from(new Set(normPonds.map(p => p.farmId || "")));
+        const farmIds = Array.from(new Set(normPonds.map((p: Pond) => p.farmId || "")));
         farmIds.forEach(fid => {
-          const farmPondsList = normPonds.filter(p => (p.farmId || "") === fid);
+          const farmPondsList = normPonds.filter((p: Pond) => (p.farmId || "") === fid);
           try {
             const rawOrder = localStorage.getItem(`pondtora_${currentUid}_pond_order_${fid}`);
             if (rawOrder) {
               const orderIds: string[] = JSON.parse(rawOrder);
               if (Array.isArray(orderIds) && orderIds.length > 0) {
-                farmPondsList.sort((a, b) => {
+                farmPondsList.sort((a: Pond, b: Pond) => {
                   const idxA = orderIds.indexOf(a.id);
                   const idxB = orderIds.indexOf(b.id);
                   if (idxA === -1 && idxB === -1) return 0;
@@ -6864,81 +6888,110 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       }
     }
 
-    const stockData: StockEvent[] = Array.isArray(d.stockEvents)
-      ? d.stockEvents
-      : (userProfile?.id ? loadUserLocal(userProfile.id, "stock_events", "stockEvents", []) : []);
-    if (stockData) {
-      const normStock = stockData.filter((se: StockEvent) => !isDeletedId(se.id)).map((se: StockEvent) => ({ ...se, farmId: normFid(se.farmId) }));
-      setStockEvents(normStock);
+    const serverStock: StockEvent[] = Array.isArray(d.stockEvents) ? d.stockEvents : [];
+    const localStock: StockEvent[] = userProfile?.id ? loadUserLocal(userProfile.id, "stock_events", "stockEvents", []) : [];
+    const serverStockIds = new Set(serverStock.map(s => s.id));
+    const pendingLocalStock = localStock.filter(ls => ls?.id && !serverStockIds.has(ls.id) && !isDeletedId(ls.id));
+    const stockData: StockEvent[] = [...serverStock.filter(s => !isDeletedId(s.id)), ...pendingLocalStock];
+    if (pendingLocalStock.length > 0) {
+      pendingLocalStock.forEach(s => api.stockEvents.create(s).catch(console.warn));
     }
+    const normStock = stockData.map((se: StockEvent) => ({ ...se, farmId: normFid(se.farmId) }));
+    setStockEvents(normStock);
 
-    const invData: FeedItem[] = Array.isArray(d.feedInventory)
-      ? d.feedInventory
-      : (userProfile?.id ? loadUserLocal(userProfile.id, "inventory", "feedInventory", []) : []);
-    if (invData) {
-      const normInv = invData.filter((i: FeedItem) => !isDeletedId(i.id)).map((i: FeedItem) => ({ ...i, farmId: normFid(i.farmId) }));
-      setInventory(normInv);
+    const serverInv: FeedItem[] = Array.isArray(d.feedInventory) ? d.feedInventory : [];
+    const localInv: FeedItem[] = userProfile?.id ? loadUserLocal(userProfile.id, "inventory", "feedInventory", []) : [];
+    const serverFeedInvIds = new Set(serverInv.map(i => i.id));
+    const pendingLocalFeedInv = localInv.filter(li => li?.id && !serverFeedInvIds.has(li.id) && !isDeletedId(li.id));
+    const invData: FeedItem[] = [...serverInv.filter(i => !isDeletedId(i.id)), ...pendingLocalFeedInv];
+    if (pendingLocalFeedInv.length > 0) {
+      pendingLocalFeedInv.forEach(i => api.inventory.create(i).catch(console.warn));
     }
+    const normInv = invData.map((i: FeedItem) => ({ ...i, farmId: normFid(i.farmId) }));
+    setInventory(normInv);
 
-    const feedData: FeedingRecord[] = Array.isArray(d.feedingRecords)
-      ? d.feedingRecords
-      : (userProfile?.id ? loadUserLocal(userProfile.id, "feeding", "feedingRecords", []) : []);
-    if (feedData) {
-      const normFeed = feedData.filter((fr: FeedingRecord) => !isDeletedId(fr.id)).map((fr: FeedingRecord) => ({ ...fr, farmId: normFid(fr.farmId) }));
-      setFeeding(normFeed);
+    const serverFeed: FeedingRecord[] = Array.isArray(d.feedingRecords) ? d.feedingRecords : [];
+    const localFeed: FeedingRecord[] = userProfile?.id ? loadUserLocal(userProfile.id, "feeding", "feedingRecords", []) : [];
+    const serverFeedIds = new Set(serverFeed.map(f => f.id));
+    const pendingLocalFeed = localFeed.filter(lf => lf?.id && !serverFeedIds.has(lf.id) && !isDeletedId(lf.id));
+    const feedData: FeedingRecord[] = [...serverFeed.filter(f => !isDeletedId(f.id)), ...pendingLocalFeed];
+    if (pendingLocalFeed.length > 0) {
+      pendingLocalFeed.forEach(f => api.feeding.create(f).catch(console.warn));
     }
+    const normFeed = feedData.map((fr: FeedingRecord) => ({ ...fr, farmId: normFid(fr.farmId) }));
+    setFeeding(normFeed);
 
-    const bagData: BagOpenLog[] = Array.isArray(d.bagOpenLogs)
-      ? d.bagOpenLogs
-      : (userProfile?.id ? loadUserLocal(userProfile.id, "bag_logs", "bagOpenLogs", []) : []);
-    if (bagData) {
-      const normBags = bagData.filter((b: BagOpenLog) => !isDeletedId(b.id)).map((b: BagOpenLog) => ({ ...b, farmId: normFid(b.farmId) }));
-      setBagLogs(normBags);
+    const serverBags: BagOpenLog[] = Array.isArray(d.bagOpenLogs) ? d.bagOpenLogs : [];
+    const localBags: BagOpenLog[] = userProfile?.id ? loadUserLocal(userProfile.id, "bag_logs", "bagOpenLogs", []) : [];
+    const serverBagIds = new Set(serverBags.map(b => b.id));
+    const pendingLocalBags = localBags.filter(lb => lb?.id && !serverBagIds.has(lb.id) && !isDeletedId(lb.id));
+    const bagData: BagOpenLog[] = [...serverBags.filter(b => !isDeletedId(b.id)), ...pendingLocalBags];
+    if (pendingLocalBags.length > 0) {
+      pendingLocalBags.forEach(b => api.bagLogs.create(b).catch(console.warn));
     }
+    const normBags = bagData.map((b: BagOpenLog) => ({ ...b, farmId: normFid(b.farmId) }));
+    setBagLogs(normBags);
 
-    const remData: FeedRemainingLog[] = Array.isArray(d.feedRemainingLogs)
-      ? d.feedRemainingLogs
-      : (userProfile?.id ? loadUserLocal(userProfile.id, "remain_logs", "feedRemainingLogs", []) : []);
-    if (remData) {
-      const normRemain = remData.filter((r: FeedRemainingLog) => !isDeletedId(r.id)).map((r: FeedRemainingLog) => ({ ...r, farmId: normFid(r.farmId) }));
-      setRemainLogs(normRemain);
+    const serverRemain: FeedRemainingLog[] = Array.isArray(d.feedRemainingLogs) ? d.feedRemainingLogs : [];
+    const localRemain: FeedRemainingLog[] = userProfile?.id ? loadUserLocal(userProfile.id, "remain_logs", "feedRemainingLogs", []) : [];
+    const serverRemainIds = new Set(serverRemain.map(r => r.id));
+    const pendingLocalRemain = localRemain.filter(lr => lr?.id && !serverRemainIds.has(lr.id) && !isDeletedId(lr.id));
+    const remData: FeedRemainingLog[] = [...serverRemain.filter(r => !isDeletedId(r.id)), ...pendingLocalRemain];
+    if (pendingLocalRemain.length > 0) {
+      pendingLocalRemain.forEach(r => api.remainLogs.create(r).catch(console.warn));
     }
+    const normRemain = remData.map((r: FeedRemainingLog) => ({ ...r, farmId: normFid(r.farmId) }));
+    setRemainLogs(normRemain);
 
-    const expData: Expense[] = Array.isArray(d.expenses)
-      ? d.expenses
-      : (userProfile?.id ? loadUserLocal(userProfile.id, "expenses", "expenses", []) : []);
-    if (expData) {
-      const normExp = expData.filter((e: Expense) => !isDeletedId(e.id)).map((e: Expense) => ({ ...e, farmId: normFid(e.farmId) }));
-      setExpenses(normExp);
+    const serverExp: Expense[] = Array.isArray(d.expenses) ? d.expenses : [];
+    const localExp: Expense[] = userProfile?.id ? loadUserLocal(userProfile.id, "expenses", "expenses", []) : [];
+    const serverExpIds = new Set(serverExp.map(e => e.id));
+    const pendingLocalExp = localExp.filter(le => le?.id && !serverExpIds.has(le.id) && !isDeletedId(le.id));
+    const expData: Expense[] = [...serverExp.filter(e => !isDeletedId(e.id)), ...pendingLocalExp];
+    if (pendingLocalExp.length > 0) {
+      pendingLocalExp.forEach(e => api.expenses.create(e).catch(console.warn));
     }
+    const normExp = expData.map((e: Expense) => ({ ...e, farmId: normFid(e.farmId) }));
+    setExpenses(normExp);
 
-    const revData: Revenue[] = Array.isArray(d.revenues)
-      ? d.revenues
-      : (userProfile?.id ? loadUserLocal(userProfile.id, "revenues", "revenues", []) : []);
-    if (revData) {
-      // Invoices marked as paid must not reflect in revenues or financial dashboard
-      const invoiceRevs = revData.filter((r: Revenue) => r.notes?.startsWith("Payment for Invoice"));
-      invoiceRevs.forEach((r: Revenue) => api.revenues.remove(r.id).catch(console.warn));
-      const cleanRevs = revData.filter((r: Revenue) => !r.notes?.startsWith("Payment for Invoice"));
-      const normRev = cleanRevs.filter((r: Revenue) => !isDeletedId(r.id)).map((r: Revenue) => ({ ...r, farmId: normFid(r.farmId) }));
-      setRevenues(normRev);
+    const serverRev: Revenue[] = Array.isArray(d.revenues) ? d.revenues : [];
+    const localRev: Revenue[] = userProfile?.id ? loadUserLocal(userProfile.id, "revenues", "revenues", []) : [];
+    const serverRevIds = new Set(serverRev.map(r => r.id));
+    const pendingLocalRev = localRev.filter(lr => lr?.id && !serverRevIds.has(lr.id) && !isDeletedId(lr.id));
+    const revData: Revenue[] = [...serverRev.filter(r => !isDeletedId(r.id)), ...pendingLocalRev];
+    if (pendingLocalRev.length > 0) {
+      pendingLocalRev.forEach(r => api.revenues.create(r).catch(console.warn));
     }
+    // Invoices marked as paid must not reflect in revenues or financial dashboard
+    const invoiceRevs = revData.filter((r: Revenue) => r.notes?.startsWith("Payment for Invoice"));
+    invoiceRevs.forEach((r: Revenue) => {
+      supabase.from("revenues").delete().eq("id", r.id).then();
+    });
+    const cleanRevs = revData.filter((r: Revenue) => !r.notes?.startsWith("Payment for Invoice"));
+    const normRev = cleanRevs.map((r: Revenue) => ({ ...r, farmId: normFid(r.farmId) }));
+    setRevenues(normRev);
 
-    const mortData: MortalityEntry[] = Array.isArray(d.mortalityEntries)
-      ? d.mortalityEntries
-      : (userProfile?.id ? loadUserLocal(userProfile.id, "mortality", "mortalityEntries", []) : []);
-    if (mortData) {
-      const normMort = mortData.filter((m: MortalityEntry) => !isDeletedId(m.id)).map((m: MortalityEntry) => ({ ...m, farmId: normFid(m.farmId) }));
-      setMortality(normMort);
+    const serverMort: MortalityEntry[] = Array.isArray(d.mortalityEntries) ? d.mortalityEntries : [];
+    const localMort: MortalityEntry[] = userProfile?.id ? loadUserLocal(userProfile.id, "mortality", "mortalityEntries", []) : [];
+    const serverMortIds = new Set(serverMort.map(m => m.id));
+    const pendingLocalMort = localMort.filter(lm => lm?.id && !serverMortIds.has(lm.id) && !isDeletedId(lm.id));
+    const mortData: MortalityEntry[] = [...serverMort.filter(m => !isDeletedId(m.id)), ...pendingLocalMort];
+    if (pendingLocalMort.length > 0) {
+      pendingLocalMort.forEach(m => api.mortality.create(m).catch(console.warn));
     }
+    const normMort = mortData.map((m: MortalityEntry) => ({ ...m, farmId: normFid(m.farmId) }));
+    setMortality(normMort);
 
-    const treatData: TreatmentRecord[] = Array.isArray(d.treatmentRecords)
-      ? d.treatmentRecords
-      : (userProfile?.id ? loadUserLocal(userProfile.id, "treatments", "treatmentRecords", []) : []);
-    if (treatData) {
-      const normTreat = treatData.filter((t: TreatmentRecord) => !isDeletedId(t.id)).map((t: TreatmentRecord) => ({ ...t, farmId: normFid(t.farmId) }));
-      setTreatments(normTreat);
+    const serverTreat: TreatmentRecord[] = Array.isArray(d.treatmentRecords) ? d.treatmentRecords : [];
+    const localTreat: TreatmentRecord[] = userProfile?.id ? loadUserLocal(userProfile.id, "treatments", "treatmentRecords", []) : [];
+    const serverTreatIds = new Set(serverTreat.map(t => t.id));
+    const pendingLocalTreat = localTreat.filter(lt => lt?.id && !serverTreatIds.has(lt.id) && !isDeletedId(lt.id));
+    const treatData: TreatmentRecord[] = [...serverTreat.filter(t => !isDeletedId(t.id)), ...pendingLocalTreat];
+    if (pendingLocalTreat.length > 0) {
+      pendingLocalTreat.forEach(t => api.treatments.create(t).catch(console.warn));
     }
+    const normTreat = treatData.map((t: TreatmentRecord) => ({ ...t, farmId: normFid(t.farmId) }));
+    setTreatments(normTreat);
     const serverStaff: StaffMember[] = Array.isArray(d.staffMembers) ? d.staffMembers : [];
     const localStaff: StaffMember[] = userProfile?.id ? loadUserLocal(userProfile.id, "staff", "staffMembers", []) : [];
     const serverStaffIds = new Set(serverStaff.map(s => s.id));

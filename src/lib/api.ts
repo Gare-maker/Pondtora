@@ -770,14 +770,40 @@ export async function verifyFarmAccess(farmId?: string): Promise<void> {
       throw new Error("Unauthorized: You do not have access to this farm.");
     }
   } else {
-    const { data: farm } = await supabase
+    const { data: farm, error: farmErr } = await supabase
       .from("farms")
       .select("id")
       .eq("id", farmId)
       .eq("user_id", currentUid)
       .maybeSingle();
     if (!farm) {
-      throw new Error("Unauthorized: You do not own this farm.");
+      let hasLocal = false;
+      try {
+        const rawFarms = localStorage.getItem(`pondtora_${currentUid}_farms`);
+        if (rawFarms) {
+          const parsed = JSON.parse(rawFarms);
+          if (Array.isArray(parsed) && parsed.some((f: any) => f.id === farmId)) {
+            hasLocal = true;
+            const matched = parsed.find((f: any) => f.id === farmId);
+            if (matched) {
+              dbInsert<Farm>("farms", matched, "farms").catch(console.warn);
+            }
+          }
+        }
+      } catch {}
+      if (!hasLocal) {
+        const cached = getLocalCache(currentUid);
+        if (cached?.farms && cached.farms.some((f: any) => f.id === farmId)) {
+          hasLocal = true;
+          const matched = cached.farms.find((f: any) => f.id === farmId);
+          if (matched) {
+            dbInsert<Farm>("farms", matched, "farms").catch(console.warn);
+          }
+        }
+      }
+      if (!hasLocal && !farmErr) {
+        throw new Error("Unauthorized: You do not own this farm.");
+      }
     }
   }
 }
@@ -2318,7 +2344,32 @@ export const api = {
         let validFarmId: string | null = null;
         if (p.farmId && isUuid(p.farmId)) {
           const { data: fRow } = await supabase.from("farms").select("id").eq("id", p.farmId).maybeSingle();
-          if (fRow?.id) validFarmId = fRow.id;
+          if (fRow?.id) {
+            validFarmId = fRow.id;
+          } else {
+            // Check if farm was created locally and sync it immediately to Supabase
+            let localFarmToSync: any = null;
+            try {
+              const rawFarms = localStorage.getItem(`pondtora_${userId}_farms`);
+              if (rawFarms) {
+                const parsed = JSON.parse(rawFarms);
+                if (Array.isArray(parsed)) localFarmToSync = parsed.find((f: any) => f.id === p.farmId);
+              }
+            } catch {}
+            if (!localFarmToSync) {
+              const cached = getLocalCache(userId);
+              localFarmToSync = (cached?.farms || []).find((f: any) => f.id === p.farmId);
+            }
+            if (localFarmToSync) {
+              try {
+                await dbInsert<Farm>("farms", localFarmToSync, "farms");
+                validFarmId = p.farmId;
+              } catch (e) {
+                console.warn("Auto-sync farm before creating pond warning:", e);
+                validFarmId = p.farmId;
+              }
+            }
+          }
         }
         if (!validFarmId) {
           // Check if user is staff with assigned farms

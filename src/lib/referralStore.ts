@@ -1934,9 +1934,9 @@ export async function clearUserReferralBalance(
 
   logActivity(
     "Referral Payout Cleared",
-    adminIdentifier || "admin",
+    "system",
     `Paid out ₦${finalClearAmount.toLocaleString()} to ${targetUser?.name || cleanEmail}`,
-    "admin"
+    adminIdentifier || "admin"
   );
 
   if (typeof window !== "undefined") {
