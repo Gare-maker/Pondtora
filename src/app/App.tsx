@@ -5115,7 +5115,8 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     if (!activeFarmId) return !fid || fid === "default" || fid === "—";
     if (fid && fid === activeFarmId) return true;
     if (pondName) {
-      const p = ponds.find(x => x.name.toLowerCase() === pondName.toLowerCase());
+      const pNameNorm = pondName.trim().toLowerCase();
+      const p = ponds.find(x => (x.name && x.name.trim().toLowerCase() === pNameNorm) || x.id === pondName);
       if (p && (p.farmId === activeFarmId || (!p.farmId && (farms[0]?.id === activeFarmId || farms.length <= 1)))) return true;
     }
     if (!fid || fid === "default" || fid === "—") {
@@ -5935,6 +5936,14 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
 
     setFeeding(prev=>{
       const updated=[farmRec,...prev];
+      if (userProfile?.id) {
+        try {
+          saveUserLocal(userProfile.id, "feeding", "feeding", updated);
+          if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
+            saveUserLocal(userProfile.ownerId, "feeding", "feeding", updated);
+          }
+        } catch {}
+      }
       /* check if cumulative for this pond+size reached max */
       const pond=ponds.find(p=>p.name===farmRec.pond);
       if(pond?.maxKgByPallet?.[farmRec.size]){
@@ -6007,7 +6016,14 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     const previous=feeding;
     setFeeding(prev=>prev.filter(x=>x.id!==id));
     markDeletedId(id);
-    if(userProfile?.id){try{saveUserLocal(userProfile.id,"feeding","feedingRecords",previous.filter(x=>x.id!==id));}catch{}}
+    if(userProfile?.id){
+      try{
+        saveUserLocal(userProfile.id,"feeding","feeding",previous.filter(x=>x.id!==id));
+        if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
+          saveUserLocal(userProfile.ownerId, "feeding", "feeding", previous.filter(x=>x.id!==id));
+        }
+      }catch{}
+    }
     try {
       await api.feeding.remove(id);
       toast.success("Feeding record deleted");
@@ -6015,7 +6031,14 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       console.error("Failed to delete feeding record:", err);
       unmarkDeletedId(id);
       setFeeding(previous);
-      if(userProfile?.id){try{saveUserLocal(userProfile.id,"feeding","feedingRecords",previous);}catch{}}
+      if(userProfile?.id){
+        try{
+          saveUserLocal(userProfile.id,"feeding","feeding",previous);
+          if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
+            saveUserLocal(userProfile.ownerId, "feeding", "feeding", previous);
+          }
+        }catch{}
+      }
       toast.error(err?.message || "Failed to delete feeding record. Kept visible.");
     }
   };
@@ -6341,10 +6364,10 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     try {
       await api.ponds.remove(id);
       const targetPondName = targetPond?.name || "";
-      setPondReports(prev => prev.map(r => r.pondId === id ? { ...r, pondId: undefined, pondName: targetPondName || r.pondName } : r));
-      setTreatments(prev => prev.map(t => t.pondId === id ? { ...t, pondId: undefined, pondName: targetPondName || t.pondName } : t));
-      setMortality(prev => prev.map(m => m.pondId === id ? { ...m, pondId: undefined, pondName: targetPondName || (m as any).pondName } : m));
-      setStockEvents(prev => prev.map(e => e.pondId === id ? { ...e, pondId: undefined, pondName: targetPondName || e.pondName } : e));
+      setPondReports(prev => prev.map(r => r.pondId === id ? ({ ...r, pondId: "", pondName: targetPondName || (r as any).pondName } as PondReport) : r));
+      setTreatments(prev => prev.map(t => t.pondId === id ? ({ ...t, pondId: "", pondName: targetPondName || (t as any).pondName } as TreatmentRecord) : t));
+      setMortality(prev => prev.map(m => m.pondId === id ? ({ ...m, pondId: "", pondName: targetPondName || (m as any).pondName } as MortalityEntry) : m));
+      setStockEvents(prev => prev.map(e => e.pondId === id ? ({ ...e, pondId: "", pondName: targetPondName || e.pondName } as StockEvent) : e));
       toast.success("Pond deleted");
     } catch(err:any) {
       console.error("Failed to delete pond:", err);

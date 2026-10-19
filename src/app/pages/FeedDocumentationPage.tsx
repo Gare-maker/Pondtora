@@ -2354,7 +2354,9 @@ function FeedDocumentation({
       const m = Number(r.morning) || 0;
       const e = Number(r.evening) || 0;
       if (m > 0 || e > 0) {
-        const existing = (feedingRecords || []).find(x => x && x.pond === r.pondName && (isSameDate(x.date, bulkDate) || x.date === dateLabel));
+        const cleanPondName = (r.pondName || "").trim();
+        const cleanLower = cleanPondName.toLowerCase();
+        const existing = (feedingRecords || []).find(x => x && (x.pond || "").trim().toLowerCase() === cleanLower && (isSameDate(x.date, bulkDate) || x.date === dateLabel));
         if (existing) {
           const hasChange = m !== existing.morning || e !== existing.evening || r.size !== existing.size;
           const entry: FeedEditEntry = {
@@ -2368,6 +2370,7 @@ function FeedDocumentation({
           };
           promises.push(Promise.resolve(onEditFeedRecord({
             ...existing,
+            pond: cleanPondName || existing.pond,
             size: r.size,
             morning: m,
             evening: e,
@@ -2375,18 +2378,18 @@ function FeedDocumentation({
             recordedBy: recorder,
             morningTime: r.morningTime || existing.morningTime,
             eveningTime: r.eveningTime || existing.eveningTime,
-            fishStock: existing.fishStock || pondToStock(r.pondName),
+            fishStock: existing.fishStock || pondToStock(cleanPondName),
             editHistory: hasChange ? [...(existing.editHistory || []), entry] : (existing.editHistory || [])
           })));
         } else {
-          const brandForFeed = (bagLogs || []).find(b => (isSameDate(b.date, bulkDate) || isSameDate(b.date, dateLabel)) && b.size === r.size && (!b.fishStock || normalizeFishStock(b.fishStock) === pondToStock(r.pondName)))?.brand || (inventory || []).find(f => f && f.size === r.size)?.brand || "";
+          const brandForFeed = (bagLogs || []).find(b => (isSameDate(b.date, bulkDate) || isSameDate(b.date, dateLabel)) && b.size === r.size && (!b.fishStock || normalizeFishStock(b.fishStock) === pondToStock(cleanPondName)))?.brand || (inventory || []).find(f => f && f.size === r.size)?.brand || "";
           promises.push(Promise.resolve(onAddRecord({
             id: uid(),
             date: dateLabel,
             month: toMon(bulkDate),
             year: toYr(bulkDate),
-            pond: r.pondName,
-            fishStock: pondToStock(r.pondName),
+            pond: cleanPondName,
+            fishStock: pondToStock(cleanPondName),
             brand: brandForFeed,
             size: r.size,
             morning: m,

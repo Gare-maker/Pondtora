@@ -225,6 +225,7 @@ function PondDetail({
     setFeedPage(1);
     setTreatPage(1);
     setIssuePage(1);
+    setFhMonth("All");
   }, [pond.id, pond.stockingDate, pond.species, pond.currentCount, defaultFishStockLabel]);
 
   const unifiedTreatments = useMemo(() => {
@@ -438,21 +439,98 @@ function PondDetail({
 
   const history = useMemo(() => {
     if (pond.status === "Empty") return [];
-    return feedingRecords.filter(r => {
-      if (r.pond !== pond.name && r.pond !== pond.id) return false;
-      const rDate = toValidDbDate(r.date);
-      if (pStockDbDate && rDate && rDate < pStockDbDate) return false;
 
+    const pNameNorm = (pond.name || "").trim().toLowerCase();
+    const pIdNorm = (pond.id || "").trim().toLowerCase();
+
+    // Check for prior closed cycles in stockEvents to isolate old historical lifecycles
+    const closedEvents = (stockEvents || []).filter(e => 
+      (e.pondId === pond.id || (e.pondName && e.pondName.trim().toLowerCase() === pNameNorm)) && e.type === "Closed"
+    );
+    const hasPriorClosedCycle = closedEvents.length > 0;
+    const latestClosedDate = hasPriorClosedCycle
+      ? closedEvents.map(e => toValidDbDate(e.clearedDate || e.date)).filter(Boolean).sort().reverse()[0]
+      : null;
+
+    return feedingRecords.filter(r => {
+      // 1. Match Pond (by name, ID, or pondId property, case/whitespace insensitive)
+      const rPondNorm = (r.pond || "").trim().toLowerCase();
+      const isSamePond = (rPondNorm && (rPondNorm === pNameNorm || rPondNorm === pIdNorm)) ||
+        ((r as any).pondId && (r as any).pondId === pond.id);
+      if (!isSamePond) return false;
+
+      // 2. Date isolation: only isolate if there was an actual prior closed lifecycle
+      const rDate = toValidDbDate(r.date);
+      const todayDb = toValidDbDate(TODAY);
+      const isToday = isSameDate(r.date, TODAY) || (rDate && todayDb && rDate >= todayDb);
+
+      if (!isToday) {
+        if (latestClosedDate && rDate && rDate < latestClosedDate) {
+          return false;
+        }
+        if (pStockDbDate && rDate && rDate < pStockDbDate && hasPriorClosedCycle) {
+          return false;
+        }
+      }
+
+      // 3. Fish stock matching
       if (r.fishStock && r.fishStock !== "—" && r.fishStock.trim()) {
-        const isMatch = (pDateLabel && (r.fishStock === pDateLabel || isSameDate(r.fishStock, pDateLabel))) ||
-          (pStockDbDate && isSameDate(r.fishStock, pond.stockingDate)) ||
-          (pond.fishStock && (r.fishStock === pond.fishStock || isSameDate(r.fishStock, pond.fishStock))) ||
-          (pStockIdentity && isStockMatch(r.fishStock, pStockIdentity));
-        return Boolean(isMatch);
+        const fsTrimmed = r.fishStock.trim();
+        const fsLower = fsTrimmed.toLowerCase();
+
+        // Generic active stock labels or pond name always match
+        if (fsTrimmed === "General Stock" || fsTrimmed === "Current Stock" || fsLower === pNameNorm) {
+          return true;
+        }
+
+        // Match against pond species
+        if (pond.species && pond.species !== "—") {
+          if (fsLower === pond.species.trim().toLowerCase() || isStockMatch(fsTrimmed, pond.species, ponds)) {
+            return true;
+          }
+        }
+
+        // Direct date label or stocking date matches
+        if (pDateLabel && (fsTrimmed === pDateLabel || isSameDate(fsTrimmed, pDateLabel))) {
+          return true;
+        }
+        if (pStockDbDate && (isSameDate(fsTrimmed, pond.stockingDate) || (pond.stockingDate && fsTrimmed === fmtStockingDate(pond.stockingDate)))) {
+          return true;
+        }
+        if (pond.fishStock && (fsTrimmed === pond.fishStock || isSameDate(fsTrimmed, pond.fishStock))) {
+          return true;
+        }
+
+        // Matching active / default fish stock label
+        if (pStockIdentity && isStockMatch(fsTrimmed, pStockIdentity, ponds)) {
+          return true;
+        }
+        if (activeFishStockLabel && isStockMatch(fsTrimmed, activeFishStockLabel, ponds)) {
+          return true;
+        }
+        if (defaultFishStockLabel && isStockMatch(fsTrimmed, defaultFishStockLabel, ponds)) {
+          return true;
+        }
+
+        // If the pond has no stocking date set and no specific batch identity, accept all records for this pond
+        if (!pStockDbDate && !pStockIdentity) {
+          return true;
+        }
+
+        // Check if this record explicitly matches a past closed batch for this pond
+        const matchesClosedBatch = closedEvents.some(ce => {
+          const ceBatch = ce.batch || (ce.date ? fmtStockingDate(ce.date) : null);
+          return Boolean(ceBatch && (isStockMatch(fsTrimmed, ceBatch, ponds) || isSameDate(fsTrimmed, ce.date)));
+        });
+        if (!matchesClosedBatch) {
+          return true;
+        }
+
+        return false;
       }
       return true;
     });
-  }, [feedingRecords, pond.id, pond.name, pond.status, pond.stockingDate, pond.fishStock, pStockDbDate, pDateLabel, pStockIdentity]);
+  }, [feedingRecords, pond.id, pond.name, pond.species, pond.status, pond.stockingDate, pond.fishStock, pStockDbDate, pDateLabel, pStockIdentity, activeFishStockLabel, defaultFishStockLabel, stockEvents, ponds]);
   const fhMonths=[...new Set(history.map(r=>r.month))];
   const filtHistory=fhMonth==="All"?history:history.filter(r=>r.month===fhMonth);
   const {sorted:sortedHist,sf:hSf,sd:hSd,toggle:hToggle}=useSort(filtHistory,"date");
