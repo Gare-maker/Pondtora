@@ -2,7 +2,8 @@ import React, { useState, useRef, useEffect, useMemo, useCallback } from "react"
 import {
   Plus, CheckCircle, X, Layers, Droplets,
   ChevronDown, ChevronLeft, ChevronRight,
-  Package, BookOpen, Download, FileText, Pencil, Trash2, MoreVertical, Lock, History, Fish, Search, AlertTriangle, AlertCircle, Eye
+  Package, BookOpen, Download, FileText, Pencil, Trash2, MoreVertical, Lock, History, Fish, Search, AlertTriangle, AlertCircle, Eye,
+  Calendar
 } from "lucide-react";
 import { toast } from "sonner";
 import type { FeedingRecord, FeedEditEntry, Pond, FeedItem, BagOpenLog, FeedRemainingLog, StockEvent } from "../types";
@@ -416,6 +417,45 @@ function FeedDocumentation({
     const init = Number(p.initialStock);
     return count > 0 || (init > 0 && (p.currentCount === undefined || p.currentCount === null));
   });
+
+  /* Check whether a fish stock currently exists in at least one active pond with fish */
+  const isStockCurrentlyActive = useCallback((stockName?: string | null): boolean => {
+    if (!stockName || stockName === "—" || typeof stockName !== "string" || !stockName.trim()) return false;
+    const trimmed = stockName.trim();
+    const norm = normalizeFishStock(trimmed).toLowerCase().trim();
+    const fmtDate = formatFishStockDate(trimmed).toLowerCase().trim();
+
+    return activePonds.some(p => {
+      if (!p) return false;
+      const count = Number(p.currentCount);
+      const init = Number(p.initialStock);
+      const hasFish = count > 0 || (init > 0 && (p.currentCount === undefined || p.currentCount === null));
+      if (!hasFish) return false;
+
+      // Check direct stock match with pond fishStock and pond name
+      if (isStockMatch(p.fishStock, trimmed)) return true;
+      if (isStockMatch(getPondFishStock(p), trimmed)) return true;
+      if (isStockMatch(p.name, trimmed)) return true;
+      if (isStockMatch(pondToStock(p.name), trimmed)) return true;
+
+      // Check normalized stock names
+      if (norm && norm !== "—" && norm !== "general stock") {
+        if (normalizeFishStock(p.fishStock).toLowerCase().trim() === norm) return true;
+        if (normalizeFishStock(getPondFishStock(p)).toLowerCase().trim() === norm) return true;
+        if (normalizeFishStock(p.name).toLowerCase().trim() === norm) return true;
+      }
+
+      // Check stocking date matches
+      if (p.stockingDate && p.stockingDate !== "—") {
+        const pDateFmt = formatFishStockDate(p.stockingDate).toLowerCase().trim();
+        if (fmtDate && fmtDate !== "—" && pDateFmt === fmtDate) return true;
+        if (p.stockingDate.toLowerCase().trim() === trimmed.toLowerCase()) return true;
+      }
+
+      return false;
+    });
+  }, [activePonds, isStockMatch, normalizeFishStock, pondToStock]);
+
   const allBrands = [...new Set((inventory || []).map(f => f?.brand).filter(Boolean))];
 
   /* Available pellet sizes drawn from all pellets in Feed Stock (inventory & opened bags) */
@@ -1691,9 +1731,9 @@ function FeedDocumentation({
   const pondsRemaining = Math.max(0, totalPonds - pondsFedToday);
   const bagsOpenedToday = useMemo(() => {
     return (bagLogs || [])
-      .filter(b => b && isSameDate(b.date, selDate) && (dailyStockFilter === "All" || isStockMatch(dailyStockFilter, b.fishStock)))
+      .filter(b => b && isSameDate(b.date, selDate) && (dailyStockFilter === "All" || isStockMatch(dailyStockFilter, b.fishStock)) && isStockCurrentlyActive(b.fishStock))
       .reduce((s, b) => s + (Number(b.bagsOpened) || 0), 0);
-  }, [bagLogs, selDate, dailyStockFilter]);
+  }, [bagLogs, selDate, dailyStockFilter, isStockCurrentlyActive]);
 
   const filteredDayRows = useMemo(() => {
     let list = dayRows;
@@ -1911,6 +1951,7 @@ function FeedDocumentation({
     // 2. Process dayBagLogs (stocks with bags opened logged today)
     dayBagLogs.forEach(b => {
       const fs = normalizeFishStock(b.fishStock) || "—";
+      if (!isStockCurrentlyActive(b.fishStock) && !isStockCurrentlyActive(fs)) return;
       const brand = b.brand || "—";
       const size = b.size || "—";
       const k = `${brand.toLowerCase().trim()}||${size.toLowerCase().trim()}||${fs.toLowerCase().trim()}`;
@@ -1979,6 +2020,7 @@ function FeedDocumentation({
     // 3. Process dayRemainLogs without bagLog
     dayRemainLogs.forEach(r => {
       const fs = normalizeFishStock(r.fishStock) || "—";
+      if (!isStockCurrentlyActive(r.fishStock) && !isStockCurrentlyActive(fs)) return;
       const brand = r.brand || "—";
       const size = r.size || "—";
       const k = `${brand.toLowerCase().trim()}||${size.toLowerCase().trim()}||${fs.toLowerCase().trim()}`;
@@ -2095,11 +2137,11 @@ function FeedDocumentation({
       });
     });
 
-    return Array.from(map.values());
-  }, [bagLogs, remainLogs, feedingRecords, selDate, ponds, inventory, getPriorCarryover, dateToIso, getAssociatedPalletsForStock, getMatchingBrandsForPallet, availablePelletSizes]);
+    return Array.from(map.values()).filter(row => isStockCurrentlyActive(row.fishStock));
+  }, [bagLogs, remainLogs, feedingRecords, selDate, ponds, inventory, getPriorCarryover, dateToIso, getAssociatedPalletsForStock, getMatchingBrandsForPallet, availablePelletSizes, isStockCurrentlyActive]);
 
   const filteredMergedBagRows = useMemo(() => {
-    let list = mergedBagRows;
+    let list = mergedBagRows.filter(r => isStockCurrentlyActive(r.fishStock));
     if (bagsStockFilter !== "All") {
       list = list.filter(r =>
         isStockMatch(bagsStockFilter, r.fishStock) ||
@@ -2107,7 +2149,7 @@ function FeedDocumentation({
       );
     }
     return list;
-  }, [mergedBagRows, bagsStockFilter]);
+  }, [mergedBagRows, bagsStockFilter, isStockCurrentlyActive]);
 
   /* ── bulk log (Log Feeding — All Ponds) ── */
   const [bulkDate, setBulkDate] = useState(TODAY);
@@ -2571,7 +2613,7 @@ function FeedDocumentation({
                     <tr className="bg-slate-50 border-b border-slate-100">
                       <th className="w-12 min-w-[48px] max-w-[48px] px-2 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-center sticky left-0 z-20 bg-slate-50">#</th>
                       <th className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left sticky left-[48px] z-20 bg-slate-50 border-r border-slate-200 min-w-[130px]">Pond</th>
-                      <th className="hidden md:table-cell px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left whitespace-nowrap">Stock Date</th>
+                      <th className="hidden md:table-cell px-4 py-3 text-xs font-bold text-teal-800 uppercase tracking-wider text-left whitespace-nowrap bg-teal-50/70 border-y border-teal-200/80">Fish Stock Date</th>
                       <th className="hidden md:table-cell px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left whitespace-nowrap">Initial Stock</th>
                       <th className="hidden md:table-cell px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left whitespace-nowrap">Fish Count</th>
                       {["Pellet Size", "Morning (kg)", "AM Time", "Evening (kg)", "PM Time", "Total (kg)", "Recorded By"].map(h => (
@@ -2586,23 +2628,32 @@ function FeedDocumentation({
                       const pondMaxKgMap = pond.maxKgByPallet;
                       const atMax = hasFeed && pondMaxKgMap && rec!.size in pondMaxKgMap && (feedingRecords || []).filter(r => r && r.pond === pond.name && r.size === rec!.size).reduce((s, r) => s + (Number(r.total) || 0), 0) >= (pondMaxKgMap[rec!.size] || Infinity);
                       const isEdited = (rec?.editHistory?.length || 0) > 0;
-                      const stockDateFormatted = pond.stockingDate && pond.stockingDate !== "—" ? formatFishStockDate(pond.stockingDate) : "—";
+                      const recStockDate = rec?.fishStock && formatFishStockDate(rec.fishStock) !== "—"
+                        ? formatFishStockDate(rec.fishStock)
+                        : (pond.stockingDate && pond.stockingDate !== "—"
+                            ? formatFishStockDate(pond.stockingDate)
+                            : (pondToStockDate(pond.name) !== "—" ? pondToStockDate(pond.name) : "—"));
                       return (
                         <tr key={pond.id} onClick={() => rec && setViewFeedRec(rec)} className={`transition-colors ${hasFeed ? "hover:bg-green-50/30 cursor-pointer" : "opacity-40 hover:opacity-60"}`}>
                           <td className={`w-12 min-w-[48px] max-w-[48px] px-2 py-3.5 text-slate-300 text-xs font-mono text-center sticky left-0 z-10 ${hasFeed ? "bg-white" : "bg-white"}`}>{i + 1}</td>
                           <td className="px-4 py-3.5 min-w-[130px] sticky left-[48px] z-10 bg-white border-r border-slate-100">
                             <p className="font-semibold text-slate-900 leading-tight">{pond.name}</p>
-                            {stockDateFormatted !== "—" ? (
-                              <p className="text-[11px] text-teal-700 font-medium leading-tight mt-0.5">{stockDateFormatted}</p>
+                            {recStockDate !== "—" ? (
+                              <p className="text-[11px] text-teal-800 font-semibold leading-tight mt-1 flex items-center gap-1">
+                                <span className="text-[10px] text-teal-600 font-bold uppercase tracking-wider">Stock:</span> {recStockDate}
+                              </p>
                             ) : (
-                              <p className="text-[11px] text-slate-400 leading-tight mt-0.5">—</p>
+                              <p className="text-[11px] text-slate-400 leading-tight mt-0.5 italic">—</p>
                             )}
                           </td>
-                          <td className="hidden md:table-cell px-4 py-3.5 text-xs text-teal-700 font-medium whitespace-nowrap">
-                            {stockDateFormatted !== "—" ? (
-                              <span className="inline-flex items-center gap-1 bg-teal-50 px-2 py-0.5 rounded border border-teal-200">{stockDateFormatted}</span>
+                          <td className="hidden md:table-cell px-4 py-3.5 whitespace-nowrap">
+                            {recStockDate !== "—" ? (
+                              <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-teal-50 border border-teal-300 text-teal-950 shadow-2xs">
+                                <Calendar size={14} className="text-teal-600 shrink-0" />
+                                <span className="text-xs sm:text-sm font-bold tracking-tight">{recStockDate}</span>
+                              </div>
                             ) : (
-                              <span className="text-slate-300">—</span>
+                              <span className="text-slate-300 text-xs italic">—</span>
                             )}
                           </td>
                           <td className="hidden md:table-cell px-4 py-3.5 text-slate-500 font-['Barlow_Condensed',sans-serif] text-base">{pond.initialStock.toLocaleString()}</td>
@@ -2715,7 +2766,11 @@ function FeedDocumentation({
                   const pondMaxKgMap = pond.maxKgByPallet;
                   const atMax = hasFeed && pondMaxKgMap && rec!.size in pondMaxKgMap && (feedingRecords || []).filter(r => r && r.pond === pond.name && r.size === rec!.size).reduce((s, r) => s + (Number(r.total) || 0), 0) >= (pondMaxKgMap[rec!.size] || Infinity);
                   const isEdited = (rec?.editHistory?.length || 0) > 0;
-                  const stockDateFormatted = pond.stockingDate && pond.stockingDate !== "—" ? formatFishStockDate(pond.stockingDate) : "—";
+                  const recStockDate = rec?.fishStock && formatFishStockDate(rec.fishStock) !== "—"
+                    ? formatFishStockDate(rec.fishStock)
+                    : (pond.stockingDate && pond.stockingDate !== "—"
+                        ? formatFishStockDate(pond.stockingDate)
+                        : (pondToStockDate(pond.name) !== "—" ? pondToStockDate(pond.name) : "—"));
                   const isMenuOpen = activeDailyMenuId === pond.id;
 
                   return (
@@ -2726,14 +2781,17 @@ function FeedDocumentation({
                     >
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-1.5 flex-wrap min-w-0">
-                            <h3 className="font-bold text-slate-900 text-sm sm:text-base truncate max-w-[140px] xs:max-w-[180px] sm:max-w-[220px]" title={pond.name}>
+                          <div className="flex items-center justify-between gap-2 flex-wrap min-w-0 mb-1">
+                            <h3 className="font-bold text-slate-900 text-sm sm:text-base truncate max-w-[160px]" title={pond.name}>
                               {pond.name}
                             </h3>
-                            {stockDateFormatted !== "—" && (
-                              <span className="text-[10px] text-teal-700 bg-teal-50 px-2 py-0.5 rounded border border-teal-200 font-medium shrink-0">
-                                {stockDateFormatted}
-                              </span>
+                            {recStockDate !== "—" ? (
+                              <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-teal-50 border border-teal-200 text-teal-900 shadow-2xs shrink-0">
+                                <Calendar size={12} className="text-teal-600 shrink-0" />
+                                <span className="text-xs font-bold">Stock: {recStockDate}</span>
+                              </div>
+                            ) : (
+                              <span className="text-[10px] text-slate-400 italic">Empty Pond</span>
                             )}
                           </div>
                           <p className="text-[11px] text-slate-500 mt-0.5 truncate">
@@ -4395,23 +4453,47 @@ function FeedDocumentation({
               <button onClick={() => setViewFeedRec(null)} className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors ml-4 shrink-0"><X size={18} /></button>
             </div>
             <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
-              <div className="grid grid-cols-2 gap-2">
-                <div className="bg-slate-50 rounded-xl p-3"><p className="text-[10px] uppercase tracking-wider text-slate-400 mb-0.5">Pond</p><p className="text-sm font-semibold text-slate-800">{viewFeedRec.pond}</p></div>
-                <div className="bg-slate-50 rounded-xl p-3"><p className="text-[10px] uppercase tracking-wider text-slate-400 mb-0.5">Date</p><p className="text-sm font-semibold text-slate-800">{viewFeedRec.date}</p></div>
+              <div className="bg-slate-50 rounded-xl p-3">
+                <p className="text-[10px] uppercase tracking-wider text-slate-400 mb-0.5">Pond</p>
+                <p className="text-base font-bold text-slate-900">{viewFeedRec.pond}</p>
               </div>
-              {(() => {
-                const fs = pondToStock(viewFeedRec.pond);
-                const fsDate = pondToStockDate(viewFeedRec.pond);
-                return (
-                  <div className="flex items-center gap-2 px-3 py-2 bg-teal-50 border border-teal-200 rounded-xl">
-                    <Fish size={12} className="text-teal-600 shrink-0" />
-                    <div>
-                      <p className="text-[10px] uppercase tracking-wider text-teal-500 mb-0">Fish Stock</p>
-                      <p className="text-xs text-teal-800 font-semibold">{fs} {fsDate !== "—" && `(${fsDate})`}</p>
-                    </div>
+
+              {/* Explicit distinction: Feeding Record Date vs Fish Stock Date */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                {/* Feeding Record Date (Date Fish Fed) */}
+                <div className="bg-blue-50/90 border border-blue-200 rounded-xl p-3 flex items-start gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-blue-100/90 flex items-center justify-center shrink-0 mt-0.5">
+                    <Calendar size={16} className="text-blue-700" />
                   </div>
-                );
-              })()}
+                  <div className="min-w-0">
+                    <p className="text-[10px] uppercase tracking-wider text-blue-700 font-bold mb-0.5">Feeding Record Date</p>
+                    <p className="text-sm font-bold text-blue-950 truncate">{viewFeedRec.date}</p>
+                    <p className="text-[10px] text-blue-600/90 mt-0.5">Date fish were fed</p>
+                  </div>
+                </div>
+
+                {/* Fish Stock Date (Stocking Date) */}
+                {(() => {
+                  const modalStockDate = viewFeedRec.fishStock && formatFishStockDate(viewFeedRec.fishStock) !== "—"
+                    ? formatFishStockDate(viewFeedRec.fishStock)
+                    : (pondToStockDate(viewFeedRec.pond) !== "—"
+                        ? pondToStockDate(viewFeedRec.pond)
+                        : "—");
+                  const fsName = pondToStock(viewFeedRec.pond);
+                  return (
+                    <div className="bg-teal-50/90 border border-teal-200 rounded-xl p-3 flex items-start gap-2.5">
+                      <div className="w-8 h-8 rounded-lg bg-teal-100/90 flex items-center justify-center shrink-0 mt-0.5">
+                        <Fish size={16} className="text-teal-700" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-[10px] uppercase tracking-wider text-teal-700 font-bold mb-0.5">Fish Stock Date</p>
+                        <p className="text-sm font-bold text-teal-950 truncate">{modalStockDate !== "—" ? modalStockDate : "Not Specified"}</p>
+                        <p className="text-[10px] text-teal-600/90 mt-0.5 truncate">{fsName && fsName !== "General Stock" ? fsName : "Stocking Date of Batch"}</p>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
               <div className="grid grid-cols-2 gap-2">
                 <div className="bg-slate-50 rounded-xl p-3">
                   <p className="text-[10px] uppercase tracking-wider text-slate-400 mb-0.5">Pellet Size {viewFeedRec.brand ? `(${viewFeedRec.brand})` : ""}</p>

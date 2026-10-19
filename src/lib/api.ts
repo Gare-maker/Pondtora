@@ -2459,14 +2459,66 @@ export const api = {
     },
     remove: async (id: string) => {
       const targetId = isUuid(id) ? id : (idMap.get(id) || toUuid(id));
+      let pondName = "";
       try {
-        const { data: p } = await supabase.from("ponds").select("current_count, initial_stock, status, name").eq("id", targetId).maybeSingle();
-        if (p && (Number(p.current_count) > 0 || (p.status === "Active" && (Number(p.current_count) > 0 || Number(p.initial_stock) > 0)))) {
-          throw new Error(`Cannot delete pond "${p.name || ""}" because it currently contains active fish stock (${p.current_count || 0} fish). Clear or transfer all fish stock first.`);
+        const { data: p } = await supabase.from("ponds").select("current_count, initial_stock, status, name, farm_id").eq("id", targetId).maybeSingle();
+        if (p) {
+          pondName = p.name || "";
+          if (Number(p.current_count) > 0 || (p.status === "Active" && (Number(p.current_count) > 0 || Number(p.initial_stock) > 0))) {
+            throw new Error(`Cannot delete pond "${p.name || ""}" because it currently contains active fish stock (${p.current_count || 0} fish). Clear or transfer all fish stock first.`);
+          }
         }
       } catch (checkErr: any) {
         if (checkErr?.message && checkErr.message.includes("active fish stock")) throw checkErr;
       }
+
+      // 1. Try PostgreSQL RPC delete_pond_safely if defined
+      try {
+        const { data: rpcRes, error: rpcErr } = await supabase.rpc("delete_pond_safely", { p_pond_id: targetId });
+        if (!rpcErr && rpcRes && rpcRes.success) {
+          const userId = await getUserId();
+          const ownerId = await getOwnerUserId();
+          const clearCache = (uid: string) => {
+            const cached = getLocalCache(uid) || {};
+            const list = cached.ponds || [];
+            saveLocalCache({ ponds: list.filter((x: any) => x.id !== id && x.id !== targetId) }, uid);
+            try {
+              const k = `pondtora_${uid}_ponds`;
+              const raw = localStorage.getItem(k);
+              if (raw) {
+                const arr = JSON.parse(raw);
+                if (Array.isArray(arr)) {
+                  localStorage.setItem(k, JSON.stringify(arr.filter((x: any) => x.id !== id && x.id !== targetId)));
+                }
+              }
+            } catch {}
+          };
+          if (userId) clearCache(userId);
+          if (ownerId && ownerId !== userId) clearCache(ownerId);
+          return { success: true };
+        } else if (rpcRes && rpcRes.error) {
+          throw new Error(rpcRes.error);
+        }
+      } catch (rpcErr: any) {
+        if (rpcErr?.message && rpcErr.message.includes("active fish stock")) throw rpcErr;
+        // If RPC is not available in database yet, proceed with direct safe disassociation
+      }
+
+      // 2. Safely disassociate all historical dependencies before deleting the pond
+      // Preserves historical audit records (staff reports, mortality, treatments, stock events)
+      // by populating pond_name and nullifying pond_id so Postgres does not attempt cascading deletes
+      try {
+        await Promise.allSettled([
+          supabase.from("pond_reports").update({ pond_id: null, ...(pondName ? { pond_name: pondName } : {}) }).eq("pond_id", targetId),
+          supabase.from("treatment_records").update({ pond_id: null, ...(pondName ? { pond_name: pondName } : {}) }).eq("pond_id", targetId),
+          supabase.from("mortality_entries").update({ pond_id: null, ...(pondName ? { pond_name: pondName } : {}) }).eq("pond_id", targetId),
+          supabase.from("stock_events").update({ pond_id: null, ...(pondName ? { pond_name: pondName } : {}) }).eq("pond_id", targetId),
+          supabase.from("investments").update({ pond_id: null }).eq("pond_id", targetId),
+        ]);
+      } catch (disassocErr) {
+        console.warn("Notice during historical record disassociation before pond delete:", disassocErr);
+      }
+
       return dbDelete("ponds", id, "ponds");
     },
   },

@@ -6340,6 +6340,11 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     if(userProfile?.id){try{saveUserLocal(userProfile.id,"ponds","ponds",previous.filter(p=>p.id!==id));}catch{}}
     try {
       await api.ponds.remove(id);
+      const targetPondName = targetPond?.name || "";
+      setPondReports(prev => prev.map(r => r.pondId === id ? { ...r, pondId: undefined, pondName: targetPondName || r.pondName } : r));
+      setTreatments(prev => prev.map(t => t.pondId === id ? { ...t, pondId: undefined, pondName: targetPondName || t.pondName } : t));
+      setMortality(prev => prev.map(m => m.pondId === id ? { ...m, pondId: undefined, pondName: targetPondName || (m as any).pondName } : m));
+      setStockEvents(prev => prev.map(e => e.pondId === id ? { ...e, pondId: undefined, pondName: targetPondName || e.pondName } : e));
       toast.success("Pond deleted");
     } catch(err:any) {
       console.error("Failed to delete pond:", err);

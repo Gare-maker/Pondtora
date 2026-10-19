@@ -3,11 +3,12 @@ import {
   Fish, Plus, CheckCircle, X, ArrowRightLeft, Layers,
   Droplets, Trash2, ChevronDown, ChevronUp,
   ChevronLeft, ChevronRight, Eye, Download, FileText, Pencil,
-  MoreVertical, TrendingUp, TrendingDown, Filter, History, GripVertical
+  MoreVertical, TrendingUp, TrendingDown, Filter, History, GripVertical, Calendar
 } from "lucide-react";
 import type { Pond, Expense, MortalityEntry, FeedingRecord, StockEvent, TreatmentRecord, BagOpenLog, FeedRemainingLog, FeedItem, Farm, PondReport, FishCountHistoryEntry } from "../types";
 import { EXPENSE_CATS, POND_TYPES, POND_SPECIES, MORT_CAUSES, TODAY, fmt, uid, toMon, toYr, downloadCSV, openPrintWindow, fmtStockingDate, getPondFishStock, formatFishStock, isStockMatch, isSameDate, getFishStockDateLabel, isFormattedDate } from "../data";
 import { Card, Bdg, PBtn, Pagination, PER_PAGE, StatCard, Modal, F, IC, SC, SH, useSort, DateFilter, NumInput } from "../shared";
+import { toValidDbDate } from "../../lib/api";
 import PondReportsComponent from "./PondReportsComponent";
 
 function PondDetail({
@@ -188,14 +189,69 @@ function PondDetail({
   const [editMortEntry,setEditMortEntry]=useState<MortalityEntry|null>(null);
   const [fhMonth,setFhMonth]=useState("All");
 
+  const pStockDbDate = pond.stockingDate && pond.stockingDate !== "—" ? toValidDbDate(pond.stockingDate) : null;
+  const pDateLabel = getFishStockDateLabel(pond);
+  const pStockIdentity = pond.fishStock || (pond.stockingDate && pond.stockingDate !== "—" ? fmtStockingDate(pond.stockingDate) : null);
+
   const activeFishStockLabel = pond.status === "Active"
-    ? (pond.fishStock || defaultFishStockLabel)
+    ? (pStockIdentity || defaultFishStockLabel)
     : "";
+
+  useEffect(() => {
+    setEditFishF({
+      species: pond.species === "—" ? "Catfish" : (["Catfish", "Tilapia", "Carp", "Salmon", "Bass", "Trout"].includes(pond.species) ? pond.species : "Other"),
+      customSpecies: !["Catfish", "Tilapia", "Carp", "Salmon", "Bass", "Trout", "—"].includes(pond.species) ? pond.species : "",
+      count: String(pond.currentCount),
+      stockingDate: pond.stockingDate
+    });
+    setTreatF({
+      date: TODAY,
+      fishStock: defaultFishStockLabel,
+      cause: "",
+      medicine: "",
+      details: "",
+      actionTaken: "",
+      remarks: ""
+    });
+    setIssueF({
+      date: TODAY,
+      fishStock: defaultFishStockLabel,
+      issue: "",
+      description: "",
+      actionTaken: "",
+      notes: ""
+    });
+    setMortF({ date: TODAY, count: "", cause: "Unknown", notes: "" });
+    setFeedPage(1);
+    setTreatPage(1);
+    setIssuePage(1);
+  }, [pond.id, pond.stockingDate, pond.species, pond.currentCount, defaultFishStockLabel]);
 
   const unifiedTreatments = useMemo(() => {
     if (pond.status === "Empty") return [];
-    const rawTreatments = treatments.filter(t => t.pondId === pond.id);
-    const repTreatments = (pondReports || []).filter(r => r.pondId === pond.id && r.reportType === "treatment");
+    const rawTreatments = treatments.filter(t => {
+      if (t.pondId !== pond.id) return false;
+      const tDate = toValidDbDate(t.date);
+      if (pStockDbDate && tDate && tDate < pStockDbDate) return false;
+      if (activeFishStockLabel && t.fishStock && t.fishStock !== "—") {
+        if (!isStockMatch(t.fishStock, activeFishStockLabel) && !isSameDate(t.fishStock, pond.stockingDate)) {
+          return false;
+        }
+      }
+      return true;
+    });
+
+    const repTreatments = (pondReports || []).filter(r => {
+      if (r.pondId !== pond.id || r.reportType !== "treatment") return false;
+      const rDate = toValidDbDate(r.reportDate);
+      if (pStockDbDate && rDate && rDate < pStockDbDate) return false;
+      if (activeFishStockLabel && r.fishStockId && r.fishStockId !== "—") {
+        if (!isStockMatch(r.fishStockId, activeFishStockLabel) && !isSameDate(r.fishStockId, pond.stockingDate)) {
+          return false;
+        }
+      }
+      return true;
+    });
 
     const list: Array<{
       id: string;
@@ -217,9 +273,6 @@ function PondDetail({
       const match = repTreatments.find(r => r.treatmentId === t.id || r.id === t.id);
       if (match) matchedReportIds.add(match.id);
       const fsLabel = match?.fishStockId || t.fishStock || defaultFishStockLabel;
-      if (activeFishStockLabel && t.fishStock && t.fishStock !== activeFishStockLabel && t.fishStock !== pond.species) {
-        return;
-      }
       list.push({
         id: t.id,
         date: t.date,
@@ -238,9 +291,6 @@ function PondDetail({
     repTreatments.forEach(r => {
       if (!matchedReportIds.has(r.id)) {
         const fsLabel = r.fishStockId || defaultFishStockLabel;
-        if (activeFishStockLabel && r.fishStockId && r.fishStockId !== activeFishStockLabel && r.fishStockId !== pond.species) {
-          return;
-        }
         list.push({
           id: r.id,
           date: r.reportDate,
@@ -257,20 +307,24 @@ function PondDetail({
     });
 
     return list.sort((a, b) => (b.date || "").localeCompare(a.date || ""));
-  }, [treatments, pondReports, pond, defaultFishStockLabel, activeFishStockLabel]);
+  }, [treatments, pondReports, pond, defaultFishStockLabel, activeFishStockLabel, pStockDbDate]);
 
   const otherIssues = useMemo(() => {
     if (pond.status === "Empty") return [];
     return (pondReports || [])
       .filter(r => {
         if (r.pondId !== pond.id || r.reportType === "treatment") return false;
-        if (activeFishStockLabel && r.fishStockId && r.fishStockId !== activeFishStockLabel && r.fishStockId !== pond.species) {
-          return false;
+        const rDate = toValidDbDate(r.reportDate);
+        if (pStockDbDate && rDate && rDate < pStockDbDate) return false;
+        if (activeFishStockLabel && r.fishStockId && r.fishStockId !== "—") {
+          if (!isStockMatch(r.fishStockId, activeFishStockLabel) && !isSameDate(r.fishStockId, pond.stockingDate)) {
+            return false;
+          }
         }
         return true;
       })
       .sort((a, b) => (b.reportDate || "").localeCompare(a.reportDate || ""));
-  }, [pondReports, pond.id, pond.status, activeFishStockLabel, pond.species]);
+  }, [pondReports, pond.id, pond.status, activeFishStockLabel, pStockDbDate, pond.stockingDate]);
 
   const handleTreat = async () => {
     if (!treatF.medicine.trim()) return;
@@ -363,25 +417,42 @@ function PondDetail({
       notes: ""
     });
   };
-  const logs = pond.status === "Empty" ? [] : mortality.filter(m=>m.pondId===pond.id);
-  const dead = pond.status === "Empty" ? 0 : logs.reduce((s,m)=>s+m.count,0);
-  const mRate = pond.initialStock>0 && pond.status!=="Empty" ? ((dead/pond.initialStock)*100).toFixed(2) : "0.00";
-  const history = pond.status === "Empty" ? [] : feedingRecords.filter(r => {
-    if (r.pond !== pond.name && r.pond !== pond.id) return false;
-    if (r.fishStock) {
-      const pStockDate = pond.stockingDate && pond.stockingDate !== "—" ? pond.stockingDate : null;
-      const pDateLabel = getFishStockDateLabel(pond);
-      const isMatch = (pDateLabel && (r.fishStock === pDateLabel || isSameDate(r.fishStock, pDateLabel))) ||
-        (pStockDate && (r.fishStock === fmtStockingDate(pStockDate) || isSameDate(r.fishStock, pStockDate))) ||
-        (pond.fishStock && (r.fishStock === pond.fishStock || isSameDate(r.fishStock, pond.fishStock))) ||
-        (pond.species && r.fishStock === pond.species) ||
-        isStockMatch(r.fishStock, pDateLabel || pond.fishStock || pond.species) ||
-        r.fishStock === "Current Stock" ||
-        r.fishStock === "General Stock";
-      return Boolean(isMatch);
-    }
-    return true;
-  });
+  const logs = useMemo(() => {
+    if (pond.status === "Empty") return [];
+    return mortality.filter(m => {
+      if (m.pondId !== pond.id) return false;
+      const mDate = toValidDbDate(m.date);
+      if (pStockDbDate && mDate && mDate < pStockDbDate) return false;
+      const mStock = (m as any).fishStock;
+      if (mStock && mStock !== "—" && pStockIdentity) {
+        if (!isStockMatch(mStock, pStockIdentity) && !isSameDate(mStock, pond.stockingDate)) {
+          return false;
+        }
+      }
+      return true;
+    });
+  }, [mortality, pond.id, pond.status, pond.stockingDate, pStockDbDate, pStockIdentity]);
+
+  const dead = pond.status === "Empty" ? 0 : logs.reduce((s, m) => s + m.count, 0);
+  const mRate = pond.initialStock > 0 && pond.status !== "Empty" ? ((dead / pond.initialStock) * 100).toFixed(2) : "0.00";
+
+  const history = useMemo(() => {
+    if (pond.status === "Empty") return [];
+    return feedingRecords.filter(r => {
+      if (r.pond !== pond.name && r.pond !== pond.id) return false;
+      const rDate = toValidDbDate(r.date);
+      if (pStockDbDate && rDate && rDate < pStockDbDate) return false;
+
+      if (r.fishStock && r.fishStock !== "—" && r.fishStock.trim()) {
+        const isMatch = (pDateLabel && (r.fishStock === pDateLabel || isSameDate(r.fishStock, pDateLabel))) ||
+          (pStockDbDate && isSameDate(r.fishStock, pond.stockingDate)) ||
+          (pond.fishStock && (r.fishStock === pond.fishStock || isSameDate(r.fishStock, pond.fishStock))) ||
+          (pStockIdentity && isStockMatch(r.fishStock, pStockIdentity));
+        return Boolean(isMatch);
+      }
+      return true;
+    });
+  }, [feedingRecords, pond.id, pond.name, pond.status, pond.stockingDate, pond.fishStock, pStockDbDate, pDateLabel, pStockIdentity]);
   const fhMonths=[...new Set(history.map(r=>r.month))];
   const filtHistory=fhMonth==="All"?history:history.filter(r=>r.month===fhMonth);
   const {sorted:sortedHist,sf:hSf,sd:hSd,toggle:hToggle}=useSort(filtHistory,"date");
@@ -1708,6 +1779,7 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
             <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider sticky left-14 z-20 bg-slate-50 border-r border-slate-200 whitespace-nowrap cursor-pointer select-none hover:text-green-600" onClick={()=>toggleSort("name")}><div className="flex items-center gap-1">Pond Name<div className="flex flex-col -space-y-0.5"><ChevronUp size={9} className={sortField==="name"&&sortDir==="asc"?"text-green-600":"text-slate-200"}/><ChevronDown size={9} className={sortField==="name"&&sortDir==="desc"?"text-green-600":"text-slate-200"}/></div></div></th>
             <SH label="Type" field="type" sf={sortField||""} sd={sortDir} onSort={toggleSort}/>
             <SH label="Species" field="species" sf={sortField||""} sd={sortDir} onSort={toggleSort}/>
+            <th className="text-left px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap cursor-pointer select-none hover:text-green-600" onClick={()=>toggleSort("stockingDate")}><div className="flex items-center gap-1">Stock Date<div className="flex flex-col -space-y-0.5"><ChevronUp size={9} className={sortField==="stockingDate"&&sortDir==="asc"?"text-green-600":"text-slate-200"}/><ChevronDown size={9} className={sortField==="stockingDate"&&sortDir==="desc"?"text-green-600":"text-slate-200"}/></div></div></th>
             <SH label="Fish Count" field="currentCount" sf={sortField||""} sd={sortDir} onSort={toggleSort}/>
             <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider">Category</th>
             <SH label="Status" field="status" sf={sortField||""} sd={sortDir} onSort={toggleSort}/>
@@ -1715,9 +1787,15 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
           </tr></thead>
           <tbody className="divide-y divide-slate-50">
             {filteredPonds.slice((pondTablePage-1)*PER_PAGE,pondTablePage*PER_PAGE).map((p,i)=>{
-              const logs=p.status === "Empty" ? [] : mortality.filter(m=>m.pondId===p.id);
-              const dead=p.status === "Empty" ? 0 : logs.reduce((s,m)=>s+m.count,0);
-              const mRate=p.initialStock>0 && p.status!=="Empty" ? ((dead/p.initialStock)*100).toFixed(1) : "0.0";
+              const pStockDbDate = p.stockingDate && p.stockingDate !== "—" ? toValidDbDate(p.stockingDate) : null;
+              const logs = p.status === "Empty" ? [] : mortality.filter(m => {
+                if (m.pondId !== p.id) return false;
+                const mDate = toValidDbDate(m.date);
+                if (pStockDbDate && mDate && mDate < pStockDbDate) return false;
+                return true;
+              });
+              const dead = p.status === "Empty" ? 0 : logs.reduce((s, m) => s + m.count, 0);
+              const mRate = p.initialStock > 0 && p.status !== "Empty" ? ((dead / p.initialStock) * 100).toFixed(1) : "0.0";
               const isOver = dragOverPondId === p.id && activeDragId !== p.id;
               const isDragged = activeDragId === p.id;
 
@@ -1728,7 +1806,7 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
                     data-pond-id={p.id}
                     className="bg-emerald-50/40 border border-dashed border-emerald-300/80 h-14 transition-all duration-150"
                   >
-                    <td colSpan={8} className="px-4 py-3 text-center text-xs font-semibold text-emerald-700/90 select-none">
+                    <td colSpan={9} className="px-4 py-3 text-center text-xs font-semibold text-emerald-700/90 select-none">
                       <div className="flex items-center justify-center gap-2">
                         <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping"/>
                         <span>Moving <strong>{p.name}</strong> here…</span>
@@ -1772,6 +1850,16 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
                   </td>
                   <td className="px-4 py-3.5 text-slate-600">{p.type}</td>
                   <td className="px-4 py-3.5 text-slate-600">{p.species}</td>
+                  <td className="px-4 py-3.5 whitespace-nowrap">
+                    {p.status === "Active" && p.stockingDate && p.stockingDate !== "—" ? (
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-teal-50 border border-teal-200 text-teal-900 text-xs sm:text-sm font-bold shadow-2xs">
+                        <Calendar size={13} className="text-teal-600 shrink-0" />
+                        {fmtStockingDate(p.stockingDate)}
+                      </span>
+                    ) : (
+                      <span className="text-slate-300 text-xs">—</span>
+                    )}
+                  </td>
                   <td className="px-4 py-3.5"><p className="font-semibold text-slate-900">{p.currentCount.toLocaleString()}</p><p className="text-[11px] text-slate-400">Mort: {mRate}%</p></td>
                   <td className="px-4 py-3.5"><Bdg label={p.category||"Production"} color={p.category==="Nursery"?"purple":"teal"}/></td>
                   <td className="px-4 py-3.5"><Bdg label={p.status==="Active"?"Active":"Inactive"} color={p.status==="Active"?"green":"gray"}/></td>
@@ -1808,7 +1896,7 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
                 </tr>
               );
             })}
-            {filteredPonds.length===0&&<tr><td colSpan={8} className="text-center text-xs text-slate-400 py-8">No ponds match filters</td></tr>}
+            {filteredPonds.length===0&&<tr><td colSpan={9} className="text-center text-xs text-slate-400 py-8">No ponds match filters</td></tr>}
           </tbody>
         </table></div>
         <div className="px-4 pb-2"><Pagination total={filteredPonds.length} page={pondTablePage} perPage={PER_PAGE} onPage={setPondTablePage}/></div>
@@ -1896,20 +1984,27 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
                   </span>
                 </div>
                 <div className="flex items-center gap-1.5 text-xs text-slate-600 font-medium truncate">
-                  <span>{p.currentCount.toLocaleString()} fish</span>
+                  <span className="font-semibold text-slate-800">{p.currentCount.toLocaleString()} fish</span>
                   {p.status==="Active"&&p.species!=="—"&&(
                     <>
                       <span className="text-slate-300">·</span>
                       <span className="text-slate-700">{p.species}</span>
                     </>
                   )}
-                  {p.stockingDate&&p.stockingDate!=="—"&&(
-                    <>
-                      <span className="text-slate-300">·</span>
-                      <span className="text-slate-400 font-normal">{fmtStockingDate(p.stockingDate)}</span>
-                    </>
-                  )}
                 </div>
+                {p.status === "Active" && p.stockingDate && p.stockingDate !== "—" ? (
+                  <div className="mt-1.5 flex items-center">
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-teal-50 border border-teal-200 text-teal-900 text-xs sm:text-sm font-bold shadow-2xs">
+                      <Calendar size={13} className="text-teal-600 shrink-0" />
+                      <span className="text-teal-700 font-medium">Stock Date:</span>
+                      <span className="text-teal-950 font-black">{fmtStockingDate(p.stockingDate)}</span>
+                    </span>
+                  </div>
+                ) : p.status === "Empty" ? (
+                  <div className="mt-1 flex items-center">
+                    <span className="text-[11px] text-slate-400 italic">Empty · Not Stocked</span>
+                  </div>
+                ) : null}
               </div>
             </div>
             {!isDragging && (
@@ -1976,20 +2071,23 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
                   </span>
                 </div>
                 <div className="flex items-center gap-1.5 text-xs text-slate-600 font-medium truncate">
-                  <span>{draggedPond.currentCount.toLocaleString()} fish</span>
+                  <span className="font-semibold text-slate-800">{draggedPond.currentCount.toLocaleString()} fish</span>
                   {draggedPond.status === "Active" && draggedPond.species && draggedPond.species !== "—" && (
                     <>
                       <span className="text-slate-300">·</span>
                       <span className="text-slate-700">{draggedPond.species}</span>
                     </>
                   )}
-                  {draggedPond.stockingDate && draggedPond.stockingDate !== "—" && (
-                    <>
-                      <span className="text-slate-300">·</span>
-                      <span className="text-slate-400 font-normal">{fmtStockingDate(draggedPond.stockingDate)}</span>
-                    </>
-                  )}
                 </div>
+                {draggedPond.status === "Active" && draggedPond.stockingDate && draggedPond.stockingDate !== "—" ? (
+                  <div className="mt-1.5 flex items-center">
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-teal-50 border border-teal-200 text-teal-900 text-xs sm:text-sm font-bold shadow-2xs">
+                      <Calendar size={13} className="text-teal-600 shrink-0" />
+                      <span className="text-teal-700 font-medium">Stock Date:</span>
+                      <span className="text-teal-950 font-black">{fmtStockingDate(draggedPond.stockingDate)}</span>
+                    </span>
+                  </div>
+                ) : null}
               </div>
             </div>
             <div className="shrink-0">

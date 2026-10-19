@@ -362,11 +362,7 @@ export function isSameDate(d1?: string | null, d2?: string | null): boolean {
 
   const n1 = normalize(s1);
   const n2 = normalize(s2);
-  if (n1 === n2) return true;
-
-  const sub1 = n1.replace(/^\d{4}-/, "");
-  const sub2 = n2.replace(/^\d{4}-/, "");
-  return sub1 === sub2;
+  return n1 === n2;
 }
 
 export function isStockMatch(stockA?: string | null, stockB?: string | null, ponds?: any[]): boolean {
