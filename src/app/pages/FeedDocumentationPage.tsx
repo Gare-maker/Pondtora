@@ -12,6 +12,7 @@ import { toValidDbDate } from "../../lib/api";
 import { Card, PBtn, Pagination, PER_PAGE, StatCard, F, IC, SC, SearchableSelect, Bdg, DateInput, NumInput } from "../shared";
 
 interface BulkRow {
+  rowId: string;
   pondId: string;
   pondName: string;
   initialStock: number;
@@ -23,6 +24,9 @@ interface BulkRow {
   eveningTime: string;
   fishStock: string;
   stockDate: string;
+  isExtraPallet?: boolean;
+  palletNumber?: number;
+  existingRecordId?: string;
 }
 
 const MON_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -277,7 +281,6 @@ function FeedDocumentation({
   /* ── Transfer History Modal State ── */
   const [isTransferHistoryOpen, setIsTransferHistoryOpen] = useState(false);
   const [historyStockFilter, setHistoryStockFilter] = useState("All");
-  const [historyTypeFilter, setHistoryTypeFilter] = useState<"all" | "out" | "in">("all");
 
   const getIsoDateForSelDate = useCallback((targetDate: string): string => {
     if (!targetDate) return TODAY;
@@ -2071,10 +2074,18 @@ function FeedDocumentation({
   }, [activePonds, dailyStockFilter]);
 
   const dayRows = useMemo(() => {
-    return activePondsForSelectedStock.map(pond => {
-      const rec = dayRecords.find(r => r.pond === pond.name);
-      return { pond, rec };
+    const list: { pond: Pond; rec: FeedingRecord | null }[] = [];
+    activePondsForSelectedStock.forEach(pond => {
+      const recs = dayRecords.filter(r => (r.pond || "").trim().toLowerCase() === pond.name.trim().toLowerCase());
+      if (recs.length > 0) {
+        recs.forEach(rec => {
+          list.push({ pond, rec });
+        });
+      } else {
+        list.push({ pond, rec: null });
+      }
     });
+    return list;
   }, [activePondsForSelectedStock, dayRecords]);
 
   const totalPonds = activePondsForSelectedStock.length;
@@ -2105,6 +2116,22 @@ function FeedDocumentation({
     const newM = Number(editRec.morning) || 0;
     const newE = Number(editRec.evening) || 0;
     const toFeed = newM + newE;
+
+    // Prevent duplicate feed sizes for the same fish stock / pond on the same date
+    if (editRec.size && editRec.date) {
+      const isDup = (feedingRecords || []).some(r =>
+        r.id !== editRec.id &&
+        isSameDate(r.date, editRec.date) &&
+        ((r.pond && editRec.pond && r.pond.trim().toLowerCase() === editRec.pond.trim().toLowerCase()) ||
+         (r.fishStock && editRec.fishStock && isStockMatch(r.fishStock, editRec.fishStock))) &&
+        isSamePelletSize(r.size, editRec.size)
+      );
+      if (isDup) {
+        toast.error(`Feed size "${editRec.size}" has already been logged for ${editRec.fishStock || editRec.pond} on ${editRec.date}. Duplicate feed sizes are not permitted.`);
+        return;
+      }
+    }
+
     if (toFeed > 0 && editRec.size) {
       const stock = getPelletStock(editRec.size, editRec.id);
       if (!stock.exists) {
@@ -2577,7 +2604,7 @@ function FeedDocumentation({
     }
   }, [currentUser?.name]);
 
-  const getRowsForDate = (targetDate: string) => {
+  const getRowsForDate = (targetDate: string): BulkRow[] => {
     const dateLabel = toDateLabel(targetDate);
     // Suggest pellet if used on the previous 2 consecutive feeding days for that specific pond
     const getSuggestedPallet = (pondName: string): string | null => {
@@ -2616,28 +2643,60 @@ function FeedDocumentation({
       return null;
     };
 
-    return activePonds.map(p => {
-      const existing = (feedingRecords || []).find(r => r && r.pond === p.name && (isSameDate(r.date, targetDate) || r.date === dateLabel));
-      const consecutiveSuggestion = getSuggestedPallet(p.name);
-      const defSize = existing?.size && availablePelletSizes.includes(existing.size)
-        ? existing.size
-        : (consecutiveSuggestion || (p.defaultPellet && availablePelletSizes.includes(p.defaultPellet) ? p.defaultPellet : (availablePelletSizes[0] || "4.0 mm")));
+    const rows: BulkRow[] = [];
+    activePonds.forEach(p => {
+      const existingList = (feedingRecords || []).filter(r =>
+        r &&
+        (r.pond || "").trim().toLowerCase() === p.name.trim().toLowerCase() &&
+        (isSameDate(r.date, targetDate) || r.date === dateLabel)
+      );
       const fsStock = getPondFishStock(p);
       const stockDate = p.stockingDate && p.stockingDate !== "—" ? formatFishStockDate(p.stockingDate) : "—";
-      return {
-        pondId: p.id,
-        pondName: p.name,
-        initialStock: p.initialStock || 0,
-        currentCount: p.currentCount || 0,
-        size: defSize,
-        morning: existing ? (existing.morning != null ? String(existing.morning) : "") : "",
-        evening: existing ? (existing.evening != null ? String(existing.evening) : "") : "",
-        morningTime: existing?.morningTime || "",
-        eveningTime: existing?.eveningTime || "",
-        fishStock: fsStock,
-        stockDate
-      };
+      const consecutiveSuggestion = getSuggestedPallet(p.name);
+
+      if (existingList.length > 0) {
+        existingList.forEach((existing, idx) => {
+          rows.push({
+            rowId: existing.id || `row-${p.id}-${idx}`,
+            pondId: p.id,
+            pondName: p.name,
+            initialStock: p.initialStock || 0,
+            currentCount: p.currentCount || 0,
+            size: existing.size && availablePelletSizes.includes(existing.size)
+              ? existing.size
+              : (availablePelletSizes[0] || "4.0 mm"),
+            morning: existing.morning != null ? String(existing.morning) : "",
+            evening: existing.evening != null ? String(existing.evening) : "",
+            morningTime: existing.morningTime || "",
+            eveningTime: existing.eveningTime || "",
+            fishStock: existing.fishStock || fsStock,
+            stockDate,
+            isExtraPallet: idx > 0,
+            palletNumber: idx + 1,
+            existingRecordId: existing.id
+          });
+        });
+      } else {
+        const defSize = consecutiveSuggestion || (p.defaultPellet && availablePelletSizes.includes(p.defaultPellet) ? p.defaultPellet : (availablePelletSizes[0] || "4.0 mm"));
+        rows.push({
+          rowId: `row-${p.id}-0`,
+          pondId: p.id,
+          pondName: p.name,
+          initialStock: p.initialStock || 0,
+          currentCount: p.currentCount || 0,
+          size: defSize,
+          morning: "",
+          evening: "",
+          morningTime: "",
+          eveningTime: "",
+          fishStock: fsStock,
+          stockDate,
+          isExtraPallet: false,
+          palletNumber: 1
+        });
+      }
     });
+    return rows;
   };
 
   const openLog = () => {
@@ -2668,10 +2727,140 @@ function FeedDocumentation({
     }
   };
 
-  const updateRow = (pondId: string, field: keyof BulkRow, value: string) => setBulkRows(prev => prev.map(r => {
-    if (r.pondId !== pondId) return r;
-    return { ...r, [field]: value };
-  }));
+  const updateRow = (rowId: string, field: keyof BulkRow, value: string) => {
+    if (field === "size") {
+      const target = bulkRows.find(r => r.rowId === rowId);
+      if (target) {
+        const hasDuplicate = bulkRows.some(r =>
+          r.rowId !== rowId &&
+          (r.pondId === target.pondId || r.pondName.toLowerCase().trim() === target.pondName.toLowerCase().trim()) &&
+          isSamePelletSize(r.size, value)
+        );
+        if (hasDuplicate) {
+          toast.error(`Feed size "${value}" is already logged for ${target.fishStock || target.pondName} on ${toDateLabel(bulkDate)}. Duplicate feed sizes are not permitted.`);
+          return;
+        }
+      }
+    }
+    setBulkRows(prev => prev.map(r => {
+      if (r.rowId !== rowId) return r;
+      return { ...r, [field]: value };
+    }));
+  };
+
+  /* ── Pallet Options Modal state ── */
+  const [palletPondModal, setPalletPondModal] = useState<{
+    pondId: string;
+    pondName: string;
+    fishStock: string;
+    stockDate: string;
+    rowId?: string;
+    isExtra?: boolean;
+    palletNumber?: number;
+  } | null>(null);
+
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isLongPressActiveRef = useRef(false);
+
+  const handlePondSectionMouseDown = (row: BulkRow) => {
+    isLongPressActiveRef.current = false;
+    if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+    longPressTimerRef.current = setTimeout(() => {
+      isLongPressActiveRef.current = true;
+      if (typeof navigator !== "undefined" && navigator.vibrate) {
+        try { navigator.vibrate(50); } catch {}
+      }
+      setPalletPondModal({
+        pondId: row.pondId,
+        pondName: row.pondName,
+        fishStock: row.fishStock,
+        stockDate: row.stockDate,
+        rowId: row.rowId,
+        isExtra: row.isExtraPallet,
+        palletNumber: row.palletNumber
+      });
+    }, 500);
+  };
+
+  const handlePondSectionMouseUp = () => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  };
+
+  const handlePondSectionContextMenu = (e: React.MouseEvent, row: BulkRow) => {
+    e.preventDefault();
+    setPalletPondModal({
+      pondId: row.pondId,
+      pondName: row.pondName,
+      fishStock: row.fishStock,
+      stockDate: row.stockDate,
+      rowId: row.rowId,
+      isExtra: row.isExtraPallet,
+      palletNumber: row.palletNumber
+    });
+  };
+
+  const handleAddAnotherPallet = (pondId: string) => {
+    const pondRows = bulkRows.filter(r => r.pondId === pondId);
+    if (pondRows.length === 0) return;
+    const baseRow = pondRows[0];
+    const usedSizes = pondRows.map(r => r.size);
+    const unusedSizes = availablePelletSizes.filter(s => !usedSizes.some(u => isSamePelletSize(u, s)));
+
+    if (unusedSizes.length === 0) {
+      toast.error(`Cannot add another pallet: All available feed sizes (${availablePelletSizes.join(", ")}) have already been logged for ${baseRow.pondName} on ${toDateLabel(bulkDate)}.`);
+      return;
+    }
+
+    const nextSize = unusedSizes[0];
+    const newRowId = `row-${pondId}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const newPalletNum = pondRows.length + 1;
+
+    const newRow: BulkRow = {
+      rowId: newRowId,
+      pondId: baseRow.pondId,
+      pondName: baseRow.pondName,
+      initialStock: baseRow.initialStock,
+      currentCount: baseRow.currentCount,
+      size: nextSize,
+      morning: "",
+      evening: "",
+      morningTime: "",
+      eveningTime: "",
+      fishStock: baseRow.fishStock,
+      stockDate: baseRow.stockDate,
+      isExtraPallet: true,
+      palletNumber: newPalletNum
+    };
+
+    setBulkRows(prev => {
+      const lastPondIdx = prev.reduce((lastIdx, r, i) => r.pondId === pondId ? i : lastIdx, -1);
+      if (lastPondIdx === -1) return [...prev, newRow];
+      const next = [...prev];
+      next.splice(lastPondIdx + 1, 0, newRow);
+      return next;
+    });
+
+    toast.success(`Added Pallet ${newPalletNum} (${nextSize}) for ${baseRow.pondName}`);
+    setPalletPondModal(null);
+  };
+
+  const handleRemoveExtraPallet = (rowId: string) => {
+    const rowToRemove = bulkRows.find(r => r.rowId === rowId);
+    if (!rowToRemove) return;
+    if (rowToRemove.existingRecordId && onDeleteRecord) {
+      if (confirm(`Delete this saved feeding record (${rowToRemove.size} · ${(Number(rowToRemove.morning) || 0) + (Number(rowToRemove.evening) || 0)}kg) from ${rowToRemove.pondName}?`)) {
+        onDeleteRecord(rowToRemove.existingRecordId);
+      } else {
+        return;
+      }
+    }
+    setBulkRows(prev => prev.filter(r => r.rowId !== rowId));
+    toast.success(`Removed extra pallet entry from ${rowToRemove.pondName}`);
+    setPalletPondModal(null);
+  };
 
   const filledCount = bulkRows.filter(r => r.morning || r.evening).length;
   const grandTotal = bulkRows.reduce((s, r) => { const m = Number(r.morning) || 0; const e = Number(r.evening) || 0; return s + m + e; }, 0);
@@ -2681,6 +2870,20 @@ function FeedDocumentation({
     if (!filledCount) errs.amounts = "Please enter at least one feeding amount";
     if (!bulkDate) errs.date = "Date is required";
     if (Object.keys(errs).length) { setFeedErr(errs); return; }
+
+    // Enforce Duplicate Feed Size Prevention across all rows being saved
+    const filledRows = bulkRows.filter(r => (Number(r.morning) || 0) > 0 || (Number(r.evening) || 0) > 0);
+    const seenPondSizes = new Set<string>();
+    for (const r of filledRows) {
+      const pKey = `${(r.pondName || "").toLowerCase().trim()}||${(r.fishStock || "").toLowerCase().trim()}||${(r.size || "").toLowerCase().trim()}`;
+      if (seenPondSizes.has(pKey)) {
+        const errMsg = `Duplicate feed size "${r.size}" detected for ${r.fishStock || r.pondName} on ${toDateLabel(bulkDate)}. Each entry must use a different feed size.`;
+        toast.error(errMsg);
+        setFeedErr({ amounts: errMsg });
+        return;
+      }
+      seenPondSizes.add(pKey);
+    }
 
     // Validate pellet availability across all rows being logged
     const requestedPerSize: Record<string, number> = {};
@@ -2700,7 +2903,7 @@ function FeedDocumentation({
     const dateLabel = toDateLabel(bulkDate);
     for (const [size, requestedKg] of Object.entries(requestedPerSize)) {
       const existingForSizeOnDate = (feedingRecords || [])
-        .filter(x => x && (isSameDate(x.date, bulkDate) || x.date === dateLabel) && x.size === size && bulkRows.some(br => br.pondName === x.pond))
+        .filter(x => x && (isSameDate(x.date, bulkDate) || x.date === dateLabel) && isSamePelletSize(x.size, size) && bulkRows.some(br => br.pondName.toLowerCase().trim() === (x.pond || "").toLowerCase().trim()))
         .reduce((s, x) => s + (Number(x.total) || ((Number(x.morning) || 0) + (Number(x.evening) || 0))), 0);
 
       const stock = getPelletStock(size);
@@ -2747,7 +2950,14 @@ function FeedDocumentation({
       if (m > 0 || e > 0) {
         const cleanPondName = (r.pondName || "").trim();
         const cleanLower = cleanPondName.toLowerCase();
-        const existing = (feedingRecords || []).find(x => x && (x.pond || "").trim().toLowerCase() === cleanLower && (isSameDate(x.date, bulkDate) || x.date === dateLabel));
+        const existing = r.existingRecordId
+          ? (feedingRecords || []).find(x => x && x.id === r.existingRecordId)
+          : (feedingRecords || []).find(x =>
+              x &&
+              (x.pond || "").trim().toLowerCase() === cleanLower &&
+              (isSameDate(x.date, bulkDate) || x.date === dateLabel) &&
+              isSamePelletSize(x.size, r.size)
+            );
         if (existing) {
           const hasChange = m !== existing.morning || e !== existing.evening || r.size !== existing.size;
           const entry: FeedEditEntry = {
@@ -2769,18 +2979,18 @@ function FeedDocumentation({
             recordedBy: recorder,
             morningTime: r.morningTime || existing.morningTime,
             eveningTime: r.eveningTime || existing.eveningTime,
-            fishStock: existing.fishStock || pondToStock(cleanPondName),
+            fishStock: r.fishStock || existing.fishStock || pondToStock(cleanPondName),
             editHistory: hasChange ? [...(existing.editHistory || []), entry] : (existing.editHistory || [])
           })));
         } else {
-          const brandForFeed = (bagLogs || []).find(b => (isSameDate(b.date, bulkDate) || isSameDate(b.date, dateLabel)) && b.size === r.size && (!b.fishStock || normalizeFishStock(b.fishStock) === pondToStock(cleanPondName)))?.brand || (inventory || []).find(f => f && f.size === r.size)?.brand || "";
+          const brandForFeed = (bagLogs || []).find(b => (isSameDate(b.date, bulkDate) || isSameDate(b.date, dateLabel)) && isSamePelletSize(b.size, r.size) && (!b.fishStock || normalizeFishStock(b.fishStock) === pondToStock(cleanPondName)))?.brand || (inventory || []).find(f => f && isSamePelletSize(f.size, r.size))?.brand || "";
           promises.push(Promise.resolve(onAddRecord({
             id: uid(),
             date: dateLabel,
             month: toMon(bulkDate),
             year: toYr(bulkDate),
             pond: cleanPondName,
-            fishStock: pondToStock(cleanPondName),
+            fishStock: r.fishStock || pondToStock(cleanPondName),
             brand: brandForFeed,
             size: r.size,
             morning: m,
@@ -3028,7 +3238,7 @@ function FeedDocumentation({
                             ? formatFishStockDate(pond.stockingDate)
                             : (pondToStockDate(pond.name) !== "—" ? pondToStockDate(pond.name) : "—"));
                       return (
-                        <tr key={pond.id} onClick={() => rec && setViewFeedRec(rec)} className={`transition-colors ${hasFeed ? "hover:bg-green-50/30 cursor-pointer" : "opacity-40 hover:opacity-60"}`}>
+                        <tr key={rec ? rec.id : `pond-${pond.id}`} onClick={() => rec && setViewFeedRec(rec)} className={`transition-colors ${hasFeed ? "hover:bg-green-50/30 cursor-pointer" : "opacity-40 hover:opacity-60"}`}>
                           <td className={`w-12 min-w-[48px] max-w-[48px] px-2 py-3.5 text-slate-300 text-xs font-mono text-center sticky left-0 z-10 ${hasFeed ? "bg-white" : "bg-white"}`}>{i + 1}</td>
                           <td className="px-4 py-3.5 min-w-[130px] sticky left-[48px] z-10 bg-white border-r border-slate-100">
                             <p className="font-semibold text-slate-900 leading-tight">{pond.name}</p>
@@ -3165,11 +3375,12 @@ function FeedDocumentation({
                     : (pond.stockingDate && pond.stockingDate !== "—"
                         ? formatFishStockDate(pond.stockingDate)
                         : (pondToStockDate(pond.name) !== "—" ? pondToStockDate(pond.name) : "—"));
-                  const isMenuOpen = activeDailyMenuId === pond.id;
+                  const rowKey = rec ? rec.id : `pond-${pond.id}`;
+                  const isMenuOpen = activeDailyMenuId === rowKey;
 
                   return (
                     <div
-                      key={pond.id}
+                      key={rowKey}
                       onClick={() => rec && setViewFeedRec(rec)}
                       className={`bg-white border border-slate-200/80 rounded-2xl p-4 shadow-xs transition-all relative ${hasFeed ? "hover:border-green-300 hover:shadow-sm cursor-pointer" : "opacity-70"}`}
                     >
@@ -3196,15 +3407,18 @@ function FeedDocumentation({
 
                         <div className="flex items-center gap-1.5 shrink-0" onClick={e => e.stopPropagation()}>
                           {hasFeed && (
-                            <span className="font-bold text-green-700 font-['Barlow_Condensed',sans-serif] text-base">
-                              {rec.total} kg
-                            </span>
+                            <div className="flex items-center gap-1.5">
+                              <Bdg label={rec.size} color={atMax ? "red" : "blue"} />
+                              <span className="font-bold text-green-700 font-['Barlow_Condensed',sans-serif] text-base">
+                                {rec.total} kg
+                              </span>
+                            </div>
                           )}
                           {hasFeed && (
                             <div className="relative">
                               <button
                                 type="button"
-                                onClick={() => setActiveDailyMenuId(isMenuOpen ? null : pond.id)}
+                                onClick={() => setActiveDailyMenuId(isMenuOpen ? null : rowKey)}
                                 className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
                                 title="Actions"
                               >
@@ -4150,10 +4364,48 @@ function FeedDocumentation({
                       const cumFed = (feedingRecords || []).filter(r => r && r.pond === row.pondName && r.size === row.size).reduce((s, r) => s + (Number(r.total) || 0), 0);
                       const rowAtMax = !!rowMaxKg && cumFed >= rowMaxKg;
                       return (
-                        <tr key={row.pondId} className={`transition-colors ${hasFeed ? "bg-green-50/40" : "hover:bg-slate-50/80"}`}>
+                        <tr key={row.rowId} className={`transition-colors ${hasFeed ? "bg-green-50/40" : "hover:bg-slate-50/80"}`}>
                           <td className={`w-12 min-w-[48px] max-w-[48px] px-2 py-3 text-slate-400 text-xs font-mono text-center sticky left-0 z-10 border-b border-slate-100 ${hasFeed ? "bg-[#f2faf4]" : "bg-white"}`}>{i + 1}</td>
-                          <td className={`px-3 py-2.5 min-w-[110px] max-w-[135px] sticky left-[48px] z-10 border-b border-r border-slate-200 ${hasFeed ? "bg-[#f2faf4]" : "bg-white"}`}>
-                            <p className="font-bold text-slate-900 leading-tight truncate" title={row.pondName}>{row.pondName}</p>
+                          <td
+                            className={`px-3 py-2.5 min-w-[110px] max-w-[145px] sticky left-[48px] z-10 border-b border-r border-slate-200 select-none cursor-pointer group ${hasFeed ? "bg-[#f2faf4]" : "bg-white"}`}
+                            onMouseDown={() => handlePondSectionMouseDown(row)}
+                            onMouseUp={handlePondSectionMouseUp}
+                            onMouseLeave={handlePondSectionMouseUp}
+                            onTouchStart={() => handlePondSectionMouseDown(row)}
+                            onTouchEnd={handlePondSectionMouseUp}
+                            onTouchCancel={handlePondSectionMouseUp}
+                            onContextMenu={e => handlePondSectionContextMenu(e, row)}
+                            title="Long-press or click + to add another pallet for this stock"
+                          >
+                            <div className="flex items-center justify-between gap-1">
+                              <p className="font-bold text-slate-900 leading-tight truncate" title={row.pondName}>
+                                {row.pondName}
+                                {row.isExtraPallet && (
+                                  <span className="ml-1 text-[9.5px] font-bold px-1.5 py-0.2 rounded-full bg-teal-100 text-teal-800">
+                                    P{row.palletNumber || 2}
+                                  </span>
+                                )}
+                              </p>
+                              <button
+                                type="button"
+                                onClick={e => {
+                                  e.stopPropagation();
+                                  setPalletPondModal({
+                                    pondId: row.pondId,
+                                    pondName: row.pondName,
+                                    fishStock: row.fishStock,
+                                    stockDate: row.stockDate,
+                                    rowId: row.rowId,
+                                    isExtra: row.isExtraPallet,
+                                    palletNumber: row.palletNumber
+                                  });
+                                }}
+                                className="p-0.5 rounded text-teal-600 hover:bg-teal-50 transition-colors"
+                                title="Pallet Options (Add Another Pallet)"
+                              >
+                                <Plus size={13} className="stroke-[2.5]" />
+                              </button>
+                            </div>
                             {row.stockDate && row.stockDate !== "—" ? (
                               <p className="text-[11px] font-medium text-teal-700 leading-tight mt-0.5 truncate" title={`Stocked: ${row.stockDate}`}>
                                 {row.stockDate}
@@ -4171,7 +4423,7 @@ function FeedDocumentation({
                                   <td key={col} className="px-2.5 py-2.5 border-b border-slate-100 bg-transparent">
                                     <select
                                       value={row.size}
-                                      onChange={e => updateRow(row.pondId, "size", e.target.value)}
+                                      onChange={e => updateRow(row.rowId, "size", e.target.value)}
                                       className={TS}
                                     >
                                       {availablePelletSizes.map(s => {
@@ -4190,25 +4442,25 @@ function FeedDocumentation({
                             case "morning":
                               return (
                                 <td key={col} className="px-2 py-2.5 border-b border-slate-100 bg-transparent">
-                                  <input type="number" value={row.morning} onChange={e => updateRow(row.pondId, "morning", e.target.value)} className={TI} placeholder="0" min="0" step="0.5" />
+                                  <input type="number" value={row.morning} onChange={e => updateRow(row.rowId, "morning", e.target.value)} className={TI} placeholder="0" min="0" step="0.5" />
                                 </td>
                               );
                             case "morningTime":
                               return (
                                 <td key={col} className="px-2 py-2.5 border-b border-slate-100 bg-transparent">
-                                  <input type="time" value={row.morningTime} onChange={e => updateRow(row.pondId, "morningTime", e.target.value)} className={`${TI} text-xs`} style={{ colorScheme: "light" }} />
+                                  <input type="time" value={row.morningTime} onChange={e => updateRow(row.rowId, "morningTime", e.target.value)} className={`${TI} text-xs`} style={{ colorScheme: "light" }} />
                                 </td>
                               );
                             case "evening":
                               return (
                                 <td key={col} className="px-2 py-2.5 border-b border-slate-100 bg-transparent">
-                                  <input type="number" value={row.evening} onChange={e => updateRow(row.pondId, "evening", e.target.value)} className={TI} placeholder="0" min="0" step="0.5" />
+                                  <input type="number" value={row.evening} onChange={e => updateRow(row.rowId, "evening", e.target.value)} className={TI} placeholder="0" min="0" step="0.5" />
                                 </td>
                               );
                             case "eveningTime":
                               return (
                                 <td key={col} className="px-2 py-2.5 border-b border-slate-100 bg-transparent">
-                                  <input type="time" value={row.eveningTime} onChange={e => updateRow(row.pondId, "eveningTime", e.target.value)} className={`${TI} text-xs`} style={{ colorScheme: "light" }} />
+                                  <input type="time" value={row.eveningTime} onChange={e => updateRow(row.rowId, "eveningTime", e.target.value)} className={`${TI} text-xs`} style={{ colorScheme: "light" }} />
                                 </td>
                               );
                             case "total":
@@ -4251,19 +4503,35 @@ function FeedDocumentation({
 
                   return (
                     <div
-                      key={row.pondId}
+                      key={row.rowId}
                       className={`bg-white border rounded-2xl p-3.5 shadow-2xs transition-all ${
                         hasFeed ? "border-green-300 bg-green-50/20 ring-1 ring-green-200/50" : "border-slate-200/80"
                       }`}
                     >
                       {/* Card Header: Pond Name + Fish Count + Total badge */}
-                      <div className="flex items-start justify-between gap-2 pb-2.5 border-b border-slate-100">
+                      <div
+                        className="flex items-start justify-between gap-2 pb-2.5 border-b border-slate-100 cursor-pointer select-none"
+                        onMouseDown={() => handlePondSectionMouseDown(row)}
+                        onMouseUp={handlePondSectionMouseUp}
+                        onTouchStart={() => handlePondSectionMouseDown(row)}
+                        onTouchEnd={handlePondSectionMouseUp}
+                        onTouchCancel={handlePondSectionMouseUp}
+                        onContextMenu={e => handlePondSectionContextMenu(e, row)}
+                        title="Long-press to open Pallet Options"
+                      >
                         <div>
                           <div className="flex items-center gap-1.5">
                             <span className="w-5 h-5 rounded-full bg-slate-100 text-slate-500 text-[11px] font-bold flex items-center justify-center font-mono">
                               {i + 1}
                             </span>
-                            <h3 className="font-bold text-slate-900 text-sm leading-tight">{row.pondName}</h3>
+                            <h3 className="font-bold text-slate-900 text-sm leading-tight">
+                              {row.pondName}
+                              {row.isExtraPallet && (
+                                <span className="ml-1.5 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-teal-100 text-teal-800">
+                                  Pallet {row.palletNumber || 2}
+                                </span>
+                              )}
+                            </h3>
                           </div>
                           {row.stockDate && row.stockDate !== "—" ? (
                             <p className="text-[11px] font-medium text-teal-700 mt-0.5 ml-6.5">Stocked: {row.stockDate}</p>
@@ -4271,7 +4539,26 @@ function FeedDocumentation({
                             <p className="text-[10px] text-slate-400 mt-0.5 ml-6.5">{row.fishStock || "No stock"}</p>
                           )}
                         </div>
-                        <div className="text-right">
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={e => {
+                              e.stopPropagation();
+                              setPalletPondModal({
+                                pondId: row.pondId,
+                                pondName: row.pondName,
+                                fishStock: row.fishStock,
+                                stockDate: row.stockDate,
+                                rowId: row.rowId,
+                                isExtra: row.isExtraPallet,
+                                palletNumber: row.palletNumber
+                              });
+                            }}
+                            className="p-1 px-2 rounded-lg text-teal-700 bg-teal-50 border border-teal-200 text-[11px] font-bold flex items-center gap-1"
+                            title="Pallet options"
+                          >
+                            <Plus size={12} /> Pallet
+                          </button>
                           <span className={`inline-flex items-center px-2.5 py-0.5 rounded-lg text-xs font-bold font-['Barlow_Condensed',sans-serif] ${
                             total > 0 ? "bg-green-600 text-white" : "bg-slate-100 text-slate-400"
                           }`}>
@@ -4285,7 +4572,7 @@ function FeedDocumentation({
                         <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">Pellet Size</label>
                         <select
                           value={row.size}
-                          onChange={ev => updateRow(row.pondId, "size", ev.target.value)}
+                          onChange={ev => updateRow(row.rowId, "size", ev.target.value)}
                           className={`${TS} text-xs py-1.5`}
                         >
                           {availablePelletSizes.map(s => {
@@ -4309,7 +4596,7 @@ function FeedDocumentation({
                           <input
                             type="number"
                             value={row.morning}
-                            onChange={ev => updateRow(row.pondId, "morning", ev.target.value)}
+                            onChange={ev => updateRow(row.rowId, "morning", ev.target.value)}
                             className={`${TI} text-xs py-1.5`}
                             placeholder="0"
                             min="0"
@@ -4318,7 +4605,7 @@ function FeedDocumentation({
                           <input
                             type="time"
                             value={row.morningTime}
-                            onChange={ev => updateRow(row.pondId, "morningTime", ev.target.value)}
+                            onChange={ev => updateRow(row.rowId, "morningTime", ev.target.value)}
                             className={`${TI} text-[11px] py-1 mt-1`}
                             style={{ colorScheme: "light" }}
                           />
@@ -4330,7 +4617,7 @@ function FeedDocumentation({
                           <input
                             type="number"
                             value={row.evening}
-                            onChange={ev => updateRow(row.pondId, "evening", ev.target.value)}
+                            onChange={ev => updateRow(row.rowId, "evening", ev.target.value)}
                             className={`${TI} text-xs py-1.5`}
                             placeholder="0"
                             min="0"
@@ -4339,7 +4626,7 @@ function FeedDocumentation({
                           <input
                             type="time"
                             value={row.eveningTime}
-                            onChange={ev => updateRow(row.pondId, "eveningTime", ev.target.value)}
+                            onChange={ev => updateRow(row.rowId, "eveningTime", ev.target.value)}
                             className={`${TI} text-[11px] py-1 mt-1`}
                             style={{ colorScheme: "light" }}
                           />
@@ -4353,8 +4640,8 @@ function FeedDocumentation({
           </div>
           <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 shrink-0 flex flex-wrap items-center justify-between gap-3 rounded-b-2xl z-30">
               <div>
-                <p className="text-sm font-semibold text-slate-700"><span className="text-green-600">{filledCount}</span> of {bulkRows.length} ponds filled</p>
-                <p className="text-xs text-slate-400 mt-0.5">Only ponds with a value entered will be saved</p>
+                <p className="text-sm font-semibold text-slate-700"><span className="text-green-600">{filledCount}</span> of {bulkRows.length} entry{bulkRows.length !== 1 ? "ies" : "y"} filled</p>
+                <p className="text-xs text-slate-400 mt-0.5">Only entries with a value entered will be saved</p>
                 {feedErr.amounts && <p className="text-xs text-red-500 mt-1">{feedErr.amounts}</p>}
                 {feedErr.date && <p className="text-xs text-red-500 mt-1">{feedErr.date}</p>}
               </div>
@@ -4368,6 +4655,103 @@ function FeedDocumentation({
                   )}
                 </PBtn>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Pallet Options Modal (Long-Press / + Pallet) ── */}
+      {palletPondModal && (
+        <div className="fixed inset-0 bg-slate-950/60 z-[80] flex items-center justify-center p-4 animate-in fade-in duration-150" onClick={() => setPalletPondModal(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-150" onClick={e => e.stopPropagation()}>
+            {/* Header */}
+            <div className="px-5 py-4 border-b border-slate-100 bg-slate-50/70 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-teal-100 text-teal-800 flex items-center justify-center font-bold">
+                  <Package size={16} />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">
+                    Pallet Options — {palletPondModal.pondName}
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    {palletPondModal.fishStock || "Fish Stock"} · {toDateLabel(bulkDate)}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPalletPondModal(null)}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="p-5 space-y-4">
+              {/* Active Pallets for this Pond on this Day */}
+              <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3.5 space-y-2">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
+                  Logged Feed Sizes on {toDateLabel(bulkDate)}
+                </span>
+                <div className="space-y-1.5">
+                  {bulkRows.filter(r => r.pondId === palletPondModal.pondId).map((r, idx) => {
+                    const totalKg = (Number(r.morning) || 0) + (Number(r.evening) || 0);
+                    return (
+                      <div key={r.rowId} className="flex items-center justify-between bg-white border border-slate-200/80 rounded-xl px-3 py-2 text-xs">
+                        <div className="flex items-center gap-2">
+                          <span className="w-5 h-5 rounded-full bg-slate-100 text-slate-600 font-mono text-[10px] font-bold flex items-center justify-center">
+                            {idx + 1}
+                          </span>
+                          <span className="font-bold text-slate-800">{r.size}</span>
+                        </div>
+                        <div className="flex items-center gap-2.5">
+                          <span className="font-bold text-teal-800 font-['Barlow_Condensed',sans-serif] text-sm">
+                            {totalKg > 0 ? `${totalKg} kg` : "0 kg"}
+                          </span>
+                          {r.isExtraPallet && (
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveExtraPallet(r.rowId)}
+                              className="text-red-500 hover:text-red-700 p-1 rounded-md hover:bg-red-50 text-[11px]"
+                              title="Remove this pallet entry"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Action: Add Another Pallet */}
+              <div className="space-y-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => handleAddAnotherPallet(palletPondModal.pondId)}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs rounded-xl shadow-sm transition-all hover:shadow-md cursor-pointer"
+                >
+                  <Plus size={16} />
+                  <span>Add Another Pallet</span>
+                </button>
+                <p className="text-[11px] text-slate-400 text-center leading-relaxed">
+                  Record feeding for an additional feed size (e.g. 3mm to 4mm transition) for this fish stock on the same day.
+                </p>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="px-5 py-3 border-t border-slate-100 bg-slate-50/50 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setPalletPondModal(null)}
+                className="px-4 py-1.5 text-xs font-semibold text-slate-600 hover:text-slate-900"
+              >
+                Close
+              </button>
             </div>
           </div>
         </div>
@@ -5248,21 +5632,21 @@ function FeedDocumentation({
         </div>
       )}
 
-      {/* ── Transfer Remaining Feed Pop-up Modal (Section 4 & 5) ── */}
+      {/* ── Transfer Remaining Feed Pop-up Modal ── */}
       {transferModalOpen && selectedTransferRow && (
         <div className="fixed inset-0 bg-slate-950/60 z-50 flex items-center justify-center p-3 sm:p-6 animate-in fade-in duration-150" onClick={e => e.target === e.currentTarget && !isSubmittingTransfer && setTransferModalOpen(false)}>
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col overflow-hidden max-h-[92vh] animate-in zoom-in-95 duration-200">
             {/* Modal Header */}
-            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 shrink-0 bg-slate-50/50">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 shrink-0">
               <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-teal-100/90 text-teal-800 flex items-center justify-center shrink-0 shadow-2xs">
+                <div className="w-9 h-9 rounded-xl bg-teal-50 text-teal-700 flex items-center justify-center shrink-0">
                   <ArrowRightLeft size={18} />
                 </div>
                 <div>
                   <h2 className="text-base sm:text-lg font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] leading-tight">
                     Transfer Remaining Feed
                   </h2>
-                  <p className="text-[11px] text-slate-500">Move unused feed from an opened bag to a compatible fish stock</p>
+                  <p className="text-[11px] text-slate-500">Move leftover feed to another fish stock using the same feed size and brand</p>
                 </div>
               </div>
               <button 
@@ -5276,51 +5660,40 @@ function FeedDocumentation({
 
             {/* Modal Body */}
             <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4 text-xs">
-              {/* Source Information Card (Section 4) */}
-              <div className="bg-slate-50/80 border border-slate-200/80 rounded-2xl p-3.5 space-y-2.5">
-                <div className="flex items-center justify-between pb-2 border-b border-slate-200/60">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Source Feed Information</span>
-                  <span className="text-[11px] font-bold text-emerald-800 bg-emerald-100/80 px-2.5 py-0.5 rounded-full border border-emerald-200">
-                    Available: {getAvailableRemainingForTransfer(selectedTransferRow)} kg
-                  </span>
-                </div>
+              {/* Minimalist Source Information Card */}
+              {(() => {
+                const currentAvail = getAvailableRemainingForTransfer(selectedTransferRow);
+                return (
+                  <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3.5 space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <div className="min-w-0 pr-2">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Source Fish Stock</span>
+                        <h4 className="font-bold text-slate-900 text-sm truncate" title={selectedTransferRow.fishStock}>
+                          {formatFishStock(selectedTransferRow.fishStock)}
+                        </h4>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Available to Transfer</span>
+                        <span className="text-base font-bold text-teal-700 font-['Barlow_Condensed',sans-serif]">
+                          {currentAvail} kg
+                        </span>
+                      </div>
+                    </div>
 
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-[11px]">
-                  <div>
-                    <span className="text-[10px] text-slate-400 block uppercase tracking-wider">Source Stock</span>
-                    <span className="font-bold text-slate-800 text-xs truncate block" title={selectedTransferRow.fishStock}>
-                      {formatFishStock(selectedTransferRow.fishStock)}
-                    </span>
+                    <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-200/60 text-[11px] text-slate-600">
+                      <span className="inline-flex items-center gap-1 bg-white border border-slate-200/80 px-2 py-0.5 rounded-md font-medium text-slate-800">
+                        <Package size={11} className="text-slate-400" /> {selectedTransferRow.size} · {selectedTransferRow.brand}
+                      </span>
+                      <span className="text-slate-300">·</span>
+                      <span className="text-slate-500">Opened: {selectedTransferRow.lastBagLog?.date || selDate}</span>
+                    </div>
                   </div>
-                  <div>
-                    <span className="text-[10px] text-slate-400 block uppercase tracking-wider">Original Date</span>
-                    <span className="font-semibold text-slate-700">{selectedTransferRow.lastBagLog?.date || selDate}</span>
-                  </div>
-                  <div>
-                    <span className="text-[10px] text-slate-400 block uppercase tracking-wider">Pallet Size</span>
-                    <span className="inline-block mt-0.5"><Bdg label={selectedTransferRow.size} color="blue" /></span>
-                  </div>
-                  <div>
-                    <span className="text-[10px] text-slate-400 block uppercase tracking-wider">Feed Brand</span>
-                    <span className="font-semibold text-slate-800">{selectedTransferRow.brand}</span>
-                  </div>
-                  <div>
-                    <span className="text-[10px] text-slate-400 block uppercase tracking-wider">Pallet</span>
-                    <span className="font-semibold text-slate-700">{selectedTransferRow.size} Pallet</span>
-                  </div>
-                  <div>
-                    <span className="text-[10px] text-slate-400 block uppercase tracking-wider">Gross Remaining</span>
-                    <span className="font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] text-sm">
-                      {selectedTransferRow.feedRemainingToday ?? selectedTransferRow.remainingKg} kg
-                    </span>
-                  </div>
-                </div>
-              </div>
+                );
+              })()}
 
-              {/* Destination Stock Selection (Section 4 & 5: Match Size, Brand & Pallet) */}
+              {/* Destination Stock Selection */}
               {(() => {
                 const eligibleStocks = stockFilterOptions.filter(s => s.name !== "All" && checkTransferEligibility(s.name, selectedTransferRow).eligible);
-                const allOtherStocks = stockFilterOptions.filter(s => s.name !== "All" && !isStockMatch(s.name, selectedTransferRow.fishStock));
                 const currentAvail = getAvailableRemainingForTransfer(selectedTransferRow);
                 const numQty = parseFloat(transferQty) || 0;
                 const sourceRemainingAfter = Math.max(0, Math.round((currentAvail - numQty) * 10) / 10);
@@ -5328,57 +5701,52 @@ function FeedDocumentation({
                 return (
                   <div className="space-y-3.5">
                     <div>
-                      <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1.5 flex items-center justify-between">
-                        <span>Select Destination Fish Stock *</span>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <label className="text-[11px] font-bold text-slate-700 uppercase tracking-wider">
+                          Destination Fish Stock *
+                        </label>
                         {eligibleStocks.length > 0 && (
-                          <span className="text-[10px] text-teal-700 font-semibold normal-case">
-                            {eligibleStocks.length} compatible stock{eligibleStocks.length !== 1 ? "s" : ""} found
+                          <span className="text-[10px] text-teal-700 font-medium">
+                            {eligibleStocks.length} compatible stock{eligibleStocks.length !== 1 ? "s" : ""}
                           </span>
                         )}
-                      </label>
+                      </div>
                       
                       {eligibleStocks.length === 0 ? (
-                        <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 space-y-1">
+                        <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 space-y-1">
                           <div className="flex items-center gap-1.5 font-bold text-xs">
                             <AlertCircle size={14} className="text-amber-600 shrink-0" />
-                            <span>No compatible fish stocks available</span>
+                            <span>No compatible fish stocks found</span>
                           </div>
                           <p className="text-[11px] text-amber-800 leading-relaxed">
-                            Under Pondtora's feeding rules (Section 5), feed can only be transferred to active fish stocks that match the exact same <strong>feed size ({selectedTransferRow.size})</strong>, <strong>brand ({selectedTransferRow.brand})</strong>, and <strong>pallet ({selectedTransferRow.size})</strong>.
+                            Feed can only be transferred to active fish stocks that use the exact same feed size (<strong>{selectedTransferRow.size}</strong>) and brand (<strong>{selectedTransferRow.brand}</strong>).
                           </p>
                         </div>
                       ) : (
-                        <div>
-                          <select
-                            value={transferDestStock}
-                            onChange={e => {
-                              setTransferDestStock(e.target.value);
-                              setTransferError(null);
-                            }}
-                            className={`${SC} w-full py-2 px-3 text-xs font-medium text-slate-800 bg-white border border-slate-200 rounded-xl shadow-2xs focus:ring-2 focus:ring-teal-500`}
-                          >
-                            <option value="">— Select an eligible destination stock —</option>
-                            {eligibleStocks.map(s => (
-                              <option key={s.key} value={s.name}>
-                                {s.label}
-                              </option>
-                            ))}
-                          </select>
-                          {allOtherStocks.length > eligibleStocks.length && (
-                            <p className="text-[10px] text-slate-400 mt-1">
-                              {allOtherStocks.length - eligibleStocks.length} other active stock{allOtherStocks.length - eligibleStocks.length !== 1 ? "s were" : " was"} excluded due to brand or pallet mismatch.
-                            </p>
-                          )}
-                        </div>
+                        <select
+                          value={transferDestStock}
+                          onChange={e => {
+                            setTransferDestStock(e.target.value);
+                            setTransferError(null);
+                          }}
+                          className={`${SC} w-full py-2.5 px-3 text-xs font-medium text-slate-800 bg-white border border-slate-200 rounded-xl shadow-2xs focus:ring-2 focus:ring-teal-500 focus:border-teal-500`}
+                        >
+                          <option value="">— Select destination stock —</option>
+                          {eligibleStocks.map(s => (
+                            <option key={s.key} value={s.name}>
+                              {s.label}
+                            </option>
+                          ))}
+                        </select>
                       )}
                     </div>
 
-                    {/* Quantity to Transfer */}
+                    {/* Quantity & Date Grid */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div>
                         <div className="flex items-center justify-between mb-1">
                           <label className="text-[11px] font-bold text-slate-700 uppercase tracking-wider">
-                            Quantity to Transfer (kg) *
+                            Quantity (kg) *
                           </label>
                           <button
                             type="button"
@@ -5386,9 +5754,9 @@ function FeedDocumentation({
                               setTransferQty(String(currentAvail));
                               setTransferError(null);
                             }}
-                            className="text-[10px] text-teal-700 hover:text-teal-800 font-bold underline cursor-pointer"
+                            className="text-[10px] text-teal-700 hover:text-teal-800 font-semibold cursor-pointer"
                           >
-                            Transfer All ({currentAvail} kg)
+                            All ({currentAvail} kg)
                           </button>
                         </div>
                         <input
@@ -5403,9 +5771,9 @@ function FeedDocumentation({
                           }}
                           placeholder={`Max ${currentAvail} kg`}
                           className={`w-full py-2 px-3 text-xs bg-white border ${
-                            numQty > currentAvail || numQty <= 0 && transferQty !== ""
+                            numQty > currentAvail || (numQty <= 0 && transferQty !== "")
                               ? "border-red-400 focus:ring-red-400"
-                              : "border-slate-200 focus:ring-teal-500"
+                              : "border-slate-200 focus:ring-teal-500 focus:border-teal-500"
                           } rounded-xl shadow-2xs text-slate-900 font-semibold focus:outline-none focus:ring-2`}
                         />
                         {numQty > currentAvail && (
@@ -5415,7 +5783,6 @@ function FeedDocumentation({
                         )}
                       </div>
 
-                      {/* Transfer Date (Section 10: support transfers across dates) */}
                       <div>
                         <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">
                           Transfer Date
@@ -5425,61 +5792,38 @@ function FeedDocumentation({
                           value={transferDate}
                           onChange={e => setTransferDate(e.target.value)}
                           placeholder="e.g. 20 October 2026"
-                          className="w-full py-2 px-3 text-xs bg-white border border-slate-200 rounded-xl shadow-2xs text-slate-900 font-medium focus:outline-none focus:ring-2 focus:ring-teal-500"
+                          className="w-full py-2 px-3 text-xs bg-white border border-slate-200 rounded-xl shadow-2xs text-slate-900 font-medium focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
                         />
-                        <p className="text-[10px] text-slate-400 mt-1">Date when feed was physically transferred</p>
                       </div>
                     </div>
 
-                    {/* Notes / Reason */}
+                    {/* Notes */}
                     <div>
                       <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">
-                        Transfer Notes (Optional)
+                        Notes (Optional)
                       </label>
                       <input
                         type="text"
                         value={transferNotes}
                         onChange={e => setTransferNotes(e.target.value)}
-                        placeholder="e.g. Stock reached expected weight; moving remaining feed to Stock B"
+                        placeholder="e.g. Moving remaining feed to active pond"
                         className="w-full py-2 px-3 text-xs bg-white border border-slate-200 rounded-xl shadow-2xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500"
                       />
                     </div>
 
-                    {/* Transfer Confirmation Summary (Section 4) */}
+                    {/* Minimalist Live Transfer Summary */}
                     {transferDestStock && numQty > 0 && numQty <= currentAvail && (
-                      <div className="bg-teal-50/80 border border-teal-200 rounded-2xl p-3.5 space-y-2 text-teal-950 animate-in fade-in duration-150">
-                        <p className="text-[11px] font-bold uppercase tracking-wider text-teal-900 flex items-center gap-1.5">
-                          <CheckCircle size={14} className="text-teal-700" /> Transfer Confirmation Summary
-                        </p>
-                        <div className="grid grid-cols-2 gap-2 text-[11px] pt-1 border-t border-teal-200/60">
-                          <div>
-                            <span className="text-teal-700 block text-[10px]">Source Stock:</span>
-                            <span className="font-bold">{formatFishStock(selectedTransferRow.fishStock)}</span>
+                      <div className="bg-teal-50/70 border border-teal-200/80 rounded-xl p-3.5 space-y-2 text-teal-950 animate-in fade-in duration-150">
+                        <div className="flex items-center justify-between text-xs font-semibold text-teal-900">
+                          <span className="truncate max-w-[42%]">{formatFishStock(selectedTransferRow.fishStock)}</span>
+                          <div className="flex items-center gap-1 text-teal-700 shrink-0 font-bold px-2.5 py-0.5 bg-teal-100 rounded-full text-[11px]">
+                            <ArrowRight size={12} /> {numQty} kg
                           </div>
-                          <div>
-                            <span className="text-teal-700 block text-[10px]">Destination Stock:</span>
-                            <span className="font-bold">{formatFishStock(transferDestStock)}</span>
-                          </div>
-                          <div>
-                            <span className="text-teal-700 block text-[10px]">Feed & Pallet:</span>
-                            <span className="font-semibold">{selectedTransferRow.size} · {selectedTransferRow.brand}</span>
-                          </div>
-                          <div>
-                            <span className="text-teal-700 block text-[10px]">Transfer Quantity:</span>
-                            <span className="font-bold text-teal-900 text-sm font-['Barlow_Condensed',sans-serif]">{numQty} kg</span>
-                          </div>
-                          <div>
-                            <span className="text-teal-700 block text-[10px]">Remaining at Source:</span>
-                            <span className="font-bold font-['Barlow_Condensed',sans-serif] text-sm text-slate-700">
-                              {sourceRemainingAfter} kg
-                            </span>
-                          </div>
-                          <div>
-                            <span className="text-teal-700 block text-[10px]">Destination Receives:</span>
-                            <span className="font-bold font-['Barlow_Condensed',sans-serif] text-sm text-emerald-800">
-                              +{numQty} kg
-                            </span>
-                          </div>
+                          <span className="truncate max-w-[42%] text-right">{formatFishStock(transferDestStock)}</span>
+                        </div>
+                        <div className="flex items-center justify-between text-[11px] text-teal-800 pt-1.5 border-t border-teal-200/60">
+                          <span>Left at source: <strong>{sourceRemainingAfter} kg</strong></span>
+                          <span>Destination receives: <strong className="text-emerald-700">+{numQty} kg</strong></span>
                         </div>
                       </div>
                     )}
@@ -5516,7 +5860,7 @@ function FeedDocumentation({
                   parseFloat(transferQty) <= 0 || 
                   parseFloat(transferQty) > getAvailableRemainingForTransfer(selectedTransferRow)
                 }
-                className="inline-flex items-center gap-2 px-5 py-2.5 bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs rounded-xl shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-md"
+                className="inline-flex items-center gap-2 px-5 py-2.5 bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isSubmittingTransfer ? (
                   <span>Processing Transfer…</span>
@@ -5532,21 +5876,21 @@ function FeedDocumentation({
         </div>
       )}
 
-      {/* ── Transfer History & Audit Trail Modal (Section 11) ── */}
+      {/* ── Remaining Feed Transfer History Modal ── */}
       {isTransferHistoryOpen && (
         <div className="fixed inset-0 bg-slate-950/60 z-50 flex items-center justify-center p-3 sm:p-6 animate-in fade-in duration-150" onClick={e => e.target === e.currentTarget && setIsTransferHistoryOpen(false)}>
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl flex flex-col overflow-hidden max-h-[92vh] animate-in zoom-in-95 duration-200">
             {/* Modal Header */}
-            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 shrink-0 bg-slate-50/50">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 shrink-0">
               <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-teal-100/90 text-teal-800 flex items-center justify-center shrink-0 shadow-2xs">
+                <div className="w-9 h-9 rounded-xl bg-teal-50 text-teal-700 flex items-center justify-center shrink-0">
                   <History size={18} />
                 </div>
                 <div>
                   <h2 className="text-base sm:text-lg font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] leading-tight">
                     Remaining Feed Transfer History
                   </h2>
-                  <p className="text-[11px] text-slate-500">Full audit trail of all feed transferred between fish stocks</p>
+                  <p className="text-[11px] text-slate-500">Audit trail of feed transferred between fish stocks</p>
                 </div>
               </div>
               <button 
@@ -5557,58 +5901,22 @@ function FeedDocumentation({
               </button>
             </div>
 
-            {/* Modal Controls / Filter Toolbar */}
-            <div className="px-5 py-3 border-b border-slate-100 bg-white flex flex-wrap items-center justify-between gap-3 text-xs shrink-0">
+            {/* Filter Toolbar (Direction indicator removed per request) */}
+            <div className="px-5 py-3 border-b border-slate-100 bg-slate-50/50 flex flex-wrap items-center justify-between gap-3 text-xs shrink-0">
               <div className="flex items-center gap-2">
-                <span className="text-slate-400 font-medium">Stock:</span>
+                <span className="text-slate-500 font-medium">Filter by Fish Stock:</span>
                 <select
                   value={historyStockFilter}
                   onChange={e => setHistoryStockFilter(e.target.value)}
-                  className={`${SC} py-1 px-2.5 text-xs w-auto bg-slate-50 border border-slate-200 rounded-lg`}
+                  className={`${SC} py-1.5 px-3 text-xs w-auto bg-white border border-slate-200 rounded-lg text-slate-800 shadow-2xs focus:ring-teal-500`}
                 >
-                  <option value="All">All Stocks</option>
+                  <option value="All">All Fish Stocks</option>
                   {stockFilterOptions.map(s => (
                     <option key={s.key} value={s.name}>{s.label}</option>
                   ))}
                 </select>
               </div>
 
-              <div className="flex items-center gap-1.5">
-                <span className="text-slate-400 font-medium">Direction:</span>
-                <div className="inline-flex rounded-lg border border-slate-200 p-0.5 bg-slate-50">
-                  <button
-                    type="button"
-                    onClick={() => setHistoryTypeFilter("all")}
-                    className={`px-2.5 py-1 text-xs rounded-md font-semibold transition-colors ${
-                      historyTypeFilter === "all" ? "bg-white text-teal-800 shadow-2xs" : "text-slate-600 hover:text-slate-900"
-                    }`}
-                  >
-                    All
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setHistoryTypeFilter("out")}
-                    className={`px-2.5 py-1 text-xs rounded-md font-semibold transition-colors ${
-                      historyTypeFilter === "out" ? "bg-white text-teal-800 shadow-2xs" : "text-slate-600 hover:text-slate-900"
-                    }`}
-                  >
-                    Transferred Out
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setHistoryTypeFilter("in")}
-                    className={`px-2.5 py-1 text-xs rounded-md font-semibold transition-colors ${
-                      historyTypeFilter === "in" ? "bg-white text-teal-800 shadow-2xs" : "text-slate-600 hover:text-slate-900"
-                    }`}
-                  >
-                    Received In
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* Modal Content / Transfer Records List */}
-            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3 text-xs">
               {(() => {
                 let records = feedTransfers;
                 if (historyStockFilter !== "All") {
@@ -5617,10 +5925,23 @@ function FeedDocumentation({
                     isStockMatch(t.destinationStock, historyStockFilter)
                   );
                 }
-                if (historyTypeFilter === "out") {
-                  records = records.filter(t => historyStockFilter === "All" || isStockMatch(t.sourceStock, historyStockFilter));
-                } else if (historyTypeFilter === "in") {
-                  records = records.filter(t => historyStockFilter === "All" || isStockMatch(t.destinationStock, historyStockFilter));
+                return (
+                  <span className="text-slate-400 text-[11px] font-medium">
+                    {records.length} record{records.length !== 1 ? "s" : ""}
+                  </span>
+                );
+              })()}
+            </div>
+
+            {/* Transfer Records List */}
+            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3 text-xs">
+              {(() => {
+                let records = feedTransfers;
+                if (historyStockFilter !== "All") {
+                  records = records.filter(t => 
+                    isStockMatch(t.sourceStock, historyStockFilter) || 
+                    isStockMatch(t.destinationStock, historyStockFilter)
+                  );
                 }
 
                 if (records.length === 0) {
@@ -5638,23 +5959,23 @@ function FeedDocumentation({
                 return records.map(t => {
                   const usage = getTransferUsage(t);
                   return (
-                    <div key={t.id} className="bg-white border border-slate-200/90 rounded-2xl p-4 shadow-2xs space-y-3 hover:border-teal-300 transition-colors">
+                    <div key={t.id} className="bg-white border border-slate-200/90 rounded-xl p-4 shadow-2xs space-y-3 hover:border-slate-300 transition-colors">
                       {/* Top Header of Record */}
                       <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b border-slate-100">
-                        <div className="flex items-center gap-2">
-                          <span className="font-bold text-slate-900 text-sm">
+                        <div className="flex items-center gap-2 text-sm">
+                          <span className="font-bold text-slate-900">
                             {formatFishStock(t.sourceStock)}
                           </span>
-                          <ArrowRight size={14} className="text-teal-600" />
-                          <span className="font-bold text-teal-800 text-sm">
+                          <ArrowRight size={14} className="text-teal-600 shrink-0" />
+                          <span className="font-bold text-teal-800">
                             {formatFishStock(t.destinationStock)}
                           </span>
                         </div>
 
                         {/* Status Badge */}
-                        <span className={`inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${
+                        <span className={`inline-flex items-center text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${
                           usage.isFullyConsumed
-                            ? "bg-slate-100 text-slate-700 border-slate-200"
+                            ? "bg-slate-100 text-slate-600 border-slate-200"
                             : usage.isPartiallyConsumed
                             ? "bg-amber-50 text-amber-800 border-amber-200"
                             : "bg-teal-50 text-teal-800 border-teal-200"
@@ -5663,58 +5984,58 @@ function FeedDocumentation({
                         </span>
                       </div>
 
-                      {/* Detail Metrics Grid */}
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
-                        <div className="bg-slate-50 rounded-xl p-2.5">
-                          <span className="text-[10px] text-slate-400 block uppercase tracking-wider">Transferred Qty</span>
-                          <span className="font-bold text-slate-900 text-base font-['Barlow_Condensed',sans-serif]">
+                      {/* Clean 4-Stat Metric Row */}
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                        <div className="bg-slate-50/80 rounded-lg p-2.5">
+                          <span className="text-[10px] text-slate-400 block uppercase tracking-wider font-semibold">Transferred</span>
+                          <span className="font-bold text-slate-900 text-sm font-['Barlow_Condensed',sans-serif]">
                             {t.quantityKg} kg
                           </span>
                         </div>
-                        <div className="bg-slate-50 rounded-xl p-2.5">
-                          <span className="text-[10px] text-slate-400 block uppercase tracking-wider">Consumed So Far</span>
-                          <span className="font-bold text-slate-900 text-base font-['Barlow_Condensed',sans-serif]">
+                        <div className="bg-slate-50/80 rounded-lg p-2.5">
+                          <span className="text-[10px] text-slate-400 block uppercase tracking-wider font-semibold">Consumed</span>
+                          <span className="font-bold text-slate-900 text-sm font-['Barlow_Condensed',sans-serif]">
                             {usage.consumedKg} kg
                           </span>
                         </div>
-                        <div className="bg-slate-50 rounded-xl p-2.5">
-                          <span className="text-[10px] text-slate-400 block uppercase tracking-wider">Remaining Unfed</span>
-                          <span className="font-bold text-teal-800 text-base font-['Barlow_Condensed',sans-serif]">
+                        <div className="bg-slate-50/80 rounded-lg p-2.5">
+                          <span className="text-[10px] text-slate-400 block uppercase tracking-wider font-semibold">Remaining</span>
+                          <span className={`font-bold text-sm font-['Barlow_Condensed',sans-serif] ${usage.remainingKg > 0 ? "text-teal-700" : "text-slate-600"}`}>
                             {usage.remainingKg} kg
                           </span>
                         </div>
-                        <div className="bg-slate-50 rounded-xl p-2.5">
-                          <span className="text-[10px] text-slate-400 block uppercase tracking-wider">Feed Details</span>
-                          <span className="font-semibold text-slate-800 block truncate" title={`${t.feedSize} · ${t.feedBrand}`}>
+                        <div className="bg-slate-50/80 rounded-lg p-2.5">
+                          <span className="text-[10px] text-slate-400 block uppercase tracking-wider font-semibold">Feed Spec</span>
+                          <span className="font-semibold text-slate-800 text-xs block truncate" title={`${t.feedSize} · ${t.feedBrand}`}>
                             {t.feedSize} · {t.feedBrand}
                           </span>
                         </div>
                       </div>
 
                       {/* Traceability Metadata Bar */}
-                      <div className="flex flex-wrap items-center justify-between gap-y-1 text-[11px] text-slate-500 pt-1">
-                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-                          <span><strong>Transfer Date:</strong> {t.transferDate}</span>
+                      <div className="flex flex-wrap items-center justify-between gap-y-1 text-[11px] text-slate-500 pt-0.5">
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-0.5">
+                          <span><strong>Date:</strong> {t.transferDate}</span>
                           {t.originalDate !== t.transferDate && (
-                            <span><strong>Original Feeding Date:</strong> {t.originalDate}</span>
+                            <span><strong>Original Feed Date:</strong> {t.originalDate}</span>
                           )}
-                          <span><strong>Recorded By:</strong> {t.transferredBy || "Staff"}</span>
+                          <span><strong>By:</strong> {t.transferredBy || "Staff"}</span>
                         </div>
                         {t.notes && (
-                          <span className="italic text-slate-600 bg-slate-50 px-2 py-0.5 rounded-md">
+                          <span className="italic text-slate-600 bg-slate-50 px-2 py-0.5 rounded text-[10px]">
                             "{t.notes}"
                           </span>
                         )}
                       </div>
 
-                      {/* Contributing Feeding Consumption History (Section 7) */}
+                      {/* Contributing Feeding Consumption History */}
                       {usage.contributingFeedings && usage.contributingFeedings.length > 0 && (
-                        <div className="bg-slate-50/70 border border-slate-100 rounded-xl p-2.5 text-[10px] text-slate-600 space-y-1">
-                          <span className="font-bold text-slate-700 block">Subsequent Consumption Trace:</span>
-                          <div className="flex flex-wrap gap-2">
+                        <div className="bg-slate-50/70 border border-slate-100 rounded-lg p-2.5 text-[10px] text-slate-600 space-y-1">
+                          <span className="font-semibold text-slate-700 block">Subsequent Feedings:</span>
+                          <div className="flex flex-wrap gap-1.5">
                             {usage.contributingFeedings.map((c, idx) => (
-                              <span key={idx} className="bg-white border border-slate-200/80 px-2 py-0.5 rounded-md">
-                                {c.date} ({c.pond}): <strong>{c.fedKg} kg fed</strong>
+                              <span key={idx} className="bg-white border border-slate-200/80 px-2 py-0.5 rounded font-medium">
+                                {c.date} ({c.pond}): <strong className="text-slate-800">{c.fedKg} kg fed</strong>
                               </span>
                             ))}
                           </div>

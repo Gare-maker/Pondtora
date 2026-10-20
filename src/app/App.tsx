@@ -20,7 +20,7 @@ import {
   ResponsiveContainer, PieChart, Pie, Cell, Legend
 } from "recharts";
 import type { View, SortDir, MonthData, FeedItem, Pond, Expense, Revenue, FeedingRecord, FeedEditEntry, MortalityEntry, BagOpenLog, FeedRemainingLog, StaffMember, Report, UserProfile, StockEvent, PriceGroup, Customer, InvSettings, InvoiceLineItem, Invoice, Farm, TreatmentRecord, WItem, EditEntry, Investor, Investment, InvestmentPayment, PondReport, FarmEquipment, FishCountHistoryEntry, InvestmentEditHistoryEntry, FarmToolQuantityHistoryEntry, SalesCalculation, SalesCalculationItem, SalesCalculationEditHistoryEntry } from "./types";
-import { EXPENSE_CATS, REVENUE_SRCS, POND_TYPES, POND_SPECIES, MORT_CAUSES, TODAY, getTodayStr, fmt, yFmt, uid, toMon, toYr, PAYMENT_METHODS, INV_STATUSES, STAFF_PERMISSIONS, STAFF_ROLES_ALL, INIT_INV_SETTINGS, ADMIN_NAME, downloadCSV, openPrintWindow, COUNTRY_CURRENCIES, COUNTRIES, DIAL_CODES, FLAG_EMOJI, convertNGN, fmtStockingDate, formatFishStockDate, formatFishStock, isSameDate, isStockMatch } from "./data";
+import { EXPENSE_CATS, REVENUE_SRCS, POND_TYPES, POND_SPECIES, MORT_CAUSES, TODAY, getTodayStr, fmt, yFmt, uid, toMon, toYr, PAYMENT_METHODS, INV_STATUSES, STAFF_PERMISSIONS, STAFF_ROLES_ALL, INIT_INV_SETTINGS, ADMIN_NAME, downloadCSV, openPrintWindow, COUNTRY_CURRENCIES, COUNTRIES, DIAL_CODES, FLAG_EMOJI, convertNGN, fmtStockingDate, formatFishStockDate, formatFishStock, isSameDate, isStockMatch, isSamePelletSize } from "./data";
 import { Card, Bdg, PBtn, Pagination, PER_PAGE, StatCard, Tip, Modal, F, IC, SC, SearchableSelect, SelDrop, DMONTHS_S, DateFilter, SearchableCountrySelect, SH, useSort, DateInput, NumInput } from "./shared";
 import InvoicesPage from "./pages/InvoicesPage";
 import SalesCalculatorPage from "./pages/SalesCalculatorPage";
@@ -5912,6 +5912,22 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     const fid=r.farmId||activeFarmId||farms[0]?.id||"";
     const farmRec:FeedingRecord={...r,id:isUuid(r.id)?r.id:crypto.randomUUID(),farmId:fid};
 
+    // Prevent duplicate feed sizes for the same fish stock/pond on the same date
+    if (farmRec.size && farmRec.date) {
+      const isDuplicate = feeding.some(fr =>
+        (!fr.farmId || fr.farmId === fid) &&
+        fr.id !== farmRec.id &&
+        isSameDate(fr.date, farmRec.date) &&
+        ((fr.pond && farmRec.pond && fr.pond.trim().toLowerCase() === farmRec.pond.trim().toLowerCase()) ||
+         (fr.fishStock && farmRec.fishStock && isStockMatch(fr.fishStock, farmRec.fishStock))) &&
+        isSamePelletSize(fr.size, farmRec.size)
+      );
+      if (isDuplicate) {
+        toast.error(`Feed size "${farmRec.size}" has already been logged for ${farmRec.fishStock || farmRec.pond} on ${farmRec.date}. Duplicate feed sizes are not permitted.`);
+        return;
+      }
+    }
+
     // Check pellet stock availability
     if (farmRec.size) {
       const invItems = inventory.filter(f => (!f.farmId || f.farmId === fid) && f.size === farmRec.size);
@@ -5970,6 +5986,22 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       return;
     }
     const farmRec:FeedingRecord={...r,farmId:r.farmId||activeFarmId||farms[0]?.id||""};
+
+    // Prevent duplicate feed sizes for the same fish stock/pond on the same date
+    if (farmRec.size && farmRec.date) {
+      const isDuplicate = feeding.some(fr =>
+        (!fr.farmId || fr.farmId === farmRec.farmId) &&
+        fr.id !== farmRec.id &&
+        isSameDate(fr.date, farmRec.date) &&
+        ((fr.pond && farmRec.pond && fr.pond.trim().toLowerCase() === farmRec.pond.trim().toLowerCase()) ||
+         (fr.fishStock && farmRec.fishStock && isStockMatch(fr.fishStock, farmRec.fishStock))) &&
+        isSamePelletSize(fr.size, farmRec.size)
+      );
+      if (isDuplicate) {
+        toast.error(`Feed size "${farmRec.size}" has already been logged for ${farmRec.fishStock || farmRec.pond} on ${farmRec.date}. Duplicate feed sizes are not permitted.`);
+        return;
+      }
+    }
     if (farmRec.size) {
       const invItems = inventory.filter(f => (!f.farmId || f.farmId === farmRec.farmId) && f.size === farmRec.size);
       const totalPurchasedKg = invItems.reduce((s, f) => s + (Number(f.totalKg) || (Number(f.bags) * (Number(f.weightPerBag) || 15))), 0);

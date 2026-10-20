@@ -6,9 +6,10 @@ import {
   MoreVertical, TrendingUp, TrendingDown, Filter, History, GripVertical, Calendar
 } from "lucide-react";
 import type { Pond, Expense, MortalityEntry, FeedingRecord, StockEvent, TreatmentRecord, BagOpenLog, FeedRemainingLog, FeedItem, Farm, PondReport, FishCountHistoryEntry } from "../types";
-import { EXPENSE_CATS, POND_TYPES, POND_SPECIES, MORT_CAUSES, TODAY, fmt, uid, toMon, toYr, downloadCSV, openPrintWindow, fmtStockingDate, getPondFishStock, formatFishStock, isStockMatch, isSameDate, getFishStockDateLabel, isFormattedDate } from "../data";
+import { EXPENSE_CATS, POND_TYPES, POND_SPECIES, MORT_CAUSES, TODAY, fmt, uid, toMon, toYr, downloadCSV, openPrintWindow, fmtStockingDate, getPondFishStock, formatFishStock, isStockMatch, isSameDate, getFishStockDateLabel, isFormattedDate, isSamePelletSize } from "../data";
 import { Card, Bdg, PBtn, Pagination, PER_PAGE, StatCard, Modal, F, IC, SC, SH, useSort, DateFilter, NumInput } from "../shared";
 import { toValidDbDate } from "../../lib/api";
+import { toast } from "sonner";
 import PondReportsComponent from "./PondReportsComponent";
 
 function PondDetail({
@@ -1115,7 +1116,27 @@ function PondDetail({
         </div>
         <F label="Feed Brand"><input value={editFeedRec.brand} onChange={e=>setEditFeedRec(p=>p?{...p,brand:e.target.value}:p)} className={IC}/></F>
         <F label="Feed Size"><select value={editFeedRec.size} onChange={e=>setEditFeedRec(p=>p?{...p,size:e.target.value}:p)} className={SC}>{invSizesForBrand(editFeedRec?.brand||"").length>0?invSizesForBrand(editFeedRec?.brand||"").map(s=><option key={s}>{s}</option>):allInvSizes.map(s=><option key={s}>{s}</option>)}</select></F>
-        <div className="flex gap-2 pt-1"><PBtn onClick={()=>{if(onEditFeedRecord&&editFeedRec)onEditFeedRecord(editFeedRec);setEditFeedRec(null);}}><CheckCircle size={14}/> Save Changes</PBtn><button onClick={()=>setEditFeedRec(null)} className="px-4 py-2 text-sm text-slate-400">Cancel</button></div>
+        <div className="flex gap-2 pt-1">
+          <PBtn onClick={() => {
+            if (!editFeedRec || !onEditFeedRecord) return;
+            const isDup = (feedingRecords || []).some(r =>
+              r.id !== editFeedRec.id &&
+              isSameDate(r.date, editFeedRec.date) &&
+              ((r.pond && editFeedRec.pond && r.pond.trim().toLowerCase() === editFeedRec.pond.trim().toLowerCase()) ||
+               (r.fishStock && editFeedRec.fishStock && isStockMatch(r.fishStock, editFeedRec.fishStock))) &&
+              isSamePelletSize(r.size, editFeedRec.size)
+            );
+            if (isDup) {
+              toast.error(`Feed size "${editFeedRec.size}" is already logged for ${editFeedRec.fishStock || editFeedRec.pond} on ${editFeedRec.date}. Duplicate feed sizes are not permitted.`);
+              return;
+            }
+            onEditFeedRecord(editFeedRec);
+            setEditFeedRec(null);
+          }}>
+            <CheckCircle size={14} /> Save Changes
+          </PBtn>
+          <button onClick={() => setEditFeedRec(null)} className="px-4 py-2 text-sm text-slate-400">Cancel</button>
+        </div>
       </Modal>}
       {editTreatRec&&<Modal title="Edit Treatment Record" onClose={()=>setEditTreatRec(null)}>
         <F label="Date"><input type="date" value={editTreatRec.date} onChange={e=>setEditTreatRec(p=>p?{...p,date:e.target.value}:p)} className={IC}/></F>

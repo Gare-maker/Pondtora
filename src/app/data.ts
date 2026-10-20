@@ -400,6 +400,17 @@ export function isStockMatch(stockA?: string | null, stockB?: string | null, pon
   return false;
 }
 
+export function isSamePelletSize(a?: string | null, b?: string | null): boolean {
+  if (!a || !b) return false;
+  const cleanA = String(a).toLowerCase().replace(/\s+/g, "").trim();
+  const cleanB = String(b).toLowerCase().replace(/\s+/g, "").trim();
+  if (cleanA === cleanB) return true;
+  const numA = parseFloat(cleanA);
+  const numB = parseFloat(cleanB);
+  if (!isNaN(numA) && !isNaN(numB) && numA === numB) return true;
+  return false;
+}
+
 export const PAYMENT_METHODS=["Cash","Bank Transfer","POS","Cheque","Other"];
 export const INV_STATUSES: Invoice["status"][] = ["Draft", "Sent", "Pending", "Partially Paid", "Paid", "Overdue", "Cancelled", "Error"];
 export const STAFF_PERMISSIONS = [

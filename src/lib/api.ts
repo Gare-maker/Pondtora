@@ -2562,9 +2562,26 @@ export const api = {
         const d = toValidDbDate(r.date);
         if (d) dbRec.date = d;
       }
+      const effectiveUid = (await getOwnerUserId()) || (await getUserId());
+      // Prevent duplicate feed sizes for the same stock/pond on the same date
+      if (effectiveUid && dbRec.date && dbRec.size && (dbRec.pond || dbRec.fish_stock || dbRec.fishStock)) {
+        let q = supabase
+          .from("feeding_records")
+          .select("id, pond, fish_stock, size, date")
+          .eq("user_id", effectiveUid)
+          .eq("date", dbRec.date)
+          .eq("size", dbRec.size);
+        if (dbRec.pond) {
+          q = q.eq("pond", dbRec.pond);
+        }
+        const { data: existingDups } = await q;
+        if (existingDups && existingDups.length > 0) {
+          throw new Error(`Feed size "${dbRec.size}" has already been logged for ${dbRec.fish_stock || dbRec.fishStock || dbRec.pond} on ${dbRec.date}. Duplicate feed sizes are not permitted.`);
+        }
+      }
+
       // Check pellet stock availability
       if (dbRec.size) {
-        const effectiveUid = (await getOwnerUserId()) || (await getUserId());
         if (effectiveUid) {
           const { data: invRows } = await supabase
             .from("feed_inventory")
@@ -2600,8 +2617,26 @@ export const api = {
         const d = toValidDbDate(r.date);
         if (d) dbRec.date = d;
       }
+      const effectiveUid = (await getOwnerUserId()) || (await getUserId());
+      // Prevent duplicate feed sizes for the same stock/pond on the same date
+      if (effectiveUid && dbRec.date && dbRec.size && (dbRec.pond || dbRec.fish_stock || dbRec.fishStock)) {
+        let q = supabase
+          .from("feeding_records")
+          .select("id, pond, fish_stock, size, date")
+          .eq("user_id", effectiveUid)
+          .eq("date", dbRec.date)
+          .eq("size", dbRec.size)
+          .neq("id", dbRec.id);
+        if (dbRec.pond) {
+          q = q.eq("pond", dbRec.pond);
+        }
+        const { data: existingDups } = await q;
+        if (existingDups && existingDups.length > 0) {
+          throw new Error(`Feed size "${dbRec.size}" has already been logged for ${dbRec.fish_stock || dbRec.fishStock || dbRec.pond} on ${dbRec.date}. Duplicate feed sizes are not permitted.`);
+        }
+      }
+
       if (dbRec.size) {
-        const effectiveUid = (await getOwnerUserId()) || (await getUserId());
         if (effectiveUid) {
           const { data: invRows } = await supabase
             .from("feed_inventory")
