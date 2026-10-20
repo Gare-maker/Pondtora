@@ -3,10 +3,10 @@ import {
   Plus, CheckCircle, X, Layers, Droplets,
   ChevronDown, ChevronLeft, ChevronRight,
   Package, BookOpen, Download, FileText, Pencil, Trash2, MoreVertical, Lock, History, Fish, Search, AlertTriangle, AlertCircle, Eye,
-  Calendar
+  Calendar, ArrowRightLeft, ArrowRight, Send, Check
 } from "lucide-react";
 import { toast } from "sonner";
-import type { FeedingRecord, FeedEditEntry, Pond, FeedItem, BagOpenLog, FeedRemainingLog, StockEvent } from "../types";
+import type { FeedingRecord, FeedEditEntry, Pond, FeedItem, BagOpenLog, FeedRemainingLog, FeedTransferRecord, StockEvent } from "../types";
 import { TODAY, toMon, toYr, uid, downloadCSV, openPrintWindow, formatFishStockDate, formatFishStock, fmtStockingDate, isSameDate, FEED_SIZES, FEED_BRANDS, getPondFishStock } from "../data";
 import { toValidDbDate } from "../../lib/api";
 import { Card, PBtn, Pagination, PER_PAGE, StatCard, F, IC, SC, SearchableSelect, Bdg, DateInput, NumInput } from "../shared";
@@ -107,6 +107,12 @@ export type MergedBagRow = {
   carryoverKg?: number;
   feedRemainingToday?: number | null;
   hasBagLog?: boolean;
+  transfersOut?: FeedTransferRecord[];
+  transfersIn?: FeedTransferRecord[];
+  totalTransferredOutKg?: number;
+  totalTransferredInKg?: number;
+  availableRemainingKg?: number;
+  grossRemainingKg?: number;
 };
 
 export type BagRow = {
@@ -239,6 +245,39 @@ function FeedDocumentation({
   const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
   const firstDayOfWeek = new Date(viewYear, viewMonth, 1).getDay();
   const calCells = Array(42).fill(null).map((_, i) => { const d = i - firstDayOfWeek + 1; return (d >= 1 && d <= daysInMonth) ? d : null; });
+
+  /* ── Remaining Feed Transfers State & Persistence ── */
+  const activeFarmId = ponds[0]?.farmId || "default";
+  const [feedTransfers, setFeedTransfers] = useState<FeedTransferRecord[]>(() => {
+    try {
+      const raw = localStorage.getItem(`pondtora_feed_transfers_${activeFarmId}`) || localStorage.getItem("pondtora_feed_transfers");
+      if (raw) return JSON.parse(raw);
+    } catch {}
+    return [];
+  });
+
+  const saveFeedTransfers = useCallback((updated: FeedTransferRecord[]) => {
+    setFeedTransfers(updated);
+    try {
+      localStorage.setItem(`pondtora_feed_transfers_${activeFarmId}`, JSON.stringify(updated));
+      localStorage.setItem("pondtora_feed_transfers", JSON.stringify(updated));
+    } catch {}
+  }, [activeFarmId]);
+
+  /* ── Transfer Pop-up Modal State ── */
+  const [transferModalOpen, setTransferModalOpen] = useState(false);
+  const [selectedTransferRow, setSelectedTransferRow] = useState<MergedBagRow | null>(null);
+  const [transferDestStock, setTransferDestStock] = useState("");
+  const [transferQty, setTransferQty] = useState("");
+  const [transferDate, setTransferDate] = useState(selDate);
+  const [transferNotes, setTransferNotes] = useState("");
+  const [transferError, setTransferError] = useState<string | null>(null);
+  const [isSubmittingTransfer, setIsSubmittingTransfer] = useState(false);
+
+  /* ── Transfer History Modal State ── */
+  const [isTransferHistoryOpen, setIsTransferHistoryOpen] = useState(false);
+  const [historyStockFilter, setHistoryStockFilter] = useState("All");
+  const [historyTypeFilter, setHistoryTypeFilter] = useState<"all" | "out" | "in">("all");
 
   const getIsoDateForSelDate = useCallback((targetDate: string): string => {
     if (!targetDate) return TODAY;
@@ -543,8 +582,34 @@ function FeedDocumentation({
       return isoB.localeCompare(isoA);
     });
 
-    return priorLogs.length > 0 ? (Number(priorLogs[0].remainingKg) || 0) : 0;
-  }, [remainLogs, dateToIso]);
+    let baseCarryover = priorLogs.length > 0 ? (Number(priorLogs[0].remainingKg) || 0) : 0;
+
+    // Factor in unconsumed incoming transfers strictly before targetDate
+    const latestRemainIso = priorLogs.length > 0 ? dateToIso(priorLogs[0].date) : "";
+    const priorTransfersIn = (feedTransfers || []).filter(t => {
+      if (!isStockMatch(t.destinationStock, normStock)) return false;
+      if (size && size !== "—" && !isSamePelletSize(t.feedSize, size)) return false;
+      const tIso = dateToIso(t.transferDate);
+      if (!tIso || tIso >= targetIso) return false;
+      if (latestRemainIso && tIso <= latestRemainIso) return false;
+      return true;
+    });
+
+    const additionalTransferCarryover = priorTransfersIn.reduce((s, t) => {
+      const transIso = dateToIso(t.transferDate);
+      const feedings = (feedingRecords || []).filter(r => {
+        const matchStock = isStockMatch(r.fishStock, normStock) || isStockMatch(pondToStock(r.pond), normStock) || isStockMatch(r.pond, normStock);
+        if (!matchStock) return false;
+        if (!isSamePelletSize(r.size, t.feedSize)) return false;
+        const fIso = dateToIso(r.date);
+        return Boolean(transIso && fIso && fIso >= transIso && fIso < targetIso);
+      });
+      const fed = feedings.reduce((sf, r) => sf + (Number(r.total) || ((Number(r.morning) || 0) + (Number(r.evening) || 0))), 0);
+      return s + Math.max(0, t.quantityKg - fed);
+    }, 0);
+
+    return Math.max(0, Math.round((baseCarryover + additionalTransferCarryover) * 10) / 10);
+  }, [remainLogs, feedTransfers, feedingRecords, dateToIso]);
 
   /* Helper to retrieve all pallets associated with a fish stock */
   const getAssociatedPalletsForStock = useCallback((fishStock: string, targetDate?: string): string[] => {
@@ -598,6 +663,262 @@ function FeedDocumentation({
     )];
     return matching;
   }, [inventory]);
+
+  /* ── Remaining Feed Transfer Helpers ── */
+
+  /* Calculates usage, consumption and remaining balance of a transferred feed batch */
+  const getTransferUsage = useCallback((transfer: FeedTransferRecord) => {
+    const normDest = normalizeFishStock(transfer.destinationStock);
+    const transIso = dateToIso(transfer.transferDate);
+
+    // All feedings for destination stock with this size on or after transferDate
+    const feedings = (feedingRecords || []).filter(r => {
+      const matchStock = isStockMatch(r.fishStock, normDest) || isStockMatch(pondToStock(r.pond), normDest) || isStockMatch(r.pond, normDest);
+      if (!matchStock) return false;
+      if (!isSamePelletSize(r.size, transfer.feedSize)) return false;
+      const fIso = dateToIso(r.date);
+      if (transIso && fIso && fIso < transIso) return false;
+      return true;
+    }).sort((a, b) => (dateToIso(a.date) || "").localeCompare(dateToIso(b.date) || ""));
+
+    const totalFedAfter = feedings.reduce((s, r) => s + (Number(r.total) || ((Number(r.morning) || 0) + (Number(r.evening) || 0))), 0);
+
+    // Find all transfers into this destination stock of the same size ordered by transferDate
+    const allIn = (feedTransfers || []).filter(t => 
+      isStockMatch(t.destinationStock, normDest) && 
+      isSamePelletSize(t.feedSize, transfer.feedSize)
+    ).sort((a, b) => (dateToIso(a.transferDate) || "").localeCompare(dateToIso(b.transferDate) || ""));
+
+    // Allocate feeding in FIFO order
+    let remainingFedPool = totalFedAfter;
+    let consumedForThis = 0;
+    const contributingFeedings: { date: string; pond: string; fedKg: number }[] = [];
+
+    for (const t of allIn) {
+      const take = Math.min(t.quantityKg, Math.max(0, remainingFedPool));
+      if (t.id === transfer.id) {
+        consumedForThis = take;
+        break;
+      }
+      remainingFedPool -= take;
+    }
+
+    // Capture which feeding dates contributed to consuming this transfer
+    if (consumedForThis > 0) {
+      let allocated = 0;
+      for (const f of feedings) {
+        if (allocated >= consumedForThis) break;
+        const fedQty = Number(f.total) || ((Number(f.morning) || 0) + (Number(f.evening) || 0));
+        const needed = Math.min(fedQty, consumedForThis - allocated);
+        contributingFeedings.push({ date: f.date, pond: f.pond, fedKg: needed });
+        allocated += needed;
+      }
+    }
+
+    const remainingQty = Math.max(0, Math.round((transfer.quantityKg - consumedForThis) * 10) / 10);
+    const isFullyConsumed = remainingQty <= 0.01;
+    const isPartiallyConsumed = consumedForThis > 0 && !isFullyConsumed;
+
+    let statusLabel = "Feed Received";
+    if (isFullyConsumed) statusLabel = "Fully Consumed";
+    else if (isPartiallyConsumed) statusLabel = "Partially Consumed";
+
+    return {
+      consumedKg: Math.round(consumedForThis * 10) / 10,
+      remainingKg: remainingQty,
+      isFullyConsumed,
+      isPartiallyConsumed,
+      statusLabel,
+      contributingFeedings
+    };
+  }, [feedingRecords, feedTransfers, dateToIso]);
+
+  /* Validates if a destination stock can receive remaining feed (Exact Size, Brand & Pallet match) */
+  const checkTransferEligibility = useCallback((destStockName: string, sourceRow: MergedBagRow): { eligible: boolean; reason?: string } => {
+    if (!destStockName || !sourceRow) {
+      return { eligible: false, reason: "Missing stock information." };
+    }
+    const normDest = normalizeFishStock(destStockName);
+    const normSrc = normalizeFishStock(sourceRow.fishStock);
+    if (normDest === normSrc || isStockMatch(destStockName, sourceRow.fishStock)) {
+      return { eligible: false, reason: "Destination stock cannot be the same as the source stock." };
+    }
+    if (!isStockCurrentlyActive(destStockName)) {
+      return { eligible: false, reason: "Destination stock is not currently active." };
+    }
+
+    // 1. Pallet & Size validation
+    const srcSize = sourceRow.size;
+    const destPallets = getAssociatedPalletsForStock(destStockName, selDate);
+    const hasPalletMatch = destPallets.some(p => isSamePelletSize(p, srcSize));
+    if (!hasPalletMatch) {
+      return { eligible: false, reason: `Pallet mismatch: Destination stock does not use ${srcSize} pallet.` };
+    }
+
+    // 2. Feed Brand validation (Section 5)
+    const srcBrand = (sourceRow.brand || "").toLowerCase().trim();
+    if (srcBrand && srcBrand !== "—") {
+      const destFeedings = (feedingRecords || []).filter(r => (isStockMatch(r.fishStock, normDest) || isStockMatch(pondToStock(r.pond), normDest) || isStockMatch(r.pond, normDest)) && isSamePelletSize(r.size, srcSize));
+      const destBags = (bagLogs || []).filter(b => isStockMatch(b.fishStock, normDest) && isSamePelletSize(b.size, srcSize));
+      const destRemains = (remainLogs || []).filter(r => isStockMatch(r.fishStock, normDest) && isSamePelletSize(r.size, srcSize));
+
+      const usedBrands = new Set<string>();
+      destFeedings.forEach(r => { if (r.brand && r.brand !== "—") usedBrands.add(r.brand.toLowerCase().trim()); });
+      destBags.forEach(b => { if (b.brand && b.brand !== "—") usedBrands.add(b.brand.toLowerCase().trim()); });
+      destRemains.forEach(r => { if (r.brand && r.brand !== "—") usedBrands.add(r.brand.toLowerCase().trim()); });
+
+      if (usedBrands.size > 0 && !usedBrands.has(srcBrand)) {
+        const brandList = Array.from(usedBrands).map(b => b.charAt(0).toUpperCase() + b.slice(1)).join(", ");
+        return { eligible: false, reason: `Brand mismatch: Destination uses ${brandList}, but feed is ${sourceRow.brand}.` };
+      }
+    }
+
+    return { eligible: true };
+  }, [selDate, isStockCurrentlyActive, getAssociatedPalletsForStock, feedingRecords, bagLogs, remainLogs]);
+
+  /* Calculates genuine available remaining feed for transfer */
+  const getAvailableRemainingForTransfer = useCallback((row: MergedBagRow): number => {
+    if (!row) return 0;
+    if (row.availableRemainingKg !== undefined) {
+      return Math.max(0, row.availableRemainingKg);
+    }
+    const fs = row.fishStock;
+    const size = row.size;
+
+    const baseRemaining = (row.feedRemainingToday !== null && row.feedRemainingToday !== undefined)
+      ? row.feedRemainingToday
+      : (row.remainingKg ?? (row.carryoverKg || 0));
+
+    const outTransfers = (feedTransfers || []).filter(t => 
+      isStockMatch(t.sourceStock, fs) &&
+      isSamePelletSize(t.feedSize, size) &&
+      (isSameDate(t.originalDate, selDate) || isSameDate(t.transferDate, selDate))
+    );
+    const totalOut = outTransfers.reduce((s, t) => s + (Number(t.quantityKg) || 0), 0);
+
+    return Math.max(0, Math.round((baseRemaining - totalOut) * 10) / 10);
+  }, [feedTransfers, selDate]);
+
+  /* Opens Transfer Modal with pre-validated data */
+  const openTransferModal = (row: MergedBagRow) => {
+    const avail = getAvailableRemainingForTransfer(row);
+    if (avail <= 0) {
+      toast.error(`No remaining feed available to transfer for ${formatFishStock(row.fishStock)} (${row.size}).`);
+      return;
+    }
+    setSelectedTransferRow(row);
+    setTransferQty(String(avail));
+    setTransferDestStock("");
+    setTransferDate(selDate);
+    setTransferNotes("");
+    setTransferError(null);
+    setTransferModalOpen(true);
+  };
+
+  /* Confirms and records feed transfer atomically */
+  const handleConfirmTransfer = async () => {
+    if (!selectedTransferRow) return;
+    if (isSubmittingTransfer) return;
+
+    setTransferError(null);
+
+    // 1. Destination validation
+    if (!transferDestStock) {
+      setTransferError("Please select an eligible destination fish stock.");
+      return;
+    }
+
+    const elig = checkTransferEligibility(transferDestStock, selectedTransferRow);
+    if (!elig.eligible) {
+      setTransferError(elig.reason || "The selected destination stock is not eligible.");
+      return;
+    }
+
+    // 2. Quantity validation
+    const numQty = parseFloat(transferQty);
+    if (isNaN(numQty) || numQty <= 0) {
+      setTransferError("Please enter a valid transfer quantity greater than 0 kg.");
+      return;
+    }
+
+    // 3. Re-validate available balance immediately before completing (Section 13)
+    const currentAvailable = getAvailableRemainingForTransfer(selectedTransferRow);
+    if (numQty > currentAvailable) {
+      setTransferError(`Available balance changed to ${currentAvailable} kg. Transfer quantity cannot exceed available balance.`);
+      return;
+    }
+
+    setIsSubmittingTransfer(true);
+
+    try {
+      const sourceFs = selectedTransferRow.fishStock;
+      const destFs = transferDestStock;
+      const size = selectedTransferRow.size;
+      const brand = selectedTransferRow.brand;
+      const origDate = selectedTransferRow.lastBagLog?.date || selDate;
+      const tDate = transferDate || selDate;
+
+      const newRecord: FeedTransferRecord = {
+        id: uid(),
+        sourceStock: sourceFs,
+        destinationStock: destFs,
+        feedSize: size,
+        feedBrand: brand,
+        pallet: size,
+        originalBagLogId: selectedTransferRow.lastBagLog?.id,
+        originalDate: origDate,
+        transferDate: tDate,
+        transferTimestamp: new Date().toISOString(),
+        quantityKg: numQty,
+        transferredBy: currentUser?.name || currentUser?.email || "Staff",
+        notes: transferNotes.trim(),
+        farmId: activeFarmId
+      };
+
+      // Atomic update of transfers state and persistent localStorage
+      const updatedTransfers = [newRecord, ...feedTransfers];
+      saveFeedTransfers(updatedTransfers);
+
+      // Deduct from source stock remaining log to maintain consistent balance
+      const newSourceRemaining = Math.max(0, Math.round((currentAvailable - numQty) * 10) / 10);
+      const existingSourceRemain = (remainLogs || []).find(r => 
+        isSameDate(r.date, origDate) && 
+        (size === "—" || isSamePelletSize(r.size, size)) && 
+        (isStockMatch(r.fishStock, sourceFs) || normalizeFishStock(r.fishStock) === normalizeFishStock(sourceFs))
+      );
+
+      if (existingSourceRemain && onEditRemainLog) {
+        await onEditRemainLog({
+          ...existingSourceRemain,
+          remainingKg: newSourceRemaining,
+          date: origDate
+        });
+      } else if (onAddRemainLog) {
+        await onAddRemainLog({
+          id: uid(),
+          brand,
+          size,
+          fishStock: sourceFs,
+          remainingKg: newSourceRemaining,
+          date: origDate
+        });
+      }
+
+      toast.success(
+        `Transferred ${numQty} kg of ${size} (${brand}) from ${formatFishStock(sourceFs)} to ${formatFishStock(destFs)} successfully.`
+      );
+
+      setTransferModalOpen(false);
+      setSelectedTransferRow(null);
+      setTransferDestStock("");
+      setTransferQty("");
+      setTransferNotes("");
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to complete feed transfer. Please try again.");
+    } finally {
+      setIsSubmittingTransfer(false);
+    }
+  };
 
   /* Helper to check current available stock for a Brand + Pellet Size */
   const getStockAvailable = (brand: string, size: string, excludeBagLogId?: string) => {
@@ -1050,17 +1371,34 @@ function FeedDocumentation({
     const invItem = (inventory || []).find(f => f && (brand && brand !== "—" ? f.brand.toLowerCase().trim() === brand.toLowerCase().trim() : true) && isSamePelletSize(f.size, size)) || (inventory || []).find(f => f && isSamePelletSize(f.size, size));
     const bagWeight = invItem?.weightPerBag || 15;
 
-    const netNeeded = Math.max(0, totalFed - carryover);
+    // Incoming transfers available for destination stock on targetDate
+    const transfersInToday = (feedTransfers || []).filter(t => 
+      isStockMatch(t.destinationStock, normStock) && 
+      isSamePelletSize(t.feedSize, size) && 
+      isSameDate(t.transferDate, targetDate)
+    );
+    const availableTransfersIn = transfersInToday.reduce((s, t) => s + getTransferUsage(t).remainingKg, 0);
+
+    // Outgoing transfers on targetDate
+    const transfersOutToday = (feedTransfers || []).filter(t => 
+      isStockMatch(t.sourceStock, normStock) && 
+      isSamePelletSize(t.feedSize, size) && 
+      (isSameDate(t.originalDate, targetDate) || isSameDate(t.transferDate, targetDate))
+    );
+    const totalTransferredOut = transfersOutToday.reduce((s, t) => s + (Number(t.quantityKg) || 0), 0);
+
+    const effectiveCarryover = carryover + availableTransfersIn;
+    const netNeeded = Math.max(0, totalFed - effectiveCarryover);
     const expectedBags = netNeeded > 0 ? Math.ceil(netNeeded / bagWeight) : 0;
     const loggedBags = getBagsLoggedTodayForStockAndSize(normStock, brand, size, targetDate);
     const effectiveBags = bagsOpenedOverride !== undefined ? bagsOpenedOverride : (totalFed > 0 ? expectedBags : loggedBags);
-    const totalAvailable = carryover + (effectiveBags * bagWeight);
-    const expectedRemaining = Math.max(0, Math.round((totalAvailable - totalFed) * 10) / 10);
+    const totalAvailable = effectiveCarryover + (effectiveBags * bagWeight);
+    const expectedRemaining = Math.max(0, Math.round((totalAvailable - totalFed - totalTransferredOut) * 10) / 10);
 
     return {
       hasFed: totalFed > 0,
       totalFed,
-      carryover,
+      carryover: effectiveCarryover,
       bagWeight,
       expectedBags,
       expectedRemaining
@@ -1548,9 +1886,24 @@ function FeedDocumentation({
 
         const recordedBags = bagLogsForSize.reduce((s, b) => s + (Number(b.bagsOpened) || 0), 0);
 
+        // Incoming & Outgoing transfers today
+        const transfersInToday = (feedTransfers || []).filter(t => 
+          isStockMatch(t.destinationStock, stockInfo.stockName) && 
+          isSamePelletSize(t.feedSize, size) && 
+          isSameDate(t.transferDate, selDate)
+        );
+        const availableTransfersIn = transfersInToday.reduce((s, t) => s + getTransferUsage(t).remainingKg, 0);
+
+        const transfersOutToday = (feedTransfers || []).filter(t => 
+          isStockMatch(t.sourceStock, stockInfo.stockName) && 
+          isSamePelletSize(t.feedSize, size) && 
+          (isSameDate(t.originalDate, selDate) || isSameDate(t.transferDate, selDate))
+        );
+        const totalTransferredOut = transfersOutToday.reduce((s, t) => s + (Number(t.quantityKg) || 0), 0);
+
         // Expected remaining feed calculation
-        const totalAvailable = carryoverKg + (recordedBags * bagWeight);
-        const expectedRemaining = Math.max(0, Math.round((totalAvailable - sizeFedKg) * 10) / 10);
+        const totalAvailable = carryoverKg + (recordedBags * bagWeight) + availableTransfersIn;
+        const expectedRemaining = Math.max(0, Math.round((totalAvailable - sizeFedKg - totalTransferredOut) * 10) / 10);
 
         // Recorded leftover on selDate
         const remainLogsForSize = (remainLogs || []).filter(r =>
@@ -1605,7 +1958,7 @@ function FeedDocumentation({
     });
 
     return rows;
-  }, [ponds, bagLogs, feedingRecords, remainLogs, inventory, selDate, selMonLabel, selDay, selYear, viewYear, viewMonth, getPriorCarryover]);
+  }, [ponds, bagLogs, feedingRecords, remainLogs, inventory, feedTransfers, getTransferUsage, selDate, selMonLabel, selDay, selYear, viewYear, viewMonth, getPriorCarryover]);
 
   const handleMismatchClick = (row: MismatchStockRow) => {
     const targetDate = getIsoDateForSelDate(selDate);
@@ -2126,7 +2479,7 @@ function FeedDocumentation({
         brand,
         size,
         fishStock: fs,
-        stockDate: stockInfo.stockDate,
+        stockDate: stockDate !== fs ? stockDate : "—",
         bagsOpened: 0,
         totalKgOpened: 0,
         remainingKg: feedRemainingToday ?? 0,
@@ -2137,8 +2490,46 @@ function FeedDocumentation({
       });
     });
 
+    // 5. Apply remaining feed transfers: update balances and attach transfer metadata
+    map.forEach(entry => {
+      const fs = entry.fishStock;
+      const size = entry.size;
+
+      // 1. Outgoing transfers from this stock & size (associated with selDate or origDate)
+      const transfersOut = (feedTransfers || []).filter(t =>
+        isStockMatch(t.sourceStock, fs) &&
+        (size === "—" || isSamePelletSize(t.feedSize, size)) &&
+        (isSameDate(t.originalDate, selDate) || isSameDate(t.transferDate, selDate))
+      );
+      const totalTransferredOutKg = transfersOut.reduce((s, t) => s + (Number(t.quantityKg) || 0), 0);
+
+      // 2. Incoming transfers to this stock & size received on selDate
+      const transfersIn = (feedTransfers || []).filter(t =>
+        isStockMatch(t.destinationStock, fs) &&
+        (size === "—" || isSamePelletSize(t.feedSize, size)) &&
+        isSameDate(t.transferDate, selDate)
+      );
+      const totalTransferredInKg = transfersIn.reduce((s, t) => s + (Number(t.quantityKg) || 0), 0);
+      const availableTransferredInKg = transfersIn.reduce((s, t) => s + getTransferUsage(t).remainingKg, 0);
+
+      const grossRemainingKg = (entry.feedRemainingToday !== null && entry.feedRemainingToday !== undefined)
+        ? entry.feedRemainingToday
+        : entry.remainingKg;
+
+      const availableRemainingKg = Math.max(0, Math.round((grossRemainingKg - totalTransferredOutKg + availableTransferredInKg) * 10) / 10);
+
+      entry.transfersOut = transfersOut;
+      entry.transfersIn = transfersIn;
+      entry.totalTransferredOutKg = totalTransferredOutKg;
+      entry.totalTransferredInKg = totalTransferredInKg;
+      entry.grossRemainingKg = grossRemainingKg;
+      entry.availableRemainingKg = availableRemainingKg;
+      entry.feedRemainingToday = availableRemainingKg;
+      entry.remainingKg = availableRemainingKg;
+    });
+
     return Array.from(map.values()).filter(row => isStockCurrentlyActive(row.fishStock));
-  }, [bagLogs, remainLogs, feedingRecords, selDate, ponds, inventory, getPriorCarryover, dateToIso, getAssociatedPalletsForStock, getMatchingBrandsForPallet, availablePelletSizes, isStockCurrentlyActive]);
+  }, [bagLogs, remainLogs, feedingRecords, feedTransfers, getTransferUsage, selDate, ponds, inventory, getPriorCarryover, dateToIso, getAssociatedPalletsForStock, getMatchingBrandsForPallet, availablePelletSizes, isStockCurrentlyActive]);
 
   const filteredMergedBagRows = useMemo(() => {
     let list = mergedBagRows.filter(r => isStockCurrentlyActive(r.fishStock));
@@ -2922,7 +3313,7 @@ function FeedDocumentation({
                   <p className="text-xs font-bold uppercase tracking-wider text-slate-600">Bags Opened — {selDate}</p>
                   <p className="text-[11px] text-slate-400">{filteredMergedBagRows.length} entries</p>
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2 sm:gap-3">
                   {/* Stock Selection Filter */}
                   <div className="flex items-center gap-1.5">
                     <span className="text-xs text-slate-400">Stock:</span>
@@ -2937,6 +3328,21 @@ function FeedDocumentation({
                       ))}
                     </select>
                   </div>
+                  {/* Transfer History Button */}
+                  <button
+                    type="button"
+                    onClick={() => { setHistoryStockFilter("All"); setIsTransferHistoryOpen(true); }}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-colors shadow-2xs"
+                    title="View remaining feed transfer history"
+                  >
+                    <ArrowRightLeft size={13} className="text-teal-600" />
+                    <span>Transfer History</span>
+                    {feedTransfers.length > 0 && (
+                      <span className="ml-0.5 px-1.5 py-0.2 bg-teal-100 text-teal-800 text-[10px] font-bold rounded-full">
+                        {feedTransfers.length}
+                      </span>
+                    )}
+                  </button>
                 </div>
               </div>
 
@@ -3008,6 +3414,27 @@ function FeedDocumentation({
                             <p className="font-bold text-slate-800 text-xs truncate" title={getStockDisplayName(row.fishStock, row.stockDate)}>
                               {getStockDisplayName(row.fishStock, row.stockDate)}
                             </p>
+                            {/* Transfer Badges */}
+                            {row.totalTransferredOutKg && row.totalTransferredOutKg > 0 ? (
+                              <div className="mt-1">
+                                <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-md border ${
+                                  (row.availableRemainingKg || 0) === 0
+                                    ? "bg-teal-50 text-teal-800 border-teal-200"
+                                    : "bg-amber-50 text-amber-800 border-amber-200"
+                                }`} title={`Transferred to ${row.transfersOut?.map(t => formatFishStock(t.destinationStock)).join(", ")}`}>
+                                  <ArrowRightLeft size={10} className="shrink-0" />
+                                  {(row.availableRemainingKg || 0) === 0 ? "Feed Transferred" : "Partially Transferred"}
+                                </span>
+                              </div>
+                            ) : null}
+                            {row.totalTransferredInKg && row.totalTransferredInKg > 0 ? (
+                              <div className="mt-1">
+                                <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-md border bg-blue-50 text-blue-800 border-blue-200" title={`Received from ${row.transfersIn?.map(t => formatFishStock(t.sourceStock)).join(", ")}`}>
+                                  <Package size={10} className="shrink-0" />
+                                  Feed Received
+                                </span>
+                              </div>
+                            ) : null}
                           </td>
 
                           {/* Feed Brand */}
@@ -3048,6 +3475,16 @@ function FeedDocumentation({
                                 <span className="text-slate-400 font-normal">0 kg</span>
                               )}
                             </div>
+                            {row.totalTransferredOutKg && row.totalTransferredOutKg > 0 ? (
+                              <p className="text-[10px] text-teal-700 font-medium leading-tight mt-0.5">
+                                ({row.totalTransferredOutKg} kg transferred)
+                              </p>
+                            ) : null}
+                            {row.transfersIn && row.transfersIn.length > 0 ? (
+                              <p className="text-[10px] text-blue-700 font-medium leading-tight mt-0.5">
+                                (incl. {row.transfersIn.reduce((s, t) => s + getTransferUsage(t).remainingKg, 0)} kg received)
+                              </p>
+                            ) : null}
                             {expData.hasFed && (
                               <p className={`text-[11px] font-medium mt-0.5 leading-tight ${isRemainMismatch ? "text-red-600 font-semibold" : "text-slate-400"}`}>
                                 Exp: {expData.expectedRemaining} kg
@@ -3055,19 +3492,95 @@ function FeedDocumentation({
                             )}
                           </td>
 
-                          {/* Edit Button */}
+                          {/* Actions: Quick Edit & 3-Dots Menu */}
                           <td className="px-3 py-3 text-right">
-                            {canEdit && (
-                              isRecordEditable(row.lastBagLog?.date || selDate) ? (
-                                <button onClick={() => openEditMergedRow(row)} className="p-1.5 rounded text-slate-400 hover:text-green-600 hover:bg-green-50 transition-colors" title={row.hasBagLog ? "Edit entry" : "Log bags / leftover"}>
-                                  <Pencil size={13} />
+                            <div className="flex items-center justify-end gap-1 relative">
+                              {canEdit && (
+                                isRecordEditable(row.lastBagLog?.date || selDate) ? (
+                                  <button onClick={() => openEditMergedRow(row)} className="p-1.5 rounded text-slate-400 hover:text-green-600 hover:bg-green-50 transition-colors" title={row.hasBagLog ? "Edit entry" : "Log bags / leftover"}>
+                                    <Pencil size={13} />
+                                  </button>
+                                ) : (
+                                  <button onClick={() => alert("This record can only be edited by an Administrator or Manager after 24 hours.")} className="p-1.5 rounded text-slate-300 cursor-not-allowed" title="Locked">
+                                    <Lock size={13} />
+                                  </button>
+                                )
+                              )}
+                              {/* 3-dots Menu Button */}
+                              <div className="relative">
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    const mId = `desktop__${row.fishStock}__${row.brand}__${row.size}`;
+                                    setActiveBagMenuId(activeBagMenuId === mId ? null : mId);
+                                  }}
+                                  className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+                                  title="Actions"
+                                >
+                                  <MoreVertical size={14} />
                                 </button>
-                              ) : (
-                                <button onClick={() => alert("This record can only be edited by an Administrator or Manager after 24 hours.")} className="p-1.5 rounded text-slate-300 cursor-not-allowed" title="Locked">
-                                  <Lock size={13} />
-                                </button>
-                              )
-                            )}
+                                {activeBagMenuId === `desktop__${row.fishStock}__${row.brand}__${row.size}` && (
+                                  <div 
+                                    onClick={e => e.stopPropagation()} 
+                                    className="absolute right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl z-40 py-1 min-w-[200px] animate-in fade-in zoom-in-95 duration-100 text-left"
+                                  >
+                                    <button
+                                      type="button"
+                                      onClick={() => { setActiveBagMenuId(null); setViewBagDetail(row); }}
+                                      className="w-full px-3 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                                    >
+                                      <Eye size={13} className="text-slate-400" /> View Details
+                                    </button>
+                                    {canEdit && isRecordEditable(row.lastBagLog?.date || selDate) && (
+                                      <button
+                                        type="button"
+                                        onClick={() => { setActiveBagMenuId(null); openEditMergedRow(row); }}
+                                        className="w-full px-3 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                                      >
+                                        <Pencil size={13} className="text-green-600" /> {row.hasBagLog ? "Edit Entry" : "Log Bags"}
+                                      </button>
+                                    )}
+                                    {/* Transfer Remaining Feed Option (Section 3) */}
+                                    <button
+                                      type="button"
+                                      disabled={!canEdit || (row.availableRemainingKg ?? 0) <= 0}
+                                      onClick={() => {
+                                        setActiveBagMenuId(null);
+                                        openTransferModal(row);
+                                      }}
+                                      className={`w-full px-3 py-2 text-left text-xs font-medium flex items-center gap-2 transition-colors ${
+                                        (row.availableRemainingKg ?? 0) > 0 && canEdit
+                                          ? "text-teal-700 hover:bg-teal-50 font-semibold"
+                                          : "text-slate-300 cursor-not-allowed"
+                                      }`}
+                                      title={(row.availableRemainingKg ?? 0) > 0 ? "Transfer unused remaining feed to another compatible stock" : "No remaining feed to transfer"}
+                                    >
+                                      <ArrowRightLeft size={13} className={(row.availableRemainingKg ?? 0) > 0 ? "text-teal-600" : "text-slate-300"} />
+                                      <span>Transfer Remaining Feed</span>
+                                      {(row.availableRemainingKg ?? 0) > 0 && (
+                                        <span className="ml-auto text-[10px] px-1.5 py-0.2 bg-teal-100 text-teal-800 rounded font-bold">
+                                          {row.availableRemainingKg} kg
+                                        </span>
+                                      )}
+                                    </button>
+                                    {((row.transfersOut && row.transfersOut.length > 0) || (row.transfersIn && row.transfersIn.length > 0)) && (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setActiveBagMenuId(null);
+                                          setHistoryStockFilter(row.fishStock);
+                                          setIsTransferHistoryOpen(true);
+                                        }}
+                                        className="w-full px-3 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2 border-t border-slate-100"
+                                      >
+                                        <History size={13} className="text-slate-400" /> Transfer History
+                                      </button>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
                           </td>
                         </tr>
                       );
@@ -3080,8 +3593,8 @@ function FeedDocumentation({
 
           {/* Mobile Isolated Cards View */}
           <div className="md:hidden space-y-3">
-            {/* Mobile Controls: Stock Filter on its own without outer card fill */}
-            <div className="flex items-center gap-2">
+            {/* Mobile Controls: Stock Filter and Transfer History */}
+            <div className="flex items-center justify-between gap-2">
               <select
                 value={bagsStockFilter}
                 onChange={e => setBagsStockFilter(e.target.value)}
@@ -3092,6 +3605,20 @@ function FeedDocumentation({
                   <option key={s.key} value={s.name}>{s.label}</option>
                 ))}
               </select>
+              <button
+                type="button"
+                onClick={() => { setHistoryStockFilter("All"); setIsTransferHistoryOpen(true); }}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-colors bg-white shadow-2xs shrink-0"
+                title="View transfer history"
+              >
+                <ArrowRightLeft size={13} className="text-teal-600" />
+                <span>History</span>
+                {feedTransfers.length > 0 && (
+                  <span className="px-1.5 py-0.2 bg-teal-100 text-teal-800 text-[10px] font-bold rounded-full">
+                    {feedTransfers.length}
+                  </span>
+                )}
+              </button>
             </div>
 
             {/* Dismissible Highlighting Banner */}
@@ -3168,6 +3695,27 @@ function FeedDocumentation({
                         {row.stockDate && row.stockDate !== "—" && (
                           <p className="text-xs text-slate-500 font-normal leading-tight mt-0.5">{row.stockDate}</p>
                         )}
+                        {/* Mobile Transfer Badges */}
+                        {row.totalTransferredOutKg && row.totalTransferredOutKg > 0 ? (
+                          <div className="mt-1">
+                            <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-md border ${
+                              (row.availableRemainingKg || 0) === 0
+                                ? "bg-teal-50 text-teal-800 border-teal-200"
+                                : "bg-amber-50 text-amber-800 border-amber-200"
+                            }`}>
+                              <ArrowRightLeft size={10} className="shrink-0" />
+                              {(row.availableRemainingKg || 0) === 0 ? "Feed Transferred" : "Partially Transferred"} ({row.totalTransferredOutKg} kg)
+                            </span>
+                          </div>
+                        ) : null}
+                        {row.totalTransferredInKg && row.totalTransferredInKg > 0 ? (
+                          <div className="mt-1">
+                            <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-md border bg-blue-50 text-blue-800 border-blue-200">
+                              <Package size={10} className="shrink-0" />
+                              Feed Received
+                            </span>
+                          </div>
+                        ) : null}
                       </div>
 
                       <div className="flex items-center gap-1.5 shrink-0" onClick={e => e.stopPropagation()}>
@@ -3184,7 +3732,7 @@ function FeedDocumentation({
                             <MoreVertical size={16} />
                           </button>
                           {isMenuOpen && (
-                            <div className="absolute right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl z-30 py-1 min-w-[130px] animate-in fade-in zoom-in-95 duration-100">
+                            <div className="absolute right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl z-30 py-1 min-w-[190px] animate-in fade-in zoom-in-95 duration-100 text-left">
                               <button
                                 type="button"
                                 onClick={() => { setActiveBagMenuId(null); setViewBagDetail(row); }}
@@ -3206,6 +3754,42 @@ function FeedDocumentation({
                                     <Lock size={12} /> Locked
                                   </div>
                                 )
+                              )}
+                              {/* Transfer Remaining Feed (Section 3) */}
+                              <button
+                                type="button"
+                                disabled={!canEdit || (row.availableRemainingKg ?? 0) <= 0}
+                                onClick={() => {
+                                  setActiveBagMenuId(null);
+                                  openTransferModal(row);
+                                }}
+                                className={`w-full px-3 py-2 text-left text-xs font-medium flex items-center gap-2 transition-colors ${
+                                  (row.availableRemainingKg ?? 0) > 0 && canEdit
+                                    ? "text-teal-700 hover:bg-teal-50 font-semibold"
+                                    : "text-slate-300 cursor-not-allowed"
+                                }`}
+                                title={(row.availableRemainingKg ?? 0) > 0 ? "Transfer remaining feed to another stock" : "No remaining feed to transfer"}
+                              >
+                                <ArrowRightLeft size={13} className={(row.availableRemainingKg ?? 0) > 0 ? "text-teal-600" : "text-slate-300"} />
+                                <span>Transfer Remaining Feed</span>
+                                {(row.availableRemainingKg ?? 0) > 0 && (
+                                  <span className="ml-auto text-[10px] px-1.5 py-0.2 bg-teal-100 text-teal-800 rounded font-bold">
+                                    {row.availableRemainingKg} kg
+                                  </span>
+                                )}
+                              </button>
+                              {((row.transfersOut && row.transfersOut.length > 0) || (row.transfersIn && row.transfersIn.length > 0)) && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setActiveBagMenuId(null);
+                                    setHistoryStockFilter(row.fishStock);
+                                    setIsTransferHistoryOpen(true);
+                                  }}
+                                  className="w-full px-3 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2 border-t border-slate-100"
+                                >
+                                  <History size={13} className="text-slate-400" /> Transfer History
+                                </button>
                               )}
                             </div>
                           )}
@@ -4424,21 +5008,109 @@ function FeedDocumentation({
                   </p>
                 </div>
               </div>
+
+              {/* ── Remaining Feed Transfer Details (Section 8, 9, 11) ── */}
+              {((viewBagDetail.transfersOut && viewBagDetail.transfersOut.length > 0) || (viewBagDetail.transfersIn && viewBagDetail.transfersIn.length > 0)) && (
+                <div className="pt-2 border-t border-slate-100 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <p className="text-[10px] uppercase tracking-wider text-slate-500 font-bold flex items-center gap-1.5">
+                      <ArrowRightLeft size={12} className="text-teal-600" /> Transfer Records & Traceability
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const targetStock = viewBagDetail.fishStock;
+                        setViewBagDetail(null);
+                        setHistoryStockFilter(targetStock);
+                        setIsTransferHistoryOpen(true);
+                      }}
+                      className="text-[10px] text-teal-700 hover:text-teal-800 font-semibold"
+                    >
+                      View Full Audit Trail
+                    </button>
+                  </div>
+
+                  {/* Outgoing Transfers */}
+                  {viewBagDetail.transfersOut?.map(t => {
+                    const usage = getTransferUsage(t);
+                    return (
+                      <div key={t.id} className="bg-teal-50/70 border border-teal-200/80 rounded-xl p-2.5 space-y-1">
+                        <div className="flex items-center justify-between gap-1 text-[11px]">
+                          <span className="font-semibold text-teal-900 flex items-center gap-1">
+                            <ArrowRight size={11} className="text-teal-600" /> Transferred {t.quantityKg} kg → {formatFishStock(t.destinationStock)}
+                          </span>
+                          <span className="text-[10px] font-bold text-teal-800 bg-teal-100/90 px-2 py-0.5 rounded-full">
+                            {viewBagDetail.availableRemainingKg === 0 ? "Remaining Feed Transferred" : "Partially Transferred"}
+                          </span>
+                        </div>
+                        <div className="text-[10px] text-teal-700 flex flex-wrap gap-x-3 gap-y-0.5">
+                          <span>Transfer Date: {t.transferDate}</span>
+                          {t.originalDate !== t.transferDate && <span>Orig Date: {t.originalDate}</span>}
+                          <span>By: {t.transferredBy || "Staff"}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  {/* Incoming Transfers */}
+                  {viewBagDetail.transfersIn?.map(t => {
+                    const usage = getTransferUsage(t);
+                    return (
+                      <div key={t.id} className="bg-blue-50/70 border border-blue-200/80 rounded-xl p-2.5 space-y-1">
+                        <div className="flex items-center justify-between gap-1 text-[11px]">
+                          <span className="font-semibold text-blue-900 flex items-center gap-1">
+                            <Package size={11} className="text-blue-600" /> Received {t.quantityKg} kg from {formatFishStock(t.sourceStock)}
+                          </span>
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                            usage.isFullyConsumed
+                              ? "bg-slate-100 text-slate-700"
+                              : usage.isPartiallyConsumed
+                              ? "bg-amber-100 text-amber-800"
+                              : "bg-blue-100 text-blue-800"
+                          }`}>
+                            {usage.statusLabel}
+                          </span>
+                        </div>
+                        <div className="text-[10px] text-blue-700 flex flex-wrap gap-x-3 gap-y-0.5">
+                          <span>Available: {usage.remainingKg} kg</span>
+                          <span>Consumed: {usage.consumedKg} kg</span>
+                          <span>Transferred: {t.transferDate}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
             <div className="px-5 py-3.5 border-t border-slate-100 bg-slate-50 shrink-0 flex items-center justify-between gap-2">
               <button onClick={() => setViewBagDetail(null)} className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-900 transition-colors">Close</button>
-              {canEdit && isRecordEditable(viewBagDetail.lastBagLog?.date || selDate) && (
-                <button
-                  onClick={() => {
-                    const rowToEdit = viewBagDetail;
-                    setViewBagDetail(null);
-                    openEditMergedRow(rowToEdit);
-                  }}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 bg-green-600 hover:bg-green-700 text-white font-bold text-xs rounded-xl shadow-xs transition-colors"
-                >
-                  <Pencil size={13} /> Edit Entry
-                </button>
-              )}
+              <div className="flex items-center gap-2">
+                {canEdit && (viewBagDetail.availableRemainingKg ?? 0) > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const rowToTransfer = viewBagDetail;
+                      setViewBagDetail(null);
+                      openTransferModal(rowToTransfer);
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs rounded-xl shadow-xs transition-colors"
+                  >
+                    <ArrowRightLeft size={13} /> Transfer Remaining ({viewBagDetail.availableRemainingKg} kg)
+                  </button>
+                )}
+                {canEdit && isRecordEditable(viewBagDetail.lastBagLog?.date || selDate) && (
+                  <button
+                    onClick={() => {
+                      const rowToEdit = viewBagDetail;
+                      setViewBagDetail(null);
+                      openEditMergedRow(rowToEdit);
+                    }}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 bg-green-600 hover:bg-green-700 text-white font-bold text-xs rounded-xl shadow-xs transition-colors"
+                  >
+                    <Pencil size={13} /> Edit Entry
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -4571,6 +5243,498 @@ function FeedDocumentation({
             <div className="flex gap-3">
               <button onClick={() => setDeleteRecId(null)} className="flex-1 py-2.5 text-sm text-slate-600 font-semibold border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors">Cancel</button>
               <button onClick={() => { onDeleteRecord && onDeleteRecord(deleteRecId); setDeleteRecId(null); }} className="flex-1 py-2.5 text-sm text-white font-semibold bg-red-500 hover:bg-red-600 rounded-xl transition-colors">Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Transfer Remaining Feed Pop-up Modal (Section 4 & 5) ── */}
+      {transferModalOpen && selectedTransferRow && (
+        <div className="fixed inset-0 bg-slate-950/60 z-50 flex items-center justify-center p-3 sm:p-6 animate-in fade-in duration-150" onClick={e => e.target === e.currentTarget && !isSubmittingTransfer && setTransferModalOpen(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col overflow-hidden max-h-[92vh] animate-in zoom-in-95 duration-200">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 shrink-0 bg-slate-50/50">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-teal-100/90 text-teal-800 flex items-center justify-center shrink-0 shadow-2xs">
+                  <ArrowRightLeft size={18} />
+                </div>
+                <div>
+                  <h2 className="text-base sm:text-lg font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] leading-tight">
+                    Transfer Remaining Feed
+                  </h2>
+                  <p className="text-[11px] text-slate-500">Move unused feed from an opened bag to a compatible fish stock</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => !isSubmittingTransfer && setTransferModalOpen(false)} 
+                disabled={isSubmittingTransfer}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors disabled:opacity-50"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4 text-xs">
+              {/* Source Information Card (Section 4) */}
+              <div className="bg-slate-50/80 border border-slate-200/80 rounded-2xl p-3.5 space-y-2.5">
+                <div className="flex items-center justify-between pb-2 border-b border-slate-200/60">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Source Feed Information</span>
+                  <span className="text-[11px] font-bold text-emerald-800 bg-emerald-100/80 px-2.5 py-0.5 rounded-full border border-emerald-200">
+                    Available: {getAvailableRemainingForTransfer(selectedTransferRow)} kg
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-[11px]">
+                  <div>
+                    <span className="text-[10px] text-slate-400 block uppercase tracking-wider">Source Stock</span>
+                    <span className="font-bold text-slate-800 text-xs truncate block" title={selectedTransferRow.fishStock}>
+                      {formatFishStock(selectedTransferRow.fishStock)}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-400 block uppercase tracking-wider">Original Date</span>
+                    <span className="font-semibold text-slate-700">{selectedTransferRow.lastBagLog?.date || selDate}</span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-400 block uppercase tracking-wider">Pallet Size</span>
+                    <span className="inline-block mt-0.5"><Bdg label={selectedTransferRow.size} color="blue" /></span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-400 block uppercase tracking-wider">Feed Brand</span>
+                    <span className="font-semibold text-slate-800">{selectedTransferRow.brand}</span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-400 block uppercase tracking-wider">Pallet</span>
+                    <span className="font-semibold text-slate-700">{selectedTransferRow.size} Pallet</span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-400 block uppercase tracking-wider">Gross Remaining</span>
+                    <span className="font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] text-sm">
+                      {selectedTransferRow.feedRemainingToday ?? selectedTransferRow.remainingKg} kg
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Destination Stock Selection (Section 4 & 5: Match Size, Brand & Pallet) */}
+              {(() => {
+                const eligibleStocks = stockFilterOptions.filter(s => s.name !== "All" && checkTransferEligibility(s.name, selectedTransferRow).eligible);
+                const allOtherStocks = stockFilterOptions.filter(s => s.name !== "All" && !isStockMatch(s.name, selectedTransferRow.fishStock));
+                const currentAvail = getAvailableRemainingForTransfer(selectedTransferRow);
+                const numQty = parseFloat(transferQty) || 0;
+                const sourceRemainingAfter = Math.max(0, Math.round((currentAvail - numQty) * 10) / 10);
+
+                return (
+                  <div className="space-y-3.5">
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1.5 flex items-center justify-between">
+                        <span>Select Destination Fish Stock *</span>
+                        {eligibleStocks.length > 0 && (
+                          <span className="text-[10px] text-teal-700 font-semibold normal-case">
+                            {eligibleStocks.length} compatible stock{eligibleStocks.length !== 1 ? "s" : ""} found
+                          </span>
+                        )}
+                      </label>
+                      
+                      {eligibleStocks.length === 0 ? (
+                        <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 space-y-1">
+                          <div className="flex items-center gap-1.5 font-bold text-xs">
+                            <AlertCircle size={14} className="text-amber-600 shrink-0" />
+                            <span>No compatible fish stocks available</span>
+                          </div>
+                          <p className="text-[11px] text-amber-800 leading-relaxed">
+                            Under Pondtora's feeding rules (Section 5), feed can only be transferred to active fish stocks that match the exact same <strong>feed size ({selectedTransferRow.size})</strong>, <strong>brand ({selectedTransferRow.brand})</strong>, and <strong>pallet ({selectedTransferRow.size})</strong>.
+                          </p>
+                        </div>
+                      ) : (
+                        <div>
+                          <select
+                            value={transferDestStock}
+                            onChange={e => {
+                              setTransferDestStock(e.target.value);
+                              setTransferError(null);
+                            }}
+                            className={`${SC} w-full py-2 px-3 text-xs font-medium text-slate-800 bg-white border border-slate-200 rounded-xl shadow-2xs focus:ring-2 focus:ring-teal-500`}
+                          >
+                            <option value="">— Select an eligible destination stock —</option>
+                            {eligibleStocks.map(s => (
+                              <option key={s.key} value={s.name}>
+                                {s.label}
+                              </option>
+                            ))}
+                          </select>
+                          {allOtherStocks.length > eligibleStocks.length && (
+                            <p className="text-[10px] text-slate-400 mt-1">
+                              {allOtherStocks.length - eligibleStocks.length} other active stock{allOtherStocks.length - eligibleStocks.length !== 1 ? "s were" : " was"} excluded due to brand or pallet mismatch.
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Quantity to Transfer */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="text-[11px] font-bold text-slate-700 uppercase tracking-wider">
+                            Quantity to Transfer (kg) *
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setTransferQty(String(currentAvail));
+                              setTransferError(null);
+                            }}
+                            className="text-[10px] text-teal-700 hover:text-teal-800 font-bold underline cursor-pointer"
+                          >
+                            Transfer All ({currentAvail} kg)
+                          </button>
+                        </div>
+                        <input
+                          type="number"
+                          step="0.1"
+                          min="0.1"
+                          max={currentAvail}
+                          value={transferQty}
+                          onChange={e => {
+                            setTransferQty(e.target.value);
+                            setTransferError(null);
+                          }}
+                          placeholder={`Max ${currentAvail} kg`}
+                          className={`w-full py-2 px-3 text-xs bg-white border ${
+                            numQty > currentAvail || numQty <= 0 && transferQty !== ""
+                              ? "border-red-400 focus:ring-red-400"
+                              : "border-slate-200 focus:ring-teal-500"
+                          } rounded-xl shadow-2xs text-slate-900 font-semibold focus:outline-none focus:ring-2`}
+                        />
+                        {numQty > currentAvail && (
+                          <p className="text-[10px] text-red-600 mt-1 font-medium">
+                            Cannot transfer more than available ({currentAvail} kg).
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Transfer Date (Section 10: support transfers across dates) */}
+                      <div>
+                        <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">
+                          Transfer Date
+                        </label>
+                        <input
+                          type="text"
+                          value={transferDate}
+                          onChange={e => setTransferDate(e.target.value)}
+                          placeholder="e.g. 20 October 2026"
+                          className="w-full py-2 px-3 text-xs bg-white border border-slate-200 rounded-xl shadow-2xs text-slate-900 font-medium focus:outline-none focus:ring-2 focus:ring-teal-500"
+                        />
+                        <p className="text-[10px] text-slate-400 mt-1">Date when feed was physically transferred</p>
+                      </div>
+                    </div>
+
+                    {/* Notes / Reason */}
+                    <div>
+                      <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">
+                        Transfer Notes (Optional)
+                      </label>
+                      <input
+                        type="text"
+                        value={transferNotes}
+                        onChange={e => setTransferNotes(e.target.value)}
+                        placeholder="e.g. Stock reached expected weight; moving remaining feed to Stock B"
+                        className="w-full py-2 px-3 text-xs bg-white border border-slate-200 rounded-xl shadow-2xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500"
+                      />
+                    </div>
+
+                    {/* Transfer Confirmation Summary (Section 4) */}
+                    {transferDestStock && numQty > 0 && numQty <= currentAvail && (
+                      <div className="bg-teal-50/80 border border-teal-200 rounded-2xl p-3.5 space-y-2 text-teal-950 animate-in fade-in duration-150">
+                        <p className="text-[11px] font-bold uppercase tracking-wider text-teal-900 flex items-center gap-1.5">
+                          <CheckCircle size={14} className="text-teal-700" /> Transfer Confirmation Summary
+                        </p>
+                        <div className="grid grid-cols-2 gap-2 text-[11px] pt-1 border-t border-teal-200/60">
+                          <div>
+                            <span className="text-teal-700 block text-[10px]">Source Stock:</span>
+                            <span className="font-bold">{formatFishStock(selectedTransferRow.fishStock)}</span>
+                          </div>
+                          <div>
+                            <span className="text-teal-700 block text-[10px]">Destination Stock:</span>
+                            <span className="font-bold">{formatFishStock(transferDestStock)}</span>
+                          </div>
+                          <div>
+                            <span className="text-teal-700 block text-[10px]">Feed & Pallet:</span>
+                            <span className="font-semibold">{selectedTransferRow.size} · {selectedTransferRow.brand}</span>
+                          </div>
+                          <div>
+                            <span className="text-teal-700 block text-[10px]">Transfer Quantity:</span>
+                            <span className="font-bold text-teal-900 text-sm font-['Barlow_Condensed',sans-serif]">{numQty} kg</span>
+                          </div>
+                          <div>
+                            <span className="text-teal-700 block text-[10px]">Remaining at Source:</span>
+                            <span className="font-bold font-['Barlow_Condensed',sans-serif] text-sm text-slate-700">
+                              {sourceRemainingAfter} kg
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-teal-700 block text-[10px]">Destination Receives:</span>
+                            <span className="font-bold font-['Barlow_Condensed',sans-serif] text-sm text-emerald-800">
+                              +{numQty} kg
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Error Banner */}
+                    {transferError && (
+                      <div className="p-3 bg-red-50 border border-red-200 rounded-xl flex items-center gap-2 text-xs text-red-700">
+                        <AlertCircle size={14} className="shrink-0 text-red-600" />
+                        <span>{transferError}</span>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-5 py-3.5 border-t border-slate-100 bg-slate-50 shrink-0 flex items-center justify-between gap-2">
+              <button
+                type="button"
+                onClick={() => setTransferModalOpen(false)}
+                disabled={isSubmittingTransfer}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-900 transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmTransfer}
+                disabled={
+                  isSubmittingTransfer || 
+                  !transferDestStock || 
+                  !transferQty || 
+                  parseFloat(transferQty) <= 0 || 
+                  parseFloat(transferQty) > getAvailableRemainingForTransfer(selectedTransferRow)
+                }
+                className="inline-flex items-center gap-2 px-5 py-2.5 bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs rounded-xl shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-md"
+              >
+                {isSubmittingTransfer ? (
+                  <span>Processing Transfer…</span>
+                ) : (
+                  <>
+                    <Check size={14} />
+                    <span>Confirm Transfer</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Transfer History & Audit Trail Modal (Section 11) ── */}
+      {isTransferHistoryOpen && (
+        <div className="fixed inset-0 bg-slate-950/60 z-50 flex items-center justify-center p-3 sm:p-6 animate-in fade-in duration-150" onClick={e => e.target === e.currentTarget && setIsTransferHistoryOpen(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl flex flex-col overflow-hidden max-h-[92vh] animate-in zoom-in-95 duration-200">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 shrink-0 bg-slate-50/50">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-teal-100/90 text-teal-800 flex items-center justify-center shrink-0 shadow-2xs">
+                  <History size={18} />
+                </div>
+                <div>
+                  <h2 className="text-base sm:text-lg font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] leading-tight">
+                    Remaining Feed Transfer History
+                  </h2>
+                  <p className="text-[11px] text-slate-500">Full audit trail of all feed transferred between fish stocks</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setIsTransferHistoryOpen(false)} 
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Modal Controls / Filter Toolbar */}
+            <div className="px-5 py-3 border-b border-slate-100 bg-white flex flex-wrap items-center justify-between gap-3 text-xs shrink-0">
+              <div className="flex items-center gap-2">
+                <span className="text-slate-400 font-medium">Stock:</span>
+                <select
+                  value={historyStockFilter}
+                  onChange={e => setHistoryStockFilter(e.target.value)}
+                  className={`${SC} py-1 px-2.5 text-xs w-auto bg-slate-50 border border-slate-200 rounded-lg`}
+                >
+                  <option value="All">All Stocks</option>
+                  {stockFilterOptions.map(s => (
+                    <option key={s.key} value={s.name}>{s.label}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex items-center gap-1.5">
+                <span className="text-slate-400 font-medium">Direction:</span>
+                <div className="inline-flex rounded-lg border border-slate-200 p-0.5 bg-slate-50">
+                  <button
+                    type="button"
+                    onClick={() => setHistoryTypeFilter("all")}
+                    className={`px-2.5 py-1 text-xs rounded-md font-semibold transition-colors ${
+                      historyTypeFilter === "all" ? "bg-white text-teal-800 shadow-2xs" : "text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    All
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setHistoryTypeFilter("out")}
+                    className={`px-2.5 py-1 text-xs rounded-md font-semibold transition-colors ${
+                      historyTypeFilter === "out" ? "bg-white text-teal-800 shadow-2xs" : "text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    Transferred Out
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setHistoryTypeFilter("in")}
+                    className={`px-2.5 py-1 text-xs rounded-md font-semibold transition-colors ${
+                      historyTypeFilter === "in" ? "bg-white text-teal-800 shadow-2xs" : "text-slate-600 hover:text-slate-900"
+                    }`}
+                  >
+                    Received In
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Content / Transfer Records List */}
+            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3 text-xs">
+              {(() => {
+                let records = feedTransfers;
+                if (historyStockFilter !== "All") {
+                  records = records.filter(t => 
+                    isStockMatch(t.sourceStock, historyStockFilter) || 
+                    isStockMatch(t.destinationStock, historyStockFilter)
+                  );
+                }
+                if (historyTypeFilter === "out") {
+                  records = records.filter(t => historyStockFilter === "All" || isStockMatch(t.sourceStock, historyStockFilter));
+                } else if (historyTypeFilter === "in") {
+                  records = records.filter(t => historyStockFilter === "All" || isStockMatch(t.destinationStock, historyStockFilter));
+                }
+
+                if (records.length === 0) {
+                  return (
+                    <div className="py-12 text-center text-slate-400 space-y-2">
+                      <ArrowRightLeft size={32} className="mx-auto text-slate-300 stroke-[1.5]" />
+                      <p className="font-semibold text-slate-600">No feed transfers found</p>
+                      <p className="text-[11px] max-w-sm mx-auto text-slate-400">
+                        When fish stocks have unused feed in opened bags, you can transfer it from the Bags Opened tab directly to other compatible stocks.
+                      </p>
+                    </div>
+                  );
+                }
+
+                return records.map(t => {
+                  const usage = getTransferUsage(t);
+                  return (
+                    <div key={t.id} className="bg-white border border-slate-200/90 rounded-2xl p-4 shadow-2xs space-y-3 hover:border-teal-300 transition-colors">
+                      {/* Top Header of Record */}
+                      <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b border-slate-100">
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-slate-900 text-sm">
+                            {formatFishStock(t.sourceStock)}
+                          </span>
+                          <ArrowRight size={14} className="text-teal-600" />
+                          <span className="font-bold text-teal-800 text-sm">
+                            {formatFishStock(t.destinationStock)}
+                          </span>
+                        </div>
+
+                        {/* Status Badge */}
+                        <span className={`inline-flex items-center gap-1 text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${
+                          usage.isFullyConsumed
+                            ? "bg-slate-100 text-slate-700 border-slate-200"
+                            : usage.isPartiallyConsumed
+                            ? "bg-amber-50 text-amber-800 border-amber-200"
+                            : "bg-teal-50 text-teal-800 border-teal-200"
+                        }`}>
+                          {usage.statusLabel}
+                        </span>
+                      </div>
+
+                      {/* Detail Metrics Grid */}
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
+                        <div className="bg-slate-50 rounded-xl p-2.5">
+                          <span className="text-[10px] text-slate-400 block uppercase tracking-wider">Transferred Qty</span>
+                          <span className="font-bold text-slate-900 text-base font-['Barlow_Condensed',sans-serif]">
+                            {t.quantityKg} kg
+                          </span>
+                        </div>
+                        <div className="bg-slate-50 rounded-xl p-2.5">
+                          <span className="text-[10px] text-slate-400 block uppercase tracking-wider">Consumed So Far</span>
+                          <span className="font-bold text-slate-900 text-base font-['Barlow_Condensed',sans-serif]">
+                            {usage.consumedKg} kg
+                          </span>
+                        </div>
+                        <div className="bg-slate-50 rounded-xl p-2.5">
+                          <span className="text-[10px] text-slate-400 block uppercase tracking-wider">Remaining Unfed</span>
+                          <span className="font-bold text-teal-800 text-base font-['Barlow_Condensed',sans-serif]">
+                            {usage.remainingKg} kg
+                          </span>
+                        </div>
+                        <div className="bg-slate-50 rounded-xl p-2.5">
+                          <span className="text-[10px] text-slate-400 block uppercase tracking-wider">Feed Details</span>
+                          <span className="font-semibold text-slate-800 block truncate" title={`${t.feedSize} · ${t.feedBrand}`}>
+                            {t.feedSize} · {t.feedBrand}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Traceability Metadata Bar */}
+                      <div className="flex flex-wrap items-center justify-between gap-y-1 text-[11px] text-slate-500 pt-1">
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                          <span><strong>Transfer Date:</strong> {t.transferDate}</span>
+                          {t.originalDate !== t.transferDate && (
+                            <span><strong>Original Feeding Date:</strong> {t.originalDate}</span>
+                          )}
+                          <span><strong>Recorded By:</strong> {t.transferredBy || "Staff"}</span>
+                        </div>
+                        {t.notes && (
+                          <span className="italic text-slate-600 bg-slate-50 px-2 py-0.5 rounded-md">
+                            "{t.notes}"
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Contributing Feeding Consumption History (Section 7) */}
+                      {usage.contributingFeedings && usage.contributingFeedings.length > 0 && (
+                        <div className="bg-slate-50/70 border border-slate-100 rounded-xl p-2.5 text-[10px] text-slate-600 space-y-1">
+                          <span className="font-bold text-slate-700 block">Subsequent Consumption Trace:</span>
+                          <div className="flex flex-wrap gap-2">
+                            {usage.contributingFeedings.map((c, idx) => (
+                              <span key={idx} className="bg-white border border-slate-200/80 px-2 py-0.5 rounded-md">
+                                {c.date} ({c.pond}): <strong>{c.fedKg} kg fed</strong>
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                });
+              })()}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-5 py-3.5 border-t border-slate-100 bg-slate-50 shrink-0 flex items-center justify-end">
+              <button
+                type="button"
+                onClick={() => setIsTransferHistoryOpen(false)}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-900 transition-colors"
+              >
+                Close
+              </button>
             </div>
           </div>
         </div>
