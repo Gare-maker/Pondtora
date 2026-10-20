@@ -1353,7 +1353,7 @@ function FeedDocumentation({
 
     const fedRecords = (feedingRecords || []).filter(r => {
       if (!r) return false;
-      const dateMatch = isSameDate(r.date, targetDate) || isSameDate(r.date, dateLabel) || isSameDate(r.date, selDate);
+      const dateMatch = isSameDate(r.date, targetDate) || isSameDate(r.date, dateLabel);
       if (!dateMatch) return false;
       if (size && size !== "—" && r.size && !isSamePelletSize(r.size, size)) return false;
       if (normStock && normStock !== "—") {
@@ -2287,6 +2287,7 @@ function FeedDocumentation({
     toast.success("Updated successfully");
   };
 
+  const [bagsViewMode, setBagsViewMode] = useState<"outstanding" | "all">("outstanding");
 
   /* ── merged bags rows for display (includes all active stocks, bags opened, and feed tracking) ── */
   const mergedBagRows = useMemo((): MergedBagRow[] => {
@@ -2435,85 +2436,54 @@ function FeedDocumentation({
       populatedStockKeys.add(normalizeFishStock(fs).toLowerCase().trim());
     });
 
-    // 4. Ensure EVERY active stock appears even before logging begins
+    // 4. Carry over unconsumed feed from prior days for active stocks
     activeStocksMap.forEach((stockInfo, key) => {
-      if (populatedStockKeys.has(key) || populatedStockKeys.has(stockInfo.stockName.toLowerCase().trim())) {
-        return;
-      }
-
       const fs = stockInfo.stockName;
       const fedForStock = dayFeedRecords.filter(r =>
         isStockMatch(r.fishStock, fs) || isStockMatch(pondToStock(r.pond), fs) || isStockMatch(r.pond, fs)
       );
 
-      let size = "—";
-      let brand = "—";
+      const candidateSizes = [
+        ...new Set([
+          ...(remainLogs || []).filter(r => isStockMatch(r.fishStock, fs)).map(r => r.size),
+          ...(bagLogs || []).filter(b => isStockMatch(b.fishStock, fs)).map(b => b.size),
+          ...fedForStock.map(r => r.size),
+          ...(stockInfo.defaultPellet ? [stockInfo.defaultPellet] : [])
+        ].filter(Boolean))
+      ];
 
-      if (fedForStock.length > 0 && fedForStock[0].size) {
-        size = fedForStock[0].size;
-        brand = fedForStock[0].brand || "—";
-      } else {
-        const priorRemain = (remainLogs || []).filter(r => isStockMatch(r.fishStock, fs)).sort((a, b) => (dateToIso(b.date) || "").localeCompare(dateToIso(a.date) || ""))[0];
-        const priorBag = (bagLogs || []).filter(b => isStockMatch(b.fishStock, fs)).sort((a, b) => (dateToIso(b.date) || "").localeCompare(dateToIso(a.date) || ""))[0];
-        const associated = getAssociatedPalletsForStock(fs, selDate);
+      candidateSizes.forEach(size => {
+        if (!size || size === "—") return;
+        const carryoverKg = getPriorCarryover(fs, size, selDate);
+        if (carryoverKg <= 0) return;
 
-        if (priorRemain && priorRemain.size && priorRemain.size !== "—") {
-          size = priorRemain.size;
-          brand = priorRemain.brand || "—";
-        } else if (priorBag && priorBag.size && priorBag.size !== "—") {
-          size = priorBag.size;
-          brand = priorBag.brand || "—";
-        } else if (stockInfo.defaultPellet) {
-          size = stockInfo.defaultPellet;
-        } else if (associated.length > 0) {
-          size = associated[0];
-        } else if (availablePelletSizes.length > 0) {
-          size = availablePelletSizes[0];
-        } else {
-          size = "2.0 mm";
+        const fedForSize = fedForStock.filter(r => isSamePelletSize(r.size, size));
+        const totalFed = fedForSize.reduce((s, r) => s + (Number(r.total) || ((Number(r.morning) || 0) + (Number(r.evening) || 0))), 0);
+        const feedRemainingToday = Math.max(0, Math.round((carryoverKg - totalFed) * 10) / 10);
+
+        if (feedRemainingToday <= 0) return;
+
+        const matchingBrand = fedForSize[0]?.brand ||
+          (bagLogs || []).find(b => isStockMatch(b.fishStock, fs) && isSamePelletSize(b.size, size))?.brand ||
+          (remainLogs || []).find(r => isStockMatch(r.fishStock, fs) && isSamePelletSize(r.size, size))?.brand ||
+          getMatchingBrandsForPallet(size)[0] || "—";
+
+        const k = `${matchingBrand.toLowerCase().trim()}||${size.toLowerCase().trim()}||${key}`;
+        if (!map.has(k)) {
+          map.set(k, {
+            brand: matchingBrand,
+            size,
+            fishStock: fs,
+            stockDate: stockInfo.stockDate && stockInfo.stockDate !== fs ? stockInfo.stockDate : "—",
+            bagsOpened: 0,
+            totalKgOpened: 0,
+            remainingKg: feedRemainingToday,
+            carryoverKg,
+            feedRemainingToday,
+            hasBagLog: false,
+            lastBagLog: null
+          });
         }
-
-        if (brand === "—" || !brand) {
-          const matchingBrands = getMatchingBrandsForPallet(size);
-          brand = matchingBrands[0] || (inventory[0]?.brand || FEED_BRANDS[0] || "Coppens");
-        }
-      }
-
-      const carryoverKg = getPriorCarryover(fs, size, selDate);
-      const fedForSize = fedForStock.filter(r => size === "—" || isSamePelletSize(r.size, size));
-      const totalFed = fedForSize.reduce((s, r) => s + (Number(r.total) || ((Number(r.morning) || 0) + (Number(r.evening) || 0))), 0);
-
-      // Check if there is an explicit leftover log for today
-      const matchingRemain = dayRemainLogs.find(r =>
-        isStockMatch(r.fishStock, fs) &&
-        (size === "—" || isSamePelletSize(r.size, size)) &&
-        (brand === "—" || !r.brand || r.brand.toLowerCase().trim() === brand.toLowerCase().trim())
-      );
-
-      let feedRemainingToday: number | null = null;
-      if (matchingRemain) {
-        feedRemainingToday = Number(matchingRemain.remainingKg) || 0;
-      } else if (carryoverKg > 0 || totalFed > 0) {
-        // Carryover from yesterday minus today's fed amount (e.g. 15kg leftover - 12kg fed = 3kg remaining)
-        feedRemainingToday = Math.max(0, Math.round((carryoverKg - totalFed) * 10) / 10);
-      } else {
-        feedRemainingToday = 0;
-      }
-
-      const k = `${brand.toLowerCase().trim()}||${size.toLowerCase().trim()}||${key}`;
-
-      map.set(k, {
-        brand,
-        size,
-        fishStock: fs,
-        stockDate: stockInfo.stockDate && stockInfo.stockDate !== fs ? stockInfo.stockDate : "—",
-        bagsOpened: 0,
-        totalKgOpened: 0,
-        remainingKg: feedRemainingToday ?? 0,
-        carryoverKg,
-        feedRemainingToday,
-        hasBagLog: false,
-        lastBagLog: null
       });
     });
 
@@ -2558,7 +2528,18 @@ function FeedDocumentation({
     return Array.from(map.values()).filter(row => isStockCurrentlyActive(row.fishStock));
   }, [bagLogs, remainLogs, feedingRecords, feedTransfers, getTransferUsage, selDate, ponds, inventory, getPriorCarryover, dateToIso, getAssociatedPalletsForStock, getMatchingBrandsForPallet, availablePelletSizes, isStockCurrentlyActive]);
 
-  const filteredMergedBagRows = useMemo(() => {
+  const outstandingBagsCount = useMemo(() => {
+    let list = mergedBagRows.filter(r => isStockCurrentlyActive(r.fishStock) && ((r.remainingKg && r.remainingKg > 0.001) || (r.feedRemainingToday && r.feedRemainingToday > 0.001)));
+    if (bagsStockFilter !== "All") {
+      list = list.filter(r =>
+        isStockMatch(bagsStockFilter, r.fishStock) ||
+        normalizeFishStock(r.fishStock).toLowerCase() === normalizeFishStock(bagsStockFilter).toLowerCase()
+      );
+    }
+    return list.length;
+  }, [mergedBagRows, bagsStockFilter, isStockCurrentlyActive]);
+
+  const allBagsCount = useMemo(() => {
     let list = mergedBagRows.filter(r => isStockCurrentlyActive(r.fishStock));
     if (bagsStockFilter !== "All") {
       list = list.filter(r =>
@@ -2566,8 +2547,22 @@ function FeedDocumentation({
         normalizeFishStock(r.fishStock).toLowerCase() === normalizeFishStock(bagsStockFilter).toLowerCase()
       );
     }
-    return list;
+    return list.length;
   }, [mergedBagRows, bagsStockFilter, isStockCurrentlyActive]);
+
+  const filteredMergedBagRows = useMemo(() => {
+    let list = mergedBagRows.filter(r => isStockCurrentlyActive(r.fishStock));
+    if (bagsViewMode === "outstanding") {
+      list = list.filter(r => (r.remainingKg && r.remainingKg > 0.001) || (r.feedRemainingToday && r.feedRemainingToday > 0.001));
+    }
+    if (bagsStockFilter !== "All") {
+      list = list.filter(r =>
+        isStockMatch(bagsStockFilter, r.fishStock) ||
+        normalizeFishStock(r.fishStock).toLowerCase() === normalizeFishStock(bagsStockFilter).toLowerCase()
+      );
+    }
+    return list;
+  }, [mergedBagRows, bagsViewMode, bagsStockFilter, isStockCurrentlyActive]);
 
   /* ── bulk log (Log Feeding — All Ponds) ── */
   const [bulkDate, setBulkDate] = useState(TODAY);
@@ -3528,6 +3523,32 @@ function FeedDocumentation({
                   <p className="text-[11px] text-slate-400">{filteredMergedBagRows.length} entries</p>
                 </div>
                 <div className="flex items-center gap-2 sm:gap-3">
+                  {/* View Mode Toggle: Outstanding vs All */}
+                  <div className="flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200/80">
+                    <button
+                      type="button"
+                      onClick={() => setBagsViewMode("outstanding")}
+                      className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition-all ${
+                        bagsViewMode === "outstanding"
+                          ? "bg-white text-slate-800 shadow-2xs"
+                          : "text-slate-500 hover:text-slate-700"
+                      }`}
+                    >
+                      Outstanding ({outstandingBagsCount})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setBagsViewMode("all")}
+                      className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition-all ${
+                        bagsViewMode === "all"
+                          ? "bg-white text-slate-800 shadow-2xs"
+                          : "text-slate-500 hover:text-slate-700"
+                      }`}
+                    >
+                      All Records ({allBagsCount})
+                    </button>
+                  </div>
+
                   {/* Stock Selection Filter */}
                   <div className="flex items-center gap-1.5">
                     <span className="text-xs text-slate-400">Stock:</span>
@@ -3595,7 +3616,15 @@ function FeedDocumentation({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50">
-                    {filteredMergedBagRows.length === 0 && <tr><td colSpan={7} className="text-center text-xs text-slate-400 py-8">No bags logged for {selDate}</td></tr>}
+                    {filteredMergedBagRows.length === 0 && (
+                      <tr>
+                        <td colSpan={7} className="text-center text-xs text-slate-400 py-8">
+                          {bagsViewMode === "outstanding"
+                            ? "No outstanding opened bags with remaining feed."
+                            : `No bags logged for ${selDate}`}
+                        </td>
+                      </tr>
+                    )}
                     {filteredMergedBagRows.map((row, i) => {
                       const isHighlightedRow = Boolean(
                         bagsHighlight &&
@@ -3807,6 +3836,32 @@ function FeedDocumentation({
 
           {/* Mobile Isolated Cards View */}
           <div className="md:hidden space-y-3">
+            {/* View Mode Toggle: Outstanding vs All */}
+            <div className="flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200/80 w-full">
+              <button
+                type="button"
+                onClick={() => setBagsViewMode("outstanding")}
+                className={`flex-1 py-1.5 text-xs font-semibold rounded-lg text-center transition-all ${
+                  bagsViewMode === "outstanding"
+                    ? "bg-white text-slate-800 shadow-2xs"
+                    : "text-slate-500 hover:text-slate-700"
+                }`}
+              >
+                Outstanding ({outstandingBagsCount})
+              </button>
+              <button
+                type="button"
+                onClick={() => setBagsViewMode("all")}
+                className={`flex-1 py-1.5 text-xs font-semibold rounded-lg text-center transition-all ${
+                  bagsViewMode === "all"
+                    ? "bg-white text-slate-800 shadow-2xs"
+                    : "text-slate-500 hover:text-slate-700"
+                }`}
+              >
+                All Records ({allBagsCount})
+              </button>
+            </div>
+
             {/* Mobile Controls: Stock Filter and Transfer History */}
             <div className="flex items-center justify-between gap-2">
               <select
@@ -3856,7 +3911,9 @@ function FeedDocumentation({
 
             {filteredMergedBagRows.length === 0 ? (
               <div className="py-8 text-center text-xs text-slate-400 bg-white border border-slate-200/80 rounded-2xl shadow-xs">
-                No bags logged for {selDate}
+                {bagsViewMode === "outstanding"
+                  ? "No outstanding opened bags with remaining feed."
+                  : `No bags logged for ${selDate}`}
               </div>
             ) : (
               filteredMergedBagRows.map((row, i) => {
