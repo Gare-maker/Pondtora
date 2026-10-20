@@ -722,7 +722,7 @@ function FeedDocumentation({
     const isFullyConsumed = remainingQty <= 0.01;
     const isPartiallyConsumed = consumedForThis > 0 && !isFullyConsumed;
 
-    let statusLabel = "Feed Received";
+    let statusLabel = "";
     if (isFullyConsumed) statusLabel = "Fully Consumed";
     else if (isPartiallyConsumed) statusLabel = "Partially Consumed";
 
@@ -3922,14 +3922,6 @@ function FeedDocumentation({
                             </span>
                           </div>
                         ) : null}
-                        {row.totalTransferredInKg && row.totalTransferredInKg > 0 ? (
-                          <div className="mt-1">
-                            <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-md border bg-blue-50 text-blue-800 border-blue-200">
-                              <Package size={10} className="shrink-0" />
-                              Feed Received
-                            </span>
-                          </div>
-                        ) : null}
                       </div>
 
                       <div className="flex items-center gap-1.5 shrink-0" onClick={e => e.stopPropagation()}>
@@ -5445,15 +5437,15 @@ function FeedDocumentation({
                           <span className="font-semibold text-blue-900 flex items-center gap-1">
                             <Package size={11} className="text-blue-600" /> Received {t.quantityKg} kg from {formatFishStock(t.sourceStock)}
                           </span>
-                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                            usage.isFullyConsumed
-                              ? "bg-slate-100 text-slate-700"
-                              : usage.isPartiallyConsumed
-                              ? "bg-amber-100 text-amber-800"
-                              : "bg-blue-100 text-blue-800"
-                          }`}>
-                            {usage.statusLabel}
-                          </span>
+                          {usage.statusLabel ? (
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                              usage.isFullyConsumed
+                                ? "bg-slate-100 text-slate-700"
+                                : "bg-amber-100 text-amber-800"
+                            }`}>
+                              {usage.statusLabel}
+                            </span>
+                          ) : null}
                         </div>
                         <div className="text-[10px] text-blue-700 flex flex-wrap gap-x-3 gap-y-0.5">
                           <span>Available: {usage.remainingKg} kg</span>
@@ -5634,19 +5626,22 @@ function FeedDocumentation({
 
       {/* ── Transfer Remaining Feed Pop-up Modal ── */}
       {transferModalOpen && selectedTransferRow && (
-        <div className="fixed inset-0 bg-slate-950/60 z-50 flex items-center justify-center p-3 sm:p-6 animate-in fade-in duration-150" onClick={e => e.target === e.currentTarget && !isSubmittingTransfer && setTransferModalOpen(false)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col overflow-hidden max-h-[92vh] animate-in zoom-in-95 duration-200">
+        <div 
+          className="fixed inset-0 bg-slate-950/60 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-150" 
+          onClick={e => e.target === e.currentTarget && !isSubmittingTransfer && setTransferModalOpen(false)}
+        >
+          <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full max-w-full sm:max-w-lg flex flex-col overflow-hidden max-h-[92vh] sm:max-h-[90vh] animate-in slide-in-from-bottom-3 sm:zoom-in-95 duration-200">
             {/* Modal Header */}
-            <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 shrink-0">
+            <div className="flex items-center justify-between px-5 py-3.5 border-b border-slate-100 shrink-0">
               <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-teal-50 text-teal-700 flex items-center justify-center shrink-0">
-                  <ArrowRightLeft size={18} />
+                <div className="w-8 h-8 rounded-xl bg-teal-50 text-teal-700 flex items-center justify-center shrink-0">
+                  <ArrowRightLeft size={16} />
                 </div>
                 <div>
-                  <h2 className="text-base sm:text-lg font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] leading-tight">
+                  <h2 className="text-base font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] leading-tight">
                     Transfer Remaining Feed
                   </h2>
-                  <p className="text-[11px] text-slate-500">Move leftover feed to another fish stock using the same feed size and brand</p>
+                  <p className="text-[11px] text-slate-500">Move leftover feed to another fish stock</p>
                 </div>
               </div>
               <button 
@@ -5660,32 +5655,25 @@ function FeedDocumentation({
 
             {/* Modal Body */}
             <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4 text-xs">
-              {/* Minimalist Source Information Card */}
+              {/* Clean Source Summary */}
               {(() => {
                 const currentAvail = getAvailableRemainingForTransfer(selectedTransferRow);
                 return (
-                  <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3.5 space-y-2.5">
-                    <div className="flex items-center justify-between">
-                      <div className="min-w-0 pr-2">
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Source Fish Stock</span>
-                        <h4 className="font-bold text-slate-900 text-sm truncate" title={selectedTransferRow.fishStock}>
-                          {formatFishStock(selectedTransferRow.fishStock)}
-                        </h4>
-                      </div>
-                      <div className="text-right shrink-0">
-                        <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Available to Transfer</span>
-                        <span className="text-base font-bold text-teal-700 font-['Barlow_Condensed',sans-serif]">
-                          {currentAvail} kg
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-200/60 text-[11px] text-slate-600">
-                      <span className="inline-flex items-center gap-1 bg-white border border-slate-200/80 px-2 py-0.5 rounded-md font-medium text-slate-800">
-                        <Package size={11} className="text-slate-400" /> {selectedTransferRow.size} · {selectedTransferRow.brand}
+                  <div className="bg-slate-50/90 border border-slate-200/80 rounded-xl p-3 flex items-center justify-between">
+                    <div className="min-w-0 pr-2">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">From Fish Stock</span>
+                      <h4 className="font-bold text-slate-900 text-sm truncate" title={selectedTransferRow.fishStock}>
+                        {formatFishStock(selectedTransferRow.fishStock)}
+                      </h4>
+                      <span className="text-[11px] text-slate-500 font-medium">
+                        {selectedTransferRow.size} · {selectedTransferRow.brand}
                       </span>
-                      <span className="text-slate-300">·</span>
-                      <span className="text-slate-500">Opened: {selectedTransferRow.lastBagLog?.date || selDate}</span>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Available</span>
+                      <span className="text-base font-bold text-teal-700 font-['Barlow_Condensed',sans-serif]">
+                        {currentAvail} kg
+                      </span>
                     </div>
                   </div>
                 );
@@ -5696,30 +5684,21 @@ function FeedDocumentation({
                 const eligibleStocks = stockFilterOptions.filter(s => s.name !== "All" && checkTransferEligibility(s.name, selectedTransferRow).eligible);
                 const currentAvail = getAvailableRemainingForTransfer(selectedTransferRow);
                 const numQty = parseFloat(transferQty) || 0;
-                const sourceRemainingAfter = Math.max(0, Math.round((currentAvail - numQty) * 10) / 10);
 
                 return (
                   <div className="space-y-3.5">
                     <div>
-                      <div className="flex items-center justify-between mb-1.5">
-                        <label className="text-[11px] font-bold text-slate-700 uppercase tracking-wider">
-                          Destination Fish Stock *
-                        </label>
-                        {eligibleStocks.length > 0 && (
-                          <span className="text-[10px] text-teal-700 font-medium">
-                            {eligibleStocks.length} compatible stock{eligibleStocks.length !== 1 ? "s" : ""}
-                          </span>
-                        )}
-                      </div>
-                      
+                      <label className="text-[11px] font-bold text-slate-700 uppercase tracking-wider block mb-1.5">
+                        To Destination Stock *
+                      </label>
                       {eligibleStocks.length === 0 ? (
                         <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 space-y-1">
                           <div className="flex items-center gap-1.5 font-bold text-xs">
                             <AlertCircle size={14} className="text-amber-600 shrink-0" />
-                            <span>No compatible fish stocks found</span>
+                            <span>No compatible fish stocks</span>
                           </div>
                           <p className="text-[11px] text-amber-800 leading-relaxed">
-                            Feed can only be transferred to active fish stocks that use the exact same feed size (<strong>{selectedTransferRow.size}</strong>) and brand (<strong>{selectedTransferRow.brand}</strong>).
+                            No active fish stocks are currently using <strong>{selectedTransferRow.size}</strong> ({selectedTransferRow.brand}).
                           </p>
                         </div>
                       ) : (
@@ -5778,7 +5757,7 @@ function FeedDocumentation({
                         />
                         {numQty > currentAvail && (
                           <p className="text-[10px] text-red-600 mt-1 font-medium">
-                            Cannot transfer more than available ({currentAvail} kg).
+                            Cannot transfer more than {currentAvail} kg.
                           </p>
                         )}
                       </div>
@@ -5796,37 +5775,6 @@ function FeedDocumentation({
                         />
                       </div>
                     </div>
-
-                    {/* Notes */}
-                    <div>
-                      <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">
-                        Notes (Optional)
-                      </label>
-                      <input
-                        type="text"
-                        value={transferNotes}
-                        onChange={e => setTransferNotes(e.target.value)}
-                        placeholder="e.g. Moving remaining feed to active pond"
-                        className="w-full py-2 px-3 text-xs bg-white border border-slate-200 rounded-xl shadow-2xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500"
-                      />
-                    </div>
-
-                    {/* Minimalist Live Transfer Summary */}
-                    {transferDestStock && numQty > 0 && numQty <= currentAvail && (
-                      <div className="bg-teal-50/70 border border-teal-200/80 rounded-xl p-3.5 space-y-2 text-teal-950 animate-in fade-in duration-150">
-                        <div className="flex items-center justify-between text-xs font-semibold text-teal-900">
-                          <span className="truncate max-w-[42%]">{formatFishStock(selectedTransferRow.fishStock)}</span>
-                          <div className="flex items-center gap-1 text-teal-700 shrink-0 font-bold px-2.5 py-0.5 bg-teal-100 rounded-full text-[11px]">
-                            <ArrowRight size={12} /> {numQty} kg
-                          </div>
-                          <span className="truncate max-w-[42%] text-right">{formatFishStock(transferDestStock)}</span>
-                        </div>
-                        <div className="flex items-center justify-between text-[11px] text-teal-800 pt-1.5 border-t border-teal-200/60">
-                          <span>Left at source: <strong>{sourceRemainingAfter} kg</strong></span>
-                          <span>Destination receives: <strong className="text-emerald-700">+{numQty} kg</strong></span>
-                        </div>
-                      </div>
-                    )}
 
                     {/* Error Banner */}
                     {transferError && (
@@ -5878,8 +5826,11 @@ function FeedDocumentation({
 
       {/* ── Remaining Feed Transfer History Modal ── */}
       {isTransferHistoryOpen && (
-        <div className="fixed inset-0 bg-slate-950/60 z-50 flex items-center justify-center p-3 sm:p-6 animate-in fade-in duration-150" onClick={e => e.target === e.currentTarget && setIsTransferHistoryOpen(false)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl flex flex-col overflow-hidden max-h-[92vh] animate-in zoom-in-95 duration-200">
+        <div 
+          className="fixed inset-0 bg-slate-950/60 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-150" 
+          onClick={e => e.target === e.currentTarget && setIsTransferHistoryOpen(false)}
+        >
+          <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-2xl w-full max-w-full sm:max-w-3xl flex flex-col overflow-hidden max-h-[94vh] sm:max-h-[90vh] animate-in slide-in-from-bottom-3 sm:zoom-in-95 duration-200">
             {/* Modal Header */}
             <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 shrink-0">
               <div className="flex items-center gap-2.5">
@@ -5972,16 +5923,16 @@ function FeedDocumentation({
                           </span>
                         </div>
 
-                        {/* Status Badge */}
-                        <span className={`inline-flex items-center text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${
-                          usage.isFullyConsumed
-                            ? "bg-slate-100 text-slate-600 border-slate-200"
-                            : usage.isPartiallyConsumed
-                            ? "bg-amber-50 text-amber-800 border-amber-200"
-                            : "bg-teal-50 text-teal-800 border-teal-200"
-                        }`}>
-                          {usage.statusLabel}
-                        </span>
+                        {/* Status Badge (Feed Received tag removed per request) */}
+                        {usage.statusLabel ? (
+                          <span className={`inline-flex items-center text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${
+                            usage.isFullyConsumed
+                              ? "bg-slate-100 text-slate-600 border-slate-200"
+                              : "bg-amber-50 text-amber-800 border-amber-200"
+                          }`}>
+                            {usage.statusLabel}
+                          </span>
+                        ) : null}
                       </div>
 
                       {/* Clean 4-Stat Metric Row */}
