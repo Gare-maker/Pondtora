@@ -2479,7 +2479,7 @@ function FeedDocumentation({
         brand,
         size,
         fishStock: fs,
-        stockDate: stockDate !== fs ? stockDate : "—",
+        stockDate: stockInfo.stockDate && stockInfo.stockDate !== fs ? stockInfo.stockDate : "—",
         bagsOpened: 0,
         totalKgOpened: 0,
         remainingKg: feedRemainingToday ?? 0,
