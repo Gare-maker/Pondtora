@@ -222,7 +222,7 @@ const TABLE_ALLOWED_COLUMNS: Record<string, Set<string>> = {
   feeding_records: new Set([
     "id", "user_id", "farm_id", "date", "month", "year", "pond", "brand", "size",
     "morning", "evening", "total", "recorded_by", "morning_time", "evening_time",
-    "created_by", "created_by_id", "edit_history", "fish_stock", "created_at"
+    "created_by", "created_by_id", "edit_history", "fish_stock", "pallet", "created_at"
   ]),
   staff_members: new Set([
     "id", "user_id", "staff_auth_id", "name", "email", "phone", "role", "status",
@@ -250,10 +250,10 @@ const TABLE_ALLOWED_COLUMNS: Record<string, Set<string>> = {
   ]),
   bag_open_logs: new Set([
     "id", "user_id", "farm_id", "date", "month", "year", "brand", "size",
-    "kg_per_bag", "bags_opened", "total_kg", "fish_stock", "created_at"
+    "kg_per_bag", "bags_opened", "total_kg", "fish_stock", "pallet", "created_at"
   ]),
   feed_remaining_logs: new Set([
-    "id", "user_id", "farm_id", "brand", "size", "fish_stock", "remaining_kg", "date", "month", "year", "created_at"
+    "id", "user_id", "farm_id", "brand", "size", "fish_stock", "remaining_kg", "date", "month", "year", "pallet", "created_at"
   ]),
   stock_events: new Set([
     "id", "user_id", "pond_id", "farm_id", "pond_name", "date", "species",
