@@ -652,8 +652,11 @@ function FeedDocumentation({
     (bagLogs || []).filter(b => b && isStockMatch(b.fishStock, normStock)).forEach(b => addSize(b.size));
     (remainLogs || []).filter(r => r && isStockMatch(r.fishStock, normStock)).forEach(r => addSize(r.size));
 
+    // 5. Incoming transfers to this stock
+    (feedTransfers || []).filter(t => isStockMatch(t.destinationStock, normStock)).forEach(t => addSize(t.feedSize));
+
     return pallets;
-  }, [ponds, feedingRecords, bagLogs, remainLogs, selDate]);
+  }, [ponds, feedingRecords, bagLogs, remainLogs, feedTransfers, selDate]);
 
   /* Helper to get matching brands from Feed Stock (inventory) for a selected pallet */
   const getMatchingBrandsForPallet = useCallback((pallet: string): string[] => {
@@ -736,7 +739,7 @@ function FeedDocumentation({
     };
   }, [feedingRecords, feedTransfers, dateToIso]);
 
-  /* Validates if a destination stock can receive remaining feed (Exact Size, Brand & Pallet match) */
+  /* Validates if a destination stock can receive remaining feed (any active stock other than source) */
   const checkTransferEligibility = useCallback((destStockName: string, sourceRow: MergedBagRow): { eligible: boolean; reason?: string } => {
     if (!destStockName || !sourceRow) {
       return { eligible: false, reason: "Missing stock information." };
@@ -750,34 +753,8 @@ function FeedDocumentation({
       return { eligible: false, reason: "Destination stock is not currently active." };
     }
 
-    // 1. Pallet & Size validation
-    const srcSize = sourceRow.size;
-    const destPallets = getAssociatedPalletsForStock(destStockName, selDate);
-    const hasPalletMatch = destPallets.some(p => isSamePelletSize(p, srcSize));
-    if (!hasPalletMatch) {
-      return { eligible: false, reason: `Pallet mismatch: Destination stock does not use ${srcSize} pallet.` };
-    }
-
-    // 2. Feed Brand validation (Section 5)
-    const srcBrand = (sourceRow.brand || "").toLowerCase().trim();
-    if (srcBrand && srcBrand !== "—") {
-      const destFeedings = (feedingRecords || []).filter(r => (isStockMatch(r.fishStock, normDest) || isStockMatch(pondToStock(r.pond), normDest) || isStockMatch(r.pond, normDest)) && isSamePelletSize(r.size, srcSize));
-      const destBags = (bagLogs || []).filter(b => isStockMatch(b.fishStock, normDest) && isSamePelletSize(b.size, srcSize));
-      const destRemains = (remainLogs || []).filter(r => isStockMatch(r.fishStock, normDest) && isSamePelletSize(r.size, srcSize));
-
-      const usedBrands = new Set<string>();
-      destFeedings.forEach(r => { if (r.brand && r.brand !== "—") usedBrands.add(r.brand.toLowerCase().trim()); });
-      destBags.forEach(b => { if (b.brand && b.brand !== "—") usedBrands.add(b.brand.toLowerCase().trim()); });
-      destRemains.forEach(r => { if (r.brand && r.brand !== "—") usedBrands.add(r.brand.toLowerCase().trim()); });
-
-      if (usedBrands.size > 0 && !usedBrands.has(srcBrand)) {
-        const brandList = Array.from(usedBrands).map(b => b.charAt(0).toUpperCase() + b.slice(1)).join(", ");
-        return { eligible: false, reason: `Brand mismatch: Destination uses ${brandList}, but feed is ${sourceRow.brand}.` };
-      }
-    }
-
     return { eligible: true };
-  }, [selDate, isStockCurrentlyActive, getAssociatedPalletsForStock, feedingRecords, bagLogs, remainLogs]);
+  }, [isStockCurrentlyActive]);
 
   /* Calculates genuine available remaining feed for transfer */
   const getAvailableRemainingForTransfer = useCallback((row: MergedBagRow): number => {
@@ -1322,17 +1299,16 @@ function FeedDocumentation({
     if (!stockName || !palletSize || !checkDate || stockName === "—") return 0;
     const normalizedStock = normalizeFishStock(stockName).toLowerCase().trim();
     const normalizedBrand = (brandName || "").toLowerCase().trim();
-    const normalizedSize = palletSize.toLowerCase().trim();
     const dateLabel = toDateLabel(checkDate);
     const matching = (bagLogs || []).filter(b =>
       b &&
       (Number(b.bagsOpened) || 0) > 0 &&
       b.fishStock &&
       b.fishStock !== "—" &&
-      (isSameDate(b.date, checkDate) || isSameDate(b.date, dateLabel) || isSameDate(b.date, selDate)) &&
+      (isSameDate(b.date, checkDate) || isSameDate(b.date, dateLabel)) &&
       (isStockMatch(b.fishStock, stockName) || normalizeFishStock(b.fishStock).toLowerCase().trim() === normalizedStock) &&
       (normalizedBrand === "" || (b.brand || "").toLowerCase().trim() === normalizedBrand) &&
-      (palletSize === "—" || (b.size || "").toLowerCase().trim() === normalizedSize)
+      (palletSize === "—" || isSamePelletSize(b.size, palletSize))
     );
     return matching.reduce((s, b) => s + (Number(b.bagsOpened) || 0), 0);
   };
@@ -2478,6 +2454,7 @@ function FeedDocumentation({
           ...(remainLogs || []).filter(r => isStockMatch(r.fishStock, fs)).map(r => r.size),
           ...(bagLogs || []).filter(b => isStockMatch(b.fishStock, fs)).map(b => b.size),
           ...fedForStock.map(r => r.size),
+          ...(feedTransfers || []).filter(t => isStockMatch(t.destinationStock, fs)).map(t => t.feedSize),
           ...(stockInfo.defaultPellet ? [stockInfo.defaultPellet] : [])
         ].filter(Boolean))
       ];
@@ -2488,8 +2465,8 @@ function FeedDocumentation({
         const fedForSize = fedForStock.filter(r => isSamePelletSize(r.size, size));
         const totalFed = fedForSize.reduce((s, r) => s + (Number(r.total) || ((Number(r.morning) || 0) + (Number(r.evening) || 0))), 0);
 
-        // Include if there was prior carryover OR feed was given today
-        if (carryoverKg <= 0 && totalFed <= 0) return;
+        // Only include if there was genuine unconsumed carryover from prior days
+        if (carryoverKg <= 0) return;
 
         const feedRemainingToday = Math.max(0, Math.round((carryoverKg - totalFed) * 10) / 10);
 
@@ -2515,6 +2492,40 @@ function FeedDocumentation({
           });
         }
       });
+    });
+
+    // 4b. Ensure incoming transfers received on selDate are present in map
+    (feedTransfers || []).filter(t => isSameDate(t.transferDate, selDate)).forEach(t => {
+      const destStock = t.destinationStock;
+      if (!isStockCurrentlyActive(destStock)) return;
+      const brand = t.feedBrand || "—";
+      const size = t.feedSize || "—";
+      const stockInfo = activeStocksMap.get(normalizeFishStock(destStock).toLowerCase().trim()) ||
+                        Array.from(activeStocksMap.values()).find(s => isStockMatch(s.stockName, destStock));
+      const stockKey = stockInfo ? normalizeFishStock(stockInfo.stockName).toLowerCase().trim() : normalizeFishStock(destStock).toLowerCase().trim();
+      const fs = stockInfo ? stockInfo.stockName : destStock;
+      const k = `${brand.toLowerCase().trim()}||${size.toLowerCase().trim()}||${stockKey}`;
+
+      if (!map.has(k)) {
+        const matchingPond = (ponds || []).find(p => p && (pondToStock(p.name) === fs || p.name === fs || isStockMatch(p.name, fs)));
+        const stockDate = stockInfo?.stockDate && stockInfo.stockDate !== fs 
+          ? stockInfo.stockDate 
+          : (matchingPond?.stockingDate && matchingPond.stockingDate !== "—" ? formatFishStockDate(matchingPond.stockingDate) : "—");
+
+        map.set(k, {
+          brand,
+          size,
+          fishStock: fs,
+          stockDate: stockDate !== fs ? stockDate : "—",
+          bagsOpened: 0,
+          totalKgOpened: 0,
+          remainingKg: 0,
+          carryoverKg: 0,
+          feedRemainingToday: 0,
+          hasBagLog: false,
+          lastBagLog: null
+        });
+      }
     });
 
     // 5. Apply remaining feed transfers: update balances and attach transfer metadata
@@ -2560,6 +2571,16 @@ function FeedDocumentation({
 
   const filteredMergedBagRows = useMemo(() => {
     let list = mergedBagRows.filter(r => isStockCurrentlyActive(r.fishStock));
+    // Bags Opened view: Only display rows where bags were opened today OR feed is remaining
+    list = list.filter(r => 
+      r.hasBagLog || 
+      (r.bagsOpened && r.bagsOpened > 0) || 
+      (r.remainingKg && r.remainingKg > 0.001) || 
+      (r.feedRemainingToday && r.feedRemainingToday > 0.001) ||
+      (r.availableRemainingKg && r.availableRemainingKg > 0.001) ||
+      (r.carryoverKg && r.carryoverKg > 0.001) ||
+      (r.totalTransferredInKg && r.totalTransferredInKg > 0.001)
+    );
     if (bagsStockFilter !== "All") {
       list = list.filter(r =>
         isStockMatch(bagsStockFilter, r.fishStock) ||
@@ -3808,32 +3829,6 @@ function FeedDocumentation({
 
           {/* Mobile Isolated Cards View */}
           <div className="md:hidden space-y-3">
-            {/* View Mode Toggle: Outstanding vs All */}
-            <div className="flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200/80 w-full">
-              <button
-                type="button"
-                onClick={() => setBagsViewMode("outstanding")}
-                className={`flex-1 py-1.5 text-xs font-semibold rounded-lg text-center transition-all ${
-                  bagsViewMode === "outstanding"
-                    ? "bg-white text-slate-800 shadow-2xs"
-                    : "text-slate-500 hover:text-slate-700"
-                }`}
-              >
-                Outstanding ({outstandingBagsCount})
-              </button>
-              <button
-                type="button"
-                onClick={() => setBagsViewMode("all")}
-                className={`flex-1 py-1.5 text-xs font-semibold rounded-lg text-center transition-all ${
-                  bagsViewMode === "all"
-                    ? "bg-white text-slate-800 shadow-2xs"
-                    : "text-slate-500 hover:text-slate-700"
-                }`}
-              >
-                All Records ({allBagsCount})
-              </button>
-            </div>
-
             {/* Mobile Controls: Stock Filter and Transfer History */}
             <div className="flex items-center justify-between gap-2">
               <select
@@ -5722,10 +5717,10 @@ function FeedDocumentation({
                         <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 space-y-1">
                           <div className="flex items-center gap-1.5 font-bold text-xs">
                             <AlertCircle size={14} className="text-amber-600 shrink-0" />
-                            <span>No compatible fish stocks</span>
+                            <span>No other active fish stocks</span>
                           </div>
                           <p className="text-[11px] text-amber-800 leading-relaxed">
-                            No active fish stocks are currently using <strong>{selectedTransferRow.size}</strong> ({selectedTransferRow.brand}).
+                            There are no other active fish stocks available on the farm to receive transferred feed.
                           </p>
                         </div>
                       ) : (
