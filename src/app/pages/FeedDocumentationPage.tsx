@@ -1507,6 +1507,38 @@ function FeedDocumentation({
       }
     });
 
+    // Also include stocks and pellet sizes received via feed transfers on checkDate that do not have a bag log yet
+    const dayTransfersIn = (feedTransfers || []).filter(t => t && isSameDate(t.transferDate, checkDate));
+    dayTransfersIn.forEach(t => {
+      const rawFs = t.destinationStock;
+      if (!rawFs || rawFs === "—" || rawFs === "General Stock") return;
+      const matchedOpt = dateOptions.find(opt => 
+        opt.name === rawFs || 
+        isStockMatch(opt.name, rawFs) || 
+        normalizeFishStock(opt.name) === normalizeFishStock(rawFs) ||
+        opt.ponds.some(p => p === rawFs || isStockMatch(p, rawFs))
+      );
+      const fs = matchedOpt?.name || (isPondName(rawFs) ? (dateOptions[0]?.name || "") : rawFs);
+      const size = t.feedSize;
+      if (!size || size === "—") return;
+      const matchingBrands = getMatchingBrandsForPallet(size);
+      const brand = t.feedBrand || (matchingBrands[0] || (invBrands[0] || ""));
+
+      const key = `${normalizeFishStock(fs)}__${brand.toLowerCase().trim()}__${size.toLowerCase().trim()}`;
+      if (!map.has(key)) {
+        const inv = (inventory || []).find(it => it && it.brand === brand && isSamePelletSize(it.size, size));
+        const kgPb = inv?.weightPerBag || 15;
+        map.set(key, {
+          fishStock: fs,
+          brand,
+          size,
+          kgPerBag: kgPb,
+          qty: "",
+          remainingKg: ""
+        });
+      }
+    });
+
     if (map.size > 0) {
       return Array.from(map.values());
     }
@@ -2512,6 +2544,14 @@ function FeedDocumentation({
           ? stockInfo.stockDate 
           : (matchingPond?.stockingDate && matchingPond.stockingDate !== "—" ? formatFishStockDate(matchingPond.stockingDate) : "—");
 
+        const carryoverKg = getPriorCarryover(fs, size, selDate);
+        const fedForSize = dayFeedRecords.filter(r =>
+          (isStockMatch(r.fishStock, fs) || isStockMatch(pondToStock(r.pond), fs) || isStockMatch(r.pond, fs)) &&
+          (size === "—" || isSamePelletSize(r.size, size))
+        );
+        const totalFed = fedForSize.reduce((s, r) => s + (Number(r.total) || ((Number(r.morning) || 0) + (Number(r.evening) || 0))), 0);
+        const initialRemaining = Math.max(0, Math.round((carryoverKg - totalFed) * 10) / 10);
+
         map.set(k, {
           brand,
           size,
@@ -2519,9 +2559,9 @@ function FeedDocumentation({
           stockDate: stockDate !== fs ? stockDate : "—",
           bagsOpened: 0,
           totalKgOpened: 0,
-          remainingKg: 0,
-          carryoverKg: 0,
-          feedRemainingToday: 0,
+          remainingKg: initialRemaining,
+          carryoverKg,
+          feedRemainingToday: initialRemaining,
           hasBagLog: false,
           lastBagLog: null
         });
@@ -3665,9 +3705,9 @@ function FeedDocumentation({
                             ) : null}
                             {row.totalTransferredInKg && row.totalTransferredInKg > 0 ? (
                               <div className="mt-1">
-                                <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-md border bg-blue-50 text-blue-800 border-blue-200" title={`Received from ${row.transfersIn?.map(t => formatFishStock(t.sourceStock)).join(", ")}`}>
+                                <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-md border bg-blue-50 text-blue-800 border-blue-200" title={`Received ${row.totalTransferredInKg} kg from ${row.transfersIn?.map(t => `${t.quantityKg} kg from ${formatFishStock(t.sourceStock)}`).join(", ")}`}>
                                   <Package size={10} className="shrink-0" />
-                                  Feed Received
+                                  Received {row.totalTransferredInKg} kg
                                 </span>
                               </div>
                             ) : null}
@@ -3716,9 +3756,9 @@ function FeedDocumentation({
                                 ({row.totalTransferredOutKg} kg transferred)
                               </p>
                             ) : null}
-                            {row.transfersIn && row.transfersIn.length > 0 ? (
+                            {row.totalTransferredInKg && row.totalTransferredInKg > 0 ? (
                               <p className="text-[10px] text-blue-700 font-medium leading-tight mt-0.5">
-                                (incl. {row.transfersIn.reduce((s, t) => s + getTransferUsage(t).remainingKg, 0)} kg received)
+                                (incl. {row.totalTransferredInKg} kg received)
                               </p>
                             ) : null}
                             {expData.hasFed && (
@@ -3944,6 +3984,14 @@ function FeedDocumentation({
                             </span>
                           </div>
                         ) : null}
+                        {row.totalTransferredInKg && row.totalTransferredInKg > 0 ? (
+                          <div className="mt-1">
+                            <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-md border bg-blue-50 text-blue-800 border-blue-200" title={`Received ${row.totalTransferredInKg} kg from ${row.transfersIn?.map(t => `${t.quantityKg} kg from ${formatFishStock(t.sourceStock)}`).join(", ")}`}>
+                              <Package size={10} className="shrink-0" />
+                              Received {row.totalTransferredInKg} kg
+                            </span>
+                          </div>
+                        ) : null}
                       </div>
 
                       <div className="flex items-center gap-1.5 shrink-0" onClick={e => e.stopPropagation()}>
@@ -4068,6 +4116,16 @@ function FeedDocumentation({
                             "0 kg"
                           )}
                         </span>
+                        {row.totalTransferredOutKg && row.totalTransferredOutKg > 0 ? (
+                          <p className="text-[10px] text-teal-700 font-medium leading-tight mt-0.5">
+                            ({row.totalTransferredOutKg} kg transferred)
+                          </p>
+                        ) : null}
+                        {row.totalTransferredInKg && row.totalTransferredInKg > 0 ? (
+                          <p className="text-[10px] text-blue-700 font-medium leading-tight mt-0.5">
+                            (incl. {row.totalTransferredInKg} kg received)
+                          </p>
+                        ) : null}
                         {expData.hasFed && (
                           <p className={`text-[10px] font-medium mt-0.5 ${isRemainMismatch ? "text-red-600 font-semibold" : "text-slate-400"}`}>
                             Exp: {expData.expectedRemaining} kg

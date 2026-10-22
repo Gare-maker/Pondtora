@@ -757,7 +757,7 @@ app.post(`${P}/staff-members/invite`, async (c) => {
 
   let staffAuthId: string | null = null;
   let inviteError = null;
-  const defaultDomain = Deno.env.get("APP_URL") || "https://pondtora.com";
+  const defaultDomain = Deno.env.get("APP_URL") || "https://www.pondtora.com";
   const baseAppUrl = (appUrl || defaultDomain).replace(/\/+$/, "");
   const redirectTo = `${baseAppUrl}/create-password`;
 
@@ -909,7 +909,7 @@ app.post(`${P}/staff-members/resend-invite`, async (c) => {
   const { email, appUrl, staffId } = await c.req.json();
   if (!email) return c.json({ error: "Email is required" }, 400);
   const svc = adminDb();
-  const defaultDomain = Deno.env.get("APP_URL") || "https://pondtora.com";
+  const defaultDomain = Deno.env.get("APP_URL") || "https://www.pondtora.com";
   const baseAppUrl = (appUrl || defaultDomain).replace(/\/+$/, "");
   const redirectTo = `${baseAppUrl}/create-password`;
 

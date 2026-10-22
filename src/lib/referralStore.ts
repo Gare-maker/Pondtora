@@ -148,7 +148,7 @@ export function getReferralLink(codeOrUser: string | { id?: string; name?: strin
   }
   if (!code) code = "PONDTORA-REF";
 
-  if (typeof window === "undefined") return `https://pondtora.com/?ref=${encodeURIComponent(code)}`;
+  if (typeof window === "undefined") return `https://www.pondtora.com/?ref=${encodeURIComponent(code)}`;
   const origin = window.location.origin;
   return `${origin}/?ref=${encodeURIComponent(code)}`;
 }

@@ -1160,20 +1160,13 @@ function AuthScreen({
               </div>
 
               <div className="pt-2 flex flex-col items-center gap-2">
-                <a
-                  href="mailto:"
-                  className="w-full py-2.5 bg-green-600 hover:bg-green-700 text-white text-xs sm:text-sm font-bold rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer shadow-sm hover:shadow-md"
-                >
-                  <Mail size={15} />
-                  <span>Open Email App</span>
-                </a>
-                <div className="flex items-center justify-center gap-2.5 text-[11px] text-slate-500 pt-0.5">
-                  <span>Webmail:</span>
-                  <a href="https://mail.google.com" target="_blank" rel="noopener noreferrer" className="text-emerald-700 hover:underline font-semibold">Gmail</a>
-                  <span>·</span>
-                  <a href="https://outlook.live.com" target="_blank" rel="noopener noreferrer" className="text-emerald-700 hover:underline font-semibold">Outlook</a>
-                  <span>·</span>
-                  <a href="https://mail.yahoo.com" target="_blank" rel="noopener noreferrer" className="text-emerald-700 hover:underline font-semibold">Yahoo</a>
+                <div className="w-full py-3 px-4 bg-emerald-50 border border-emerald-200/80 rounded-xl text-center">
+                  <p className="text-xs sm:text-sm font-semibold text-emerald-900">
+                    Go to your email to check for verification link
+                  </p>
+                  <p className="text-[11px] text-emerald-700 mt-0.5">
+                    Please check your inbox or spam folder to activate your account.
+                  </p>
                 </div>
 
                 <button
@@ -1226,23 +1219,16 @@ function AuthScreen({
                     We sent a reset link to <span className="font-semibold text-slate-600">{fEmail}</span>. Click the link to set a new password.
                   </p>
                 </div>
-                <div className="space-y-2 pt-1">
-                  <a
-                    href="mailto:"
-                    className="w-full py-2.5 bg-green-600 hover:bg-green-700 text-white text-xs sm:text-sm font-bold rounded-xl transition-all flex items-center justify-center gap-2 cursor-pointer shadow-sm hover:shadow-md"
-                  >
-                    <Mail size={15} />
-                    <span>Open Email App</span>
-                  </a>
-                  <div className="flex items-center justify-center gap-2.5 text-[11px] text-slate-500 pt-0.5">
-                    <span>Webmail:</span>
-                    <a href="https://mail.google.com" target="_blank" rel="noopener noreferrer" className="text-emerald-700 hover:underline font-semibold">Gmail</a>
-                    <span>·</span>
-                    <a href="https://outlook.live.com" target="_blank" rel="noopener noreferrer" className="text-emerald-700 hover:underline font-semibold">Outlook</a>
-                    <span>·</span>
-                    <a href="https://mail.yahoo.com" target="_blank" rel="noopener noreferrer" className="text-emerald-700 hover:underline font-semibold">Yahoo</a>
+                <div className="space-y-3 pt-1">
+                  <div className="w-full py-3 px-4 bg-emerald-50 border border-emerald-200/80 rounded-xl text-center">
+                    <p className="text-xs sm:text-sm font-semibold text-emerald-900">
+                      Go to your email to reset your password
+                    </p>
+                    <p className="text-[11px] text-emerald-700 mt-0.5">
+                      Click the password reset link sent to your inbox or spam folder.
+                    </p>
                   </div>
-                  <button type="button" onClick={() => setView("login")} className="w-full text-center text-xs text-slate-400 hover:text-slate-600 pt-1">Back to sign in</button>
+                  <button type="button" onClick={() => setView("login")} className="w-full text-center text-xs text-slate-400 hover:text-slate-600 pt-1 font-medium">Back to sign in</button>
                 </div>
               </div>
             )
