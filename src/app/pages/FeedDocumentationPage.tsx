@@ -605,7 +605,7 @@ function FeedDocumentation({
         if (!matchStock) return false;
         if (!isSamePelletSize(r.size, t.feedSize)) return false;
         const fIso = dateToIso(r.date);
-        return Boolean(transIso && fIso && fIso >= transIso && fIso < targetIso);
+        return Boolean(transIso && fIso && fIso > transIso && fIso < targetIso);
       });
       const fed = feedings.reduce((sf, r) => sf + (Number(r.total) || ((Number(r.morning) || 0) + (Number(r.evening) || 0))), 0);
       return s + Math.max(0, t.quantityKg - fed);
@@ -881,6 +881,33 @@ function FeedDocumentation({
           fishStock: sourceFs,
           remainingKg: newSourceRemaining,
           date: origDate
+        });
+      }
+
+      // Update / create destination stock remaining log to reflect transferred feed
+      const existingDestRemain = (remainLogs || []).find(r => 
+        isSameDate(r.date, tDate) && 
+        (size === "—" || isSamePelletSize(r.size, size)) && 
+        (isStockMatch(r.fishStock, destFs) || normalizeFishStock(r.fishStock) === normalizeFishStock(destFs))
+      );
+      const priorDestCarryover = getPriorCarryover(destFs, size, tDate);
+      const baseDestRemaining = existingDestRemain ? (Number(existingDestRemain.remainingKg) || 0) : priorDestCarryover;
+      const newDestRemaining = Math.max(0, Math.round((baseDestRemaining + numQty) * 10) / 10);
+
+      if (existingDestRemain && onEditRemainLog) {
+        await onEditRemainLog({
+          ...existingDestRemain,
+          remainingKg: newDestRemaining,
+          date: tDate
+        });
+      } else if (onAddRemainLog) {
+        await onAddRemainLog({
+          id: uid(),
+          brand,
+          size,
+          fishStock: destFs,
+          remainingKg: newDestRemaining,
+          date: tDate
         });
       }
 
@@ -1356,7 +1383,7 @@ function FeedDocumentation({
       isSamePelletSize(t.feedSize, size) && 
       isSameDate(t.transferDate, targetDate)
     );
-    const availableTransfersIn = transfersInToday.reduce((s, t) => s + getTransferUsage(t).remainingKg, 0);
+    const availableTransfersIn = transfersInToday.reduce((s, t) => s + (Number(t.quantityKg) || 0), 0);
 
     // Outgoing transfers on targetDate
     const transfersOutToday = (feedTransfers || []).filter(t => 
@@ -2545,13 +2572,6 @@ function FeedDocumentation({
           : (matchingPond?.stockingDate && matchingPond.stockingDate !== "—" ? formatFishStockDate(matchingPond.stockingDate) : "—");
 
         const carryoverKg = getPriorCarryover(fs, size, selDate);
-        const fedForSize = dayFeedRecords.filter(r =>
-          (isStockMatch(r.fishStock, fs) || isStockMatch(pondToStock(r.pond), fs) || isStockMatch(r.pond, fs)) &&
-          (size === "—" || isSamePelletSize(r.size, size))
-        );
-        const totalFed = fedForSize.reduce((s, r) => s + (Number(r.total) || ((Number(r.morning) || 0) + (Number(r.evening) || 0))), 0);
-        const initialRemaining = Math.max(0, Math.round((carryoverKg - totalFed) * 10) / 10);
-
         map.set(k, {
           brand,
           size,
@@ -2559,9 +2579,9 @@ function FeedDocumentation({
           stockDate: stockDate !== fs ? stockDate : "—",
           bagsOpened: 0,
           totalKgOpened: 0,
-          remainingKg: initialRemaining,
+          remainingKg: carryoverKg,
           carryoverKg,
-          feedRemainingToday: initialRemaining,
+          feedRemainingToday: carryoverKg,
           hasBagLog: false,
           lastBagLog: null
         });
@@ -2588,13 +2608,32 @@ function FeedDocumentation({
         isSameDate(t.transferDate, selDate)
       );
       const totalTransferredInKg = transfersIn.reduce((s, t) => s + (Number(t.quantityKg) || 0), 0);
-      const availableTransferredInKg = transfersIn.reduce((s, t) => s + getTransferUsage(t).remainingKg, 0);
 
       const grossRemainingKg = (entry.feedRemainingToday !== null && entry.feedRemainingToday !== undefined)
         ? entry.feedRemainingToday
         : entry.remainingKg;
 
-      const availableRemainingKg = Math.max(0, Math.round((grossRemainingKg - totalTransferredOutKg + availableTransferredInKg) * 10) / 10);
+      let availableRemainingKg: number;
+      if (totalTransferredInKg > 0) {
+        // If stock received transferred feed today:
+        // Today remaining = remaining from yesterday (carryover) + transferred in today (- transferred out today if any)
+        // plus any remaining from bags opened today if bags were opened
+        if (entry.bagsOpened > 0) {
+          const fedForSize = dayFeedRecords.filter(r =>
+            (isStockMatch(r.fishStock, fs) || isStockMatch(pondToStock(r.pond), fs) || isStockMatch(r.pond, fs)) &&
+            (size === "—" || isSamePelletSize(r.size, size))
+          );
+          const totalFed = fedForSize.reduce((s, r) => s + (Number(r.total) || ((Number(r.morning) || 0) + (Number(r.evening) || 0))), 0);
+          const baseRemainingFromBags = Math.max(0, (entry.totalKgOpened || 0) - totalFed);
+          availableRemainingKg = Math.max(0, Math.round(((entry.carryoverKg || 0) + baseRemainingFromBags + totalTransferredInKg - totalTransferredOutKg) * 10) / 10);
+        } else {
+          // If no remaining from yesterday, shows exactly what was transferred;
+          // If remaining from yesterday, shows remaining from yesterday + transferred in today
+          availableRemainingKg = Math.max(0, Math.round(((entry.carryoverKg || 0) + totalTransferredInKg - totalTransferredOutKg) * 10) / 10);
+        }
+      } else {
+        availableRemainingKg = Math.max(0, Math.round((grossRemainingKg - totalTransferredOutKg) * 10) / 10);
+      }
 
       entry.transfersOut = transfersOut;
       entry.transfersIn = transfersIn;
@@ -3756,11 +3795,6 @@ function FeedDocumentation({
                                 ({row.totalTransferredOutKg} kg transferred)
                               </p>
                             ) : null}
-                            {row.totalTransferredInKg && row.totalTransferredInKg > 0 ? (
-                              <p className="text-[10px] text-blue-700 font-medium leading-tight mt-0.5">
-                                (incl. {row.totalTransferredInKg} kg received)
-                              </p>
-                            ) : null}
                             {expData.hasFed && (
                               <p className={`text-[11px] font-medium mt-0.5 leading-tight ${isRemainMismatch ? "text-red-600 font-semibold" : "text-slate-400"}`}>
                                 Exp: {expData.expectedRemaining} kg
@@ -4119,11 +4153,6 @@ function FeedDocumentation({
                         {row.totalTransferredOutKg && row.totalTransferredOutKg > 0 ? (
                           <p className="text-[10px] text-teal-700 font-medium leading-tight mt-0.5">
                             ({row.totalTransferredOutKg} kg transferred)
-                          </p>
-                        ) : null}
-                        {row.totalTransferredInKg && row.totalTransferredInKg > 0 ? (
-                          <p className="text-[10px] text-blue-700 font-medium leading-tight mt-0.5">
-                            (incl. {row.totalTransferredInKg} kg received)
                           </p>
                         ) : null}
                         {expData.hasFed && (
