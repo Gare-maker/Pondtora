@@ -41,6 +41,7 @@ function PondDetail({
   canCreate = true,
   canEdit = true,
   canDelete = true,
+  onNavigatePond,
 }:{
   pond:Pond;
   mortality:MortalityEntry[];
@@ -70,6 +71,7 @@ function PondDetail({
   canCreate?:boolean;
   canEdit?:boolean;
   canDelete?:boolean;
+  onNavigatePond?:(id:string)=>void;
 }){
   const cs=currency;
   const existingFishStocks = useMemo(() => {
@@ -234,9 +236,13 @@ function PondDetail({
     const rawTreatments = treatments.filter(t => {
       if (t.pondId !== pond.id) return false;
       const tDate = toValidDbDate(t.date);
-      if (pStockDbDate && tDate && tDate < pStockDbDate) return false;
+      const isCurrentStock = Boolean(
+        (activeFishStockLabel && t.fishStock && (isStockMatch(t.fishStock, activeFishStockLabel, ponds) || isSameDate(t.fishStock, pond.stockingDate))) ||
+        (pond.fishStock && t.fishStock && (isStockMatch(t.fishStock, pond.fishStock, ponds) || isSameDate(t.fishStock, pond.fishStock)))
+      );
+      if (!isCurrentStock && pStockDbDate && tDate && tDate < pStockDbDate) return false;
       if (activeFishStockLabel && t.fishStock && t.fishStock !== "—") {
-        if (!isStockMatch(t.fishStock, activeFishStockLabel) && !isSameDate(t.fishStock, pond.stockingDate)) {
+        if (!isStockMatch(t.fishStock, activeFishStockLabel, ponds) && !isSameDate(t.fishStock, pond.stockingDate)) {
           return false;
         }
       }
@@ -246,9 +252,13 @@ function PondDetail({
     const repTreatments = (pondReports || []).filter(r => {
       if (r.pondId !== pond.id || r.reportType !== "treatment") return false;
       const rDate = toValidDbDate(r.reportDate);
-      if (pStockDbDate && rDate && rDate < pStockDbDate) return false;
+      const isCurrentStock = Boolean(
+        (activeFishStockLabel && r.fishStockId && (isStockMatch(r.fishStockId, activeFishStockLabel, ponds) || isSameDate(r.fishStockId, pond.stockingDate))) ||
+        (pond.fishStock && r.fishStockId && (isStockMatch(r.fishStockId, pond.fishStock, ponds) || isSameDate(r.fishStockId, pond.fishStock)))
+      );
+      if (!isCurrentStock && pStockDbDate && rDate && rDate < pStockDbDate) return false;
       if (activeFishStockLabel && r.fishStockId && r.fishStockId !== "—") {
-        if (!isStockMatch(r.fishStockId, activeFishStockLabel) && !isSameDate(r.fishStockId, pond.stockingDate)) {
+        if (!isStockMatch(r.fishStockId, activeFishStockLabel, ponds) && !isSameDate(r.fishStockId, pond.stockingDate)) {
           return false;
         }
       }
@@ -317,16 +327,20 @@ function PondDetail({
       .filter(r => {
         if (r.pondId !== pond.id || r.reportType === "treatment") return false;
         const rDate = toValidDbDate(r.reportDate);
-        if (pStockDbDate && rDate && rDate < pStockDbDate) return false;
+        const isCurrentStock = Boolean(
+          (activeFishStockLabel && r.fishStockId && (isStockMatch(r.fishStockId, activeFishStockLabel, ponds) || isSameDate(r.fishStockId, pond.stockingDate))) ||
+          (pond.fishStock && r.fishStockId && (isStockMatch(r.fishStockId, pond.fishStock, ponds) || isSameDate(r.fishStockId, pond.fishStock)))
+        );
+        if (!isCurrentStock && pStockDbDate && rDate && rDate < pStockDbDate) return false;
         if (activeFishStockLabel && r.fishStockId && r.fishStockId !== "—") {
-          if (!isStockMatch(r.fishStockId, activeFishStockLabel) && !isSameDate(r.fishStockId, pond.stockingDate)) {
+          if (!isStockMatch(r.fishStockId, activeFishStockLabel, ponds) && !isSameDate(r.fishStockId, pond.stockingDate)) {
             return false;
           }
         }
         return true;
       })
       .sort((a, b) => (b.reportDate || "").localeCompare(a.reportDate || ""));
-  }, [pondReports, pond.id, pond.status, activeFishStockLabel, pStockDbDate, pond.stockingDate]);
+  }, [pondReports, pond.id, pond.status, activeFishStockLabel, pStockDbDate, pond.stockingDate, pond.fishStock, ponds]);
 
   const handleTreat = async () => {
     if (!treatF.medicine.trim()) return;
@@ -460,73 +474,51 @@ function PondDetail({
         ((r as any).pondId && (r as any).pondId === pond.id);
       if (!isSamePond) return false;
 
-      // 2. Date isolation: only isolate if there was an actual prior closed lifecycle
-      const rDate = toValidDbDate(r.date);
-      const todayDb = toValidDbDate(TODAY);
-      const isToday = isSameDate(r.date, TODAY) || (rDate && todayDb && rDate >= todayDb);
+      const fsTrimmed = (r.fishStock || "").trim();
+      const fsLower = fsTrimmed.toLowerCase();
 
-      if (!isToday) {
-        if (latestClosedDate && rDate && rDate < latestClosedDate) {
-          return false;
-        }
-        if (pStockDbDate && rDate && rDate < pStockDbDate && hasPriorClosedCycle) {
-          return false;
+      // Check if this record explicitly matches current active stock
+      const matchesCurrentBatch = fsTrimmed && (
+        fsTrimmed === "General Stock" ||
+        fsTrimmed === "Current Stock" ||
+        fsLower === pNameNorm ||
+        (pond.species && pond.species !== "—" && (fsLower === pond.species.trim().toLowerCase() || isStockMatch(fsTrimmed, pond.species, ponds))) ||
+        (pDateLabel && (fsTrimmed === pDateLabel || isSameDate(fsTrimmed, pDateLabel))) ||
+        (pond.stockingDate && (isSameDate(fsTrimmed, pond.stockingDate) || fsTrimmed === fmtStockingDate(pond.stockingDate))) ||
+        (pond.fishStock && (fsTrimmed === pond.fishStock || isSameDate(fsTrimmed, pond.fishStock))) ||
+        (pStockIdentity && isStockMatch(fsTrimmed, pStockIdentity, ponds)) ||
+        (activeFishStockLabel && isStockMatch(fsTrimmed, activeFishStockLabel, ponds)) ||
+        (defaultFishStockLabel && isStockMatch(fsTrimmed, defaultFishStockLabel, ponds))
+      );
+
+      // Check if this record explicitly matches a past closed batch for this pond
+      const matchesClosedBatch = Boolean(fsTrimmed) && closedEvents.some(ce => {
+        const ceBatch = ce.batch || (ce.date ? fmtStockingDate(ce.date) : null);
+        return Boolean(ceBatch && (isStockMatch(fsTrimmed, ceBatch, ponds) || isSameDate(fsTrimmed, ce.date)));
+      });
+
+      if (matchesClosedBatch) return false;
+
+      // 2. Date isolation: only apply date isolation to records that DO NOT match the current active batch
+      if (!matchesCurrentBatch) {
+        const rDate = toValidDbDate(r.date);
+        const todayDb = toValidDbDate(TODAY);
+        const isToday = isSameDate(r.date, TODAY) || (rDate && todayDb && rDate >= todayDb);
+
+        if (!isToday) {
+          if (latestClosedDate && rDate && rDate < latestClosedDate) {
+            return false;
+          }
+          if (pStockDbDate && rDate && rDate < pStockDbDate && hasPriorClosedCycle) {
+            return false;
+          }
         }
       }
 
       // 3. Fish stock matching
-      if (r.fishStock && r.fishStock !== "—" && r.fishStock.trim()) {
-        const fsTrimmed = r.fishStock.trim();
-        const fsLower = fsTrimmed.toLowerCase();
-
-        // Generic active stock labels or pond name always match
-        if (fsTrimmed === "General Stock" || fsTrimmed === "Current Stock" || fsLower === pNameNorm) {
-          return true;
-        }
-
-        // Match against pond species
-        if (pond.species && pond.species !== "—") {
-          if (fsLower === pond.species.trim().toLowerCase() || isStockMatch(fsTrimmed, pond.species, ponds)) {
-            return true;
-          }
-        }
-
-        // Direct date label or stocking date matches
-        if (pDateLabel && (fsTrimmed === pDateLabel || isSameDate(fsTrimmed, pDateLabel))) {
-          return true;
-        }
-        if (pStockDbDate && (isSameDate(fsTrimmed, pond.stockingDate) || (pond.stockingDate && fsTrimmed === fmtStockingDate(pond.stockingDate)))) {
-          return true;
-        }
-        if (pond.fishStock && (fsTrimmed === pond.fishStock || isSameDate(fsTrimmed, pond.fishStock))) {
-          return true;
-        }
-
-        // Matching active / default fish stock label
-        if (pStockIdentity && isStockMatch(fsTrimmed, pStockIdentity, ponds)) {
-          return true;
-        }
-        if (activeFishStockLabel && isStockMatch(fsTrimmed, activeFishStockLabel, ponds)) {
-          return true;
-        }
-        if (defaultFishStockLabel && isStockMatch(fsTrimmed, defaultFishStockLabel, ponds)) {
-          return true;
-        }
-
-        // If the pond has no stocking date set and no specific batch identity, accept all records for this pond
-        if (!pStockDbDate && !pStockIdentity) {
-          return true;
-        }
-
-        // Check if this record explicitly matches a past closed batch for this pond
-        const matchesClosedBatch = closedEvents.some(ce => {
-          const ceBatch = ce.batch || (ce.date ? fmtStockingDate(ce.date) : null);
-          return Boolean(ceBatch && (isStockMatch(fsTrimmed, ceBatch, ponds) || isSameDate(fsTrimmed, ce.date)));
-        });
-        if (!matchesClosedBatch) {
-          return true;
-        }
-
+      if (fsTrimmed && fsTrimmed !== "—") {
+        if (matchesCurrentBatch) return true;
+        if (!pStockDbDate && !pStockIdentity) return true;
         return false;
       }
       return true;
@@ -564,15 +556,19 @@ function PondDetail({
       return;
     }
     setTransferErr({});
+    const destId = transferF.toPond;
     const pct=Number(transferF.pct)||100;
     if(pct>=100){
-      onTransfer(pond.id,transferF.toPond,transferF.date);
+      onTransfer(pond.id,destId,transferF.date);
     } else {
       const count=transferF.count?Number(transferF.count):Math.round(pond.currentCount*(pct/100));
-      onNurseryTransfer(pond.id,transferF.toPond,count,pct,transferF.date);
+      onNurseryTransfer(pond.id,destId,count,pct,transferF.date);
     }
     setShowTransfer(false);
     setTransferF({toPond:"",date:TODAY,pct:"100",count:""});
+    if(onNavigatePond){
+      onNavigatePond(destId);
+    }
   };
   const handleRestock=()=>{
     const errs:Record<string,string>={};
@@ -1071,7 +1067,7 @@ function PondDetail({
           <p>✓ <strong>All</strong> treatment records (copied for medical reference)</p>
           {pond.maxKgByPallet&&Object.keys(pond.maxKgByPallet).length>0&&<p>✓ <strong>{nurseryTF.pct||100}%</strong> of pallet max kg limits</p>}
         </div>}
-        <div className="flex gap-2 pt-1"><PBtn onClick={()=>{const errs:Record<string,string>={};if(!nurseryTF.toPond)errs.toPond="Please select a destination pond";const destPond=ponds.find(p=>p.id===nurseryTF.toPond);if(nurseryTF.toPond&&(!destPond||destPond.status!=="Empty"||(Number(destPond.currentCount)||0)>0))errs.toPond="Selected destination pond is not empty";if(!nurseryTF.count||Number(nurseryTF.count)<=0)errs.count="Fish count is required";if(Object.keys(errs).length){setNurseryErr(errs);return;}setNurseryErr({});onNurseryTransfer(pond.id,nurseryTF.toPond,Number(nurseryTF.count),Number(nurseryTF.pct)||100,nurseryTF.date);setShowNurseryTransfer(false);setNurseryTF({toPond:"",count:"",pct:"100",date:TODAY});}}><ArrowRightLeft size={14}/> Confirm Transfer</PBtn><button onClick={()=>{setShowNurseryTransfer(false);setNurseryTF({toPond:"",count:"",pct:"100",date:TODAY});setNurseryErr({});}} className="px-4 py-2 text-sm text-slate-400">Cancel</button></div>
+        <div className="flex gap-2 pt-1"><PBtn onClick={()=>{const errs:Record<string,string>={};if(!nurseryTF.toPond)errs.toPond="Please select a destination pond";const destPond=ponds.find(p=>p.id===nurseryTF.toPond);if(nurseryTF.toPond&&(!destPond||destPond.status!=="Empty"||(Number(destPond.currentCount)||0)>0))errs.toPond="Selected destination pond is not empty";if(!nurseryTF.count||Number(nurseryTF.count)<=0)errs.count="Fish count is required";if(Object.keys(errs).length){setNurseryErr(errs);return;}setNurseryErr({});const destId=nurseryTF.toPond;onNurseryTransfer(pond.id,destId,Number(nurseryTF.count),Number(nurseryTF.pct)||100,nurseryTF.date);setShowNurseryTransfer(false);setNurseryTF({toPond:"",count:"",pct:"100",date:TODAY});if(onNavigatePond){onNavigatePond(destId);}}}><ArrowRightLeft size={14}/> Confirm Transfer</PBtn><button onClick={()=>{setShowNurseryTransfer(false);setNurseryTF({toPond:"",count:"",pct:"100",date:TODAY});setNurseryErr({});}} className="px-4 py-2 text-sm text-slate-400">Cancel</button></div>
       </Modal>}
       {showTransfer&&<Modal title={`Transfer Fish Stock — ${pond.name}`} onClose={()=>{setShowTransfer(false);setTransferF({toPond:"",date:TODAY,pct:"100",count:""});setTransferErr({});}} wide>
         <div className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-xs text-slate-700 grid grid-cols-2 gap-2">
@@ -1780,7 +1776,7 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
 
   if(pond) return (
     <>
-      <PondDetail pond={pond} mortality={mortality} onAddMortality={onAddMortality} onAddCost={onAddCost} feedingRecords={feedingRecords} onBack={()=>setDetailId(null)} onClosePond={onClosePond} onRestockPond={(id,data)=>{setFStatus("All");onRestockPond(id,data);}} ponds={ponds} stockEvents={stockEvents} onTransfer={onTransfer} onNurseryTransfer={onNurseryTransfer} treatments={treatments} onAddTreatment={onAddTreatment} onEditFish={onEditFish} onSetMaxKg={onSetMaxKg} inventory={inventory} onEditThisPond={openEditPond} currency={currency} farms={farms} pondReports={pondReports} onAddPondReport={onAddPondReport} fishCountHistory={fishCountHistory} onEditFeedRecord={onEditFeedRecord} onEditTreatment={onEditTreatment} canCreate={canCreate} canEdit={canEdit} canDelete={canDelete}/>
+      <PondDetail pond={pond} mortality={mortality} onAddMortality={onAddMortality} onAddCost={onAddCost} feedingRecords={feedingRecords} onBack={()=>setDetailId(null)} onClosePond={onClosePond} onRestockPond={(id,data)=>{setFStatus("All");onRestockPond(id,data);}} ponds={ponds} stockEvents={stockEvents} onTransfer={onTransfer} onNurseryTransfer={onNurseryTransfer} treatments={treatments} onAddTreatment={onAddTreatment} onEditFish={onEditFish} onSetMaxKg={onSetMaxKg} inventory={inventory} onEditThisPond={openEditPond} currency={currency} farms={farms} pondReports={pondReports} onAddPondReport={onAddPondReport} fishCountHistory={fishCountHistory} onEditFeedRecord={onEditFeedRecord} onEditTreatment={onEditTreatment} canCreate={canCreate} canEdit={canEdit} canDelete={canDelete} onNavigatePond={setDetailId}/>
       {editPondModal}
     </>
   );

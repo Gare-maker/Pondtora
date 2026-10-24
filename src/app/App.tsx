@@ -6503,6 +6503,8 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
           totalCost: 0,
           species: "—",
           fishStock: undefined,
+          defaultPellet: undefined,
+          supplier: undefined,
           transferNote: `All fish transferred to ${toPond.name} on ${dateLabel}`,
           maxKgByPallet: {},
         }
@@ -6517,6 +6519,8 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
           species: fromPond.species,
           fishStock: fromPond.fishStock,
           supplier: fromPond.supplier,
+          avgWeight: fromPond.avgWeight,
+          defaultPellet: fromPond.defaultPellet,
           maxKgByPallet: reducedFromMaxKg,
           transferNote: `Transferred ${safeCount.toLocaleString()} fish (${Math.round(fraction * 100)}%) to ${toPond.name} on ${dateLabel}`,
         };
@@ -6533,6 +6537,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       totalCost: costShare,
       supplier: fromPond.supplier,
       avgWeight: fromPond.avgWeight,
+      defaultPellet: fromPond.defaultPellet,
       maxKgByPallet: mergedToMaxKg,
       transferNote: isFullTransfer
         ? `Full stock received from ${fromPond.name} on ${dateLabel}`
@@ -6565,7 +6570,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       // 100% transfer: update all source feeding records to destination pond
       nextFeeding = feeding.map(r => {
         if (isSourceFeed(r)) {
-          const upd = { ...r, pond: toPond.name, fishStock: stockLabel };
+          const upd = { ...r, pond: toPond.name, fishStock: stockLabel, pondId: toPond.id };
           updatedSourceFeed.push(upd);
           return upd;
         }
@@ -6583,6 +6588,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
 
           const updatedRec: FeedingRecord = {
             ...r,
+            pondId: fromPond.id,
             morning: mKeep,
             evening: eKeep,
             total: Math.round((mKeep + eKeep) * 100) / 100,
@@ -6607,6 +6613,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
             eveningTime: r.eveningTime,
             farmId: toPond.farmId || r.farmId || activeFarmId,
           };
+          (destRec as any).pondId = toPond.id;
           newDestRecs.push(destRec);
           createdDestFeed.push(destRec);
 
@@ -6709,12 +6716,29 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     }
     setTreatments(nextTreatments);
 
-    // 6. Pond reports allocation
+    // 6. Pond reports allocation (Treatments & Other Issues)
     let nextReports = pondReports;
+    const createdDestReports: PondReport[] = [];
     if (isFullTransfer) {
       nextReports = pondReports.map(r => (r.pondId === fromId ? { ...r, pondId: toId, fishStockId: stockLabel } : r));
-      setPondReports(nextReports);
+    } else {
+      const repCopies: PondReport[] = pondReports
+        .filter(r => r.pondId === fromId)
+        .map(r => {
+          const repCopy: PondReport = {
+            ...r,
+            id: crypto.randomUUID(),
+            pondId: toId,
+            fishStockId: stockLabel,
+            farmId: toPond.farmId || r.farmId || activeFarmId,
+            remarks: r.remarks ? `${r.remarks} (History from ${fromPond.name})` : `History from ${fromPond.name}`,
+          };
+          createdDestReports.push(repCopy);
+          return repCopy;
+        });
+      nextReports = [...pondReports, ...repCopies];
     }
+    setPondReports(nextReports);
 
     // 7. Fish count history allocation & transfer logs
     const transferEntryDest: FishCountHistoryEntry = {
@@ -6839,6 +6863,8 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     if (isFullTransfer) {
       pondReports.filter(r => r.pondId === fromId).forEach(r => api.pondReports.update({ ...r, pondId: toId, fishStockId: stockLabel }).catch(console.warn));
       fishCountHistory.filter(h => h.pondId === fromId).forEach(h => api.fishCountHistory.update({ ...h, pondId: toId, pondName: toPond.name }).catch(console.warn));
+    } else {
+      createdDestReports.forEach(r => api.pondReports.create(r).catch(console.warn));
     }
     api.fishCountHistory.create(transferEntryDest).catch(console.warn);
     api.fishCountHistory.create(transferEntrySrc).catch(console.warn);

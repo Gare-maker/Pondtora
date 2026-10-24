@@ -108,6 +108,7 @@ BEGIN
       total_cost = v_cost_share,
       supplier = v_from_pond.supplier,
       avg_weight = v_from_pond.avg_weight,
+      default_pellet = v_from_pond.default_pellet,
       max_kg_by_pallet = COALESCE(v_from_pond.max_kg_by_pallet, '{}'::jsonb),
       transfer_note = 'Full stock received from ' || v_from_pond.name || ' on ' || v_date_label
     WHERE id = p_to_pond_id;
@@ -208,6 +209,7 @@ BEGIN
       total_cost = v_cost_share,
       supplier = v_from_pond.supplier,
       avg_weight = v_from_pond.avg_weight,
+      default_pellet = v_from_pond.default_pellet,
       transfer_note = v_safe_count || ' fish (' || ROUND(v_fraction * 100) || '%) received from ' || v_from_pond.name || ' on ' || v_date_label
     WHERE id = p_to_pond_id;
 
@@ -277,6 +279,19 @@ BEGIN
         v_stock_label, v_treat_rec.recorded_by, NOW()
       );
     END LOOP;
+
+    -- 5b. Copy pond_reports (treatment & other issues) to destination pond for medical and incident reference
+    INSERT INTO pond_reports (
+      id, user_id, farm_id, pond_id, fish_stock_id, report_type,
+      report_date, issue, description, medicine, cause, treatment_details,
+      action_taken, remarks, notes, treatment_id, recorded_by, created_by, created_at
+    )
+    SELECT
+      gen_random_uuid(), user_id, COALESCE(v_to_pond.farm_id, farm_id), p_to_pond_id, v_stock_label, report_type,
+      report_date, issue, description, medicine, cause, treatment_details,
+      action_taken, COALESCE(remarks, '') || ' (From ' || v_from_pond.name || ')', notes, treatment_id, recorded_by, created_by, NOW()
+    FROM pond_reports
+    WHERE pond_id = p_from_pond_id;
 
     -- 6. Log fish count history
     INSERT INTO fish_count_history (

@@ -2433,6 +2433,17 @@ export const api = {
       } else {
         dbPond.stockingDate = toValidDbDate(p.stockingDate) || null;
       }
+      if (p.status === "Empty") {
+        dbPond.species = "—";
+        dbPond.fishStock = null;
+        dbPond.avgWeight = null;
+        dbPond.supplier = null;
+        dbPond.defaultPellet = null;
+        dbPond.maxKgByPallet = {};
+      } else {
+        if (p.fishStock !== undefined) dbPond.fishStock = p.fishStock || null;
+        if (p.defaultPellet !== undefined) dbPond.defaultPellet = p.defaultPellet || null;
+      }
 
       // Check duplicate name on update if changed
       const userId = await getUserId();
