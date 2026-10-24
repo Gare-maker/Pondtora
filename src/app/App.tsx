@@ -6435,334 +6435,440 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       });
     }
   };
-  const transferStock=(fromId:string,toId:string,date:string)=>{
+  const handleExecuteTransfer = async (
+    fromId: string,
+    toId: string,
+    pctInput: number,
+    countInput?: number,
+    dateInput?: string
+  ) => {
     if (!checkSubscriptionActive()) return;
-    const fromPond=ponds.find(p=>p.id===fromId);
-    const toPond=ponds.find(p=>p.id===toId);
-    if(!fromPond||!toPond)return;
-    if (toPond.status !== "Empty" || (Number(toPond.currentCount) || 0) > 0) {
-      toast.error("Destination pond must be empty to transfer stock.");
+    const fromPond = ponds.find(p => p.id === fromId);
+    const toPond = ponds.find(p => p.id === toId);
+    if (!fromPond || !toPond) return;
+
+    if ((Number(fromPond.currentCount) || 0) <= 0) {
+      toast.error("Source pond has no active fish stock to transfer.");
       return;
     }
-    const dateLabel=`${toMon(date)} ${new Date(date).getDate()}, ${new Date(date).getFullYear()}`;
-    const stockLabel = fromPond.fishStock || (fromPond.stockingDate && fromPond.stockingDate !== "—" ? fmtStockingDate(fromPond.stockingDate) : fromPond.species);
-    const clearedFrom:Pond={...fromPond,status:"Empty" as const,currentCount:0,initialStock:0,avgWeight:undefined,stockingDate:"—",stockMonth:"",totalCost:0,species:"—",fishStock:undefined,transferNote:undefined,maxKgByPallet:{}};
-    const filledTo:Pond={...toPond,status:"Active" as const,species:fromPond.species,fishStock:stockLabel,initialStock:fromPond.initialStock,currentCount:fromPond.currentCount,stockingDate:fromPond.stockingDate,stockMonth:fromPond.stockMonth,totalCost:fromPond.totalCost,maxKgByPallet:fromPond.maxKgByPallet||{},transferNote:`Stock received from ${fromPond.name} on ${dateLabel}`};
+    if (toPond.status !== "Empty" || (Number(toPond.currentCount) || 0) > 0) {
+      toast.error("Destination pond must be empty to transfer fish stock.");
+      return;
+    }
 
-    /* move all pond data */
-    const nextPonds = ponds.map(p=>{
-      if(p.id===fromId)return clearedFrom;
-      if(p.id===toId)return filledTo;
+    const date = dateInput || TODAY;
+    const dateLabel = `${toMon(date)} ${new Date(date).getDate()}, ${new Date(date).getFullYear()}`;
+    const pct = Math.min(100, Math.max(1, Number(pctInput) || 100));
+
+    let safeCount = fromPond.currentCount;
+    if (countInput !== undefined && countInput > 0) {
+      safeCount = Math.min(fromPond.currentCount, countInput);
+    } else {
+      safeCount = Math.round(fromPond.currentCount * (pct / 100));
+    }
+    safeCount = Math.max(1, Math.min(fromPond.currentCount, safeCount));
+
+    const isFullTransfer = safeCount >= fromPond.currentCount || pct >= 100;
+    const fraction = isFullTransfer ? 1.0 : (safeCount / fromPond.currentCount);
+    const stockLabel = fromPond.fishStock || getPondFishStock(fromPond);
+    const costShare = isFullTransfer ? fromPond.totalCost : Math.round((fromPond.totalCost * fraction) * 100) / 100;
+    const fromInit = fromPond.initialStock > 0 ? fromPond.initialStock : fromPond.currentCount;
+    const destInitialStock = isFullTransfer ? fromInit : Math.max(safeCount, Math.round(fromInit * fraction));
+
+    // 1. Max kg by pallet allocation
+    let mergedToMaxKg: Record<string, number> = {};
+    let reducedFromMaxKg: Record<string, number> = {};
+    if (fromPond.maxKgByPallet && Object.keys(fromPond.maxKgByPallet).length > 0) {
+      Object.entries(fromPond.maxKgByPallet).forEach(([sz, val]) => {
+        mergedToMaxKg[sz] = Math.round((val || 0) * fraction);
+        reducedFromMaxKg[sz] = isFullTransfer ? 0 : Math.round((val || 0) * (1 - fraction));
+      });
+    }
+
+    // 2. Prepare updated ponds
+    const updatedFrom: Pond = isFullTransfer
+      ? {
+          ...fromPond,
+          status: "Empty" as const,
+          currentCount: 0,
+          initialStock: 0,
+          avgWeight: undefined,
+          stockingDate: "—",
+          stockMonth: "",
+          totalCost: 0,
+          species: "—",
+          fishStock: undefined,
+          transferNote: `All fish transferred to ${toPond.name} on ${dateLabel}`,
+          maxKgByPallet: {},
+        }
+      : {
+          ...fromPond,
+          status: "Active" as const,
+          currentCount: Math.max(0, fromPond.currentCount - safeCount),
+          initialStock: Math.max(fromPond.currentCount - safeCount, fromInit - destInitialStock),
+          totalCost: Math.max(0, Math.round((fromPond.totalCost - costShare) * 100) / 100),
+          stockingDate: fromPond.stockingDate,
+          stockMonth: fromPond.stockMonth,
+          species: fromPond.species,
+          fishStock: fromPond.fishStock,
+          supplier: fromPond.supplier,
+          maxKgByPallet: reducedFromMaxKg,
+          transferNote: `Transferred ${safeCount.toLocaleString()} fish (${Math.round(fraction * 100)}%) to ${toPond.name} on ${dateLabel}`,
+        };
+
+    const updatedTo: Pond = {
+      ...toPond,
+      status: "Active" as const,
+      species: fromPond.species,
+      fishStock: stockLabel,
+      initialStock: destInitialStock,
+      currentCount: safeCount,
+      stockingDate: fromPond.stockingDate,
+      stockMonth: fromPond.stockMonth,
+      totalCost: costShare,
+      supplier: fromPond.supplier,
+      avgWeight: fromPond.avgWeight,
+      maxKgByPallet: mergedToMaxKg,
+      transferNote: isFullTransfer
+        ? `Full stock received from ${fromPond.name} on ${dateLabel}`
+        : `${safeCount.toLocaleString()} fish (${Math.round(fraction * 100)}%) received from ${fromPond.name} on ${dateLabel}`,
+    };
+
+    const nextPonds = ponds.map(p => {
+      if (p.id === fromId) return updatedFrom;
+      if (p.id === toId) return updatedTo;
       return p;
     });
     setPonds(nextPonds);
-    if (userProfile?.id) {
-      try {
-        saveUserLocal(userProfile.id, "ponds", "ponds", nextPonds);
-        if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
-          saveUserLocal(userProfile.ownerId, "ponds", "ponds", nextPonds);
-        }
-      } catch {}
-    }
-    api.ponds.update(clearedFrom).catch(console.warn);
-    api.ponds.update(filledTo).catch(console.warn);
 
-    /* Transfer all feeding records from source pond to destination pond */
-    const movingFeeding = feeding.filter(r => r.pond === fromPond.name);
-    const nextFeeding = feeding.map(r => r.pond === fromPond.name ? { ...r, pond: toPond.name, fishStock: stockLabel } : r);
+    // 3. Feeding records allocation
+    const fromPondNameNorm = (fromPond.name || "").trim().toLowerCase();
+    const isSourceFeed = (r: FeedingRecord) => {
+      const rPondNorm = (r.pond || "").trim().toLowerCase();
+      if (rPondNorm && rPondNorm === fromPondNameNorm) return true;
+      if ((r as any).pondId && (r as any).pondId === fromId) return true;
+      if (r.fishStock && isStockMatch(r.fishStock, stockLabel, ponds)) return true;
+      return false;
+    };
+
+    const sourceFeedRecs = feeding.filter(isSourceFeed);
+    let nextFeeding: FeedingRecord[] = [];
+    const createdDestFeed: FeedingRecord[] = [];
+    const updatedSourceFeed: FeedingRecord[] = [];
+
+    if (isFullTransfer) {
+      // 100% transfer: update all source feeding records to destination pond
+      nextFeeding = feeding.map(r => {
+        if (isSourceFeed(r)) {
+          const upd = { ...r, pond: toPond.name, fishStock: stockLabel };
+          updatedSourceFeed.push(upd);
+          return upd;
+        }
+        return r;
+      });
+    } else {
+      // Partial transfer: reduce source pond feed and create destination pond feed
+      const newDestRecs: FeedingRecord[] = [];
+      const updatedExisting = feeding.map(r => {
+        if (isSourceFeed(r)) {
+          const mDest = Math.round((Number(r.morning) || 0) * fraction * 100) / 100;
+          const eDest = Math.round((Number(r.evening) || 0) * fraction * 100) / 100;
+          const mKeep = Math.round(((Number(r.morning) || 0) - mDest) * 100) / 100;
+          const eKeep = Math.round(((Number(r.evening) || 0) - eDest) * 100) / 100;
+
+          const updatedRec: FeedingRecord = {
+            ...r,
+            morning: mKeep,
+            evening: eKeep,
+            total: Math.round((mKeep + eKeep) * 100) / 100,
+            fishStock: stockLabel,
+          };
+          updatedSourceFeed.push(updatedRec);
+
+          const destRec: FeedingRecord = {
+            id: crypto.randomUUID(),
+            pond: toPond.name,
+            fishStock: stockLabel,
+            date: r.date,
+            month: r.month,
+            year: r.year,
+            brand: r.brand,
+            size: r.size,
+            morning: mDest,
+            evening: eDest,
+            total: Math.round((mDest + eDest) * 100) / 100,
+            recordedBy: r.recordedBy,
+            morningTime: r.morningTime,
+            eveningTime: r.eveningTime,
+            farmId: toPond.farmId || r.farmId || activeFarmId,
+          };
+          newDestRecs.push(destRec);
+          createdDestFeed.push(destRec);
+
+          return updatedRec;
+        }
+        return r;
+      });
+      nextFeeding = [...updatedExisting, ...newDestRecs];
+    }
     setFeeding(nextFeeding);
-    if (userProfile?.id) {
-      try {
-        saveUserLocal(userProfile.id, "feeding", "feedingRecords", nextFeeding);
-        if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
-          saveUserLocal(userProfile.ownerId, "feeding", "feedingRecords", nextFeeding);
-        }
-      } catch {}
-    }
-    movingFeeding.forEach(r => api.feeding.update({ ...r, pond: toPond.name, fishStock: stockLabel }).catch(console.warn));
 
-    /* Transfer all treatment records from source pond to destination pond */
-    const movingTreatments = treatments.filter(t => t.pondId === fromId);
-    const nextTreatments = treatments.map(t => t.pondId === fromId ? { ...t, pondId: toId, fishStock: stockLabel } : t);
-    setTreatments(nextTreatments);
-    if (userProfile?.id) {
-      try {
-        saveUserLocal(userProfile.id, "treatments", "treatmentRecords", nextTreatments);
-        if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
-          saveUserLocal(userProfile.ownerId, "treatments", "treatmentRecords", nextTreatments);
-        }
-      } catch {}
-    }
-    movingTreatments.forEach(t => api.treatments.update({ ...t, pondId: toId, fishStock: stockLabel }).catch(console.warn));
+    // 4. Mortality records allocation
+    const isSourceMort = (m: MortalityEntry) => {
+      if (m.pondId === fromId) return true;
+      if ((m as any).fishStock && isStockMatch((m as any).fishStock, stockLabel, ponds)) return true;
+      return false;
+    };
 
-    /* Transfer all mortality entries from source pond to destination pond */
-    const movingMortality = mortality.filter(m => m.pondId === fromId);
-    const nextMortality = mortality.map(m => m.pondId === fromId ? { ...m, pondId: toId, fishStock: stockLabel } : m);
+    let nextMortality: MortalityEntry[] = [];
+    const createdDestMort: MortalityEntry[] = [];
+    const updatedSourceMort: MortalityEntry[] = [];
+
+    if (isFullTransfer) {
+      // 100% transfer: move all mortality to destination pond
+      nextMortality = mortality.map(m => {
+        if (isSourceMort(m)) {
+          const upd = { ...m, pondId: toPond.id, fishStock: stockLabel };
+          updatedSourceMort.push(upd);
+          return upd;
+        }
+        return m;
+      });
+    } else {
+      // Partial transfer: calculate and allocate proportional mortality
+      const newDestMort: MortalityEntry[] = [];
+      const updatedExisting = mortality.map(m => {
+        if (isSourceMort(m)) {
+          const countDest = Math.round((Number(m.count) || 0) * fraction);
+          const countKeep = Math.max(0, (Number(m.count) || 0) - countDest);
+
+          const upd: MortalityEntry = {
+            ...m,
+            count: countKeep,
+            fishStock: stockLabel,
+          };
+          updatedSourceMort.push(upd);
+
+          if (countDest > 0) {
+            const destM: MortalityEntry = {
+              id: crypto.randomUUID(),
+              pondId: toPond.id,
+              date: m.date,
+              count: countDest,
+              cause: m.cause,
+              notes: m.notes ? `${m.notes} (Transferred from ${fromPond.name})` : `Transferred from ${fromPond.name}`,
+              farmId: toPond.farmId || m.farmId || activeFarmId,
+              fishStock: stockLabel,
+            };
+            newDestMort.push(destM);
+            createdDestMort.push(destM);
+          }
+          return upd;
+        }
+        return m;
+      });
+      nextMortality = [...updatedExisting, ...newDestMort];
+    }
     setMortality(nextMortality);
-    if (userProfile?.id) {
-      try {
-        saveUserLocal(userProfile.id, "mortality", "mortalityEntries", nextMortality);
-        if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
-          saveUserLocal(userProfile.ownerId, "mortality", "mortalityEntries", nextMortality);
-        }
-      } catch {}
-    }
-    movingMortality.forEach(m => api.mortality.update({ ...m, pondId: toId, fishStock: stockLabel }).catch(console.warn));
 
-    /* Transfer all pond reports from source pond to destination pond */
-    const movingReports = pondReports.filter(r => r.pondId === fromId);
-    const nextReports = pondReports.map(r => r.pondId === fromId ? { ...r, pondId: toId, fishStockId: stockLabel } : r);
-    setPondReports(nextReports);
-    if (userProfile?.id) {
-      try {
-        saveUserLocal(userProfile.id, "pond_reports", "pondReports", nextReports);
-        if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
-          saveUserLocal(userProfile.ownerId, "pond_reports", "pondReports", nextReports);
-        }
-      } catch {}
-    }
-    movingReports.forEach(r => api.pondReports.update({ ...r, pondId: toId, fishStockId: stockLabel }).catch(console.warn));
+    // 5. Treatment records allocation
+    let nextTreatments: TreatmentRecord[] = [];
+    const createdDestTreat: TreatmentRecord[] = [];
+    const updatedSourceTreat: TreatmentRecord[] = [];
 
-    /* Transfer all fish count edit history to destination pond and record transfer event */
-    const movingFch = fishCountHistory.filter(h => h.pondId === fromId);
-    const transferredFch = fishCountHistory.map(h => h.pondId === fromId ? { ...h, pondId: toId, pondName: toPond.name } : h);
-    const transferEntry: FishCountHistoryEntry = {
+    if (isFullTransfer) {
+      nextTreatments = treatments.map(t => {
+        if (t.pondId === fromId) {
+          const upd = { ...t, pondId: toId, fishStock: stockLabel };
+          updatedSourceTreat.push(upd);
+          return upd;
+        }
+        return t;
+      });
+    } else {
+      const treatCopies: TreatmentRecord[] = treatments
+        .filter(t => t.pondId === fromId)
+        .map(t => {
+          const copy: TreatmentRecord = {
+            ...t,
+            id: crypto.randomUUID(),
+            pondId: toId,
+            fishStock: stockLabel,
+            farmId: toPond.farmId || t.farmId || activeFarmId,
+            remarks: t.remarks ? `${t.remarks} (Medical history from ${fromPond.name})` : `Medical history from ${fromPond.name}`,
+          };
+          createdDestTreat.push(copy);
+          return copy;
+        });
+      nextTreatments = [...treatments, ...treatCopies];
+    }
+    setTreatments(nextTreatments);
+
+    // 6. Pond reports allocation
+    let nextReports = pondReports;
+    if (isFullTransfer) {
+      nextReports = pondReports.map(r => (r.pondId === fromId ? { ...r, pondId: toId, fishStockId: stockLabel } : r));
+      setPondReports(nextReports);
+    }
+
+    // 7. Fish count history allocation & transfer logs
+    const transferEntryDest: FishCountHistoryEntry = {
       id: crypto.randomUUID(),
       pondId: toPond.id,
       pondName: toPond.name,
       farmId: toPond.farmId || activeFarmId,
       previousCount: 0,
-      newCount: fromPond.currentCount,
-      difference: fromPond.currentCount,
+      newCount: safeCount,
+      difference: safeCount,
       changedBy: userProfile?.name || userProfile?.email || "User",
-      actionReason: `Full stock transferred from ${fromPond.name}`,
+      actionReason: isFullTransfer
+        ? `Full stock transferred from ${fromPond.name}`
+        : `Received ${safeCount.toLocaleString()} fish (${Math.round(fraction * 100)}%) from ${fromPond.name}`,
       createdAt: new Date().toISOString(),
     };
-    const nextFch = [transferEntry, ...transferredFch];
-    setFishCountHistory(nextFch);
-    if (userProfile?.id) {
-      try {
-        saveUserLocal(userProfile.id, "fish_count_history", "fishCountHistory", nextFch);
-        if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
-          saveUserLocal(userProfile.ownerId, "fish_count_history", "fishCountHistory", nextFch);
-        }
-      } catch {}
-    }
-    movingFch.forEach(h => api.fishCountHistory.update({ ...h, pondId: toId, pondName: toPond.name }).catch(console.warn));
-    api.fishCountHistory.create(transferEntry).catch(console.warn);
 
-    const seTransfer={id:uid(),pondId:toId,pondName:toPond.name,date:dateLabel,species:fromPond.species,count:fromPond.currentCount,cost:fromPond.totalCost,type:"Transfer" as const,fromPond:fromPond.name,farmId:toPond.farmId||activeFarmId||farms[0]?.id||"",batch:stockLabel};
-    const seClosed={id:uid(),pondId:fromId,pondName:fromPond.name,date:dateLabel,species:fromPond.species,count:fromPond.currentCount,cost:fromPond.totalCost,type:"Closed" as const,clearedDate:dateLabel,farmId:fromPond.farmId||activeFarmId||farms[0]?.id||"",batch:stockLabel};
-    setStockEvents(prev=>[...prev,seTransfer,seClosed]);
-    api.stockEvents.create(seTransfer).catch(console.warn);
-    api.stockEvents.create(seClosed).catch(console.warn);
-
-    // Transfer notification
-    const farm=farms.find(f=>f.id===activeFarmId)||farms[0];
-    const tnid=`transfer-full-${uid()}`;
-    setExtraNotifs(prev=>[...prev,{id:tnid,type:"transfer" as any,pondName:fromPond.name,farmId:activeFarmId,farmName:farm?.name||"",date:TODAY,read:false,message:`${fromPond.currentCount.toLocaleString()} fish fully transferred from ${fromPond.name} to ${toPond.name}`}]);
-    toast.success("Stock transferred — all records moved to destination pond");
-  };
-  const nurseryTransfer=(fromId:string,toId:string,count:number,pct:number,date:string)=>{
-    if (!checkSubscriptionActive()) return;
-    const fromPond=ponds.find(p=>p.id===fromId);
-    const toPond=ponds.find(p=>p.id===toId);
-    if(!fromPond||!toPond)return;
-    if ((Number(fromPond.currentCount) || 0) <= 0) {
-      toast.error("Source pond has no fish to transfer.");
-      return;
-    }
-    if (toPond.status !== "Empty" || (Number(toPond.currentCount) || 0) > 0) {
-      toast.error("Destination pond must be empty to transfer stock.");
-      return;
-    }
-    const safeCount=Math.min(count,fromPond.currentCount);
-    if (safeCount <= 0) {
-      toast.error("Transfer count must be greater than zero.");
-      return;
-    }
-    const fraction=Math.min(1,Math.max(0,pct/100));
-    const dateLabel=`${toMon(date)} ${new Date(date).getDate()}, ${new Date(date).getFullYear()}`;
-    const stockLabel = fromPond.fishStock || (fromPond.stockingDate && fromPond.stockingDate !== "—" ? fmtStockingDate(fromPond.stockingDate) : fromPond.species);
-    const costShare=fromPond.currentCount>0?fromPond.totalCost*(safeCount/fromPond.currentCount):0;
-    const isFullTransfer=safeCount>=fromPond.currentCount;
-
-    /* split maxKgByPallet: destination gets fraction, source keeps (1-fraction) */
-    let mergedToMaxKg={...(toPond.maxKgByPallet||{})};
-    let reducedFromMaxKg:Record<string,number>={};
-    if(fromPond.maxKgByPallet&&Object.keys(fromPond.maxKgByPallet).length>0){
-      const toExisting=toPond.maxKgByPallet||{};
-      [...new Set([...Object.keys(fromPond.maxKgByPallet),...Object.keys(toExisting)])].forEach(sz=>{
-        mergedToMaxKg[sz]=Math.round((toExisting[sz]||0)+(fromPond.maxKgByPallet![sz]||0)*fraction);
-      });
-      Object.keys(fromPond.maxKgByPallet).forEach(sz=>{
-        reducedFromMaxKg[sz]=isFullTransfer?0:Math.round((fromPond.maxKgByPallet![sz]||0)*(1-fraction));
-      });
-    }
-
-    const updatedFrom:Pond=isFullTransfer
-      ?{...fromPond,status:"Empty" as const,currentCount:0,initialStock:0,avgWeight:undefined,stockingDate:"—",stockMonth:"",totalCost:0,species:"—",fishStock:undefined,transferNote:`All fish transferred to ${toPond.name} on ${dateLabel}`,maxKgByPallet:{}}
-      :{...fromPond,currentCount:Math.max(0,fromPond.currentCount-safeCount),totalCost:Math.max(0,fromPond.totalCost-costShare),maxKgByPallet:reducedFromMaxKg};
-
-    const updatedTo:Pond={
-      ...toPond,
-      status:"Active" as const,
-      species:fromPond.species,
-      fishStock:stockLabel,
-      initialStock:safeCount,
-      currentCount:safeCount,
-      stockingDate:dateLabel,
-      stockMonth:toMon(date),
-      totalCost:costShare,
-      maxKgByPallet:mergedToMaxKg,
-      transferNote:`${safeCount.toLocaleString()} fish received from ${fromPond.name} (Nursery) on ${dateLabel}`
+    const transferEntrySrc: FishCountHistoryEntry = {
+      id: crypto.randomUUID(),
+      pondId: fromPond.id,
+      pondName: fromPond.name,
+      farmId: fromPond.farmId || activeFarmId,
+      previousCount: fromPond.currentCount,
+      newCount: updatedFrom.currentCount,
+      difference: -safeCount,
+      changedBy: userProfile?.name || userProfile?.email || "User",
+      actionReason: isFullTransfer
+        ? `All fish transferred to ${toPond.name}`
+        : `Transferred ${safeCount.toLocaleString()} fish (${Math.round(fraction * 100)}%) to ${toPond.name}`,
+      createdAt: new Date().toISOString(),
     };
 
-    /* update pond state */
-    const nextPonds = ponds.map(p=>{
-      if(p.id===fromId)return updatedFrom;
-      if(p.id===toId)return updatedTo;
-      return p;
-    });
-    setPonds(nextPonds);
+    const transferredFch = isFullTransfer
+      ? fishCountHistory.map(h => (h.pondId === fromId ? { ...h, pondId: toId, pondName: toPond.name } : h))
+      : fishCountHistory;
+    const nextFch = [transferEntryDest, transferEntrySrc, ...transferredFch];
+    setFishCountHistory(nextFch);
+
+    // 8. Stock events
+    const seTransfer = {
+      id: uid(),
+      pondId: toId,
+      pondName: toPond.name,
+      date: dateLabel,
+      species: fromPond.species,
+      count: safeCount,
+      cost: costShare,
+      type: "Transfer" as const,
+      fromPond: fromPond.name,
+      farmId: toPond.farmId || activeFarmId || farms[0]?.id || "",
+      batch: stockLabel,
+    };
+    const newStockEvents = [seTransfer];
+
+    if (isFullTransfer) {
+      const seClosed = {
+        id: uid(),
+        pondId: fromId,
+        pondName: fromPond.name,
+        date: dateLabel,
+        species: fromPond.species,
+        count: fromPond.currentCount,
+        cost: fromPond.totalCost,
+        type: "Closed" as const,
+        clearedDate: dateLabel,
+        farmId: fromPond.farmId || activeFarmId || farms[0]?.id || "",
+        batch: stockLabel,
+      };
+      newStockEvents.push(seClosed);
+    }
+    setStockEvents(prev => [...prev, ...newStockEvents]);
+
+    // 9. Local storage persistence
     if (userProfile?.id) {
       try {
         saveUserLocal(userProfile.id, "ponds", "ponds", nextPonds);
+        saveUserLocal(userProfile.id, "feeding", "feedingRecords", nextFeeding);
+        saveUserLocal(userProfile.id, "mortality", "mortalityEntries", nextMortality);
+        saveUserLocal(userProfile.id, "treatments", "treatmentRecords", nextTreatments);
+        saveUserLocal(userProfile.id, "pond_reports", "pondReports", nextReports);
+        saveUserLocal(userProfile.id, "fish_count_history", "fishCountHistory", nextFch);
+        saveUserLocal(userProfile.id, "stock_events", "stockEvents", [...stockEvents, ...newStockEvents]);
+
         if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
           saveUserLocal(userProfile.ownerId, "ponds", "ponds", nextPonds);
+          saveUserLocal(userProfile.ownerId, "feeding", "feedingRecords", nextFeeding);
+          saveUserLocal(userProfile.ownerId, "mortality", "mortalityEntries", nextMortality);
+          saveUserLocal(userProfile.ownerId, "treatments", "treatmentRecords", nextTreatments);
+          saveUserLocal(userProfile.ownerId, "pond_reports", "pondReports", nextReports);
+          saveUserLocal(userProfile.ownerId, "fish_count_history", "fishCountHistory", nextFch);
+          saveUserLocal(userProfile.ownerId, "stock_events", "stockEvents", [...stockEvents, ...newStockEvents]);
         }
       } catch {}
     }
 
-    /* persist pond updates for BOTH ponds */
+    // 10. Database persistence via api.ponds.transferFishStock and direct entity updates
+    api.ponds.transferFishStock({
+      fromPond: fromPond,
+      toPond: toPond,
+      percentage: pct,
+      count: safeCount,
+      date: dateLabel,
+      transferredBy: userProfile?.name || userProfile?.email || "User",
+      sourceFeeding: sourceFeedRecs,
+      sourceMortality: mortality.filter(isSourceMort),
+      sourceTreatments: treatments.filter(t => t.pondId === fromId),
+    }).catch(console.warn);
+
+    // Direct fallback updates for all entities to guarantee DB synchronization
     api.ponds.update(updatedFrom).catch(console.warn);
     api.ponds.update(updatedTo).catch(console.warn);
 
+    updatedSourceFeed.forEach(r => api.feeding.update({ ...r, _skipInventoryCheck: true } as any).catch(console.warn));
+    createdDestFeed.forEach(r => api.feeding.create({ ...r, _skipInventoryCheck: true } as any).catch(console.warn));
+
+    updatedSourceMort.forEach(m => api.mortality.update(m).catch(console.warn));
+    createdDestMort.forEach(m => api.mortality.create(m).catch(console.warn));
+
+    updatedSourceTreat.forEach(t => api.treatments.update(t).catch(console.warn));
+    createdDestTreat.forEach(t => api.treatments.create(t).catch(console.warn));
+
     if (isFullTransfer) {
-      /* Full transfer: all operational data migrates from source pond to destination pond */
-      const movingFeeding = feeding.filter(r => r.pond === fromPond.name);
-      const nextFeeding = feeding.map(r => r.pond === fromPond.name ? { ...r, pond: toPond.name, fishStock: stockLabel } : r);
-      setFeeding(nextFeeding);
-      if (userProfile?.id) {
-        try {
-          saveUserLocal(userProfile.id, "feeding", "feedingRecords", nextFeeding);
-          if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
-            saveUserLocal(userProfile.ownerId, "feeding", "feedingRecords", nextFeeding);
-          }
-        } catch {}
-      }
-      movingFeeding.forEach(r => api.feeding.update({ ...r, pond: toPond.name, fishStock: stockLabel }).catch(console.warn));
+      pondReports.filter(r => r.pondId === fromId).forEach(r => api.pondReports.update({ ...r, pondId: toId, fishStockId: stockLabel }).catch(console.warn));
+      fishCountHistory.filter(h => h.pondId === fromId).forEach(h => api.fishCountHistory.update({ ...h, pondId: toId, pondName: toPond.name }).catch(console.warn));
+    }
+    api.fishCountHistory.create(transferEntryDest).catch(console.warn);
+    api.fishCountHistory.create(transferEntrySrc).catch(console.warn);
+    newStockEvents.forEach(se => api.stockEvents.create(se).catch(console.warn));
 
-      const movingTreatments = treatments.filter(t => t.pondId === fromId);
-      const nextTreatments = treatments.map(t => t.pondId === fromId ? { ...t, pondId: toId, fishStock: stockLabel } : t);
-      setTreatments(nextTreatments);
-      if (userProfile?.id) {
-        try {
-          saveUserLocal(userProfile.id, "treatments", "treatmentRecords", nextTreatments);
-          if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
-            saveUserLocal(userProfile.ownerId, "treatments", "treatmentRecords", nextTreatments);
-          }
-        } catch {}
-      }
-      movingTreatments.forEach(t => api.treatments.update({ ...t, pondId: toId, fishStock: stockLabel }).catch(console.warn));
-
-      const movingMortality = mortality.filter(m => m.pondId === fromId);
-      const nextMortality = mortality.map(m => m.pondId === fromId ? { ...m, pondId: toId, fishStock: stockLabel } : m);
-      setMortality(nextMortality);
-      if (userProfile?.id) {
-        try {
-          saveUserLocal(userProfile.id, "mortality", "mortalityEntries", nextMortality);
-          if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
-            saveUserLocal(userProfile.ownerId, "mortality", "mortalityEntries", nextMortality);
-          }
-        } catch {}
-      }
-      movingMortality.forEach(m => api.mortality.update({ ...m, pondId: toId, fishStock: stockLabel }).catch(console.warn));
-
-      const movingReports = pondReports.filter(r => r.pondId === fromId);
-      const nextReports = pondReports.map(r => r.pondId === fromId ? { ...r, pondId: toId, fishStockId: stockLabel } : r);
-      setPondReports(nextReports);
-      if (userProfile?.id) {
-        try {
-          saveUserLocal(userProfile.id, "pond_reports", "pondReports", nextReports);
-          if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
-            saveUserLocal(userProfile.ownerId, "pond_reports", "pondReports", nextReports);
-          }
-        } catch {}
-      }
-      movingReports.forEach(r => api.pondReports.update({ ...r, pondId: toId, fishStockId: stockLabel }).catch(console.warn));
-
-      const movingFch = fishCountHistory.filter(h => h.pondId === fromId);
-      const transferredFch = fishCountHistory.map(h => h.pondId === fromId ? { ...h, pondId: toId, pondName: toPond.name } : h);
-      const transferEntry: FishCountHistoryEntry = {
-        id: crypto.randomUUID(),
-        pondId: toPond.id,
-        pondName: toPond.name,
-        farmId: toPond.farmId || activeFarmId,
-        previousCount: 0,
-        newCount: safeCount,
-        difference: safeCount,
-        changedBy: userProfile?.name || userProfile?.email || "User",
-        actionReason: `Received ${safeCount.toLocaleString()} fish from ${fromPond.name} (Nursery full transfer)`,
-        createdAt: new Date().toISOString(),
-      };
-      const nextFch = [transferEntry, ...transferredFch];
-      setFishCountHistory(nextFch);
-      if (userProfile?.id) {
-        try {
-          saveUserLocal(userProfile.id, "fish_count_history", "fishCountHistory", nextFch);
-          if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
-            saveUserLocal(userProfile.ownerId, "fish_count_history", "fishCountHistory", nextFch);
-          }
-        } catch {}
-      }
-      movingFch.forEach(h => api.fishCountHistory.update({ ...h, pondId: toId, pondName: toPond.name }).catch(console.warn));
-      api.fishCountHistory.create(transferEntry).catch(console.warn);
-    } else {
-      /* Partial transfer: records stay on source pond, log count changes on both */
-      recordFishCountHistory({
-        pondId: fromPond.id,
+    // 11. Notification
+    const farm = farms.find(f => f.id === activeFarmId) || farms[0];
+    const nid = `transfer-${uid()}`;
+    setExtraNotifs(prev => [
+      ...prev,
+      {
+        id: nid,
+        type: "transfer" as any,
         pondName: fromPond.name,
-        farmId: fromPond.farmId || activeFarmId,
-        previousCount: fromPond.currentCount,
-        newCount: updatedFrom.currentCount,
-        difference: updatedFrom.currentCount - fromPond.currentCount,
-        changedBy: userProfile?.name || userProfile?.email || "User",
-        actionReason: `Transferred ${safeCount.toLocaleString()} fish to ${toPond.name} (Nursery)`,
-        createdAt: new Date().toISOString(),
-      });
-      recordFishCountHistory({
-        pondId: toPond.id,
-        pondName: toPond.name,
-        farmId: toPond.farmId || activeFarmId,
-        previousCount: Number(toPond.currentCount) || 0,
-        newCount: updatedTo.currentCount,
-        difference: updatedTo.currentCount - (Number(toPond.currentCount) || 0),
-        changedBy: userProfile?.name || userProfile?.email || "User",
-        actionReason: `Received ${safeCount.toLocaleString()} fish from ${fromPond.name} (Nursery)`,
-        createdAt: new Date().toISOString(),
-      });
+        farmId: activeFarmId,
+        farmName: farm?.name || "",
+        date: TODAY,
+        read: false,
+        message: `${safeCount.toLocaleString()} fish (${Math.round(fraction * 100)}%) transferred from ${fromPond.name} to ${toPond.name}`,
+      },
+    ]);
 
-      setFeeding(prev=>prev.map(r=>r.pond===fromPond.name&&!r.fishStock?{...r,fishStock:stockLabel}:r));
-      setTreatments(prev=>prev.map(t=>t.pondId===fromId&&!t.fishStock?{...t,fishStock:stockLabel}:t));
-      setPondReports(prev=>prev.map(r=>r.pondId===fromId&&!r.fishStockId?{...r,fishStockId:stockLabel}:r));
-      setMortality(prev=>prev.map(m=>m.pondId===fromId&&!(m as any).fishStock?{...m,fishStock:stockLabel}:m));
-    }
+    toast.success(
+      isFullTransfer
+        ? `100% fish stock and all associated records transferred from ${fromPond.name} to ${toPond.name}. ${fromPond.name} is now cleared.`
+        : `${safeCount.toLocaleString()} fish (${Math.round(fraction * 100)}%) + proportional feed and mortality records transferred from ${fromPond.name} to ${toPond.name}.`
+    );
+  };
 
-    /* stock event */
-    const seTransfer={id:uid(),pondId:toId,pondName:toPond.name,date:dateLabel,species:fromPond.species,count:safeCount,cost:costShare,type:"Transfer" as const,fromPond:fromPond.name,farmId:toPond.farmId||activeFarmId||farms[0]?.id||"",batch:stockLabel};
-    setStockEvents(prev=>[...prev,seTransfer]);
-    api.stockEvents.create(seTransfer).catch(console.warn);
-    if(isFullTransfer){
-      const seClosed={id:uid(),pondId:fromId,pondName:fromPond.name,date:dateLabel,species:fromPond.species,count:safeCount,cost:costShare,type:"Closed" as const,clearedDate:dateLabel,farmId:fromPond.farmId||activeFarmId||farms[0]?.id||"",batch:stockLabel};
-      setStockEvents(prev=>[...prev,seClosed]);
-      api.stockEvents.create(seClosed).catch(console.warn);
-    }
-    /* Add notification for transfer */
-    const farm=farms.find(f=>f.id===activeFarmId)||farms[0];
-    const nid=`transfer-${uid()}`;
-    setExtraNotifs(prev=>[...prev,{id:nid,type:"transfer" as any,pondName:fromPond.name,farmId:activeFarmId,farmName:farm?.name||"",date:TODAY,read:false,message:`${safeCount.toLocaleString()} fish transferred from ${fromPond.name} to ${toPond.name}`}]);
-    toast.success(`${safeCount.toLocaleString()} fish transferred${isFullTransfer?" — all records moved and source pond cleared":""}`);
+  const transferStock = (fromId: string, toId: string, date: string) => {
+    handleExecuteTransfer(fromId, toId, 100, undefined, date);
+  };
+
+  const nurseryTransfer = (fromId: string, toId: string, count: number, pct: number, date: string) => {
+    handleExecuteTransfer(fromId, toId, pct, count, date);
   };
   const [onboardingSubmitting, setOnboardingSubmitting] = useState(false);
   const [authLoading,setAuthLoading]=useState(()=>{

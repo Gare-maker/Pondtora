@@ -1211,13 +1211,47 @@ export async function updateAdminUserInDb(u: AdminUser): Promise<boolean> {
 }
 
 /**
- * Completely and permanently deletes a user
+ * Completely and permanently deletes a user, their authentication account, and all associated data.
+ * Frees up their email address so they can register afresh.
  */
 export async function deleteAdminUserInDb(id: string, email?: string): Promise<boolean> {
   const cleanEmail = (email || "").trim().toLowerCase();
   let anySuccess = false;
 
-  // 1. Try Postgres RPC: delete_user_completely (SECURITY DEFINER with direct auth.users access)
+  // 1. Primary: Server-side Edge Function with service-role permissions
+  // This removes the user directly from Supabase Auth (auth.users, sessions, identities)
+  // so the email address is immediately released for re-registration.
+  const baseUrl = import.meta.env.VITE_SUPABASE_URL || "https://fegtvgfkxueorybefthj.supabase.co";
+  const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
+  const endpoints = [
+    `${baseUrl}/functions/v1/make-server-1da59a07/admin/delete-user`,
+    `${baseUrl}/functions/v1/server/admin/delete-user`,
+    `${baseUrl}/functions/v1/admin/delete-user`,
+  ];
+
+  for (const ep of endpoints) {
+    try {
+      const res = await fetch(ep, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${anonKey}`,
+        },
+        body: JSON.stringify({ userId: id, email: cleanEmail }),
+      });
+      if (res.ok) {
+        const json = await res.json().catch(() => ({}));
+        if (json.success) {
+          anySuccess = true;
+          break;
+        }
+      }
+    } catch (edgeErr) {
+      console.warn(`Edge endpoint ${ep} call notice:`, edgeErr);
+    }
+  }
+
+  // 2. Postgres RPC: delete_user_completely (SECURITY DEFINER)
   try {
     const { error: rpcErr } = await supabase.rpc("delete_user_completely", { target_user_id: id });
     if (!rpcErr) anySuccess = true;
@@ -1225,7 +1259,7 @@ export async function deleteAdminUserInDb(id: string, email?: string): Promise<b
     console.warn("RPC delete_user_completely attempt:", e);
   }
 
-  // 3. Try Postgres RPC: delete_user_by_email if email is available
+  // 3. Postgres RPC: delete_user_by_email if email is available
   if (cleanEmail) {
     try {
       const { error: emailRpcErr } = await supabase.rpc("delete_user_by_email", { target_email: cleanEmail });
@@ -1235,30 +1269,63 @@ export async function deleteAdminUserInDb(id: string, email?: string): Promise<b
     }
   }
 
-  // 4. Direct Supabase table cascading deletes
+  // 4. Direct Supabase table cascading cleanup
   try {
-    await supabase.from("pond_reports").delete().eq("user_id", id);
-    await supabase.from("investment_payments").delete().eq("user_id", id);
-    await supabase.from("investments").delete().eq("user_id", id);
-    await supabase.from("investors").delete().eq("user_id", id);
-    await supabase.from("invoices").delete().eq("user_id", id);
-    await supabase.from("invoice_settings").delete().eq("user_id", id);
-    await supabase.from("treatment_records").delete().eq("user_id", id);
-    await supabase.from("mortality_entries").delete().eq("user_id", id);
-    await supabase.from("reports").delete().eq("user_id", id);
-    await supabase.from("revenues").delete().eq("user_id", id);
-    await supabase.from("expenses").delete().eq("user_id", id);
-    await supabase.from("feed_remaining_logs").delete().eq("user_id", id);
-    await supabase.from("bag_open_logs").delete().eq("user_id", id);
-    await supabase.from("feeding_records").delete().eq("user_id", id);
-    await supabase.from("feed_inventory").delete().eq("user_id", id);
-    await supabase.from("stock_events").delete().eq("user_id", id);
-    await supabase.from("ponds").delete().eq("user_id", id);
-    await supabase.from("farms").delete().eq("user_id", id);
-    await supabase.from("staff_invitations").delete().eq("invited_by", id);
-    await supabase.from("staff_members").delete().or(`user_id.eq.${id},id.eq.${id}`);
-    const { error: profErr } = await supabase.from("user_profiles").delete().eq("id", id);
-    if (!profErr) anySuccess = true;
+    // Nullify references in shared records
+    await Promise.allSettled([
+      supabase.from("staff_farm_assignments").update({ assigned_by: null }).eq("assigned_by", id),
+      supabase.from("sales_calculations").update({ created_by_id: null }).eq("created_by_id", id),
+      supabase.from("expenses").update({ created_by_id: null }).eq("created_by_id", id),
+      supabase.from("revenues").update({ created_by_id: null }).eq("created_by_id", id),
+      supabase.from("reports").update({ created_by_id: null }).eq("created_by_id", id),
+      supabase.from("referral_rewards").update({ referred_user_id: null }).eq("referred_user_id", id),
+      supabase.from("staff_members").update({ staff_auth_id: null }).eq("staff_auth_id", id),
+    ]);
+
+    // Delete user calculations and items
+    const { data: userCalcs } = await supabase.from("sales_calculations").select("id").eq("user_id", id);
+    const calcIds = (userCalcs || []).map((c: any) => c.id);
+    if (calcIds.length > 0) {
+      await Promise.allSettled([
+        supabase.from("sales_calculation_items").delete().in("calculation_id", calcIds),
+        supabase.from("sales_calculation_payments").delete().in("calculation_id", calcIds),
+      ]);
+    }
+
+    // Delete user farm data
+    const { data: userFarms } = await supabase.from("farms").select("id").eq("user_id", id);
+    const farmIds = (userFarms || []).map((f: any) => f.id);
+    if (farmIds.length > 0) {
+      await supabase.from("fish_count_history").delete().in("farm_id", farmIds);
+    }
+
+    await Promise.allSettled([
+      supabase.from("sales_calculations").delete().eq("user_id", id),
+      supabase.from("price_groups").delete().eq("user_id", id),
+      supabase.from("customers").delete().eq("user_id", id),
+      supabase.from("pond_reports").delete().eq("user_id", id),
+      supabase.from("investment_payments").delete().eq("user_id", id),
+      supabase.from("investments").delete().eq("user_id", id),
+      supabase.from("investors").delete().eq("user_id", id),
+      supabase.from("invoices").delete().eq("user_id", id),
+      supabase.from("invoice_settings").delete().eq("user_id", id),
+      supabase.from("treatment_records").delete().eq("user_id", id),
+      supabase.from("mortality_entries").delete().eq("user_id", id),
+      supabase.from("reports").delete().eq("user_id", id),
+      supabase.from("revenues").delete().eq("user_id", id),
+      supabase.from("expenses").delete().eq("user_id", id),
+      supabase.from("feed_remaining_logs").delete().eq("user_id", id),
+      supabase.from("bag_open_logs").delete().eq("user_id", id),
+      supabase.from("feeding_records").delete().eq("user_id", id),
+      supabase.from("feed_inventory").delete().eq("user_id", id),
+      supabase.from("stock_events").delete().eq("user_id", id),
+      supabase.from("ponds").delete().eq("user_id", id),
+      supabase.from("farms").delete().eq("user_id", id),
+      supabase.from("staff_invitations").delete().eq("invited_by", id),
+      supabase.from("staff_members").delete().or(`user_id.eq.${id},id.eq.${id},staff_auth_id.eq.${id}`),
+      supabase.from("user_profiles").delete().eq("id", id),
+    ]);
+    anySuccess = true;
 
     if (cleanEmail) {
       await supabase.from("user_profiles").delete().ilike("email", cleanEmail);

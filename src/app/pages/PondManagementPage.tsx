@@ -1056,18 +1056,19 @@ function PondDetail({
         </Modal>
       )}
       {showNurseryTransfer&&<Modal title={`Nursery Transfer — ${pond.name}`} onClose={()=>{setShowNurseryTransfer(false);setNurseryTF({toPond:"",count:"",pct:"100",date:TODAY});setNurseryErr({});}} wide>
-        <div className="bg-purple-50 border border-purple-200 rounded-xl px-4 py-3 text-xs text-purple-700">Nursery ponds support partial transfers. Select an empty destination pond, number of fish to transfer, and the percentage of feeding history to carry over. All treatment records will be copied for medical reference.</div>
+        <div className="bg-purple-50 border border-purple-200 rounded-xl px-4 py-3 text-xs text-purple-700">Nursery ponds support partial transfers. Select an empty destination pond, fish count, and transfer percentage. Feed quantities and mortality records will be proportionally allocated between ponds, and medical treatments will be copied.</div>
         <div><F label="Destination Pond (Empty Ponds Only)"><select value={nurseryTF.toPond} onChange={e=>{setNurseryTF(p=>({...p,toPond:e.target.value}));if(e.target.value)setNurseryErr(p=>({...p,toPond:""}));}} className={`${SC}${nurseryErr.toPond?" border-red-400":""}`}><option value="">Select empty destination pond…</option>{emptyPonds.map(p=><option key={p.id} value={p.id}>{p.name} — {p.type} (Empty)</option>)}</select></F>{emptyPonds.length === 0 && <p className="text-xs text-amber-600 mt-1">No empty ponds available. Transfers require an empty destination pond.</p>}{nurseryErr.toPond&&<p className="text-xs text-red-500 mt-1">{nurseryErr.toPond}</p>}</div>
         <div className="grid grid-cols-2 gap-3">
-          <div><F label={`Fish to Transfer (max ${pond.currentCount.toLocaleString()})`}><input type="number" min="1" max={String(pond.currentCount)} value={nurseryTF.count} onChange={e=>{setNurseryTF(p=>({...p,count:e.target.value}));if(e.target.value&&Number(e.target.value)>0)setNurseryErr(p=>({...p,count:""}));}} className={`${IC}${nurseryErr.count?" border-red-400":""}`} placeholder="0"/></F>{nurseryErr.count&&<p className="text-xs text-red-500 mt-1">{nurseryErr.count}</p>}</div>
-          <F label="% of Feeding History"><input type="number" min="1" max="100" value={nurseryTF.pct} onChange={e=>setNurseryTF(p=>({...p,pct:e.target.value}))} className={IC} placeholder="100"/></F>
+          <div><F label={`Fish to Transfer (max ${pond.currentCount.toLocaleString()})`}><input type="number" min="1" max={String(pond.currentCount)} value={nurseryTF.count} onChange={e=>{const val=e.target.value;const num=Number(val);const synPct=num>0&&pond.currentCount>0?String(Math.min(100,Math.max(1,Math.round((num/pond.currentCount)*100)))):"";setNurseryTF(p=>({...p,count:val,...(synPct?{pct:synPct}:{})}));if(val&&num>0)setNurseryErr(p=>({...p,count:""}));}} className={`${IC}${nurseryErr.count?" border-red-400":""}`} placeholder="0"/></F>{nurseryErr.count&&<p className="text-xs text-red-500 mt-1">{nurseryErr.count}</p>}</div>
+          <F label="% of Fish & Records"><input type="number" min="1" max="100" value={nurseryTF.pct} onChange={e=>{const pVal=Math.min(100,Math.max(1,Number(e.target.value)||1));const cnt=Math.round(pond.currentCount*(pVal/100));setNurseryTF(p=>({...p,pct:String(pVal),count:String(cnt)}));if(cnt>0)setNurseryErr(p=>({...p,count:""}));}} className={IC} placeholder="100"/></F>
         </div>
         <F label="Transfer Date"><input type="date" value={nurseryTF.date} onChange={e=>setNurseryTF(p=>({...p,date:e.target.value}))} className={IC}/></F>
         {nurseryTF.count&&Number(nurseryTF.count)>0&&<div className="bg-slate-50 rounded-xl p-3 text-xs text-slate-600 space-y-1">
           <p className="font-semibold text-slate-700 mb-1.5">What will be transferred:</p>
-          <p>✓ <strong>{Number(nurseryTF.count).toLocaleString()} fish</strong> from {pond.name}</p>
-          <p>✓ <strong>{nurseryTF.pct||100}%</strong> of feeding history records</p>
-          <p>✓ <strong>All</strong> treatment records (medical reference)</p>
+          <p>✓ <strong>{Number(nurseryTF.count).toLocaleString()} fish</strong> ({nurseryTF.pct||100}%) from {pond.name}</p>
+          <p>✓ <strong>{nurseryTF.pct||100}%</strong> of feeding records & feed quantities (allocated proportionally)</p>
+          <p>✓ <strong>{nurseryTF.pct||100}%</strong> of mortality entries</p>
+          <p>✓ <strong>All</strong> treatment records (copied for medical reference)</p>
           {pond.maxKgByPallet&&Object.keys(pond.maxKgByPallet).length>0&&<p>✓ <strong>{nurseryTF.pct||100}%</strong> of pallet max kg limits</p>}
         </div>}
         <div className="flex gap-2 pt-1"><PBtn onClick={()=>{const errs:Record<string,string>={};if(!nurseryTF.toPond)errs.toPond="Please select a destination pond";const destPond=ponds.find(p=>p.id===nurseryTF.toPond);if(nurseryTF.toPond&&(!destPond||destPond.status!=="Empty"||(Number(destPond.currentCount)||0)>0))errs.toPond="Selected destination pond is not empty";if(!nurseryTF.count||Number(nurseryTF.count)<=0)errs.count="Fish count is required";if(Object.keys(errs).length){setNurseryErr(errs);return;}setNurseryErr({});onNurseryTransfer(pond.id,nurseryTF.toPond,Number(nurseryTF.count),Number(nurseryTF.pct)||100,nurseryTF.date);setShowNurseryTransfer(false);setNurseryTF({toPond:"",count:"",pct:"100",date:TODAY});}}><ArrowRightLeft size={14}/> Confirm Transfer</PBtn><button onClick={()=>{setShowNurseryTransfer(false);setNurseryTF({toPond:"",count:"",pct:"100",date:TODAY});setNurseryErr({});}} className="px-4 py-2 text-sm text-slate-400">Cancel</button></div>
@@ -1091,9 +1092,9 @@ function PondDetail({
               return <button key={pVal} type="button" onClick={handlePctBtn} className={btnCls}>{pVal}%</button>;
             })}
           </div>
-          <input type="number" value={transferF.pct} onChange={e=>{const v=Math.min(100,Math.max(1,Number(e.target.value)));const cnt=v>=100?"":String(Math.round(pond.currentCount*(v/100)));setTransferF(f=>({...f,pct:String(v),count:cnt}));}} className={IC+" mt-2 max-w-[100px]"} placeholder="Custom %" min="1" max="100"/>
+          <input type="number" value={transferF.pct} onChange={e=>{const v=Math.min(100,Math.max(1,Number(e.target.value)||1));const cnt=v>=100?"":String(Math.round(pond.currentCount*(v/100)));setTransferF(f=>({...f,pct:String(v),count:cnt}));}} className={IC+" mt-2 max-w-[100px]"} placeholder="Custom %" min="1" max="100"/>
         </F>
-        {Number(transferF.pct)<100&&<F label={`Fish Count to Transfer (of ${pond.currentCount.toLocaleString()})`}><input type="number" value={transferF.count} onChange={e=>setTransferF(f=>({...f,count:e.target.value}))} className={IC} min="1" max={pond.currentCount}/></F>}
+        {Number(transferF.pct)<100&&<F label={`Fish Count to Transfer (of ${pond.currentCount.toLocaleString()})`}><input type="number" value={transferF.count} onChange={e=>{const val=e.target.value;const num=Number(val);const synPct=num>0&&pond.currentCount>0?String(Math.min(100,Math.max(1,Math.round((num/pond.currentCount)*100)))):"";setTransferF(f=>({...f,count:val,...(synPct?{pct:synPct}:{})}));}} className={IC} min="1" max={pond.currentCount}/></F>}
         <div><F label="Transfer To (Empty Ponds Only)">
           <select value={transferF.toPond} onChange={e=>{setTransferF(p=>({...p,toPond:e.target.value}));if(e.target.value)setTransferErr(p=>({...p,toPond:""}));}} className={`${SC}${transferErr.toPond?" border-red-400":""}`}>
             <option value="">Select empty destination pond…</option>
@@ -1103,8 +1104,19 @@ function PondDetail({
         {emptyPonds.length === 0 && <p className="text-xs text-amber-600 mt-1">No empty ponds available. Fish stock transfers require an empty destination pond.</p>}
         {transferErr.toPond&&<p className="text-xs text-red-500 mt-1">{transferErr.toPond}</p>}</div>
         <F label="Transfer Date"><input type="date" value={transferF.date} onChange={e=>setTransferF(p=>({...p,date:e.target.value}))} className={IC}/></F>
-        {transferF.toPond&&Number(transferF.pct)>=100&&<div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-xs text-amber-800">All fish from <strong>{pond.name}</strong> → <strong>{ponds.find(p=>p.id===transferF.toPond)?.name}</strong>. <strong>{pond.name}</strong> will be cleared.</div>}
-        {transferF.toPond&&Number(transferF.pct)<100&&<div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 text-xs text-blue-700"><strong>{Math.round(Number(transferF.pct))}%</strong> of fish ({transferF.count||Math.round(pond.currentCount*Number(transferF.pct)/100)} fish) + proportional feeding history will transfer to <strong>{ponds.find(p=>p.id===transferF.toPond)?.name}</strong>. Source pond retains remaining stock.</div>}
+        {transferF.toPond&&Number(transferF.pct)>=100&&<div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-xs text-amber-800 space-y-1">
+          <p className="font-semibold text-amber-900">100% Stock Transfer Summary:</p>
+          <p>✓ All <strong>{pond.currentCount.toLocaleString()} fish</strong> ({pond.species}) will transfer to <strong>{ponds.find(p=>p.id===transferF.toPond)?.name}</strong>.</p>
+          <p>✓ All feeding records, feed quantities, mortality history, treatments, reports, and original stocking dates will transfer.</p>
+          <p>✓ <strong>{pond.name}</strong> will be cleared and reset to Empty.</p>
+        </div>}
+        {transferF.toPond&&Number(transferF.pct)<100&&<div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 text-xs text-blue-700 space-y-1">
+          <p className="font-semibold text-blue-900">Partial ({Math.round(Number(transferF.pct))}%) Stock Transfer Summary:</p>
+          <p>✓ <strong>{Number(transferF.count||Math.round(pond.currentCount*Number(transferF.pct)/100)).toLocaleString()} fish</strong> will transfer to <strong>{ponds.find(p=>p.id===transferF.toPond)?.name}</strong>.</p>
+          <p>✓ <strong>{Math.round(Number(transferF.pct))}%</strong> of feed quantities (kg) and mortality entries will be allocated to destination pond.</p>
+          <p>✓ <strong>{100 - Math.round(Number(transferF.pct))}%</strong> remains in <strong>{pond.name}</strong> ({pond.currentCount - Number(transferF.count||Math.round(pond.currentCount*Number(transferF.pct)/100))} fish).</p>
+          <p>✓ Original stocking date, species, and medical treatment records are preserved in both ponds.</p>
+        </div>}
         <div className="flex gap-2 pt-1"><PBtn onClick={handleTransfer}><ArrowRightLeft size={14}/> Confirm Transfer</PBtn><button onClick={()=>{setShowTransfer(false);setTransferF({toPond:"",date:TODAY,pct:"100",count:""});setTransferErr({});}} className="px-4 py-2 text-sm text-slate-400">Cancel</button></div>
       </Modal>}
       {editFeedRec&&<Modal title="Edit Feeding Record" onClose={()=>setEditFeedRec(null)}>

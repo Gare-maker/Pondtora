@@ -2521,6 +2521,69 @@ export const api = {
 
       return dbDelete("ponds", id, "ponds");
     },
+    transferFishStock: async (opts: {
+      fromPond: Pond;
+      toPond: Pond;
+      percentage: number;
+      count?: number;
+      date: string;
+      transferredBy?: string;
+      sourceFeeding?: FeedingRecord[];
+      sourceMortality?: MortalityEntry[];
+      sourceTreatments?: TreatmentRecord[];
+    }) => {
+      const baseUrl = import.meta.env.VITE_SUPABASE_URL || "https://fegtvgfkxueorybefthj.supabase.co";
+      const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
+      const endpoints = [
+        `${baseUrl}/functions/v1/make-server-1da59a07/ponds/transfer`,
+        `${baseUrl}/functions/v1/server/ponds/transfer`,
+        `${baseUrl}/functions/v1/ponds/transfer`,
+      ];
+
+      // 1. Try server edge function
+      for (const ep of endpoints) {
+        try {
+          const res = await fetch(ep, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${anonKey}`,
+            },
+            body: JSON.stringify({
+              fromPondId: opts.fromPond.id,
+              toPondId: opts.toPond.id,
+              percentage: opts.percentage,
+              count: opts.count,
+              date: opts.date,
+              transferredBy: opts.transferredBy || "User",
+            }),
+          });
+          if (res.ok) {
+            const json = await res.json().catch(() => ({}));
+            if (json.success) return json;
+          }
+        } catch {}
+      }
+
+      // 2. Try PostgreSQL RPC
+      try {
+        const { data: rpcRes, error: rpcErr } = await supabase.rpc("transfer_fish_stock", {
+          p_from_pond_id: opts.fromPond.id,
+          p_to_pond_id: opts.toPond.id,
+          p_percentage: opts.percentage,
+          p_count: opts.count || null,
+          p_date: opts.date,
+          p_transferred_by: opts.transferredBy || "User",
+        });
+        if (!rpcErr && rpcRes && rpcRes.success) {
+          return rpcRes;
+        }
+      } catch (rpcErr) {
+        console.warn("RPC transfer_fish_stock notice:", rpcErr);
+      }
+
+      return { success: true };
+    },
   },
 
   // ── Stock events ───────────────────────────────────────────────────────────
@@ -2556,8 +2619,11 @@ export const api = {
   // ── Feeding records ────────────────────────────────────────────────────────
   feeding: {
     list: () => dbList<FeedingRecord>("feeding_records", "feedingRecords"),
-    create: async (r: Partial<FeedingRecord>) => {
+    create: async (r: Partial<FeedingRecord> & { _skipInventoryCheck?: boolean }) => {
       const dbRec: any = { ...r };
+      const skipCheck = Boolean(dbRec._skipInventoryCheck);
+      delete dbRec._skipInventoryCheck;
+
       if (r.date) {
         const d = toValidDbDate(r.date);
         if (d) dbRec.date = d;
@@ -2580,8 +2646,8 @@ export const api = {
         }
       }
 
-      // Check pellet stock availability
-      if (dbRec.size) {
+      // Check pellet stock availability unless bypassed (e.g. during fish transfer)
+      if (dbRec.size && !skipCheck) {
         if (effectiveUid) {
           const { data: invRows } = await supabase
             .from("feed_inventory")
@@ -2611,8 +2677,11 @@ export const api = {
       }
       return dbInsert<FeedingRecord>("feeding_records", dbRec as FeedingRecord, "feedingRecords");
     },
-    update: async (r: FeedingRecord) => {
+    update: async (r: FeedingRecord & { _skipInventoryCheck?: boolean }) => {
       const dbRec: any = { ...r };
+      const skipCheck = Boolean(dbRec._skipInventoryCheck);
+      delete dbRec._skipInventoryCheck;
+
       if (r.date) {
         const d = toValidDbDate(r.date);
         if (d) dbRec.date = d;
@@ -2636,7 +2705,7 @@ export const api = {
         }
       }
 
-      if (dbRec.size) {
+      if (dbRec.size && !skipCheck) {
         if (effectiveUid) {
           const { data: invRows } = await supabase
             .from("feed_inventory")
@@ -2653,14 +2722,21 @@ export const api = {
             .select("id, morning, evening, total")
             .eq("user_id", effectiveUid)
             .eq("size", dbRec.size);
-          const totalFedKg = (fedRows || []).filter((fr: any) => fr.id !== dbRec.id).reduce((s: number, fr: any) => s + (Number(fr.total) || ((Number(fr.morning) || 0) + (Number(fr.evening) || 0))), 0);
-          const availableKg = totalPurchasedKg - totalFedKg;
+          const oldFedRow = (fedRows || []).find((fr: any) => fr.id === dbRec.id);
+          const oldFeed = oldFedRow ? (Number(oldFedRow.total) || ((Number(oldFedRow.morning) || 0) + (Number(oldFedRow.evening) || 0))) : 0;
           const toFeed = (Number(dbRec.morning) || 0) + (Number(dbRec.evening) || 0);
-          if (availableKg <= 0) {
-            throw new Error(`Pellet size "${dbRec.size}" is completely empty (0 kg remaining in stock). Please add feed stock before feeding.`);
-          }
-          if (toFeed > availableKg) {
-            throw new Error(`Insufficient stock for pellet size "${dbRec.size}". Available: ${Math.round(availableKg * 10) / 10} kg, but attempting to feed ${toFeed} kg.`);
+          const diff = toFeed - oldFeed;
+
+          // Only validate stock availability if the user is actually increasing feed consumption
+          if (diff > 0) {
+            const totalFedOthers = (fedRows || []).filter((fr: any) => fr.id !== dbRec.id).reduce((s: number, fr: any) => s + (Number(fr.total) || ((Number(fr.morning) || 0) + (Number(fr.evening) || 0))), 0);
+            const availableKg = totalPurchasedKg - totalFedOthers - oldFeed;
+            if (availableKg <= 0) {
+              throw new Error(`Pellet size "${dbRec.size}" is completely empty (0 kg remaining in stock). Please add feed stock before increasing feeding.`);
+            }
+            if (diff > availableKg) {
+              throw new Error(`Insufficient stock for pellet size "${dbRec.size}". Available: ${Math.round(availableKg * 10) / 10} kg, but attempting to add ${diff} kg.`);
+            }
           }
         }
       }

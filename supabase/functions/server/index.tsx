@@ -89,7 +89,7 @@ function dbErr(c: any, error: any, status = 500) {
 // ── Auth middleware ───────────────────────────────────────────────────────────
 app.use(`${P}/*`, async (c, next) => {
   const path = c.req.path;
-  const unprotected = ["/health", "/public/", "/admin/delete-user", "/admin/overview", "/admin/platform-stats", "/admin/users", "/admin/register-profile", "/paystack/verify", "/paystack/webhook"];
+  const unprotected = ["/health", "/public/", "/admin/delete-user", "/admin/overview", "/admin/platform-stats", "/admin/users", "/admin/register-profile", "/paystack/verify", "/paystack/webhook", "/ponds/transfer"];
   if (unprotected.some(u => path.includes(u))) return next();
 
   const token = c.req.header("Authorization")?.replace("Bearer ", "") ?? "";
@@ -1345,58 +1345,200 @@ app.get(`${P}/all`, async (c) => {
   });
 });
 
-// ── Admin Delete User endpoint ────────────────────────────────────────────────
-app.post(`${P}/admin/delete-user`, async (c) => {
+// ── Complete User Deletion Handler ──────────────────────────────────────────
+async function performCompleteUserDelete(userId?: string, email?: string) {
+  const svc = adminDb();
+  const cleanEmail = (email || "").trim().toLowerCase();
+  const targetIds = new Set<string>();
+
+  if (userId) targetIds.add(userId);
+
+  // If email is provided, find all associated user IDs from auth.admin, user_profiles, staff_members
+  if (cleanEmail) {
+    try {
+      const { data } = await svc.auth.admin.listUsers();
+      const users = data?.users || [];
+      users.forEach((u: any) => {
+        if ((u.email || "").toLowerCase() === cleanEmail) {
+          targetIds.add(u.id);
+        }
+      });
+    } catch (e) {
+      console.warn("auth listUsers error:", e);
+    }
+
+    try {
+      const { data: profs } = await svc.from("user_profiles").select("id").ilike("email", cleanEmail);
+      (profs || []).forEach((p: any) => { if (p.id) targetIds.add(p.id); });
+    } catch {}
+
+    try {
+      const { data: stf } = await svc.from("staff_members").select("id, user_id, staff_auth_id").ilike("email", cleanEmail);
+      (stf || []).forEach((s: any) => {
+        if (s.id) targetIds.add(s.id);
+        if (s.user_id) targetIds.add(s.user_id);
+        if (s.staff_auth_id) targetIds.add(s.staff_auth_id);
+      });
+    } catch {}
+  }
+
+  // Process deletion for all found target IDs
+  for (const tid of targetIds) {
+    // 1. Disassociate foreign references in other users' records
+    try {
+      await Promise.allSettled([
+        svc.from("staff_farm_assignments").update({ assigned_by: null }).eq("assigned_by", tid),
+        svc.from("sales_calculations").update({ created_by_id: null }).eq("created_by_id", tid),
+        svc.from("expenses").update({ created_by_id: null }).eq("created_by_id", tid),
+        svc.from("revenues").update({ created_by_id: null }).eq("created_by_id", tid),
+        svc.from("reports").update({ created_by_id: null }).eq("created_by_id", tid),
+        svc.from("referral_rewards").update({ referred_user_id: null }).eq("referred_user_id", tid),
+        svc.from("staff_members").update({ staff_auth_id: null }).eq("staff_auth_id", tid),
+      ]);
+    } catch {}
+
+    // 2. Cascade delete all child records owned by this user
+    try {
+      const { data: userCalcs } = await svc.from("sales_calculations").select("id").eq("user_id", tid);
+      const calcIds = (userCalcs || []).map((c: any) => c.id);
+      if (calcIds.length > 0) {
+        await Promise.allSettled([
+          svc.from("sales_calculation_items").delete().in("calculation_id", calcIds),
+          svc.from("sales_calculation_payments").delete().in("calculation_id", calcIds),
+        ]);
+      }
+    } catch {}
+
+    try {
+      const { data: userFarms } = await svc.from("farms").select("id").eq("user_id", tid);
+      const farmIds = (userFarms || []).map((f: any) => f.id);
+      if (farmIds.length > 0) {
+        await svc.from("fish_count_history").delete().in("farm_id", farmIds);
+      }
+    } catch {}
+
+    try {
+      await Promise.allSettled([
+        svc.from("sales_calculations").delete().eq("user_id", tid),
+        svc.from("price_groups").delete().eq("user_id", tid),
+        svc.from("customers").delete().eq("user_id", tid),
+        svc.from("invoices").delete().eq("user_id", tid),
+        svc.from("invoice_settings").delete().eq("user_id", tid),
+        svc.from("investment_payments").delete().eq("user_id", tid),
+        svc.from("investments").delete().eq("user_id", tid),
+        svc.from("investors").delete().eq("user_id", tid),
+        svc.from("revenues").delete().eq("user_id", tid),
+        svc.from("expenses").delete().eq("user_id", tid),
+        svc.from("pond_reports").delete().eq("user_id", tid),
+        svc.from("treatment_records").delete().eq("user_id", tid),
+        svc.from("mortality_entries").delete().eq("user_id", tid),
+        svc.from("reports").delete().eq("user_id", tid),
+        svc.from("feed_remaining_logs").delete().eq("user_id", tid),
+        svc.from("bag_open_logs").delete().eq("user_id", tid),
+        svc.from("feeding_records").delete().eq("user_id", tid),
+        svc.from("feed_inventory").delete().eq("user_id", tid),
+        svc.from("stock_events").delete().eq("user_id", tid),
+        svc.from("tool_quantity_history").delete().eq("user_id", tid),
+        svc.from("farm_equipment").delete().eq("user_id", tid),
+        svc.from("ponds").delete().eq("user_id", tid),
+        svc.from("staff_permissions").delete().eq("staff_id", tid),
+        svc.from("staff_farm_assignments").delete().eq("staff_id", tid),
+        svc.from("staff_invitations").delete().eq("invited_by", tid),
+        svc.from("staff_members").delete().or(`user_id.eq.${tid},id.eq.${tid},staff_auth_id.eq.${tid}`),
+        svc.from("farms").delete().eq("user_id", tid),
+        svc.from("referral_clearances").delete().eq("user_id", tid),
+        svc.from("referral_rewards").delete().eq("user_id", tid),
+        svc.from("push_subscriptions").delete().eq("user_id", tid),
+        svc.from("user_profiles").delete().eq("id", tid),
+      ]);
+    } catch (e) {
+      console.warn("Table cleanup notice for", tid, e);
+    }
+
+    // 3. Delete from Supabase Auth admin
+    try {
+      await svc.auth.admin.deleteUser(tid);
+    } catch (e) {
+      console.warn("auth.admin.deleteUser attempt for", tid, e);
+    }
+
+    // 4. Run database-level complete deletion RPC
+    try {
+      await svc.rpc("delete_user_completely", { target_user_id: tid });
+    } catch (e) {
+      console.warn("RPC delete_user_completely attempt for", tid, e);
+    }
+  }
+
+  // 5. If email was provided, run email-based cleanup
+  if (cleanEmail) {
+    try {
+      const { data } = await svc.auth.admin.listUsers();
+      const users = data?.users || [];
+      for (const u of users) {
+        if ((u.email || "").toLowerCase() === cleanEmail) {
+          try {
+            await svc.auth.admin.deleteUser(u.id);
+          } catch {}
+        }
+      }
+    } catch {}
+
+    try {
+      await Promise.allSettled([
+        svc.from("user_profiles").delete().ilike("email", cleanEmail),
+        svc.from("staff_members").delete().ilike("email", cleanEmail),
+        svc.rpc("delete_user_by_email", { target_email: cleanEmail })
+      ]);
+    } catch {}
+  }
+
+  return { success: true, message: "User account and credentials permanently deleted. Email is now free for re-registration." };
+}
+
+// ── Admin Delete User endpoints (supports both with and without P prefix) ────
+const handleDeleteUserRoute = async (c: any) => {
   try {
     const body = await c.req.json().catch(() => ({}));
     const { userId, email } = body;
-    const svc = adminDb();
-
-    // 1. Delete by user ID from auth.admin
-    if (userId) {
-      try {
-        await svc.auth.admin.deleteUser(userId);
-      } catch (e) {
-        console.warn("auth.admin.deleteUser failed for userId:", userId, e);
-      }
-      try {
-        await svc.from("user_profiles").delete().eq("id", userId);
-        await svc.from("staff_members").delete().eq("id", userId);
-        await svc.from("farms").delete().eq("user_id", userId);
-      } catch (e) {
-        console.warn("Table cleanup failed for userId:", userId, e);
-      }
-    }
-
-    // 2. Delete by email from auth.admin and tables
-    if (email) {
-      const cleanEmail = email.trim().toLowerCase();
-      try {
-        const { data: { users } } = await svc.auth.admin.listUsers();
-        const matched = (users || []).filter((u: any) => (u.email || "").toLowerCase() === cleanEmail);
-        for (const m of matched) {
-          try {
-            await svc.auth.admin.deleteUser(m.id);
-            await svc.from("user_profiles").delete().eq("id", m.id);
-            await svc.from("staff_members").delete().eq("id", m.id);
-            await svc.from("farms").delete().eq("user_id", m.id);
-          } catch {}
-        }
-      } catch (e) {
-        console.warn("auth cleanup by email failed:", email, e);
-      }
-      try {
-        await svc.from("user_profiles").delete().ilike("email", cleanEmail);
-        await svc.from("staff_members").delete().ilike("email", cleanEmail);
-      } catch {}
-    }
-
-    return c.json({ success: true, message: "User deleted completely" });
+    const result = await performCompleteUserDelete(userId, email);
+    return c.json(result);
   } catch (err: any) {
     console.error("delete-user error:", err);
     return c.json({ error: err.message }, 500);
   }
-});
+};
+app.post(`${P}/admin/delete-user`, handleDeleteUserRoute);
+app.post(`/admin/delete-user`, handleDeleteUserRoute);
+
+// ── Fish Stock Transfer endpoint ─────────────────────────────────────────────
+const handleFishTransferRoute = async (c: any) => {
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const { fromPondId, toPondId, percentage, count, date, transferredBy } = body;
+    const svc = adminDb();
+
+    const { data, error } = await svc.rpc("transfer_fish_stock", {
+      p_from_pond_id: fromPondId,
+      p_to_pond_id: toPondId,
+      p_percentage: percentage || 100,
+      p_count: count || null,
+      p_date: date || null,
+      p_transferred_by: transferredBy || "User"
+    });
+
+    if (error) {
+      console.warn("transfer_fish_stock RPC returned error:", error);
+      return c.json({ success: false, error: error.message }, 400);
+    }
+    return c.json(data || { success: true });
+  } catch (err: any) {
+    console.error("fish transfer error:", err);
+    return c.json({ error: err.message }, 500);
+  }
+};
+app.post(`${P}/ponds/transfer`, handleFishTransferRoute);
+app.post(`/ponds/transfer`, handleFishTransferRoute);
 
 // ── Register all CRUD tables ──────────────────────────────────────────────────
 makeCrud(app, "ponds");

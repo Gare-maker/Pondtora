@@ -436,20 +436,27 @@ export default function AdminApp({ onExit }: { onExit?: () => void } = {}) {
     logAction("User Profile Updated", "user", `Updated account details for ${u.name} (${u.email})`);
   }
 
-  function handleDeleteUser(id: string) {
+  async function handleDeleteUser(id: string) {
     const u = users.find(x => x.id === id);
+    if (u?.email === adminEmail || u?.role === "admin" || u?.role === "superadmin") {
+      toast.error("Administrator and superadmin accounts cannot be deleted.");
+      return;
+    }
+
     setUsers(prev => {
       const next = prev.filter(x => x.id !== id);
       saveAllAdminUsers(next);
       return next;
     });
-    deleteAdminUserInDb(id, u?.email).then(() => {
-      toast.success(`User ${u?.name || id} and credentials permanently deleted.`);
-    }).catch(err => {
-      console.warn(err);
-      toast.info(`User ${u?.name || id} removed from app.`);
-    });
-    logAction("User Deleted", "user", `Permanently deleted user ${u?.name || id} (${u?.email || ""})`);
+
+    try {
+      await deleteAdminUserInDb(id, u?.email);
+      toast.success(`Account for ${u?.name || id} (${u?.email || ""}) permanently deleted. Email is now free for new registration.`);
+    } catch (err) {
+      console.warn("User deletion error:", err);
+      toast.info(`Account for ${u?.name || id} removed from app database.`);
+    }
+    logAction("User Deleted", "user", `Permanently deleted user ${u?.name || id} (${u?.email || ""}) — authentication and data removed`);
   }
 
   async function handleAddUser(u: Omit<AdminUser, "id">) {
