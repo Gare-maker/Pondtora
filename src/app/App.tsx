@@ -6812,17 +6812,18 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     setStockEvents(prev => [...prev, ...newStockEvents]);
 
     // 9. Local storage persistence
-    if (userProfile?.id) {
+    const targetUid = userProfile?.id || (typeof window !== "undefined" ? getStoredAuthUser() : null);
+    if (targetUid) {
       try {
-        saveUserLocal(userProfile.id, "ponds", "ponds", nextPonds);
-        saveUserLocal(userProfile.id, "feeding", "feedingRecords", nextFeeding);
-        saveUserLocal(userProfile.id, "mortality", "mortalityEntries", nextMortality);
-        saveUserLocal(userProfile.id, "treatments", "treatmentRecords", nextTreatments);
-        saveUserLocal(userProfile.id, "pond_reports", "pondReports", nextReports);
-        saveUserLocal(userProfile.id, "fish_count_history", "fishCountHistory", nextFch);
-        saveUserLocal(userProfile.id, "stock_events", "stockEvents", [...stockEvents, ...newStockEvents]);
+        saveUserLocal(targetUid, "ponds", "ponds", nextPonds);
+        saveUserLocal(targetUid, "feeding", "feedingRecords", nextFeeding);
+        saveUserLocal(targetUid, "mortality", "mortalityEntries", nextMortality);
+        saveUserLocal(targetUid, "treatments", "treatmentRecords", nextTreatments);
+        saveUserLocal(targetUid, "pond_reports", "pondReports", nextReports);
+        saveUserLocal(targetUid, "fish_count_history", "fishCountHistory", nextFch);
+        saveUserLocal(targetUid, "stock_events", "stockEvents", [...stockEvents, ...newStockEvents]);
 
-        if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
+        if (userProfile?.ownerId && userProfile.ownerId !== targetUid) {
           saveUserLocal(userProfile.ownerId, "ponds", "ponds", nextPonds);
           saveUserLocal(userProfile.ownerId, "feeding", "feedingRecords", nextFeeding);
           saveUserLocal(userProfile.ownerId, "mortality", "mortalityEntries", nextMortality);
@@ -6834,41 +6835,38 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       } catch {}
     }
 
-    // 10. Database persistence via api.ponds.transferFishStock and direct entity updates
-    api.ponds.transferFishStock({
-      fromPond: fromPond,
-      toPond: toPond,
-      percentage: pct,
-      count: safeCount,
-      date: dateLabel,
-      transferredBy: userProfile?.name || userProfile?.email || "User",
-      sourceFeeding: sourceFeedRecs,
-      sourceMortality: mortality.filter(isSourceMort),
-      sourceTreatments: treatments.filter(t => t.pondId === fromId),
-    }).catch(console.warn);
-
-    // Direct fallback updates for all entities to guarantee DB synchronization
-    api.ponds.update(updatedFrom).catch(console.warn);
-    api.ponds.update(updatedTo).catch(console.warn);
-
-    updatedSourceFeed.forEach(r => api.feeding.update({ ...r, _skipInventoryCheck: true } as any).catch(console.warn));
-    createdDestFeed.forEach(r => api.feeding.create({ ...r, _skipInventoryCheck: true } as any).catch(console.warn));
-
-    updatedSourceMort.forEach(m => api.mortality.update(m).catch(console.warn));
-    createdDestMort.forEach(m => api.mortality.create(m).catch(console.warn));
-
-    updatedSourceTreat.forEach(t => api.treatments.update(t).catch(console.warn));
-    createdDestTreat.forEach(t => api.treatments.create(t).catch(console.warn));
-
-    if (isFullTransfer) {
-      pondReports.filter(r => r.pondId === fromId).forEach(r => api.pondReports.update({ ...r, pondId: toId, fishStockId: stockLabel }).catch(console.warn));
-      fishCountHistory.filter(h => h.pondId === fromId).forEach(h => api.fishCountHistory.update({ ...h, pondId: toId, pondName: toPond.name }).catch(console.warn));
-    } else {
-      createdDestReports.forEach(r => api.pondReports.create(r).catch(console.warn));
-    }
-    api.fishCountHistory.create(transferEntryDest).catch(console.warn);
-    api.fishCountHistory.create(transferEntrySrc).catch(console.warn);
-    newStockEvents.forEach(se => api.stockEvents.create(se).catch(console.warn));
+    // 10. Database persistence via direct entity updates and transfer RPC
+    Promise.allSettled([
+      api.ponds.transferFishStock({
+        fromPond: fromPond,
+        toPond: toPond,
+        percentage: pct,
+        count: safeCount,
+        date: dateLabel,
+        transferredBy: userProfile?.name || userProfile?.email || "User",
+        sourceFeeding: sourceFeedRecs,
+        sourceMortality: mortality.filter(isSourceMort),
+        sourceTreatments: treatments.filter(t => t.pondId === fromId),
+      }),
+      api.ponds.update(updatedFrom),
+      api.ponds.update(updatedTo),
+      ...updatedSourceFeed.map(r => api.feeding.update({ ...r, _skipInventoryCheck: true } as any)),
+      ...createdDestFeed.map(r => api.feeding.create({ ...r, _skipInventoryCheck: true } as any)),
+      ...updatedSourceMort.map(m => api.mortality.update(m)),
+      ...createdDestMort.map(m => api.mortality.create(m)),
+      ...updatedSourceTreat.map(t => api.treatments.update(t)),
+      ...createdDestTreat.map(t => api.treatments.create(t)),
+      ...(isFullTransfer
+        ? [
+            ...pondReports.filter(r => r.pondId === fromId).map(r => api.pondReports.update({ ...r, pondId: toId, fishStockId: stockLabel })),
+            ...fishCountHistory.filter(h => h.pondId === fromId).map(h => api.fishCountHistory.update({ ...h, pondId: toId, pondName: toPond.name }))
+          ]
+        : createdDestReports.map(r => api.pondReports.create(r))
+      ),
+      api.fishCountHistory.create(transferEntryDest),
+      api.fishCountHistory.create(transferEntrySrc),
+      ...newStockEvents.map(se => api.stockEvents.create(se))
+    ]).catch(err => console.warn("Notice during background transfer sync:", err));
 
     // 11. Notification
     const farm = farms.find(f => f.id === activeFarmId) || farms[0];
@@ -6944,10 +6942,22 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
 
     // 2. Ponds: Merge server ponds and any pending local ponds
     const serverPonds: Pond[] = Array.isArray(d.ponds) ? d.ponds : [];
-    const localPonds: Pond[] = userProfile?.id ? loadUserLocal(userProfile.id, "ponds", "ponds", []) : [];
+    const currentUid = userProfile?.id || (typeof window !== "undefined" ? getStoredAuthUser() : null);
+    const localPonds: Pond[] = currentUid ? loadUserLocal(currentUid, "ponds", "ponds", []) : [];
+    const localPondMap = new Map(localPonds.map((p: Pond) => [p.id, p]));
     const serverPondIds = new Set(serverPonds.map((p: Pond) => p.id));
     const pendingLocalPonds = localPonds.filter((lp: Pond) => lp?.id && !serverPondIds.has(lp.id) && !isDeletedId(lp.id));
-    const pondsData: Pond[] = [...serverPonds.filter((p: Pond) => !isDeletedId(p.id)), ...pendingLocalPonds];
+    const mergedServerPonds = serverPonds.filter((p: Pond) => !isDeletedId(p.id)).map((sp: Pond) => {
+      const lp = localPondMap.get(sp.id);
+      if (!lp) return sp;
+      const fishStock = lp.fishStock || sp.fishStock;
+      // If local pond has an un-synced transfer state (transferNote differs), preserve it
+      if (lp.transferNote && lp.transferNote !== sp.transferNote) {
+        return { ...sp, ...lp, fishStock };
+      }
+      return { ...sp, fishStock: fishStock || sp.fishStock };
+    });
+    const pondsData: Pond[] = [...mergedServerPonds, ...pendingLocalPonds];
 
     // Auto-sync any pending local ponds to Supabase in the background
     if (pendingLocalPonds.length > 0) {

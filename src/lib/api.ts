@@ -222,7 +222,7 @@ const TABLE_ALLOWED_COLUMNS: Record<string, Set<string>> = {
   feeding_records: new Set([
     "id", "user_id", "farm_id", "date", "month", "year", "pond", "brand", "size",
     "morning", "evening", "total", "recorded_by", "morning_time", "evening_time",
-    "created_by", "created_by_id", "edit_history", "fish_stock", "created_at"
+    "created_by", "created_by_id", "created_at"
   ]),
   staff_members: new Set([
     "id", "user_id", "staff_auth_id", "name", "email", "phone", "role", "status",
@@ -232,7 +232,7 @@ const TABLE_ALLOWED_COLUMNS: Record<string, Set<string>> = {
     "id", "user_id", "farm_id", "name", "type", "species", "size_m2", "initial_stock",
     "current_count", "avg_weight", "stocking_date", "stock_month", "total_cost",
     "status", "notes", "default_pellet", "category", "max_kg_by_pallet", "supplier",
-    "transfer_note", "length_ft", "width_ft", "fish_stock", "created_at"
+    "transfer_note", "length_ft", "width_ft", "created_at"
   ]),
   expenses: new Set([
     "id", "user_id", "farm_id", "category", "amount", "date", "month", "year",
@@ -257,13 +257,13 @@ const TABLE_ALLOWED_COLUMNS: Record<string, Set<string>> = {
   ]),
   stock_events: new Set([
     "id", "user_id", "pond_id", "farm_id", "pond_name", "date", "species",
-    "count", "avg_weight", "cost", "sale_price", "type", "from_pond", "cleared_date", "supplier", "batch", "created_at"
+    "count", "avg_weight", "cost", "sale_price", "type", "from_pond", "cleared_date", "supplier", "created_at"
   ]),
   mortality_entries: new Set([
-    "id", "user_id", "pond_id", "farm_id", "date", "count", "cause", "notes", "fish_stock", "created_at"
+    "id", "user_id", "pond_id", "farm_id", "date", "count", "cause", "notes", "created_at"
   ]),
   treatment_records: new Set([
-    "id", "user_id", "pond_id", "farm_id", "date", "cause", "medicine", "details", "action_taken", "remarks", "fish_stock", "recorded_by", "created_at"
+    "id", "user_id", "pond_id", "farm_id", "date", "cause", "medicine", "remarks", "created_at"
   ]),
   farms: new Set([
     "id", "user_id", "name", "city", "state", "country", "created_at", "updated_at"
@@ -948,7 +948,7 @@ async function dbInsert<T extends { id?: string }>(table: string, item: T, cache
       console.error(`Supabase upsert into ${table} failed:`, error.message);
       throw error;
     }
-    return data ? objToCamel<T>(data) : itemToSave;
+    return data ? { ...itemToSave, ...objToCamel<T>(data) } : itemToSave;
   } catch (e) {
     console.error(`Failed to insert into ${table}:`, e);
     throw e;
@@ -1052,7 +1052,7 @@ async function dbUpdate<T extends { id?: string }>(table: string, item: T, cache
         console.error(`Supabase update in ${table} failed:`, error.message);
         throw error;
       }
-      return data ? objToCamel<T>(data) : itemToSave;
+      return data ? { ...itemToSave, ...objToCamel<T>(data) } : itemToSave;
     }
     return itemToSave;
   } catch (e) {
@@ -2434,16 +2434,21 @@ export const api = {
         dbPond.stockingDate = toValidDbDate(p.stockingDate) || null;
       }
       if (p.status === "Empty") {
+        dbPond.currentCount = 0;
+        dbPond.initialStock = 0;
+        dbPond.totalCost = 0;
         dbPond.species = "—";
-        dbPond.fishStock = null;
         dbPond.avgWeight = null;
         dbPond.supplier = null;
+        dbPond.stockingDate = null;
+        dbPond.stockMonth = null;
         dbPond.defaultPellet = null;
         dbPond.maxKgByPallet = {};
       } else {
-        if (p.fishStock !== undefined) dbPond.fishStock = p.fishStock || null;
         if (p.defaultPellet !== undefined) dbPond.defaultPellet = p.defaultPellet || null;
       }
+      delete dbPond.fishStock;
+      delete dbPond.fish_stock;
 
       // Check duplicate name on update if changed
       const userId = await getUserId();

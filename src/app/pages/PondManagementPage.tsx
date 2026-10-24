@@ -629,6 +629,12 @@ function PondDetail({
           <div className="flex flex-col items-center text-center">
             <Fish size={36} className="text-slate-200 mb-3"/>
             <p className="text-base font-semibold text-slate-500 mb-1">No fish stock in this pond</p>
+            {pond.transferNote&&(
+              <div className="my-2 px-3 py-1.5 rounded-lg bg-blue-50 border border-blue-100 text-xs text-blue-700 flex items-center gap-1.5">
+                <ArrowRightLeft size={13} className="shrink-0 text-blue-500"/>
+                <span>{pond.transferNote}</span>
+              </div>
+            )}
             <p className="text-xs text-slate-400 mb-5">This pond is empty. Add a fish stock record to activate it and begin tracking feeding, mortality, and treatment data.</p>
             {canCreate&&<PBtn onClick={()=>setShowRestock(true)}><Plus size={14}/> Add Fish Stock</PBtn>}
           </div>
