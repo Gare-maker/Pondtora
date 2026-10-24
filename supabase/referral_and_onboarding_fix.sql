@@ -103,9 +103,9 @@ WHERE id IN (
 
 -- Ensure strict idempotency: each payment reference can only produce ONE commission reward
 DROP INDEX IF EXISTS public.idx_referral_rewards_payment_ref_unique;
-CREATE UNIQUE INDEX IF NOT EXISTS idx_referral_rewards_payment_ref_unique 
-  ON public.referral_rewards (payment_reference) 
-  WHERE payment_reference IS NOT NULL AND payment_reference <> '';
+DROP INDEX IF EXISTS public.idx_referral_rewards_payment_reference_unq;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_referral_rewards_payment_reference_unq 
+  ON public.referral_rewards (payment_reference);
 
 CREATE INDEX IF NOT EXISTS idx_referral_rewards_referrer_code ON public.referral_rewards (referrer_code);
 CREATE INDEX IF NOT EXISTS idx_referral_rewards_referrer_email ON public.referral_rewards (referrer_email);
@@ -345,36 +345,44 @@ BEGIN
     END IF;
 
     -- Insert into referral_rewards with idempotency
-    INSERT INTO public.referral_rewards (
-      referrer_code,
-      referrer_email,
-      referred_user_id,
-      referred_user_email,
-      referred_user_name,
-      payment_reference,
-      plan_name,
-      payment_amount,
-      payment_type,
-      commission_rate,
-      commission_amount,
-      status,
-      created_at
-    ) VALUES (
-      v_ref_code,
-      v_referrer_email,
-      NEW.id,
-      NEW.email,
-      COALESCE(NEW.name, SPLIT_PART(NEW.email, '@', 1)),
-      v_pay_ref,
-      COALESCE(NEW.active_plan, 'Starter'),
-      v_pay_amount,
-      'first',
-      0.30,
-      v_comm_amount,
-      'Available',
-      NOW()
-    )
-    ON CONFLICT (payment_reference) DO NOTHING;
+    IF NOT EXISTS (
+      SELECT 1 FROM public.referral_rewards 
+      WHERE payment_reference = v_pay_ref
+    ) THEN
+      BEGIN
+        INSERT INTO public.referral_rewards (
+          referrer_code,
+          referrer_email,
+          referred_user_id,
+          referred_user_email,
+          referred_user_name,
+          payment_reference,
+          plan_name,
+          payment_amount,
+          payment_type,
+          commission_rate,
+          commission_amount,
+          status,
+          created_at
+        ) VALUES (
+          v_ref_code,
+          v_referrer_email,
+          NEW.id,
+          NEW.email,
+          COALESCE(NEW.name, SPLIT_PART(NEW.email, '@', 1)),
+          v_pay_ref,
+          COALESCE(NEW.active_plan, 'Starter'),
+          v_pay_amount,
+          'first',
+          0.30,
+          v_comm_amount,
+          'Available',
+          NOW()
+        );
+      EXCEPTION WHEN unique_violation THEN
+        NULL;
+      END;
+    END IF;
 
   END IF;
 

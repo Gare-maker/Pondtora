@@ -7,7 +7,171 @@
 -- 2. Email re-registration for deleted accounts.
 -- 3. Halting free trial counting when a user subscribes/pays.
 -- 4. Fast, atomic fish stock transfers with proportional feed & mortality allocation.
+-- 5. Safe referral rewards constraints (fixes error 42P10).
 -- ==============================================================================
+
+-- 0. Schema & Constraint Safeguard: Ensure referral_rewards table and unique constraint exist
+-- (Fixes: ERROR 42P10 there is no unique or exclusion constraint matching the ON CONFLICT specification)
+CREATE TABLE IF NOT EXISTS public.referral_rewards (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  referrer_code TEXT NOT NULL,
+  referrer_email TEXT NOT NULL,
+  referred_user_id UUID,
+  referred_user_email TEXT NOT NULL,
+  referred_user_name TEXT DEFAULT '',
+  payment_reference TEXT DEFAULT '',
+  plan_name TEXT NOT NULL DEFAULT 'Starter',
+  payment_amount NUMERIC NOT NULL DEFAULT 0,
+  payment_type TEXT NOT NULL DEFAULT 'first',
+  commission_rate NUMERIC NOT NULL DEFAULT 0.30,
+  commission_amount NUMERIC NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'Available',
+  paid_date TIMESTAMPTZ DEFAULT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Disambiguate empty/null payment_references
+UPDATE public.referral_rewards
+SET payment_reference = 'ref_' || id::TEXT
+WHERE payment_reference IS NULL OR TRIM(payment_reference) = '';
+
+-- Deduplicate any duplicate payment_reference keeping newest
+DELETE FROM public.referral_rewards
+WHERE id IN (
+  SELECT id FROM (
+    SELECT id, ROW_NUMBER() OVER (
+      PARTITION BY payment_reference 
+      ORDER BY created_at DESC, id DESC
+    ) as rnum
+    FROM public.referral_rewards
+    WHERE payment_reference IS NOT NULL AND TRIM(payment_reference) <> ''
+  ) sub WHERE rnum > 1
+);
+
+-- Drop old partial index and create an unconditional UNIQUE index on payment_reference
+DROP INDEX IF EXISTS public.idx_referral_rewards_payment_ref_unique;
+DROP INDEX IF EXISTS public.idx_referral_rewards_payment_reference_unq;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_referral_rewards_payment_reference_unq 
+  ON public.referral_rewards (payment_reference);
+
+-- Re-create trigger_credit_referral_on_paid with safe IF NOT EXISTS and exception handling
+CREATE OR REPLACE FUNCTION public.trigger_credit_referral_on_paid()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_ref_code TEXT;
+  v_referrer_email TEXT;
+  v_referrer_id UUID;
+  v_pay_amount NUMERIC;
+  v_comm_amount NUMERIC;
+  v_pay_ref TEXT;
+  v_today_str TEXT;
+BEGIN
+  -- Only trigger if user has referred_by and is now marked paid or active
+  IF (NEW.has_paid = TRUE OR NEW.subscription_status = 'Active' OR NEW.subscription_status = 'Paid')
+     AND NEW.referred_by IS NOT NULL AND TRIM(NEW.referred_by) <> '' THEN
+
+    v_ref_code := UPPER(TRIM(NEW.referred_by));
+    
+    -- Find referrer in user_profiles
+    SELECT id, email INTO v_referrer_id, v_referrer_email
+    FROM public.user_profiles
+    WHERE UPPER(TRIM(referral_code)) = v_ref_code 
+       OR LOWER(TRIM(email)) = LOWER(v_ref_code)
+       OR id::TEXT = v_ref_code
+    LIMIT 1;
+
+    IF v_referrer_email IS NULL THEN
+      IF v_ref_code LIKE '%@%' THEN
+        v_referrer_email := LOWER(v_ref_code);
+      ELSE
+        v_referrer_email := 'referrer_' || v_ref_code || '@pondtora.com';
+      END IF;
+    END IF;
+
+    -- Calculate payment amount
+    IF NEW.subscription_amount IS NOT NULL AND NEW.subscription_amount > 0 THEN
+      v_pay_amount := NEW.subscription_amount;
+    ELSE
+      -- Fallback standard pricing
+      IF LOWER(COALESCE(NEW.active_plan, '')) LIKE '%unlimited%' THEN
+        v_pay_amount := 70000;
+      ELSIF LOWER(COALESCE(NEW.active_plan, '')) LIKE '%5-farm%' THEN
+        v_pay_amount := 40000;
+      ELSIF LOWER(COALESCE(NEW.active_plan, '')) LIKE '%3-farm%' THEN
+        v_pay_amount := 24000;
+      ELSIF LOWER(COALESCE(NEW.active_plan, '')) LIKE '%commercial%' THEN
+        v_pay_amount := 10000;
+      ELSIF LOWER(COALESCE(NEW.active_plan, '')) LIKE '%growth%' OR LOWER(COALESCE(NEW.active_plan, '')) LIKE '%pro%' THEN
+        v_pay_amount := 5000;
+      ELSE
+        v_pay_amount := 3000;
+      END IF;
+    END IF;
+
+    v_comm_amount := ROUND(v_pay_amount * 0.30);
+    v_today_str := TO_CHAR(NOW(), 'YYYYMMDD');
+
+    IF NEW.paystack_reference IS NOT NULL AND TRIM(NEW.paystack_reference) <> '' THEN
+      v_pay_ref := TRIM(NEW.paystack_reference);
+    ELSE
+      v_pay_ref := 'admin_paid_' || SUBSTRING(COALESCE(NEW.id::TEXT, NEW.email), 1, 8) || '_' || v_today_str;
+    END IF;
+
+    -- Safe idempotent insert: checks before inserting and catches any constraint collisions
+    IF NOT EXISTS (
+      SELECT 1 FROM public.referral_rewards 
+      WHERE payment_reference = v_pay_ref
+    ) THEN
+      BEGIN
+        INSERT INTO public.referral_rewards (
+          referrer_code,
+          referrer_email,
+          referred_user_id,
+          referred_user_email,
+          referred_user_name,
+          payment_reference,
+          plan_name,
+          payment_amount,
+          payment_type,
+          commission_rate,
+          commission_amount,
+          status,
+          created_at
+        ) VALUES (
+          v_ref_code,
+          v_referrer_email,
+          NEW.id,
+          NEW.email,
+          COALESCE(NEW.name, SPLIT_PART(NEW.email, '@', 1)),
+          v_pay_ref,
+          COALESCE(NEW.active_plan, 'Starter'),
+          v_pay_amount,
+          'first',
+          0.30,
+          v_comm_amount,
+          'Available',
+          NOW()
+        );
+      EXCEPTION WHEN unique_violation THEN
+        NULL;
+      END;
+    END IF;
+
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_credit_referral_on_paid ON public.user_profiles;
+CREATE TRIGGER trg_credit_referral_on_paid
+  AFTER INSERT OR UPDATE OF has_paid, subscription_status, paystack_reference ON public.user_profiles
+  FOR EACH ROW
+  EXECUTE FUNCTION public.trigger_credit_referral_on_paid();
 
 -- 1. Drop existing functions to allow clean signature updates
 DROP FUNCTION IF EXISTS public.delete_user_completely(UUID) CASCADE;
