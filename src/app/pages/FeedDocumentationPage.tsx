@@ -7,7 +7,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import type { FeedingRecord, FeedEditEntry, Pond, FeedItem, BagOpenLog, FeedRemainingLog, FeedTransferRecord, StockEvent } from "../types";
-import { TODAY, toMon, toYr, uid, downloadCSV, openPrintWindow, formatFishStockDate, formatFishStock, fmtStockingDate, isSameDate, FEED_SIZES, FEED_BRANDS, getPondFishStock } from "../data";
+import { TODAY, toMon, toYr, uid, downloadCSV, openPrintWindow, formatFishStockDate, formatFishStock, fmtStockingDate, isSameDate, FEED_SIZES, FEED_BRANDS, getPondFishStock, getLagosDateParts } from "../data";
 import { toValidDbDate } from "../../lib/api";
 import { Card, PBtn, Pagination, PER_PAGE, StatCard, F, IC, SC, SearchableSelect, Bdg, DateInput, NumInput } from "../shared";
 
@@ -185,7 +185,8 @@ function FeedDocumentation({
   canDelete?: boolean;
   stockEvents?: StockEvent[];
 }) {
-  const realTodayLabel = (() => { const n = new Date(); return `${MON_NAMES[n.getMonth()]} ${n.getDate()}`; })();
+  const lagosToday = useMemo(() => getLagosDateParts(), []);
+  const realTodayLabel = `${MON_NAMES[lagosToday.month]} ${lagosToday.day}`;
   const isRecordEditable = (dateLabel?: string | null) => canEditLocked || (dateLabel ? isSameDate(dateLabel, TODAY) || isSameDate(dateLabel, realTodayLabel) : false);
 
   /* ── ui state ── */
@@ -240,11 +241,10 @@ function FeedDocumentation({
     return false;
   };
 
-  /* ── calendar state ── */
-  const _td = useRef(new Date()).current;
-  const [viewYear, setViewYear] = useState(_td.getFullYear());
-  const [viewMonth, setViewMonth] = useState(_td.getMonth());
-  const [selDate, setSelDate] = useState(`${MON_NAMES[_td.getMonth()]} ${_td.getDate()}`);
+  /* ── calendar state (Africa/Lagos timezone) ── */
+  const [viewYear, setViewYear] = useState(lagosToday.year);
+  const [viewMonth, setViewMonth] = useState(lagosToday.month);
+  const [selDate, setSelDate] = useState(`${MON_NAMES[lagosToday.month]} ${lagosToday.day}`);
   const navMonth = (dir: number) => { let m = viewMonth + dir, y = viewYear; if (m < 0) { m = 11; y--; } if (m > 11) { m = 0; y++; } setViewMonth(m); setViewYear(y); };
   const curMonLabel = MON_NAMES[viewMonth];
   const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
@@ -3161,19 +3161,45 @@ function FeedDocumentation({
                     const label = `${curMonLabel} ${day}`;
                     const hasRec = daysWithRec.has(day);
                     const isSel = isSelInView && day === selDay;
+                    const isToday = viewYear === lagosToday.year && viewMonth === lagosToday.month && day === lagosToday.day;
                     return (
-                      <button key={i} onClick={() => { setSelDate(label); setShowCal(false); }} className={`relative flex flex-col items-center justify-center w-8 h-8 mx-auto rounded-full text-sm transition-all ${isSel ? "bg-green-600 text-white font-semibold shadow-sm" : hasRec ? "text-slate-800 font-medium hover:bg-green-50" : "text-slate-400 hover:bg-slate-50"}`}>
+                      <button
+                        key={i}
+                        type="button"
+                        onClick={() => { setSelDate(label); setShowCal(false); }}
+                        className={`relative flex flex-col items-center justify-center w-8 h-8 mx-auto rounded-full text-sm transition-all ${
+                          isSel
+                            ? "bg-green-600 text-white font-semibold shadow-sm"
+                            : hasRec
+                            ? "text-slate-800 font-medium hover:bg-green-50"
+                            : "text-slate-400 hover:bg-slate-50"
+                        } ${isToday && !isSel ? "ring-2 ring-emerald-500 font-bold text-emerald-800 bg-emerald-50/60" : ""}`}
+                        title={isToday ? "Today (Nigeria - Africa/Lagos)" : undefined}
+                      >
                         {day}
                         {hasRec && !isSel && <span className="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full" style={{ backgroundColor: "#F97316" }} />}
                       </button>
                     );
                   })}
                 </div>
-                <div className="mt-3 pt-3 border-t border-slate-100">
-                  <div className="flex items-center gap-3 text-[11px] text-slate-400">
+                <div className="mt-3 pt-3 border-t border-slate-100 space-y-2">
+                  <div className="flex items-center justify-between text-[11px] text-slate-400">
                     <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full inline-block" style={{ backgroundColor: "#F97316" }} />Has records</span>
+                    <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full ring-2 ring-emerald-500 bg-emerald-100 inline-block" />Today</span>
                     <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-green-600 inline-block" />Selected</span>
                   </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setViewYear(lagosToday.year);
+                      setViewMonth(lagosToday.month);
+                      setSelDate(`${MON_NAMES[lagosToday.month]} ${lagosToday.day}`);
+                      setShowCal(false);
+                    }}
+                    className="w-full text-center py-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 rounded-lg transition-colors"
+                  >
+                    Today ({MON_NAMES[lagosToday.month]} {lagosToday.day})
+                  </button>
                 </div>
               </div>
             </>)}

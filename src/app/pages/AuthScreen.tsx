@@ -718,15 +718,16 @@ function AuthScreen({
     <div className="min-h-screen bg-white flex flex-col max-w-3xl mx-auto p-6 sm:p-10">
       <button onClick={() => setView("create")} className="flex items-center gap-2 text-green-600 hover:text-green-800 font-semibold text-sm mb-6 self-start"><ChevronLeft size={16} /> Back to Create Account</button>
       <h1 className="text-2xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] mb-2">Terms and Conditions</h1>
-      <p className="text-xs text-slate-400 mb-6">Last updated: June 2026</p>
+      <p className="text-xs text-slate-400 mb-6">Last updated: October 2026</p>
       <div className="space-y-4 text-xs text-slate-600 leading-relaxed overflow-y-auto">
         <section><h2 className="font-bold text-slate-800 mb-1">1. Acceptance of Terms</h2><p>By creating an account and using Pondtora ("the Service"), you agree to be bound by these Terms and Conditions. If you do not agree, please do not use the Service.</p></section>
         <section><h2 className="font-bold text-slate-800 mb-1">2. Use of the Service</h2><p>Pondtora is a farm management platform designed for aquaculture operations. You agree to use it only for lawful purposes. You are responsible for maintaining the confidentiality of your account credentials.</p></section>
-        <section><h2 className="font-bold text-slate-800 mb-1">3. Data Ownership</h2><p>All farm data you enter into Pondtora remains yours. We do not sell or share your data with third parties without your explicit consent.</p></section>
-        <section><h2 className="font-bold text-slate-800 mb-1">4. Subscription and Billing</h2><p>After your 40-day free trial, continued use requires a paid subscription. Billing occurs monthly or annually depending on your selected plan. You may cancel at any time.</p></section>
-        <section><h2 className="font-bold text-slate-800 mb-1">5. Limitation of Liability</h2><p>Pondtora is provided "as is". We are not liable for any indirect or consequential damages arising from your use of the Service.</p></section>
-        <section><h2 className="font-bold text-slate-800 mb-1">6. Changes to Terms</h2><p>We reserve the right to modify these Terms at any time. Continued use after changes constitutes acceptance.</p></section>
-        <section><h2 className="font-bold text-slate-800 mb-1">7. Contact</h2><p>Questions? Contact us at support@pondtora.app</p></section>
+        <section><h2 className="font-bold text-slate-800 mb-1">3. Data Ownership & Privacy</h2><p>All farm data you enter into Pondtora remains yours. We do not sell or share your data with third parties without your explicit consent.</p></section>
+        <section><h2 className="font-bold text-slate-800 mb-1">4. Access to Farm Information and Support</h2><p>Pondtora may access and review relevant farm information and records where reasonably necessary to provide technical support, investigate reported issues, troubleshoot errors, maintain the service, or resolve disputes and other operational problems. Such access must be limited to what is reasonably necessary for the stated purpose and handled in accordance with applicable data protection and privacy laws.</p></section>
+        <section><h2 className="font-bold text-slate-800 mb-1">5. Subscription and Billing</h2><p>After your 40-day free trial, continued use requires a paid subscription. Billing occurs monthly or annually depending on your selected plan. You may cancel at any time.</p></section>
+        <section><h2 className="font-bold text-slate-800 mb-1">6. Limitation of Liability</h2><p>Pondtora is provided "as is". We are not liable for any indirect or consequential damages arising from your use of the Service.</p></section>
+        <section><h2 className="font-bold text-slate-800 mb-1">7. Changes to Terms</h2><p>We reserve the right to modify these Terms at any time. Continued use after changes constitutes acceptance.</p></section>
+        <section><h2 className="font-bold text-slate-800 mb-1">8. Contact and Support</h2><p>For questions, technical assistance, or issues relating to your account or farm records, contact Pondtora at <a href="mailto:pondtora.site@gmail.com" className="text-green-600 font-semibold underline">pondtora.site@gmail.com</a>.</p></section>
       </div>
       <button onClick={() => { setCAgreed(true); setView("create"); }} className="mt-8 w-full py-2.5 bg-green-600 hover:bg-green-700 text-white text-sm font-bold rounded-lg transition-colors">I Agree — Back to Sign Up</button>
     </div>

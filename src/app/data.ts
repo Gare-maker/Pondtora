@@ -8,10 +8,36 @@ export const REVENUE_SRCS= ["Fish Sales","Pond Rental","Other Income","Others"];
 export const POND_TYPES   = ["Earthen","Concrete","Tarpaulin"];
 export const POND_SPECIES = ["Catfish","Tilapia","Carp","Salmon","Bass","Trout","Other"];
 export const MORT_CAUSES = ["Unknown","Disease","Water stress","Predation","Handling","Oxygen depletion"];
-export const TODAY=(()=>{const d=new Date();return`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;})();
+/**
+ * Returns the current date formatted as YYYY-MM-DD in Africa/Lagos (WAT, UTC+1).
+ * This ensures that regardless of user browser timezone or midnight rollovers,
+ * the calendar and date indicators reflect Nigeria time.
+ */
+export function getLagosTodayStr(d: Date = new Date()): string {
+  try {
+    const formatter = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Africa/Lagos",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    });
+    return formatter.format(d);
+  } catch {
+    const utc = d.getTime() + (d.getTimezoneOffset() * 60000);
+    const lagosTime = new Date(utc + (3600000 * 1)); // UTC+1
+    return `${lagosTime.getFullYear()}-${String(lagosTime.getMonth() + 1).padStart(2, "0")}-${String(lagosTime.getDate()).padStart(2, "0")}`;
+  }
+}
+
+export function getLagosDateParts(d: Date = new Date()): { year: number; month: number; day: number; isoDate: string } {
+  const isoDate = getLagosTodayStr(d);
+  const [y, m, day] = isoDate.split("-").map(Number);
+  return { year: y, month: m - 1, day, isoDate };
+}
+
+export const TODAY = getLagosTodayStr();
 export function getTodayStr(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  return getLagosTodayStr();
 }
 export const INIT_FARMS:Farm[]=[
   {id:"FARM-001",name:"Aqua Laguna Station",city:"Lagos",state:"Lagos",country:"Nigeria"},

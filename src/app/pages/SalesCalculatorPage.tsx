@@ -6,8 +6,8 @@ import {
   Phone, User, TrendingUp, AlertCircle, History
 } from "lucide-react";
 import { toast } from "sonner";
-import type { PriceGroup, InvSettings, SalesCalculation, SalesCalculationItem, SalesCalculationEditHistoryEntry } from "../types";
-import { fmt, uid } from "../data";
+import type { PriceGroup, InvSettings, SalesCalculation, SalesCalculationItem, SalesCalculationEditHistoryEntry, SalesCalculationPayment } from "../types";
+import { fmt, uid, getLagosTodayStr, getLagosDateParts } from "../data";
 import { Card, Bdg, PBtn, Modal, F, IC, SC, NumInput, StatCard, Pagination, PER_PAGE } from "../shared";
 import { api } from "../../lib/api";
 
@@ -22,15 +22,12 @@ const LOCAL_STORAGE_KEY = "pondtora_sales_calc_draft_v4";
 const MON_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const DAY_ABBR = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
 
-// Helper to format ISO timestamp into local YYYY-MM-DD
+// Helper to format ISO timestamp into Lagos/Nigeria YYYY-MM-DD
 function toLocalYMD(dateVal: string | Date | undefined): string {
   if (!dateVal) return "";
-  const d = new Date(dateVal);
+  const d = typeof dateVal === "string" ? new Date(dateVal) : dateVal;
   if (isNaN(d.getTime())) return "";
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
+  return getLagosTodayStr(d);
 }
 
 // Helper to format date for short display e.g. "Oct 14" (matching Feeding Records)
@@ -95,7 +92,7 @@ export default function SalesCalculatorPage({
   onAddCalculation?: (c: SalesCalculation, items?: SalesCalculationItem[]) => Promise<void> | void;
   onEditCalculation?: (c: SalesCalculation, items?: SalesCalculationItem[], historyEntry?: SalesCalculationEditHistoryEntry) => Promise<void> | void;
   onDeleteCalculation?: (id: string) => Promise<void> | void;
-  onTogglePayment?: (c: SalesCalculation) => Promise<void> | void;
+  onTogglePayment?: (c: SalesCalculation, reason?: string) => Promise<void> | void;
   onAddPriceGroup: (g: PriceGroup) => void;
   onEditPriceGroup: (g: PriceGroup) => void;
   onDeletePriceGroup: (id: string) => void;
@@ -124,18 +121,25 @@ export default function SalesCalculatorPage({
   const [isSavingGroup, setIsSavingGroup] = useState(false);
   const [isTogglingPayment, setIsTogglingPayment] = useState(false);
 
-  // Details View Modal
-  const [selectedCalc, setSelectedCalc] = useState<SalesCalculation | null>(null);
+  // Unpaid audit correction modal state
+  const [unpaidCorrectionTarget, setUnpaidCorrectionTarget] = useState<SalesCalculation | null>(null);
+  const [unpaidCorrectionReason, setUnpaidCorrectionReason] = useState("");
+  const [isCorrectingUnpaid, setIsCorrectingUnpaid] = useState(false);
 
-  // ── Date Filtering (Feeding Records Style Calendar) ──
-  const todayYMD = toLocalYMD(new Date());
-  const [selectedDate, setSelectedDate] = useState<string | null>(todayYMD); // Default to today e.g. "2026-10-14"
+  // Details View Modal & Payment History State
+  const [selectedCalc, setSelectedCalc] = useState<SalesCalculation | null>(null);
+  const [calcPayments, setCalcPayments] = useState<SalesCalculationPayment[]>([]);
+  const [loadingPayments, setLoadingPayments] = useState(false);
+
+  // ── Date Filtering (Lagos, Nigeria timezone) ──
+  const lagosParts = useMemo(() => getLagosDateParts(), []);
+  const todayYMD = useMemo(() => getLagosTodayStr(), []);
+  const [selectedDate, setSelectedDate] = useState<string | null>(todayYMD);
   const [showCalDropdown, setShowCalDropdown] = useState(false);
 
-  // Calendar View month/year navigation
-  const initialDateObj = new Date();
-  const [viewYear, setViewYear] = useState(initialDateObj.getFullYear());
-  const [viewMonth, setViewMonth] = useState(initialDateObj.getMonth());
+  // Calendar View month/year navigation (strictly Lagos timezone)
+  const [viewYear, setViewYear] = useState(lagosParts.year);
+  const [viewMonth, setViewMonth] = useState(lagosParts.month);
 
   const navMonth = (dir: number) => {
     let m = viewMonth + dir;
@@ -533,11 +537,38 @@ export default function SalesCalculatorPage({
     }
   };
 
+  // Load payment records whenever selectedCalc is opened or changed
+  useEffect(() => {
+    if (selectedCalc?.id) {
+      let active = true;
+      setLoadingPayments(true);
+      api.salesCalculations.listPayments(selectedCalc.id)
+        .then(payments => {
+          if (active) setCalcPayments(payments);
+        })
+        .catch(err => {
+          console.warn("Failed to load payment history:", err);
+        })
+        .finally(() => {
+          if (active) setLoadingPayments(false);
+        });
+      return () => { active = false; };
+    } else {
+      setCalcPayments([]);
+    }
+  }, [selectedCalc?.id, selectedCalc?.amountPaid, selectedCalc?.paymentStatus]);
+
   // ── Open Payment Recording Modal ──
-  const openPaymentModal = (c: SalesCalculation) => {
+  const openPaymentModal = (c: SalesCalculation, fillFullBalance = false) => {
     setPaymentModalCalc(c);
-    setPayAmountInput("");
+    const prevPaid = c.paymentStatus === "Paid"
+      ? (c.amountPaid > 0 ? c.amountPaid : c.totalAmount)
+      : (Number(c.amountPaid) || 0);
+    const outstanding = Math.max(0, c.totalAmount - prevPaid);
+    setPayAmountInput(fillFullBalance && outstanding > 0 ? String(outstanding) : "");
     setPayMethodInput("Cash");
+    setPayDateInput(getLagosTodayStr());
+    setPayNotesInput("");
   };
 
   // ── Record Payment (Full or Partial) ──
@@ -548,15 +579,23 @@ export default function SalesCalculatorPage({
       toast.error("Please enter a valid amount greater than 0");
       return;
     }
+
+    const prevPaid = paymentModalCalc.paymentStatus === "Paid"
+      ? (paymentModalCalc.amountPaid > 0 ? paymentModalCalc.amountPaid : paymentModalCalc.totalAmount)
+      : (Number(paymentModalCalc.amountPaid) || 0);
+    const outstanding = Math.max(0, paymentModalCalc.totalAmount - prevPaid);
+
+    // Prevent payment exceeding the outstanding balance
+    if (payNum > outstanding + 0.0001) {
+      toast.error(`Payment amount (${fmt(payNum, cs)}) cannot exceed outstanding balance (${fmt(outstanding, cs)})`);
+      return;
+    }
+
     setIsRecordingPayment(true);
     try {
-      const prevPaid = paymentModalCalc.paymentStatus === "Paid"
-        ? (paymentModalCalc.amountPaid > 0 ? paymentModalCalc.amountPaid : paymentModalCalc.totalAmount)
-        : (Number(paymentModalCalc.amountPaid) || 0);
-
       const newAmountPaid = prevPaid + payNum;
       const nextStatus: "Paid" | "Partially Paid" | "Unpaid" =
-        newAmountPaid >= paymentModalCalc.totalAmount
+        newAmountPaid >= paymentModalCalc.totalAmount - 0.0001
           ? "Paid"
           : newAmountPaid > 0
           ? "Partially Paid"
@@ -569,51 +608,78 @@ export default function SalesCalculatorPage({
         updatedAt: new Date().toISOString()
       };
 
+      // Record separate payment transaction with date and notes
+      await api.salesCalculations.recordPayment(
+        paymentModalCalc.id,
+        payNum,
+        payMethodInput,
+        currentUser?.name || "Staff",
+        payDateInput || getLagosTodayStr(),
+        payNotesInput.trim() || undefined
+      );
+
+      if (onEditCalculation) {
+        await Promise.resolve(onEditCalculation(updated));
+      }
+
       toast.success(`Payment of ${fmt(payNum, cs)} recorded successfully (${nextStatus})!`);
       setPaymentModalCalc(null);
       if (selectedCalc && selectedCalc.id === paymentModalCalc.id) {
         setSelectedCalc(updated);
+        api.salesCalculations.listPayments(updated.id).then(setCalcPayments).catch(console.warn);
       }
-
-      if (onEditCalculation) {
-        Promise.resolve(onEditCalculation(updated)).catch((e: any) => console.warn(e));
-      }
-      api.salesCalculations.recordPayment(
-        paymentModalCalc.id,
-        payNum,
-        payMethodInput,
-        currentUser?.name || "Staff"
-      ).catch(e => console.warn("Audit payment log:", e));
     } catch (err: any) {
+      console.error("Error recording payment:", err);
       toast.error(err?.message || "Failed to record payment");
     } finally {
       setIsRecordingPayment(false);
     }
   };
 
-  // ── Toggle Payment Status ──
-  const handleTogglePayment = async (c: SalesCalculation) => {
-    if (isTogglingPayment) return;
-    setIsTogglingPayment(true);
+  // ── Correct Paid Sale to Unpaid (with audit trail) ──
+  const handleCorrectToUnpaid = async () => {
+    if (!unpaidCorrectionTarget || isCorrectingUnpaid) return;
+    const reason = unpaidCorrectionReason.trim();
+    if (!reason) {
+      toast.error("Please provide a reason for correcting this payment to Unpaid.");
+      return;
+    }
+
+    setIsCorrectingUnpaid(true);
     try {
       if (onTogglePayment) {
-        await onTogglePayment(c);
+        await onTogglePayment(unpaidCorrectionTarget, reason);
       }
-      const isNowPaid = c.paymentStatus !== "Paid";
-      const newStatus: "Paid" | "Unpaid" = isNowPaid ? "Paid" : "Unpaid";
-      const newAmountPaid = isNowPaid ? c.totalAmount : 0;
-      toast.success(`Calculation marked as ${newStatus} successfully!`);
-      if (selectedCalc && selectedCalc.id === c.id) {
-        setSelectedCalc({
-          ...selectedCalc,
-          paymentStatus: newStatus,
-          amountPaid: newAmountPaid
-        });
+
+      const updated: SalesCalculation = {
+        ...unpaidCorrectionTarget,
+        paymentStatus: "Unpaid",
+        amountPaid: 0,
+        updatedAt: new Date().toISOString()
+      };
+
+      toast.success("Payment status corrected to Unpaid.");
+      setUnpaidCorrectionTarget(null);
+      setUnpaidCorrectionReason("");
+      if (selectedCalc && selectedCalc.id === unpaidCorrectionTarget.id) {
+        setSelectedCalc(updated);
+        api.salesCalculations.listPayments(updated.id).then(setCalcPayments).catch(console.warn);
       }
     } catch (err: any) {
-      toast.error(err?.message || "Failed to update payment status");
+      console.error("Error correcting payment status:", err);
+      toast.error(err?.message || "Failed to correct payment status");
     } finally {
-      setIsTogglingPayment(false);
+      setIsCorrectingUnpaid(false);
+    }
+  };
+
+  // ── Toggle Payment Status (routes to audit correction or settle full balance) ──
+  const handleTogglePayment = async (c: SalesCalculation) => {
+    if (c.paymentStatus === "Paid") {
+      setUnpaidCorrectionTarget(c);
+      setUnpaidCorrectionReason("");
+    } else {
+      openPaymentModal(c, true);
     }
   };
 
@@ -810,6 +876,7 @@ export default function SalesCalculatorPage({
                       const cellYMD = `${viewYear}-${mm}-${dd}`;
                       const hasRec = daysWithCalculations.has(day);
                       const isSel = selectedDate === cellYMD;
+                      const isToday = cellYMD === todayYMD;
                       return (
                         <button
                           key={i}
@@ -821,6 +888,8 @@ export default function SalesCalculatorPage({
                           className={`relative flex flex-col items-center justify-center w-8 h-8 mx-auto rounded-full text-xs transition-all ${
                             isSel
                               ? "bg-green-600 text-white font-bold shadow-xs"
+                              : isToday
+                              ? "ring-2 ring-emerald-500 font-bold text-emerald-900 bg-emerald-50/70"
                               : hasRec
                               ? "text-slate-900 font-semibold hover:bg-green-50"
                               : "text-slate-400 hover:bg-slate-50"
@@ -838,6 +907,9 @@ export default function SalesCalculatorPage({
                   <div className="mt-3 pt-3 border-t border-slate-100 space-y-2">
                     <div className="flex items-center justify-between text-[11px] text-slate-400">
                       <span className="flex items-center gap-1.5">
+                        <span className="w-2.5 h-2.5 rounded-full border-2 border-emerald-500 inline-block" />Today
+                      </span>
+                      <span className="flex items-center gap-1.5">
                         <span className="w-2 h-2 rounded-full inline-block" style={{ backgroundColor: "#F97316" }} />Has records
                       </span>
                       <span className="flex items-center gap-1.5">
@@ -849,8 +921,8 @@ export default function SalesCalculatorPage({
                         type="button"
                         onClick={() => {
                           setSelectedDate(todayYMD);
-                          setViewYear(initialDateObj.getFullYear());
-                          setViewMonth(initialDateObj.getMonth());
+                          setViewYear(lagosParts.year);
+                          setViewMonth(lagosParts.month);
                           setShowCalDropdown(false);
                         }}
                         className="flex-1 text-center py-1.5 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
@@ -1107,7 +1179,17 @@ export default function SalesCalculatorPage({
                                     onClick={() => { handleTogglePayment(c); setOpenActionMenuId(null); }}
                                     className="w-full text-left px-3 py-1.5 text-slate-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-2"
                                   >
-                                    <Check size={13} /> Mark as {isPaid ? "Unpaid" : "Paid in Full"}
+                                    {isPaid ? (
+                                      <>
+                                        <RotateCcw size={13} className="text-amber-600" />
+                                        <span>Correct to Unpaid...</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Check size={13} className="text-emerald-600" />
+                                        <span>Settle Full Balance</span>
+                                      </>
+                                    )}
                                   </button>
                                 )}
                                 {canEdit && (
@@ -1217,7 +1299,17 @@ export default function SalesCalculatorPage({
                             onClick={() => { handleTogglePayment(c); setOpenActionMenuId(null); }}
                             className="w-full text-left px-3 py-1.5 text-slate-700 hover:bg-green-50 flex items-center gap-2"
                           >
-                            <Check size={13} /> Mark as {isPaid ? "Unpaid" : "Paid in Full"}
+                            {isPaid ? (
+                              <>
+                                <RotateCcw size={13} className="text-amber-600" />
+                                <span>Correct to Unpaid...</span>
+                              </>
+                            ) : (
+                              <>
+                                <Check size={13} className="text-emerald-600" />
+                                <span>Settle Full Balance</span>
+                              </>
+                            )}
                           </button>
                         )}
                         {canEdit && (
@@ -1735,7 +1827,7 @@ export default function SalesCalculatorPage({
                   </button>
                 )}
 
-                {canEdit && (
+                {canEdit && selectedCalc.paymentStatus !== "Paid" && (
                   <button
                     type="button"
                     onClick={() => openPaymentModal(selectedCalc)}
@@ -1746,16 +1838,29 @@ export default function SalesCalculatorPage({
                   </button>
                 )}
 
-                {canEdit && (
+                {canEdit && selectedCalc.paymentStatus !== "Paid" && (
                   <PBtn
                     sm
-                    onClick={() => handleTogglePayment(selectedCalc)}
-                    disabled={isTogglingPayment}
+                    onClick={() => openPaymentModal(selectedCalc, true)}
                     className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-bold rounded-xl shadow-xs"
                   >
                     <Check size={14} />
-                    <span>{isTogglingPayment ? "Updating..." : `Mark as ${selectedCalc.paymentStatus === "Paid" ? "Unpaid" : "Paid"}`}</span>
+                    <span>Settle Full Balance</span>
                   </PBtn>
+                )}
+
+                {canEdit && selectedCalc.paymentStatus === "Paid" && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setUnpaidCorrectionTarget(selectedCalc);
+                      setUnpaidCorrectionReason("");
+                    }}
+                    className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-bold text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-xl transition-all shadow-2xs"
+                  >
+                    <RotateCcw size={14} className="text-amber-600 shrink-0" />
+                    <span>Correct to Unpaid</span>
+                  </button>
                 )}
               </div>
             </div>
@@ -1775,7 +1880,7 @@ export default function SalesCalculatorPage({
                 </div>
                 <Bdg
                   label={selectedCalc.paymentStatus || "Unpaid"}
-                  color={selectedCalc.paymentStatus === "Paid" ? "green" : "amber"}
+                  color={selectedCalc.paymentStatus === "Paid" ? "green" : selectedCalc.paymentStatus === "Partially Paid" ? "blue" : "amber"}
                 />
               </div>
 
@@ -1875,6 +1980,69 @@ export default function SalesCalculatorPage({
               </div>
             </div>
 
+            {/* Payment History & Records Section */}
+            <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-800 uppercase tracking-wide flex items-center gap-1.5">
+                  <CheckCircle size={13} className="text-emerald-600" /> Payment History & Records
+                </span>
+                <span className="text-[11px] font-semibold text-slate-500">
+                  {calcPayments.length} {calcPayments.length === 1 ? "payment" : "payments"} recorded
+                </span>
+              </div>
+
+              {loadingPayments ? (
+                <p className="text-[11px] text-slate-400 italic py-1">Loading payment history...</p>
+              ) : calcPayments.length === 0 ? (
+                <div className="bg-white border border-slate-200/80 rounded-lg p-2.5 text-xs text-slate-500 flex items-center justify-between">
+                  <span>{selectedCalc.paymentStatus === "Paid" ? "Paid in full (initial transaction)." : "No individual payments logged yet."}</span>
+                  {canEdit && selectedCalc.paymentStatus !== "Paid" && (
+                    <button
+                      type="button"
+                      onClick={() => openPaymentModal(selectedCalc)}
+                      className="text-emerald-700 hover:text-emerald-900 font-bold text-[11px] underline"
+                    >
+                      + Record First Payment
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
+                  {calcPayments.map((p, pIdx) => {
+                    const isReversal = p.amount < 0 || (p.notes && p.notes.toLowerCase().includes("revers"));
+                    return (
+                      <div
+                        key={p.id || pIdx}
+                        className={`border rounded-lg p-2.5 text-xs space-y-1 shadow-2xs ${
+                          isReversal
+                            ? "bg-amber-50/60 border-amber-200 text-amber-900"
+                            : "bg-white border-slate-200/90 text-slate-800"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-mono font-bold text-sm">
+                            {isReversal ? "−" : "+"}{fmt(Math.abs(p.amount), cs)}
+                          </span>
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
+                            {p.paymentMethod || "Cash"}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between text-[11px] text-slate-400 pt-0.5">
+                          <span>{formatDateTime(p.createdAt)}</span>
+                          <span className="text-slate-600 font-medium">By: {p.recordedBy || "Staff"}</span>
+                        </div>
+                        {p.notes && (
+                          <p className="text-[11px] text-slate-500 italic pt-1 border-t border-slate-100">
+                            Note: {p.notes}
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
             {/* Edit History Section (Deduplicated) */}
             <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 space-y-2.5">
               {(() => {
@@ -1962,7 +2130,18 @@ export default function SalesCalculatorPage({
               </button>
               <PBtn
                 onClick={handleRecordPayment}
-                disabled={isRecordingPayment || !payAmountInput || Number(payAmountInput) <= 0}
+                disabled={
+                  isRecordingPayment ||
+                  !payAmountInput ||
+                  Number(payAmountInput) <= 0 ||
+                  (() => {
+                    const prevPaid = paymentModalCalc.paymentStatus === "Paid"
+                      ? (paymentModalCalc.amountPaid > 0 ? paymentModalCalc.amountPaid : paymentModalCalc.totalAmount)
+                      : (Number(paymentModalCalc.amountPaid) || 0);
+                    const outstanding = Math.max(0, paymentModalCalc.totalAmount - prevPaid);
+                    return Number(payAmountInput) > outstanding + 0.0001;
+                  })()
+                }
                 className="px-4 py-2 text-xs font-bold shadow-sm"
               >
                 <CheckCircle size={14} /> {isRecordingPayment ? "Recording..." : "Save Payment"}
@@ -1977,13 +2156,14 @@ export default function SalesCalculatorPage({
             const outstanding = Math.max(0, paymentModalCalc.totalAmount - prevPaid);
             const enteredAmount = Number(payAmountInput) || 0;
             const remainingAfterPayment = Math.max(0, outstanding - enteredAmount);
+            const isOverpaying = enteredAmount > outstanding + 0.0001;
 
             return (
               <div className="space-y-3.5 pb-1">
                 {/* Balance Summary Card */}
                 <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 grid grid-cols-3 gap-2 text-center">
                   <div>
-                    <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">Total</span>
+                    <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">Total Sale</span>
                     <span className="text-xs sm:text-sm font-bold text-slate-800 font-mono">
                       {fmt(paymentModalCalc.totalAmount, cs)}
                     </span>
@@ -1995,7 +2175,7 @@ export default function SalesCalculatorPage({
                     </span>
                   </div>
                   <div>
-                    <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">Balance</span>
+                    <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">Outstanding</span>
                     <span className="text-xs sm:text-sm font-bold text-amber-600 font-mono">
                       {fmt(outstanding, cs)}
                     </span>
@@ -2008,6 +2188,15 @@ export default function SalesCalculatorPage({
                     <label className="text-[11px] font-bold text-slate-700 uppercase tracking-wide">
                       Amount Paid Now ({cs}) <span className="text-red-500">*</span>
                     </label>
+                    {outstanding > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setPayAmountInput(String(outstanding))}
+                        className="text-[10px] font-semibold text-emerald-700 hover:text-emerald-900 bg-emerald-50 hover:bg-emerald-100 px-2 py-0.5 rounded border border-emerald-200 transition-colors"
+                      >
+                        Pay Full Balance ({fmt(outstanding, cs)})
+                      </button>
+                    )}
                   </div>
                   <div className="relative">
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-500 pointer-events-none">
@@ -2023,25 +2212,60 @@ export default function SalesCalculatorPage({
                   </div>
                 </div>
 
-                {/* Payment Method */}
+                {/* Overpayment Warning */}
+                {isOverpaying && (
+                  <div className="p-2.5 rounded-xl text-xs bg-red-50 border border-red-200 text-red-700 font-semibold flex items-center gap-1.5">
+                    <AlertCircle size={14} className="shrink-0 text-red-600" />
+                    <span>Payment amount cannot exceed the outstanding balance of {fmt(outstanding, cs)}.</span>
+                  </div>
+                )}
+
+                {/* Payment Date & Method Grid */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1 uppercase tracking-wide">
+                      Payment Date
+                    </label>
+                    <input
+                      type="date"
+                      value={payDateInput}
+                      onChange={e => setPayDateInput(e.target.value)}
+                      className={`${IC} text-xs py-2`}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1 uppercase tracking-wide">
+                      Payment Method
+                    </label>
+                    <select
+                      value={payMethodInput}
+                      onChange={e => setPayMethodInput(e.target.value)}
+                      className={`${SC} text-xs py-2`}
+                    >
+                      <option value="Cash">Cash</option>
+                      <option value="Transfer">Bank Transfer</option>
+                      <option value="POS">POS / Card</option>
+                      <option value="Cheque">Cheque</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Payment Reference / Notes */}
                 <div>
                   <label className="block text-[11px] font-bold text-slate-700 mb-1 uppercase tracking-wide">
-                    Payment Method
+                    Reference / Notes (Optional)
                   </label>
-                  <select
-                    value={payMethodInput}
-                    onChange={e => setPayMethodInput(e.target.value)}
-                    className={`${SC} text-xs py-2`}
-                  >
-                    <option value="Cash">Cash</option>
-                    <option value="Transfer">Bank Transfer</option>
-                    <option value="POS">POS / Card</option>
-                    <option value="Cheque">Cheque</option>
-                  </select>
+                  <input
+                    type="text"
+                    value={payNotesInput}
+                    onChange={e => setPayNotesInput(e.target.value)}
+                    placeholder="e.g. Bank transfer ref, teller #, or customer receipt note"
+                    className={`${IC} text-xs py-2`}
+                  />
                 </div>
 
                 {/* Balance Projection Banner */}
-                {enteredAmount > 0 && (
+                {enteredAmount > 0 && !isOverpaying && (
                   <div className={`p-2.5 rounded-xl text-xs flex items-center justify-between border ${
                     remainingAfterPayment === 0
                       ? "bg-emerald-50 border-emerald-200 text-emerald-800"
@@ -2058,6 +2282,64 @@ export default function SalesCalculatorPage({
               </div>
             );
           })()}
+        </Modal>
+      )}
+
+      {/* ── Correct Payment to Unpaid (Audit Correction Modal) ── */}
+      {unpaidCorrectionTarget && (
+        <Modal
+          title={`Correct Payment Status — ${unpaidCorrectionTarget.customerName}`}
+          onClose={() => { if (!isCorrectingUnpaid) { setUnpaidCorrectionTarget(null); setUnpaidCorrectionReason(""); } }}
+          footer={
+            <div className="flex items-center justify-between gap-3 w-full">
+              <button
+                type="button"
+                onClick={() => { setUnpaidCorrectionTarget(null); setUnpaidCorrectionReason(""); }}
+                className="px-3 py-2 text-xs font-semibold text-slate-500 hover:text-slate-800 transition-colors"
+                disabled={isCorrectingUnpaid}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleCorrectToUnpaid}
+                disabled={isCorrectingUnpaid || !unpaidCorrectionReason.trim()}
+                className="px-4 py-2 text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white rounded-xl shadow-xs transition-colors flex items-center gap-1.5 disabled:opacity-50"
+              >
+                <RotateCcw size={14} />
+                <span>{isCorrectingUnpaid ? "Correcting..." : "Confirm Correction to Unpaid"}</span>
+              </button>
+            </div>
+          }
+        >
+          <div className="space-y-3.5 pb-1">
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-900 space-y-1.5">
+              <div className="font-bold flex items-center gap-1.5 text-amber-950">
+                <AlertCircle size={15} className="text-amber-600 shrink-0" />
+                <span>Audit Correction Notice</span>
+              </div>
+              <p>
+                You are changing this sale from <strong>{unpaidCorrectionTarget.paymentStatus}</strong> to <strong>Unpaid</strong>.
+                The recorded amount paid ({fmt(unpaidCorrectionTarget.amountPaid || unpaidCorrectionTarget.totalAmount, cs)}) will be reset to {cs}0.00 and an audit reversal entry will be permanently logged.
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wide mb-1">
+                Reason for Correction <span className="text-red-500">*</span>
+              </label>
+              <textarea
+                rows={3}
+                value={unpaidCorrectionReason}
+                onChange={e => setUnpaidCorrectionReason(e.target.value)}
+                placeholder="e.g. Mistakenly recorded as paid; customer bank transfer was reversed; bounced cheque..."
+                className="w-full text-xs p-2.5 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500"
+              />
+              <p className="text-[10px] text-slate-400 mt-1">
+                This reason will be stored in the permanent audit trail for this sale.
+              </p>
+            </div>
+          </div>
         </Modal>
       )}
 

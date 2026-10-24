@@ -1,8 +1,7 @@
 import React, { useState, useMemo, useRef, useEffect } from "react";
 import type { ReactNode, ElementType } from "react";
 import { TrendingUp, TrendingDown, X, ChevronDown, ChevronUp, Calendar } from "lucide-react";
-import type { SortDir } from "./types";
-import { COUNTRIES } from "./data";
+import { COUNTRIES, getLagosTodayStr } from "./data";
 
 /* ─── Shared UI ─────────────────────────────────────────────── */
 export function Card({children,className="",onClick}:{children:ReactNode;className?:string;onClick?:()=>void}){
@@ -384,6 +383,8 @@ export function SearchableCountrySelect({value,onChange}:{value:string;onChange:
   );
 }
 
+export type SortDir = "asc" | "desc";
+
 export function SH({label,field,sf,sd,onSort}:{label:string;field:string;sf:string;sd:SortDir;onSort:(f:string)=>void}){
   const a=sf===field;
   return(
@@ -395,7 +396,7 @@ export function SH({label,field,sf,sd,onSort}:{label:string;field:string;sf:stri
 export function useSort<T>(data:T[], defaultField:string){
   const [sf,setSf]=useState(defaultField);
   const [sd,setSd]=useState<SortDir>("asc");
-  const toggle=(f:string)=>{if(sf===f)setSd(p=>p==="asc"?"desc":"asc");else{setSf(f);setSd("asc");}};
+  const toggle=(f:string)=>{if(sf===f)setSd((p: SortDir)=>p==="asc"?"desc":"asc");else{setSf(f);setSd("asc");}};
   const sorted=useMemo(()=>[...data].sort((a:any,b:any)=>{const va=a[sf],vb=b[sf];if(typeof va==="string")return sd==="asc"?va.localeCompare(vb):vb.localeCompare(va);return sd==="asc"?(va??0)-(vb??0):(vb??0)-(va??0);}),[data,sf,sd]);
   return {sorted,sf,sd,toggle};
 }
@@ -503,11 +504,7 @@ export function toDateInputValue(val: string | null | undefined): string {
 }
 
 export function getTodayDateStr(): string {
-  const d = new Date();
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+  return getLagosTodayStr();
 }
 
 export function addDurationToDate(

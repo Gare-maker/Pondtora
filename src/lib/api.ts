@@ -2900,17 +2900,35 @@ export const api = {
     remove: async (id: string) => {
       return dbDelete("sales_calculations", id, "salesCalculations");
     },
-    recordPayment: async (calcId: string, amount: number, paymentMethod = "Cash", recordedBy = "") => {
+    recordPayment: async (calcId: string, amount: number, paymentMethod = "Cash", recordedBy = "", paymentDate?: string, notes?: string) => {
       try {
+        const pDate = paymentDate || new Date().toISOString();
         await supabase.from("sales_calculation_payments").insert({
           id: crypto.randomUUID(),
           calculation_id: isUuid(calcId) ? calcId : toUuid(calcId),
           amount: Number(amount) || 0,
           payment_method: paymentMethod,
+          payment_date: pDate,
           recorded_by: recordedBy,
+          notes: notes || null,
         });
       } catch (err) {
         console.warn("Failed to record sales_calculation_payment:", err);
+      }
+    },
+    listPayments: async (calcId: string): Promise<SalesCalculationPayment[]> => {
+      try {
+        const cid = isUuid(calcId) ? calcId : toUuid(calcId);
+        const { data, error } = await supabase
+          .from("sales_calculation_payments")
+          .select("*")
+          .eq("calculation_id", cid)
+          .order("payment_date", { ascending: true });
+        if (error || !data) return [];
+        return data.map((r: any) => objToCamel<SalesCalculationPayment>(r));
+      } catch (err) {
+        console.warn("Failed to list sales_calculation_payments:", err);
+        return [];
       }
     },
   },

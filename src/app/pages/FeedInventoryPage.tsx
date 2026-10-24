@@ -128,9 +128,11 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
   const [dailyPage, setDailyPage] = useState(1);
 
   const shiftDailyDate = (days: number) => {
-    const d = new Date(dailyDate || TODAY);
-    if (isNaN(d.getTime())) return;
-    d.setDate(d.getDate() + days);
+    const raw = dailyDate || TODAY;
+    const parts = raw.split("-").map(Number);
+    const d = parts.length === 3 && !isNaN(parts[0]) && !isNaN(parts[1]) && !isNaN(parts[2])
+      ? new Date(parts[0], parts[1] - 1, parts[2] + days)
+      : new Date();
     const y = d.getFullYear();
     const m = String(d.getMonth() + 1).padStart(2, "0");
     const day = String(d.getDate()).padStart(2, "0");

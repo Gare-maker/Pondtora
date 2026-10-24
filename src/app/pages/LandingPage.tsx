@@ -1726,6 +1726,7 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
   const [openFaq, setOpenFaq] = useState<number | null>(null);
   const [planBilling, setPlanBilling] = useState<"monthly" | "yearly">("monthly");
   const [planType, setPlanType] = useState<"single" | "multi">("single");
+  const [showTermsModal, setShowTermsModal] = useState(false);
 
   const { singleFarmPlans = [], multiFarmPlans = [] } = useDynamicPlans();
   const currentPlans = (planType === "single" ? singleFarmPlans : multiFarmPlans) || [];
@@ -3071,8 +3072,8 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
               <ul className="space-y-2.5 text-xs text-slate-300">
                 <li>
                   <span className="block text-[10px] text-slate-500 uppercase font-bold">Email Support</span>
-                  <a href="mailto:pondtora.com@gmail.com" className="hover:text-white font-medium text-emerald-400 break-all">
-                    pondtora.com@gmail.com
+                  <a href="mailto:pondtora.site@gmail.com" className="hover:text-white font-medium text-emerald-400 break-all">
+                    pondtora.site@gmail.com
                   </a>
                 </li>
                 <li>
@@ -3113,13 +3114,73 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
           <div className="pt-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-400">
             <p>© 2026 Pondtora. All rights reserved. Built for African Aquaculture.</p>
             <div className="flex items-center gap-6">
-              <span className="hover:text-slate-200 cursor-pointer">Privacy Policy</span>
-              <span className="hover:text-slate-200 cursor-pointer">Terms of Service</span>
+              <span className="hover:text-slate-200 cursor-pointer" onClick={() => setShowTermsModal(true)}>Privacy Policy</span>
+              <span className="hover:text-slate-200 cursor-pointer" onClick={() => setShowTermsModal(true)}>Terms of Service</span>
               <span className="hover:text-slate-200 cursor-pointer">Security</span>
             </div>
           </div>
         </div>
       </footer>
+
+      {/* ── Terms of Service & Privacy Modal ── */}
+      {showTermsModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[85vh] flex flex-col shadow-2xl overflow-hidden text-left border border-slate-200">
+            <div className="p-4 border-b border-slate-200 flex items-center justify-between bg-slate-50">
+              <h2 className="text-base font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">
+                Terms and Conditions & Privacy Policy
+              </h2>
+              <button
+                type="button"
+                onClick={() => setShowTermsModal(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200 transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="p-6 overflow-y-auto space-y-4 text-xs text-slate-600 leading-relaxed">
+              <p className="text-[11px] text-slate-400">Last updated: October 2026</p>
+              <section>
+                <h3 className="font-bold text-slate-800 text-sm mb-1">1. Acceptance of Terms</h3>
+                <p>By creating an account and using Pondtora ("the Service"), you agree to be bound by these Terms and Conditions. If you do not agree, please do not use the Service.</p>
+              </section>
+              <section>
+                <h3 className="font-bold text-slate-800 text-sm mb-1">2. Use of the Service</h3>
+                <p>Pondtora is a farm management platform designed for aquaculture operations. You agree to use it only for lawful purposes. You are responsible for maintaining the confidentiality of your account credentials.</p>
+              </section>
+              <section>
+                <h3 className="font-bold text-slate-800 text-sm mb-1">3. Data Ownership & Privacy</h3>
+                <p>All farm data you enter into Pondtora remains yours. We do not sell or share your data with third parties without your explicit consent.</p>
+              </section>
+              <section>
+                <h3 className="font-bold text-slate-800 text-sm mb-1">4. Access to Farm Information and Support</h3>
+                <p>Pondtora may access and review relevant farm information and records where reasonably necessary to provide technical support, investigate reported issues, troubleshoot errors, maintain the service, or resolve disputes and other operational problems. Such access must be limited to what is reasonably necessary for the stated purpose and handled in accordance with applicable data protection and privacy laws.</p>
+              </section>
+              <section>
+                <h3 className="font-bold text-slate-800 text-sm mb-1">5. Subscription and Billing</h3>
+                <p>After your 40-day free trial, continued use requires a paid subscription. Billing occurs monthly or annually depending on your selected plan. You may cancel at any time.</p>
+              </section>
+              <section>
+                <h3 className="font-bold text-slate-800 text-sm mb-1">6. Limitation of Liability</h3>
+                <p>Pondtora is provided "as is". We are not liable for any indirect or consequential damages arising from your use of the Service.</p>
+              </section>
+              <section>
+                <h3 className="font-bold text-slate-800 text-sm mb-1">7. Contact and Support</h3>
+                <p>For questions, technical assistance, or issues relating to your account or farm records, contact Pondtora at <a href="mailto:pondtora.site@gmail.com" className="text-emerald-600 font-bold underline">pondtora.site@gmail.com</a>.</p>
+              </section>
+            </div>
+            <div className="p-4 border-t border-slate-200 bg-slate-50 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setShowTermsModal(false)}
+                className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs rounded-xl shadow-xs transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

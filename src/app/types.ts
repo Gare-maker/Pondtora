@@ -43,6 +43,7 @@ export interface SalesCalculationPayment {
   paymentMethod: string;
   paymentDate: string;
   recordedBy?: string;
+  notes?: string;
   createdAt?: string;
 }
 export interface SalesCalculation {
@@ -59,6 +60,7 @@ export interface SalesCalculation {
   amountPaid: number;
   paymentStatus: "Paid" | "Unpaid" | "Partially Paid";
   items?: SalesCalculationItem[];
+  payments?: SalesCalculationPayment[];
   editHistory?: SalesCalculationEditHistoryEntry[];
   createdBy?: string;
   createdById?: string;

@@ -4,15 +4,25 @@ import {
   ChevronUp, ChevronDown, Download, Clock, Shield, Sparkles, Filter,
   RotateCw, RefreshCw, Phone, Mail, MapPin, Copy, ExternalLink, MessageCircle,
   Building, Droplets, Users as UsersIcon, X, Check, ArrowRight, UserCheck, AlertCircle,
-  CreditCard, Gift, Tag, DollarSign, TrendingUp, Package, FileText, Layers, Fish, Activity
+  CreditCard, Gift, Tag, DollarSign, TrendingUp, Package, FileText, Layers, Fish, Activity,
+  Calendar, RotateCcw, Wrench
 } from "lucide-react";
 import { Card, Bdg, PBtn, Pagination, PER_PAGE, Modal, F, IC, SC, DateInput, ToggleCard, ToggleSwitch, toDateInputValue, getTodayDateStr, addDurationToDate } from "../../app/shared";
 import type { AdminUser, AdminPlan, AccountStatus } from "../types";
 import { fmtDate, trialDaysLeft, fmtMoney, computeSubscriptionStatus, effectivePrice } from "../types";
+import { getLagosTodayStr, getLagosDateParts } from "../../app/data";
 import { supabase } from "../../lib/supabase";
 import { isStaffUser } from "../../lib/userSync";
 import { getUserReferralStats, markReferralRewardsPaid, clearUserReferralBalance, syncReferralOnUserPayment, deleteReferralPayout, type ReferralPayoutRecord, type ReferralStats } from "../../lib/referralStore";
 import { toast } from "sonner";
+
+// Format date into Nigeria/Lagos YYYY-MM-DD
+function toLocalYMD(dateVal: string | Date | undefined | null): string {
+  if (!dateVal) return "";
+  const d = typeof dateVal === "string" ? new Date(dateVal) : dateVal;
+  if (isNaN(d.getTime())) return "";
+  return getLagosTodayStr(d);
+}
 
 function getWhatsAppUrl(phone?: string, name?: string): string | null {
   if (!phone) return null;
@@ -65,19 +75,6 @@ function copyUserDossier(u: AdminUser, extra?: { farms: any[]; ponds: any[]; sta
     `Total Ponds: ${extra?.ponds?.length ?? u.pondCount ?? 0}`,
     `Staff Members Added: ${extra?.staff?.length ?? u.staffCount ?? 0}`,
   ];
-
-  try {
-    const rStats = getUserReferralStats(u);
-    lines.push(
-      ``,
-      `*Referral Program*`,
-      `Referral Code: ${rStats.referralCode}`,
-      `Total Registered Referrals: ${rStats.totalReferralsCount}`,
-      `Subscribed / Paid Referrals: ${rStats.paidReferralsCount}`,
-      `Total Referral Earnings: ₦${rStats.totalEarnings.toLocaleString()}`,
-      `Available to Redeem: ₦${rStats.availableEarnings.toLocaleString()}`,
-    );
-  } catch {}
 
   if (extra?.staff && extra.staff.length > 0) {
     lines.push(``, `*Staff Members Added:*`);
@@ -494,7 +491,13 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
   const [delUser, setDelUser] = useState<AdminUser | null>(null);
   const [form, setForm] = useState<Partial<AdminUser>>({ ...BLANK });
   const [fErr, setFErr] = useState<Record<string, string>>({});
-  const [farmerDataTab, setFarmerDataTab] = useState<"summary" | "referrals" | "ponds" | "feed" | "finance" | "staff" | "farms">("summary");
+  const [farmerDataTab, setFarmerDataTab] = useState<
+    "summary" | "ponds" | "feed" | "feeding" | "sales" | "finance" | "health_equipment" | "staff_investors"
+  >("summary");
+  const [farmDateFilter, setFarmDateFilter] = useState<"all" | "today" | "month" | "year" | "custom">("all");
+  const [farmCustomStart, setFarmCustomStart] = useState("");
+  const [farmCustomEnd, setFarmCustomEnd] = useState("");
+  const [selectedFarmFilterId, setSelectedFarmFilterId] = useState<string>("all");
   const [referralRefreshNonce, setReferralRefreshNonce] = useState(0);
 
   useEffect(() => {
@@ -531,26 +534,44 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
 
   const [userExtra, setUserExtra] = useState<{
     loading: boolean;
-    farms: { id: string; name: string; city?: string; state?: string; country?: string; created_at?: string }[];
-    ponds: { id: string; name?: string; size_m2?: number; farm_id?: string; current_count?: number; initial_stock?: number; species?: string; stocking_date?: string }[];
-    staff: { id: string; name: string; email: string; role: string; status: string }[];
-    feedInventory: { id: string; brand?: string; size?: string; bags_in_stock?: number; weight_per_bag?: number; total_kg?: number }[];
-    feedingRecords: { id: string; pond?: string; date?: string; total?: number; size?: string; morning?: number; evening?: number }[];
-    revenues: { id: string; category?: string; source?: string; pond?: string; amount?: number; date?: string; created_at?: string; notes?: string; description?: string; customer?: string }[];
-    expenses: { id: string; category?: string; pond?: string; vendor?: string; amount?: number; date?: string; created_at?: string; desc?: string; description?: string; notes?: string }[];
-    invoices: { id: string; inv_number?: string; invoice_number?: string; customer?: any; customer_name?: string; grand_total?: number; subtotal?: number; status?: string; invoice_date?: string; due_date?: string; created_at?: string }[];
-    investors: { id: string; name?: string; email?: string; phone?: string; total_invested?: number }[];
+    farms: any[];
+    ponds: any[];
+    stockEvents: any[];
+    feedInventory: any[];
+    feedingRecords: any[];
+    bagOpenLogs: any[];
+    feedRemainingLogs: any[];
+    salesCalculations: any[];
+    salesPayments: any[];
+    revenues: any[];
+    expenses: any[];
+    invoices: any[];
+    treatments: any[];
+    pondReports: any[];
+    equipment: any[];
+    staff: any[];
+    investors: any[];
+    investments: any[];
   }>({
     loading: false,
     farms: [],
     ponds: [],
-    staff: [],
+    stockEvents: [],
     feedInventory: [],
     feedingRecords: [],
+    bagOpenLogs: [],
+    feedRemainingLogs: [],
+    salesCalculations: [],
+    salesPayments: [],
     revenues: [],
     expenses: [],
     invoices: [],
+    treatments: [],
+    pondReports: [],
+    equipment: [],
+    staff: [],
     investors: [],
+    investments: [],
   });
 
   // Fast in-memory cache to make re-opening or switching users instant
@@ -563,13 +584,22 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
         loading: false,
         farms: [],
         ponds: [],
-        staff: [],
+        stockEvents: [],
         feedInventory: [],
         feedingRecords: [],
+        bagOpenLogs: [],
+        feedRemainingLogs: [],
+        salesCalculations: [],
+        salesPayments: [],
         revenues: [],
         expenses: [],
         invoices: [],
+        treatments: [],
+        pondReports: [],
+        equipment: [],
+        staff: [],
         investors: [],
+        investments: [],
       };
     }
 
@@ -582,13 +612,22 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
 
     let localFarms: any[] = [];
     let localPonds: any[] = [];
+    let localStockEvents: any[] = [];
     let localStaff: any[] = [];
     let localFeed: any[] = [];
     let localFeeding: any[] = [];
+    let localBagOpenLogs: any[] = [];
+    let localFeedRemainingLogs: any[] = [];
+    let localSalesCalculations: any[] = [];
+    let localSalesPayments: any[] = [];
     let localRevenues: any[] = [];
     let localExpenses: any[] = [];
     let localInvoices: any[] = [];
+    let localTreatments: any[] = [];
+    let localPondReports: any[] = [];
+    let localEquipment: any[] = [];
     let localInvestors: any[] = [];
+    let localInvestments: any[] = [];
 
     const matchesUser = (item: any) => {
       if (!item) return false;
@@ -636,6 +675,11 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
     } catch {}
 
     try {
+      const sales = getItemsFromKeys(["pondtora_sales_calculations", `pondtora_${u.id}_sales_calculations`, ...(u.email ? [`pondtora_${u.email}_sales_calculations`] : [])]);
+      localSalesCalculations = sales.filter(matchesUser);
+    } catch {}
+
+    try {
       const invoices = getItemsFromKeys(["pondtora_invoices", `pondtora_${u.id}_invoices`, ...(u.email ? [`pondtora_${u.email}_invoices`] : [])]);
       localInvoices = invoices.filter(matchesUser);
     } catch {}
@@ -661,13 +705,22 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
       loading: false,
       farms: localFarms,
       ponds: localPonds,
-      staff: localStaff,
+      stockEvents: localStockEvents,
       feedInventory: localFeed,
       feedingRecords: localFeeding,
+      bagOpenLogs: localBagOpenLogs,
+      feedRemainingLogs: localFeedRemainingLogs,
+      salesCalculations: localSalesCalculations,
+      salesPayments: localSalesPayments,
       revenues: localRevenues,
       expenses: localExpenses,
       invoices: localInvoices,
+      treatments: localTreatments,
+      pondReports: localPondReports,
+      equipment: localEquipment,
+      staff: localStaff,
       investors: localInvestors,
+      investments: localInvestments,
     };
   };
 
@@ -697,13 +750,22 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
             loading: false,
             farms: Array.isArray(rpcData.farms) && rpcData.farms.length > 0 ? rpcData.farms : initialSync.farms,
             ponds: Array.isArray(rpcData.ponds) && rpcData.ponds.length > 0 ? rpcData.ponds : initialSync.ponds,
-            staff: Array.isArray(rpcData.staff) && rpcData.staff.length > 0 ? rpcData.staff : initialSync.staff,
+            stockEvents: Array.isArray(rpcData.stockEvents) ? rpcData.stockEvents : initialSync.stockEvents,
             feedInventory: Array.isArray(rpcData.feedInventory) && rpcData.feedInventory.length > 0 ? rpcData.feedInventory : initialSync.feedInventory,
             feedingRecords: Array.isArray(rpcData.feedingRecords) && rpcData.feedingRecords.length > 0 ? rpcData.feedingRecords : initialSync.feedingRecords,
+            bagOpenLogs: Array.isArray(rpcData.bagOpenLogs) ? rpcData.bagOpenLogs : initialSync.bagOpenLogs,
+            feedRemainingLogs: Array.isArray(rpcData.feedRemainingLogs) ? rpcData.feedRemainingLogs : initialSync.feedRemainingLogs,
+            salesCalculations: Array.isArray(rpcData.salesCalculations) ? rpcData.salesCalculations : initialSync.salesCalculations,
+            salesPayments: Array.isArray(rpcData.salesPayments) ? rpcData.salesPayments : initialSync.salesPayments,
             revenues: Array.isArray(rpcData.revenues) && rpcData.revenues.length > 0 ? rpcData.revenues : initialSync.revenues,
             expenses: Array.isArray(rpcData.expenses) && rpcData.expenses.length > 0 ? rpcData.expenses : initialSync.expenses,
             invoices: Array.isArray(rpcData.invoices) && rpcData.invoices.length > 0 ? rpcData.invoices : initialSync.invoices,
+            treatments: Array.isArray(rpcData.treatments) ? rpcData.treatments : initialSync.treatments,
+            pondReports: Array.isArray(rpcData.pondReports) ? rpcData.pondReports : initialSync.pondReports,
+            equipment: Array.isArray(rpcData.equipment) ? rpcData.equipment : initialSync.equipment,
+            staff: Array.isArray(rpcData.staff) && rpcData.staff.length > 0 ? rpcData.staff : initialSync.staff,
             investors: Array.isArray(rpcData.investors) && rpcData.investors.length > 0 ? rpcData.investors : initialSync.investors,
+            investments: Array.isArray(rpcData.investments) ? rpcData.investments : initialSync.investments,
           };
 
           userExtraCacheRef.current.set(viewUser.id, updated);
@@ -716,21 +778,30 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
         console.warn("RPC fetch fallback to direct queries:", e);
       }
 
-      // Fallback: direct table queries with timeout
+      // Fallback: direct table queries without limit restrictions (Lifetime Records)
       const timeoutPromise = new Promise<{ isTimeout: true }>(resolve =>
-        setTimeout(() => resolve({ isTimeout: true }), 3000)
+        setTimeout(() => resolve({ isTimeout: true }), 4000)
       );
 
       const queriesPromise = Promise.allSettled([
         supabase.from("farms").select("*").eq("user_id", viewUser.id).order("created_at", { ascending: true }),
         supabase.from("ponds").select("*").eq("user_id", viewUser.id).order("created_at", { ascending: false }),
+        supabase.from("stock_events").select("*").eq("user_id", viewUser.id).order("event_date", { ascending: false }),
+        supabase.from("feed_inventory").select("*").eq("user_id", viewUser.id).order("created_at", { ascending: false }),
+        supabase.from("feeding_records").select("*").eq("user_id", viewUser.id).order("date", { ascending: false }),
+        supabase.from("bag_open_logs").select("*").eq("user_id", viewUser.id).order("date", { ascending: false }),
+        supabase.from("feed_remaining_logs").select("*").eq("user_id", viewUser.id).order("date", { ascending: false }),
+        supabase.from("sales_calculations").select("*").eq("user_id", viewUser.id).order("created_at", { ascending: false }),
+        supabase.from("sales_calculation_payments").select("*").order("created_at", { ascending: false }),
+        supabase.from("revenues").select("*").eq("user_id", viewUser.id).order("date", { ascending: false }),
+        supabase.from("expenses").select("*").eq("user_id", viewUser.id).order("date", { ascending: false }),
+        supabase.from("invoices").select("*").eq("user_id", viewUser.id).order("created_at", { ascending: false }),
+        supabase.from("treatment_records").select("*").eq("user_id", viewUser.id).order("date", { ascending: false }),
+        supabase.from("pond_reports").select("*").eq("user_id", viewUser.id).order("report_date", { ascending: false }),
+        supabase.from("farm_equipment").select("*").eq("user_id", viewUser.id).order("created_at", { ascending: false }),
         supabase.from("staff_members").select("*").eq("user_id", viewUser.id).order("created_at", { ascending: false }),
-        supabase.from("feed_inventory").select("*").eq("user_id", viewUser.id),
-        supabase.from("feeding_records").select("*").eq("user_id", viewUser.id).order("created_at", { ascending: false }).limit(60),
-        supabase.from("revenues").select("*").eq("user_id", viewUser.id).order("date", { ascending: false }).limit(60),
-        supabase.from("expenses").select("*").eq("user_id", viewUser.id).order("date", { ascending: false }).limit(60),
-        supabase.from("invoices").select("*").eq("user_id", viewUser.id).order("created_at", { ascending: false }).limit(60),
-        supabase.from("investors").select("*").eq("user_id", viewUser.id),
+        supabase.from("investors").select("*").eq("user_id", viewUser.id).order("created_at", { ascending: false }),
+        supabase.from("investments").select("*").eq("user_id", viewUser.id).order("created_at", { ascending: false }),
       ]);
 
       const result = await Promise.race([queriesPromise, timeoutPromise]);
@@ -741,7 +812,10 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
         return;
       }
 
-      const [farmsRes, pondsRes, staffRes, feedRes, feedingRes, revRes, expRes, invRes, investRes] = result;
+      const [
+        farmsRes, pondsRes, stockRes, feedRes, feedingRes, bagRes, remRes,
+        salesRes, paymentsRes, revRes, expRes, invRes, treatRes, repRes, equipRes, staffRes, investRes, investmentRes
+      ] = result;
 
       const extract = (res: PromiseSettledResult<any>, fallback: any[]) => {
         if (res.status === "fulfilled" && res.value?.data && Array.isArray(res.value.data) && res.value.data.length > 0) {
@@ -754,13 +828,22 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
         loading: false,
         farms: extract(farmsRes, initialSync.farms),
         ponds: extract(pondsRes, initialSync.ponds),
-        staff: extract(staffRes, initialSync.staff),
+        stockEvents: extract(stockRes, initialSync.stockEvents),
         feedInventory: extract(feedRes, initialSync.feedInventory),
         feedingRecords: extract(feedingRes, initialSync.feedingRecords),
+        bagOpenLogs: extract(bagRes, initialSync.bagOpenLogs),
+        feedRemainingLogs: extract(remRes, initialSync.feedRemainingLogs),
+        salesCalculations: extract(salesRes, initialSync.salesCalculations),
+        salesPayments: extract(paymentsRes, initialSync.salesPayments),
         revenues: extract(revRes, initialSync.revenues),
         expenses: extract(expRes, initialSync.expenses),
         invoices: extract(invRes, initialSync.invoices),
+        treatments: extract(treatRes, initialSync.treatments),
+        pondReports: extract(repRes, initialSync.pondReports),
+        equipment: extract(equipRes, initialSync.equipment),
+        staff: extract(staffRes, initialSync.staff),
         investors: extract(investRes, initialSync.investors),
+        investments: extract(investmentRes, initialSync.investments),
       };
 
       userExtraCacheRef.current.set(viewUser.id, updated);
@@ -1630,403 +1713,789 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
               </button>
             </div>
 
-            {/* Navigation Tabs for Farmer Data */}
-            <div className="px-5 pt-3 border-b border-slate-200 flex items-center justify-between gap-1.5 overflow-x-auto bg-slate-50/50 shrink-0">
-              <div className="flex items-center gap-1.5 overflow-x-auto">
-                {[
-                  { id: "summary", label: "📊 Overview", count: null },
-                  { id: "referrals", label: "🎁 Referrals", count: getUserReferralStats(viewUser).totalReferralsCount },
-                  { id: "ponds", label: "💧 Ponds & Fish", count: (userExtra?.ponds || []).length > 0 ? userExtra.ponds.length : (viewUser.pondCount ?? 0) },
-                  { id: "feed", label: "🌾 Feed & Stock", count: (userExtra?.feedInventory || []).length },
-                  { id: "finance", label: "💰 Financials & Invoices", count: (userExtra?.revenues?.length || 0) + (userExtra?.expenses?.length || 0) + (userExtra?.invoices?.length || 0) },
-                  { id: "staff", label: "👥 Staff Team", count: (userExtra?.staff || []).length > 0 ? userExtra.staff.length : (viewUser.staffCount ?? 0) },
-                  { id: "farms", label: "🏡 Farms", count: (userExtra?.farms || []).length > 0 ? userExtra.farms.length : (viewUser.farmCount ?? 1) },
-                ].map(t => (
-                  <button
-                    key={t.id}
-                    onClick={() => setFarmerDataTab(t.id as any)}
-                    className={`px-3 py-1.5 text-xs font-bold rounded-t-lg transition-colors border-b-2 whitespace-nowrap flex items-center gap-1.5 ${
-                      farmerDataTab === t.id
-                        ? "border-emerald-600 text-emerald-700 bg-white shadow-2xs"
-                        : "border-transparent text-slate-500 hover:text-slate-800"
-                    }`}
-                  >
-                    {t.label}
-                    {t.count !== null && (
-                      <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${
-                        farmerDataTab === t.id ? "bg-emerald-100 text-emerald-800" : "bg-slate-200 text-slate-600"
-                      }`}>
-                        {t.count}
-                      </span>
-                    )}
-                  </button>
-                ))}
-              </div>
-              {userExtra?.loading && (
-                <div className="hidden sm:flex items-center gap-1.5 text-[11px] text-slate-400 font-medium px-2 py-1 shrink-0 animate-pulse">
-                  <RefreshCw size={11} className="animate-spin text-emerald-600" />
-                  <span>Syncing data...</span>
-                </div>
-              )}
-            </div>
+            {/* Farm Scoping, Date Filter & Navigation Toolbar */}
+            {(() => {
+              const lagosTodayStr = getLagosTodayStr();
+              const lagosDateParts = getLagosDateParts();
+              const curMonthPrefix = `${lagosDateParts.year}-${String(lagosDateParts.month).padStart(2, "0")}`;
+              const curYearPrefix = `${lagosDateParts.year}-`;
 
-            {/* Modal Body with Tab Content */}
-            <div className="px-5 py-4 space-y-4 overflow-y-auto flex-1 text-xs">
-              {/* Tab 1: Summary & Operations Overview */}
-              {farmerDataTab === "summary" && (
-                <div className="space-y-4">
-                  {/* Account & Contact Summary */}
-                  <div>
-                    <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                      <Building size={13} className="text-emerald-600" /> Account, Contact & Location
-                    </h3>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-                      <div className="bg-slate-50/80 border border-slate-200/70 p-2.5 rounded-xl">
-                        <p className="text-[10px] uppercase font-bold text-slate-400">Full Name</p>
-                        <div className="flex items-center justify-between mt-0.5">
-                          <p className="font-bold text-slate-800 text-xs truncate">{viewUser.name || "—"}</p>
-                          <button onClick={() => copyToClipboard(viewUser.name || "", "Name")} className="text-slate-400 hover:text-slate-600 p-0.5"><Copy size={11} /></button>
+              const passesDateFilter = (rawDate: any) => {
+                if (farmDateFilter === "all") return true;
+                if (!rawDate) return false;
+                const ymd = toLocalYMD(rawDate);
+                if (!ymd) return false;
+                if (farmDateFilter === "today") return ymd === lagosTodayStr;
+                if (farmDateFilter === "month") return ymd.startsWith(curMonthPrefix);
+                if (farmDateFilter === "year") return ymd.startsWith(curYearPrefix);
+                if (farmDateFilter === "custom") {
+                  if (farmCustomStart && ymd < farmCustomStart) return false;
+                  if (farmCustomEnd && ymd > farmCustomEnd) return false;
+                  return true;
+                }
+                return true;
+              };
+
+              const passesFarmFilter = (rawFarmId: any) => {
+                if (selectedFarmFilterId === "all") return true;
+                if (!rawFarmId) return true;
+                return String(rawFarmId) === String(selectedFarmFilterId);
+              };
+
+              // Filtered datasets for active tab views & totals
+              const allFarms = userExtra?.farms || [];
+              const allPonds = (userExtra?.ponds || []).filter((p: any) => passesFarmFilter(p.farm_id || p.farmId));
+              const allStockEvents = (userExtra?.stockEvents || []).filter((s: any) => passesFarmFilter(s.farm_id) && passesDateFilter(s.event_date || s.created_at));
+              const allFeed = (userExtra?.feedInventory || []).filter((f: any) => passesFarmFilter(f.farm_id || f.farmId));
+              const allFeeding = (userExtra?.feedingRecords || []).filter((r: any) => passesFarmFilter(r.farm_id) && passesDateFilter(r.date || r.created_at));
+              const allBagLogs = (userExtra?.bagOpenLogs || []).filter((b: any) => passesFarmFilter(b.farm_id) && passesDateFilter(b.date || b.created_at));
+              const allFeedRem = (userExtra?.feedRemainingLogs || []).filter((b: any) => passesFarmFilter(b.farm_id) && passesDateFilter(b.date || b.created_at));
+              const allSales = (userExtra?.salesCalculations || []).filter((s: any) => passesFarmFilter(s.farm_id) && passesDateFilter(s.calc_date || s.created_at));
+              const allPayments = (userExtra?.salesPayments || []).filter((p: any) => passesDateFilter(p.payment_date || p.created_at));
+              const allRev = (userExtra?.revenues || []).filter((r: any) => passesFarmFilter(r.farm_id) && passesDateFilter(r.date || r.created_at));
+              const allExp = (userExtra?.expenses || []).filter((e: any) => passesFarmFilter(e.farm_id) && passesDateFilter(e.date || e.created_at));
+              const allInvoices = (userExtra?.invoices || []).filter((i: any) => passesFarmFilter(i.farm_id) && passesDateFilter(i.invoice_date || i.created_at));
+              const allTreatments = (userExtra?.treatments || []).filter((t: any) => passesFarmFilter(t.farm_id) && passesDateFilter(t.date || t.created_at));
+              const allPondReports = (userExtra?.pondReports || []).filter((p: any) => passesFarmFilter(p.farm_id) && passesDateFilter(p.report_date || p.date || p.created_at));
+              const allEquipment = userExtra?.equipment || [];
+              const allStaff = userExtra?.staff || [];
+              const allInvestors = userExtra?.investors || [];
+
+              // Financial & operational aggregations
+              const periodRevenue = allRev.reduce((s: number, r: any) => s + (Number(r?.amount) || 0), 0);
+              const periodExpenses = allExp.reduce((s: number, e: any) => s + (Number(e?.amount) || 0), 0);
+              const periodNetProfit = periodRevenue - periodExpenses;
+              const periodFeedKg = allFeeding.reduce((s: number, r: any) => s + (Number(r?.total ?? ((r?.morning || 0) + (r?.evening || 0))) || 0), 0);
+              const totalSalesAmount = allSales.reduce((s: number, sc: any) => s + (Number(sc?.total_amount) || 0), 0);
+              const totalSalesPaid = allSales.reduce((s: number, sc: any) => s + (Number(sc?.amount_paid) || 0), 0);
+              const totalSalesOutstanding = Math.max(0, totalSalesAmount - totalSalesPaid);
+
+              // Lifetime totals
+              const lifetimeRev = (userExtra?.revenues || []).reduce((s: number, r: any) => s + (Number(r?.amount) || 0), 0);
+              const lifetimeExp = (userExtra?.expenses || []).reduce((s: number, e: any) => s + (Number(e?.amount) || 0), 0);
+              const lifetimeFish = allPonds.reduce((s: number, p: any) => s + (Number(p?.current_count ?? p?.initial_stock) || 0), 0);
+              const lifetimeFeedBags = allFeed.reduce((s: number, f: any) => s + (Number(f?.bags_in_stock) || 0), 0);
+
+              const tabsList = [
+                { id: "summary", label: "📊 Farm Overview", count: null },
+                { id: "ponds", label: "💧 Ponds & Stocking", count: allPonds.length },
+                { id: "feed", label: "🌾 Feed Inventory", count: allFeed.length },
+                { id: "feeding", label: "🍽️ Feeding Records", count: allFeeding.length },
+                { id: "sales", label: "🏷️ Sales Management", count: allSales.length },
+                { id: "finance", label: "💰 Financials & Invoices", count: allRev.length + allExp.length + allInvoices.length },
+                { id: "health_equipment", label: "🩺 Health & Equipment", count: allTreatments.length + allPondReports.length + allEquipment.length },
+                { id: "staff_investors", label: "👥 Staff & Investors", count: allStaff.length + allInvestors.length },
+              ];
+
+              return (
+                <>
+                  {/* Top Farm Scoping & Date Filter Controls */}
+                  <div className="px-5 py-2.5 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs shrink-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      {/* Farm Selector */}
+                      {allFarms.length > 1 && (
+                        <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-lg px-2.5 py-1">
+                          <Building size={13} className="text-emerald-600 shrink-0" />
+                          <span className="text-[11px] font-bold text-slate-500">Farm:</span>
+                          <select
+                            value={selectedFarmFilterId}
+                            onChange={(e) => setSelectedFarmFilterId(e.target.value)}
+                            aria-label="Filter by farm"
+                            className="text-xs font-semibold text-slate-800 bg-transparent border-0 outline-none cursor-pointer pr-1"
+                          >
+                            <option value="all">All User Farms ({allFarms.length})</option>
+                            {allFarms.map((f: any) => (
+                              <option key={f.id} value={f.id}>{f.name || "Farm"}</option>
+                            ))}
+                          </select>
                         </div>
-                      </div>
-                      <div className="bg-slate-50/80 border border-slate-200/70 p-2.5 rounded-xl">
-                        <p className="text-[10px] uppercase font-bold text-slate-400">Email Address</p>
-                        <div className="flex items-center justify-between mt-0.5">
-                          <p className="font-semibold text-slate-800 text-xs truncate" title={viewUser.email}>{viewUser.email || "—"}</p>
-                          <button onClick={() => copyToClipboard(viewUser.email || "", "Email")} className="text-slate-400 hover:text-slate-600 p-0.5"><Copy size={11} /></button>
-                        </div>
-                      </div>
-                      <div className="bg-slate-50/80 border border-slate-200/70 p-2.5 rounded-xl">
-                        <p className="text-[10px] uppercase font-bold text-slate-400">Phone Number</p>
-                        <p className={`font-semibold text-xs mt-0.5 truncate ${viewUser.phone ? "text-emerald-700 font-mono" : "text-slate-400 italic"}`}>
-                          {viewUser.phone || "Not provided"}
-                        </p>
-                      </div>
-                      <div className="bg-slate-50/80 border border-slate-200/70 p-2.5 rounded-xl">
-                        <p className="text-[10px] uppercase font-bold text-slate-400">Primary Farm</p>
-                        <p className="font-bold text-slate-800 text-xs mt-0.5 truncate">{viewUser.farmName || "Primary Farm"}</p>
-                      </div>
-                      <div className="bg-slate-50/80 border border-slate-200/70 p-2.5 rounded-xl">
-                        <p className="text-[10px] uppercase font-bold text-slate-400">Location</p>
-                        <p className="font-semibold text-slate-800 text-xs mt-0.5 truncate">
-                          {[viewUser.city, viewUser.state, viewUser.country].filter(Boolean).join(", ") || "Nigeria"}
-                        </p>
-                      </div>
-                      <div className="bg-slate-50/80 border border-slate-200/70 p-2.5 rounded-xl">
-                        <p className="text-[10px] uppercase font-bold text-slate-400">Registered Date</p>
-                        <p className="font-semibold text-slate-800 text-xs mt-0.5">{fmtDate(viewUser.createdAt)}</p>
-                      </div>
-                    </div>
-                  </div>
+                      )}
 
-                  {/* All Farmer Assets Overview Grid */}
-                  <div>
-                    <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                      <Layers size={13} className="text-emerald-600" /> Farm Records & Assets Summary
-                    </h3>
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                      <div className="bg-slate-50 border border-slate-200 p-2.5 rounded-xl text-center">
-                        <p className="text-[10px] uppercase font-bold text-slate-400">Total Farms</p>
-                        <p className="text-lg font-extrabold text-slate-800 font-['Barlow_Condensed',sans-serif] mt-0.5">
-                          {(userExtra?.farms || []).length > 0 ? userExtra.farms.length : (viewUser.farmCount || 1)}
-                        </p>
+                      {/* Date Filter Badges */}
+                      <div className="inline-flex items-center bg-slate-200/70 p-0.5 rounded-lg">
+                        {[
+                          { id: "all", label: "All Time (Lifetime)" },
+                          { id: "today", label: "Today" },
+                          { id: "month", label: "This Month" },
+                          { id: "year", label: "This Year" },
+                          { id: "custom", label: "Custom Range" },
+                        ].map((df) => (
+                          <button
+                            key={df.id}
+                            onClick={() => setFarmDateFilter(df.id as any)}
+                            className={`px-2.5 py-1 text-[11px] font-bold rounded-md transition-all ${
+                              farmDateFilter === df.id
+                                ? "bg-white text-emerald-700 shadow-2xs"
+                                : "text-slate-600 hover:text-slate-900"
+                            }`}
+                          >
+                            {df.label}
+                          </button>
+                        ))}
                       </div>
-                      <div className="bg-blue-50/50 border border-blue-200/70 p-2.5 rounded-xl text-center">
-                        <p className="text-[10px] uppercase font-bold text-blue-500">Ponds Active</p>
-                        <p className="text-lg font-extrabold text-blue-700 font-['Barlow_Condensed',sans-serif] mt-0.5">
-                          {(userExtra?.ponds || []).length > 0 ? userExtra.ponds.length : (viewUser.pondCount || 0)}
-                        </p>
-                      </div>
-                      <div className="bg-cyan-50/50 border border-cyan-200/70 p-2.5 rounded-xl text-center">
-                        <p className="text-[10px] uppercase font-bold text-cyan-600">Fish Stocked</p>
-                        <p className="text-lg font-extrabold text-cyan-800 font-['Barlow_Condensed',sans-serif] mt-0.5">
-                          {(userExtra?.ponds || []).length > 0
-                            ? userExtra.ponds.reduce((s, p) => s + (Number(p?.current_count ?? p?.initial_stock) || 0), 0).toLocaleString()
-                            : (viewUser.totalFishStocked ? Number(viewUser.totalFishStocked).toLocaleString() : "0")}
-                        </p>
-                      </div>
-                      <div className="bg-emerald-50/50 border border-emerald-200/70 p-2.5 rounded-xl text-center">
-                        <p className="text-[10px] uppercase font-bold text-emerald-600">Feed in Stock</p>
-                        <p className="text-lg font-extrabold text-emerald-800 font-['Barlow_Condensed',sans-serif] mt-0.5">
-                          {(userExtra?.feedInventory || []).reduce((s, f) => s + (Number(f?.bags_in_stock) || 0), 0)} Bags
-                        </p>
-                      </div>
-                      <div className="bg-amber-50/50 border border-amber-200/70 p-2.5 rounded-xl text-center">
-                        <p className="text-[10px] uppercase font-bold text-amber-700">Feed Consumed</p>
-                        <p className="text-lg font-extrabold text-amber-800 font-['Barlow_Condensed',sans-serif] mt-0.5">
-                          {(userExtra?.feedingRecords || []).reduce((s, r) => s + (Number(r?.total) || 0), 0)} kg
-                        </p>
-                      </div>
-                      <div className="bg-emerald-50/50 border border-emerald-200/70 p-2.5 rounded-xl text-center">
-                        <p className="text-[10px] uppercase font-bold text-emerald-700">Total Revenue</p>
-                        <p className="text-lg font-extrabold text-emerald-900 font-['Barlow_Condensed',sans-serif] mt-0.5">
-                          ₦{(userExtra?.revenues || []).reduce((s, r) => s + (Number(r?.amount) || 0), 0).toLocaleString()}
-                        </p>
-                      </div>
-                      <div className="bg-purple-50/50 border border-purple-200/70 p-2.5 rounded-xl text-center">
-                        <p className="text-[10px] uppercase font-bold text-purple-600">Sales Invoices</p>
-                        <p className="text-lg font-extrabold text-purple-800 font-['Barlow_Condensed',sans-serif] mt-0.5">
-                          {(userExtra?.invoices || []).length > 0 ? userExtra.invoices.length : (viewUser.invoicesCount || 0)}
-                        </p>
-                      </div>
-                      <div className="bg-slate-50 border border-slate-200 p-2.5 rounded-xl text-center">
-                        <p className="text-[10px] uppercase font-bold text-slate-500">Staff Team</p>
-                        <p className="text-lg font-extrabold text-slate-800 font-['Barlow_Condensed',sans-serif] mt-0.5">
-                          {(userExtra?.staff || []).length > 0 ? userExtra.staff.length : (viewUser.staffCount || 0)}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
 
-                  {/* Subscription & Rate Override */}
-                  <div>
-                    <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                      <CreditCard size={13} className="text-emerald-600" /> Subscription, Plan & Rate Override
-                    </h3>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-                      <div className="bg-white border border-slate-200 p-2.5 rounded-xl">
-                        <p className="text-[10px] uppercase font-bold text-slate-400">Current Plan</p>
-                        <p className="font-bold text-slate-900 text-xs mt-0.5">{viewUser.activePlan || "Starter"}</p>
-                      </div>
-                      <div className="bg-white border border-slate-200 p-2.5 rounded-xl">
-                        <p className="text-[10px] uppercase font-bold text-slate-400">Billing Frequency</p>
-                        <p className="font-semibold text-slate-800 text-xs mt-0.5 capitalize">{viewUser.billingFrequency || "monthly"}</p>
-                      </div>
-                      <div className="bg-white border border-slate-200 p-2.5 rounded-xl">
-                        <p className="text-[10px] uppercase font-bold text-slate-400">Custom Price Override</p>
-                        <p className={`font-bold text-xs mt-0.5 ${typeof viewUser.subscriptionAmount === "number" ? "text-emerald-700" : "text-slate-500"}`}>
-                          {typeof viewUser.subscriptionAmount === "number" ? `₦${viewUser.subscriptionAmount.toLocaleString()} (Custom)` : "Plan standard"}
-                        </p>
-                      </div>
-                      <div className="bg-white border border-slate-200 p-2.5 rounded-xl">
-                        <p className="text-[10px] uppercase font-bold text-slate-400">Trial Period</p>
-                        <p className="font-semibold text-xs mt-0.5 text-amber-700">
-                          {trialDaysLeft(viewUser.trialStartDate)} days left (started {fmtDate(viewUser.trialStartDate)})
-                        </p>
-                      </div>
-                      <div className="bg-white border border-slate-200 p-2.5 rounded-xl">
-                        <p className="text-[10px] uppercase font-bold text-slate-400">Payment Status</p>
-                        <p className="font-semibold text-xs mt-0.5">
-                          {viewUser.hasPaid || viewUser.paystackReference ? (
-                            <span className="text-emerald-600 font-bold">Paid & Verified</span>
-                          ) : (
-                            <span className="text-slate-500">Unpaid / Trial</span>
+                      {/* Custom Range Inputs */}
+                      {farmDateFilter === "custom" && (
+                        <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-lg px-2 py-1">
+                          <Calendar size={12} className="text-slate-400" />
+                          <input
+                            type="date"
+                            value={farmCustomStart}
+                            onChange={(e) => setFarmCustomStart(e.target.value)}
+                            aria-label="Start date filter"
+                            className="text-[11px] font-semibold text-slate-700 outline-none border-b border-slate-200 focus:border-emerald-500"
+                          />
+                          <span className="text-slate-400 text-[10px]">to</span>
+                          <input
+                            type="date"
+                            value={farmCustomEnd}
+                            onChange={(e) => setFarmCustomEnd(e.target.value)}
+                            aria-label="End date filter"
+                            className="text-[11px] font-semibold text-slate-700 outline-none border-b border-slate-200 focus:border-emerald-500"
+                          />
+                          {(farmCustomStart || farmCustomEnd) && (
+                            <button
+                              onClick={() => { setFarmCustomStart(""); setFarmCustomEnd(""); }}
+                              className="text-slate-400 hover:text-slate-600 text-[10px] ml-0.5"
+                              title="Clear range"
+                            >
+                              <RotateCcw size={10} />
+                            </button>
                           )}
-                        </p>
-                      </div>
-                      <div className="bg-white border border-slate-200 p-2.5 rounded-xl">
-                        <p className="text-[10px] uppercase font-bold text-slate-400">Subscription Expiry</p>
-                        <p className="font-semibold text-slate-800 text-xs mt-0.5">{fmtDate(viewUser.subscriptionExpiry)}</p>
-                      </div>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] font-medium text-slate-500">
+                        {farmDateFilter === "all" ? (
+                          <span className="text-emerald-700 font-bold bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                            Lifetime Records
+                          </span>
+                        ) : farmDateFilter === "today" ? (
+                          <span className="text-blue-700 font-bold bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200">
+                            Today (WAT): {lagosTodayStr}
+                          </span>
+                        ) : farmDateFilter === "month" ? (
+                          <span className="text-purple-700 font-bold bg-purple-50 px-2 py-0.5 rounded-full border border-purple-200">
+                            Month: {curMonthPrefix}
+                          </span>
+                        ) : farmDateFilter === "year" ? (
+                          <span className="text-slate-700 font-bold bg-slate-100 px-2 py-0.5 rounded-full border border-slate-200">
+                            Year: {lagosDateParts.year}
+                          </span>
+                        ) : (
+                          <span className="text-amber-800 font-bold bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
+                            Range: {farmCustomStart || "..."} - {farmCustomEnd || "..."}
+                          </span>
+                        )}
+                      </span>
+
+                      {userExtra?.loading && (
+                        <div className="flex items-center gap-1.5 text-[11px] text-slate-400 font-medium px-2 py-0.5 animate-pulse">
+                          <RefreshCw size={11} className="animate-spin text-emerald-600" />
+                          <span>Syncing...</span>
+                        </div>
+                      )}
                     </div>
                   </div>
 
-                  {/* Referral Program Overview Card */}
-                  {(() => {
-                    const rStats = getUserReferralStats(viewUser);
-                    return (
-                      <div>
-                        <div className="flex items-center justify-between mb-2">
-                          <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
-                            <Gift size={13} className="text-purple-600" /> Referral Program & Commissions
+                  {/* Navigation Tabs for Farmer Data */}
+                  <div className="px-5 pt-2 border-b border-slate-200 flex items-center justify-between gap-1.5 overflow-x-auto bg-slate-50/50 shrink-0">
+                    <div className="flex items-center gap-1.5 overflow-x-auto">
+                      {tabsList.map((t) => (
+                        <button
+                          key={t.id}
+                          onClick={() => setFarmerDataTab(t.id as any)}
+                          className={`px-3 py-1.5 text-xs font-bold rounded-t-lg transition-colors border-b-2 whitespace-nowrap flex items-center gap-1.5 ${
+                            farmerDataTab === t.id
+                              ? "border-emerald-600 text-emerald-700 bg-white shadow-2xs"
+                              : "border-transparent text-slate-500 hover:text-slate-800"
+                          }`}
+                        >
+                          {t.label}
+                          {t.count !== null && (
+                            <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${
+                              farmerDataTab === t.id ? "bg-emerald-100 text-emerald-800" : "bg-slate-200 text-slate-600"
+                            }`}>
+                              {t.count}
+                            </span>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Modal Body with Tab Content */}
+                  <div className="px-5 py-4 space-y-4 overflow-y-auto flex-1 text-xs">
+                    {/* Tab 1: Summary & Operations Overview */}
+                    {farmerDataTab === "summary" && (
+                      <div className="space-y-4">
+                        {/* Account & Contact Summary */}
+                        <div>
+                          <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                            <Building size={13} className="text-emerald-600" /> Farm Identity & Contact Details
                           </h3>
-                          <button
-                            onClick={() => setFarmerDataTab("referrals")}
-                            className="text-purple-700 hover:text-purple-900 font-bold text-[11px] inline-flex items-center gap-1"
-                          >
-                            View Referrals Tab <ArrowRight size={11} />
-                          </button>
-                        </div>
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                          <div className="bg-purple-50/60 border border-purple-200/70 p-2.5 rounded-xl">
-                            <p className="text-[10px] uppercase font-bold text-purple-600">Referral Code</p>
-                            <div className="flex items-center justify-between mt-0.5">
-                              <span className="font-mono font-bold text-purple-900 text-xs">{rStats.referralCode}</span>
-                              <button
-                                onClick={() => copyToClipboard(rStats.referralCode, "Referral code")}
-                                className="text-purple-500 hover:text-purple-800 p-0.5"
-                                title="Copy referral code"
-                              >
-                                <Copy size={11} />
-                              </button>
+                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                            <div className="bg-slate-50/80 border border-slate-200/70 p-2.5 rounded-xl">
+                              <p className="text-[10px] uppercase font-bold text-slate-400">Farm Name</p>
+                              <p className="font-bold text-slate-800 text-xs mt-0.5 truncate">{viewUser.farmName || "Primary Farm"}</p>
                             </div>
-                          </div>
-                          <div className="bg-slate-50 border border-slate-200 p-2.5 rounded-xl text-center">
-                            <p className="text-[10px] uppercase font-bold text-slate-400">Total Referred</p>
-                            <p className="text-lg font-extrabold text-slate-800 font-['Barlow_Condensed',sans-serif] mt-0.5">
-                              {rStats.totalReferralsCount} <span className="text-[11px] font-normal text-slate-400">({rStats.paidReferralsCount} paid)</span>
-                            </p>
-                          </div>
-                          <div className="bg-emerald-50/60 border border-emerald-200/70 p-2.5 rounded-xl text-center">
-                            <p className="text-[10px] uppercase font-bold text-emerald-600">Total Earned</p>
-                            <p className="text-lg font-extrabold text-emerald-800 font-['Barlow_Condensed',sans-serif] mt-0.5">
-                              ₦{rStats.totalEarnings.toLocaleString()}
-                            </p>
-                          </div>
-                          <div className="bg-amber-50/60 border border-amber-200/70 p-2.5 rounded-xl text-center flex flex-col justify-between">
-                            <div>
-                              <p className="text-[10px] uppercase font-bold text-amber-700">Available Payout</p>
-                              <p className="text-lg font-extrabold text-amber-900 font-['Barlow_Condensed',sans-serif] mt-0.5">
-                                ₦{rStats.availableEarnings.toLocaleString()}
+                            <div className="bg-slate-50/80 border border-slate-200/70 p-2.5 rounded-xl">
+                              <p className="text-[10px] uppercase font-bold text-slate-400">Account Owner</p>
+                              <div className="flex items-center justify-between mt-0.5">
+                                <p className="font-bold text-slate-800 text-xs truncate">{viewUser.name || "—"}</p>
+                                <button onClick={() => copyToClipboard(viewUser.name || "", "Name")} className="text-slate-400 hover:text-slate-600 p-0.5"><Copy size={11} /></button>
+                              </div>
+                            </div>
+                            <div className="bg-slate-50/80 border border-slate-200/70 p-2.5 rounded-xl">
+                              <p className="text-[10px] uppercase font-bold text-slate-400">Email Address</p>
+                              <div className="flex items-center justify-between mt-0.5">
+                                <p className="font-semibold text-slate-800 text-xs truncate" title={viewUser.email}>{viewUser.email || "—"}</p>
+                                <button onClick={() => copyToClipboard(viewUser.email || "", "Email")} className="text-slate-400 hover:text-slate-600 p-0.5"><Copy size={11} /></button>
+                              </div>
+                            </div>
+                            <div className="bg-slate-50/80 border border-slate-200/70 p-2.5 rounded-xl">
+                              <p className="text-[10px] uppercase font-bold text-slate-400">Phone Number</p>
+                              <p className={`font-semibold text-xs mt-0.5 truncate ${viewUser.phone ? "text-emerald-700 font-mono" : "text-slate-400 italic"}`}>
+                                {viewUser.phone || "Not provided"}
                               </p>
                             </div>
-                            {rStats.availableEarnings > 0 ? (
-                              <button
-                                onClick={async (e) => {
-                                  e.stopPropagation();
-                                  await handleClearReferralBalance(rStats);
-                                }}
-                                className="mt-1.5 w-full py-1 px-1.5 bg-amber-600 hover:bg-amber-700 text-white font-bold text-[10px] rounded-lg transition-colors shadow-xs"
-                              >
-                                Clear Balance (Paid)
-                              </button>
-                            ) : (
-                              <div className="mt-1.5 py-0.5 px-1.5 bg-slate-100/90 rounded text-[10px] font-semibold text-slate-500">
-                                Settled (₦0)
-                              </div>
-                            )}
+                            <div className="bg-slate-50/80 border border-slate-200/70 p-2.5 rounded-xl">
+                              <p className="text-[10px] uppercase font-bold text-slate-400">Location</p>
+                              <p className="font-semibold text-slate-800 text-xs mt-0.5 truncate">
+                                {[viewUser.city, viewUser.state, viewUser.country].filter(Boolean).join(", ") || "Nigeria"}
+                              </p>
+                            </div>
+                            <div className="bg-slate-50/80 border border-slate-200/70 p-2.5 rounded-xl">
+                              <p className="text-[10px] uppercase font-bold text-slate-400">Registered Date</p>
+                              <p className="font-semibold text-slate-800 text-xs mt-0.5">{fmtDate(viewUser.createdAt)}</p>
+                            </div>
                           </div>
                         </div>
 
-                        {/* Clearance History Table (Directly below the 4 referral cards) */}
-                        <ClearanceHistorySection
-                          payouts={rStats.payouts}
-                          paidOutEarnings={rStats.paidOutEarnings}
-                          onDeletePayout={handleDeleteReferralPayout}
-                        />
+                        {/* Filtered Period Operations Snapshot */}
+                        <div>
+                          <div className="flex items-center justify-between mb-2">
+                            <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                              <Layers size={13} className="text-emerald-600" /> Operational Snapshot ({farmDateFilter === "all" ? "Lifetime Total" : "Selected Period"})
+                            </h3>
+                            {farmDateFilter !== "all" && (
+                              <button
+                                onClick={() => setFarmDateFilter("all")}
+                                className="text-[10px] text-emerald-700 hover:underline font-bold"
+                              >
+                                Reset to Lifetime
+                              </button>
+                            )}
+                          </div>
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                            <div className="bg-blue-50/60 border border-blue-200/70 p-2.5 rounded-xl text-center">
+                              <p className="text-[10px] uppercase font-bold text-blue-500">Ponds Active</p>
+                              <p className="text-lg font-extrabold text-blue-700 font-['Barlow_Condensed',sans-serif] mt-0.5">
+                                {allPonds.length}
+                              </p>
+                              <p className="text-[10px] text-blue-600">{lifetimeFish.toLocaleString()} fish stocked</p>
+                            </div>
+                            <div className="bg-amber-50/60 border border-amber-200/70 p-2.5 rounded-xl text-center">
+                              <p className="text-[10px] uppercase font-bold text-amber-700">Feed Consumed</p>
+                              <p className="text-lg font-extrabold text-amber-800 font-['Barlow_Condensed',sans-serif] mt-0.5">
+                                {periodFeedKg.toLocaleString()} kg
+                              </p>
+                              <p className="text-[10px] text-amber-600">{allFeeding.length} feeding entries</p>
+                            </div>
+                            <div className="bg-emerald-50/60 border border-emerald-200/70 p-2.5 rounded-xl text-center">
+                              <p className="text-[10px] uppercase font-bold text-emerald-700">Recorded Revenue</p>
+                              <p className="text-lg font-extrabold text-emerald-900 font-['Barlow_Condensed',sans-serif] mt-0.5">
+                                ₦{periodRevenue.toLocaleString()}
+                              </p>
+                              <p className="text-[10px] text-emerald-600">{allRev.length} revenue records</p>
+                            </div>
+                            <div className="bg-rose-50/60 border border-rose-200/70 p-2.5 rounded-xl text-center">
+                              <p className="text-[10px] uppercase font-bold text-rose-700">Recorded Expenses</p>
+                              <p className="text-lg font-extrabold text-rose-900 font-['Barlow_Condensed',sans-serif] mt-0.5">
+                                ₦{periodExpenses.toLocaleString()}
+                              </p>
+                              <p className="text-[10px] text-rose-600">{allExp.length} expense records</p>
+                            </div>
+                            <div className="bg-purple-50/60 border border-purple-200/70 p-2.5 rounded-xl text-center">
+                              <p className="text-[10px] uppercase font-bold text-purple-700">Net Profit (Period)</p>
+                              <p className={`text-lg font-extrabold font-['Barlow_Condensed',sans-serif] mt-0.5 ${periodNetProfit >= 0 ? "text-purple-900" : "text-rose-700"}`}>
+                                {periodNetProfit >= 0 ? `₦${periodNetProfit.toLocaleString()}` : `-₦${Math.abs(periodNetProfit).toLocaleString()}`}
+                              </p>
+                              <p className="text-[10px] text-purple-600">{allInvoices.length} invoices</p>
+                            </div>
+                            <div className="bg-teal-50/60 border border-teal-200/70 p-2.5 rounded-xl text-center">
+                              <p className="text-[10px] uppercase font-bold text-teal-700">Sales Calculations</p>
+                              <p className="text-lg font-extrabold text-teal-900 font-['Barlow_Condensed',sans-serif] mt-0.5">
+                                ₦{totalSalesAmount.toLocaleString()}
+                              </p>
+                              <p className="text-[10px] text-teal-600">₦{totalSalesPaid.toLocaleString()} paid • ₦{totalSalesOutstanding.toLocaleString()} balance</p>
+                            </div>
+                            <div className="bg-slate-50 border border-slate-200 p-2.5 rounded-xl text-center">
+                              <p className="text-[10px] uppercase font-bold text-slate-500">Feed in Stock</p>
+                              <p className="text-lg font-extrabold text-slate-800 font-['Barlow_Condensed',sans-serif] mt-0.5">
+                                {lifetimeFeedBags} Bags
+                              </p>
+                              <p className="text-[10px] text-slate-500">{allFeed.length} feed brands</p>
+                            </div>
+                            <div className="bg-slate-50 border border-slate-200 p-2.5 rounded-xl text-center">
+                              <p className="text-[10px] uppercase font-bold text-slate-500">Farm Team</p>
+                              <p className="text-lg font-extrabold text-slate-800 font-['Barlow_Condensed',sans-serif] mt-0.5">
+                                {allStaff.length} Staff
+                              </p>
+                              <p className="text-[10px] text-slate-500">{allInvestors.length} Investors</p>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Subscription & Account Status */}
+                        <div>
+                          <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                            <CreditCard size={13} className="text-emerald-600" /> Subscription & Plan Status
+                          </h3>
+                          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                            <div className="bg-white border border-slate-200 p-2.5 rounded-xl">
+                              <p className="text-[10px] uppercase font-bold text-slate-400">Current Plan</p>
+                              <p className="font-bold text-slate-900 text-xs mt-0.5">{viewUser.activePlan || "Starter"}</p>
+                            </div>
+                            <div className="bg-white border border-slate-200 p-2.5 rounded-xl">
+                              <p className="text-[10px] uppercase font-bold text-slate-400">Billing Frequency</p>
+                              <p className="font-semibold text-slate-800 text-xs mt-0.5 capitalize">{viewUser.billingFrequency || "monthly"}</p>
+                            </div>
+                            <div className="bg-white border border-slate-200 p-2.5 rounded-xl">
+                              <p className="text-[10px] uppercase font-bold text-slate-400">Subscription Amount</p>
+                              <p className={`font-bold text-xs mt-0.5 ${typeof viewUser.subscriptionAmount === "number" ? "text-emerald-700" : "text-slate-500"}`}>
+                                {typeof viewUser.subscriptionAmount === "number" ? `₦${viewUser.subscriptionAmount.toLocaleString()}` : "Standard Plan"}
+                              </p>
+                            </div>
+                            <div className="bg-white border border-slate-200 p-2.5 rounded-xl">
+                              <p className="text-[10px] uppercase font-bold text-slate-400">Trial Period</p>
+                              <p className="font-semibold text-xs mt-0.5 text-amber-700">
+                                {trialDaysLeft(viewUser.trialStartDate)} days left (started {fmtDate(viewUser.trialStartDate)})
+                              </p>
+                            </div>
+                            <div className="bg-white border border-slate-200 p-2.5 rounded-xl">
+                              <p className="text-[10px] uppercase font-bold text-slate-400">Payment Status</p>
+                              <p className="font-semibold text-xs mt-0.5">
+                                {viewUser.hasPaid || viewUser.paystackReference ? (
+                                  <span className="text-emerald-600 font-bold">Paid & Active</span>
+                                ) : (
+                                  <span className="text-slate-500">Unpaid / Trial</span>
+                                )}
+                              </p>
+                            </div>
+                            <div className="bg-white border border-slate-200 p-2.5 rounded-xl">
+                              <p className="text-[10px] uppercase font-bold text-slate-400">Subscription Expiry</p>
+                              <p className="font-semibold text-slate-800 text-xs mt-0.5">{fmtDate(viewUser.subscriptionExpiry)}</p>
+                            </div>
+                          </div>
+                        </div>
                       </div>
-                    );
-                  })()}
-                </div>
-              )}
+                    )}
 
-              {/* Tab: Referrals List & Payout Controls */}
-              {farmerDataTab === "referrals" && (
-                <div className="space-y-4">
-                  {(() => {
-                    const rStats = getUserReferralStats(viewUser);
-                    return (
-                      <>
-                        {/* Referral Summary Header Cards */}
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                          <div className="bg-purple-50/80 border border-purple-200 p-3 rounded-xl">
-                            <p className="text-[10px] uppercase font-bold text-purple-600">Referral Code</p>
-                            <div className="flex items-center justify-between mt-1">
-                              <span className="font-mono font-extrabold text-purple-900 text-sm tracking-wide">{rStats.referralCode}</span>
-                              <button
-                                onClick={() => copyToClipboard(rStats.referralCode, "Referral code")}
-                                className="text-purple-600 hover:text-purple-900 p-1 rounded hover:bg-purple-100"
-                                title="Copy code"
-                              >
-                                <Copy size={13} />
-                              </button>
+                    {/* Tab 2: Ponds & Fish Batches */}
+                    {farmerDataTab === "ponds" && (
+                      <div className="space-y-4">
+                        <div>
+                          <div className="flex items-center justify-between mb-2">
+                            <h3 className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                              <Droplets size={14} className="text-blue-500" />
+                              Ponds & Current Fish Populations ({allPonds.length})
+                            </h3>
+                            <span className="text-[11px] text-slate-500 font-medium">
+                              Total Current Fish: <strong className="text-blue-700">{lifetimeFish.toLocaleString()}</strong>
+                            </span>
+                          </div>
+
+                          {allPonds.length === 0 ? (
+                            <div className="p-6 text-center border border-slate-200 rounded-xl bg-slate-50 text-slate-400">
+                              No ponds found for this farm.
                             </div>
-                          </div>
-
-                          <div className="bg-slate-50 border border-slate-200 p-3 rounded-xl">
-                            <p className="text-[10px] uppercase font-bold text-slate-400">Total Farmers Invited</p>
-                            <p className="text-xl font-extrabold text-slate-800 font-['Barlow_Condensed',sans-serif] mt-1">
-                              {rStats.totalReferralsCount}
-                              <span className="text-xs font-normal text-slate-500 ml-1.5 font-sans">
-                                ({rStats.paidReferralsCount} paid, {rStats.trialReferralsCount} trial)
-                              </span>
-                            </p>
-                          </div>
-
-                          <div className="bg-emerald-50 border border-emerald-200 p-3 rounded-xl">
-                            <p className="text-[10px] uppercase font-bold text-emerald-600">Total Commission Earned</p>
-                            <p className="text-xl font-extrabold text-emerald-800 font-['Barlow_Condensed',sans-serif] mt-1">
-                              ₦{rStats.totalEarnings.toLocaleString()}
-                            </p>
-                          </div>
-
-                          <div className="bg-amber-50 border border-amber-200 p-3 rounded-xl flex flex-col justify-between">
-                            <div>
-                              <p className="text-[10px] uppercase font-bold text-amber-700">Available Payout</p>
-                              <p className="text-xl font-extrabold text-amber-900 font-['Barlow_Condensed',sans-serif] mt-0.5">
-                                ₦{rStats.availableEarnings.toLocaleString()}
-                              </p>
-                              {rStats.paidOutEarnings > 0 && (
-                                <p className="text-[10px] text-slate-500 mt-0.5">
-                                  (₦{rStats.paidOutEarnings.toLocaleString()} previously settled)
-                                </p>
-                              )}
+                          ) : (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                              {allPonds.map((p: any, idx: number) => {
+                                const fishCount = Number(p.current_count ?? p.initial_stock) || 0;
+                                const initCount = Number(p.initial_stock) || 0;
+                                return (
+                                  <div key={p.id || idx} className="p-3 bg-white border border-slate-200 rounded-xl shadow-2xs hover:border-slate-300 transition-colors">
+                                    <div className="flex items-center justify-between">
+                                      <p className="font-bold text-slate-900 text-xs truncate">{p.name || `Pond #${idx + 1}`}</p>
+                                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                                        (p.status || "active").toLowerCase() === "active" ? "bg-emerald-100 text-emerald-800" : "bg-slate-100 text-slate-600"
+                                      }`}>
+                                        {p.status || "Active"}
+                                      </span>
+                                    </div>
+                                    <div className="grid grid-cols-3 gap-2 mt-2 pt-2 border-t border-slate-100 text-[11px]">
+                                      <div>
+                                        <p className="text-[10px] text-slate-400">Current Fish</p>
+                                        <p className="font-extrabold text-blue-700 font-['Barlow_Condensed',sans-serif] text-base">{fishCount.toLocaleString()}</p>
+                                      </div>
+                                      <div>
+                                        <p className="text-[10px] text-slate-400">Species</p>
+                                        <p className="font-semibold text-slate-700 truncate">{p.species || "Catfish"}</p>
+                                      </div>
+                                      <div>
+                                        <p className="text-[10px] text-slate-400">Size / Depth</p>
+                                        <p className="font-semibold text-slate-700">{p.size_m2 ? `${p.size_m2}m²` : "—"}</p>
+                                      </div>
+                                    </div>
+                                    <div className="mt-2 text-[10px] text-slate-400 flex items-center justify-between">
+                                      <span>Stocked: {fmtDate(p.stocking_date)} ({initCount.toLocaleString()} init)</span>
+                                      {p.water_source && <span>Water: {p.water_source}</span>}
+                                    </div>
+                                  </div>
+                                );
+                              })}
                             </div>
-                            {rStats.availableEarnings > 0 ? (
-                              <button
-                                onClick={async () => {
-                                  await handleClearReferralBalance(rStats);
-                                }}
-                                className="mt-2 w-full py-1.5 px-2 bg-amber-600 hover:bg-amber-700 text-white font-bold text-[11px] rounded-lg transition-colors shadow-xs flex items-center justify-center gap-1"
-                              >
-                                <CheckCircle size={12} /> Clear Balance (Mark Paid)
-                              </button>
-                            ) : (
-                              <div className="mt-2 py-1 px-2 bg-slate-100 text-slate-500 font-semibold text-[11px] rounded-lg text-center">
-                                All Commissions Settled (₦0 Available)
-                              </div>
-                            )}
-                          </div>
+                          )}
                         </div>
 
-                        {/* Clearance History Table in Referrals Tab */}
-                        <ClearanceHistorySection
-                          payouts={rStats.payouts}
-                          paidOutEarnings={rStats.paidOutEarnings}
-                          onDeletePayout={handleDeleteReferralPayout}
-                        />
-
-                        {/* Referral Link Quick Copy Box */}
-                        <div className="bg-slate-50 border border-slate-200 p-3 rounded-xl flex items-center justify-between gap-3">
-                          <div className="min-w-0 flex-1">
-                            <p className="text-[10px] uppercase font-bold text-slate-400">Shareable Invite Link</p>
-                            <p className="text-xs font-mono text-slate-700 truncate mt-0.5">{rStats.referralLink}</p>
-                          </div>
-                          <button
-                            onClick={() => copyToClipboard(rStats.referralLink, "Referral link")}
-                            className="shrink-0 px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs rounded-lg transition-colors flex items-center gap-1.5"
-                          >
-                            <Copy size={12} /> Copy Invite Link
-                          </button>
-                        </div>
-
-                        {/* Referred Farmers Table / List */}
+                        {/* Fish Stock Events, Transfers & Mortalities */}
                         <div>
                           <h3 className="text-xs font-bold text-slate-700 mb-2 flex items-center gap-1.5">
-                            <UsersIcon size={14} className="text-purple-600" />
-                            Farmers Registered via {viewUser.name || "this user"}'s Code ({rStats.referredUsers.length})
+                            <Layers size={13} className="text-slate-600" />
+                            Fish Stock Events, Transfers & Mortalities ({allStockEvents.length})
                           </h3>
-
-                          {rStats.referredUsers.length === 0 ? (
-                            <div className="p-8 text-center border border-slate-200 rounded-xl bg-slate-50 text-slate-400">
-                              <Gift size={28} className="mx-auto mb-2 text-slate-300" />
-                              <p className="font-semibold text-xs text-slate-600">No farmers referred yet</p>
-                              <p className="text-[11px] text-slate-400 mt-0.5">
-                                When new farmers register using code <strong className="text-purple-700 font-mono">{rStats.referralCode}</strong>, they will instantly appear here.
-                              </p>
+                          {allStockEvents.length === 0 ? (
+                            <div className="p-4 text-center border border-slate-200 rounded-xl bg-slate-50 text-slate-400">
+                              No stock movement or mortality events recorded in this period.
                             </div>
                           ) : (
-                            <div className="border border-slate-200 rounded-xl overflow-hidden shadow-2xs divide-y divide-slate-100">
-                              {rStats.referredUsers.map((refUser) => (
-                                <div key={refUser.id} className="p-3 flex flex-wrap items-center justify-between gap-3 hover:bg-slate-50 transition-colors">
+                            <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100 max-h-56 overflow-y-auto">
+                              {allStockEvents.map((evt: any, i: number) => (
+                                <div key={evt.id || i} className="p-2.5 flex items-center justify-between gap-2 text-xs hover:bg-slate-50">
+                                  <div>
+                                    <span className="font-bold text-slate-800 capitalize">{evt.event_type || evt.type || "Stock Event"}</span>
+                                    <span className="text-slate-400 text-[11px] ml-1.5">Pond: {evt.pond_name || evt.pond_id || "—"} • {fmtDate(evt.event_date || evt.created_at)}</span>
+                                    {evt.notes && <p className="text-[10px] text-slate-500 mt-0.5">{evt.notes}</p>}
+                                  </div>
+                                  <div className="text-right shrink-0">
+                                    <span className={`font-bold font-['Barlow_Condensed',sans-serif] text-sm ${
+                                      (evt.event_type || "").toLowerCase().includes("mortality") ? "text-rose-600" : "text-blue-700"
+                                    }`}>
+                                      {evt.quantity ? Number(evt.quantity).toLocaleString() : "—"} fish
+                                    </span>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Tab 3: Feed Stock & Inventory */}
+                    {farmerDataTab === "feed" && (
+                      <div className="space-y-4">
+                        <div>
+                          <div className="flex items-center justify-between mb-2">
+                            <h3 className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                              <Package size={14} className="text-emerald-600" />
+                              Feed Inventory in Stock ({allFeed.length})
+                            </h3>
+                            <span className="text-[11px] text-slate-500 font-medium">
+                              Total Stock: <strong className="text-emerald-700">{lifetimeFeedBags} bags</strong>
+                            </span>
+                          </div>
+
+                          {allFeed.length === 0 ? (
+                            <div className="p-4 text-center border border-slate-200 rounded-xl bg-slate-50 text-slate-400 text-xs">
+                              No feed inventory registered.
+                            </div>
+                          ) : (
+                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                              {allFeed.map((f: any, i: number) => (
+                                <div key={f.id || i} className="bg-slate-50 border border-slate-200 p-2.5 rounded-xl">
+                                  <div className="flex items-center justify-between">
+                                    <p className="font-bold text-slate-900 text-xs truncate">{f.brand || "Feed"}</p>
+                                    <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.2 rounded">
+                                      {f.size || "Standard"}
+                                    </span>
+                                  </div>
+                                  <p className="text-[11px] text-slate-600 mt-0.5">{f.weight_per_bag || 15}kg/bag • Cost: ₦{Number(f.cost_per_bag || 0).toLocaleString()}</p>
+                                  <div className="flex items-center justify-between mt-1 pt-1 border-t border-slate-200/60">
+                                    <span className="text-[10px] text-slate-400">Available:</span>
+                                    <span className="text-emerald-700 font-bold text-xs">{f.bags_in_stock ?? 0} bags ({f.total_kg ?? (Number(f.bags_in_stock || 0) * Number(f.weight_per_bag || 15))} kg)</span>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Daily Bag Open Logs */}
+                        <div>
+                          <h3 className="text-xs font-bold text-slate-700 mb-2 flex items-center gap-1.5">
+                            <Clock size={13} className="text-amber-600" />
+                            Daily Bag Open Logs ({allBagLogs.length})
+                          </h3>
+                          {allBagLogs.length === 0 ? (
+                            <div className="p-4 text-center border border-slate-200 rounded-xl bg-slate-50 text-slate-400 text-xs">
+                              No daily bags opened recorded in this period.
+                            </div>
+                          ) : (
+                            <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100 max-h-48 overflow-y-auto">
+                              {allBagLogs.map((log: any, i: number) => (
+                                <div key={log.id || i} className="p-2.5 flex items-center justify-between gap-2 text-xs hover:bg-slate-50">
+                                  <div>
+                                    <span className="font-bold text-slate-800">{log.feed_brand || log.brand || "Feed"} ({log.feed_size || log.size || "—"})</span>
+                                    <span className="text-slate-400 text-[11px] ml-1.5">{fmtDate(log.date || log.created_at)}</span>
+                                    {log.notes && <p className="text-[10px] text-slate-500 mt-0.5">{log.notes}</p>}
+                                  </div>
+                                  <span className="font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded">
+                                    {log.bags_opened || log.bags || 1} bags opened
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Daily Leftover / Feed Remaining Logs */}
+                        <div>
+                          <h3 className="text-xs font-bold text-slate-700 mb-2 flex items-center gap-1.5">
+                            <Package size={13} className="text-teal-600" />
+                            Daily Feed Leftover / Remaining Logs ({allFeedRem.length})
+                          </h3>
+                          {allFeedRem.length === 0 ? (
+                            <div className="p-4 text-center border border-slate-200 rounded-xl bg-slate-50 text-slate-400 text-xs">
+                              No leftover records logged in this period.
+                            </div>
+                          ) : (
+                            <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100 max-h-48 overflow-y-auto">
+                              {allFeedRem.map((log: any, i: number) => (
+                                <div key={log.id || i} className="p-2.5 flex items-center justify-between gap-2 text-xs hover:bg-slate-50">
+                                  <div>
+                                    <span className="font-bold text-slate-800">{log.feed_brand || log.brand || "Feed"}</span>
+                                    <span className="text-slate-400 text-[11px] ml-1.5">{fmtDate(log.date || log.created_at)}</span>
+                                  </div>
+                                  <span className="font-bold text-teal-800 bg-teal-50 px-2 py-0.5 rounded">
+                                    {log.remaining_kg ?? 0} kg remaining ({log.remaining_bags ?? 0} bags)
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Tab 4: Feeding Records */}
+                    {farmerDataTab === "feeding" && (
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <h3 className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                            <Clock size={14} className="text-amber-600" />
+                            Feeding Activity & Records ({allFeeding.length})
+                          </h3>
+                          <span className="text-[11px] text-slate-500 font-medium">
+                            Period Distributed: <strong className="text-amber-800">{periodFeedKg.toLocaleString()} kg</strong>
+                          </span>
+                        </div>
+
+                        {allFeeding.length === 0 ? (
+                          <div className="p-6 text-center border border-slate-200 rounded-xl bg-slate-50 text-slate-400 text-xs">
+                            No feeding records found for this period.
+                          </div>
+                        ) : (
+                          <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100 max-h-80 overflow-y-auto">
+                            {allFeeding.map((r: any, i: number) => {
+                              const morning = Number(r.morning) || 0;
+                              const evening = Number(r.evening) || 0;
+                              const totalKg = Number(r.total ?? (morning + evening)) || 0;
+                              return (
+                                <div key={r.id || i} className="p-3 flex items-center justify-between gap-2 text-xs hover:bg-slate-50">
                                   <div className="min-w-0">
                                     <div className="flex items-center gap-2">
-                                      <p className="font-bold text-slate-900 text-xs truncate">{refUser.name}</p>
-                                      <Bdg
-                                        label={refUser.hasPaid ? "Subscribed (Paid)" : refUser.trialStatusText}
-                                        color={refUser.hasPaid ? "green" : (refUser.trialDaysLeft > 0 ? "blue" : "amber")}
-                                      />
+                                      <span className="font-bold text-slate-800">{r.pond || "Pond"}</span>
+                                      <span className="text-slate-400 text-[11px]">{r.date || fmtDate(r.created_at)}</span>
+                                      {r.size && <span className="bg-slate-100 text-slate-600 text-[10px] px-1.5 py-0.2 rounded font-semibold">{r.size}</span>}
                                     </div>
-                                    <p className="text-[11px] text-slate-500 mt-0.5 truncate">
-                                      {refUser.email} • Farm: <strong className="text-slate-700">{(!refUser.farmName || refUser.farmName.trim().toLowerCase() === "primary farm") ? (refUser.name ? `${refUser.name}'s Farm` : "Fish Farm") : refUser.farmName}</strong> • Joined {fmtDate(refUser.createdAt)}
+                                    <p className="text-[10px] text-slate-500 mt-0.5">
+                                      Morning: <strong className="text-slate-700">{morning} kg</strong> • Evening: <strong className="text-slate-700">{evening} kg</strong>
+                                      {r.notes && ` • Notes: ${r.notes}`}
                                     </p>
                                   </div>
+                                  <span className="font-bold text-emerald-800 bg-emerald-50 px-2 py-1 rounded text-xs shrink-0 font-['Barlow_Condensed',sans-serif]">
+                                    {totalKg} kg
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    )}
 
-                                  <div className="text-right shrink-0">
-                                    <p className="font-bold text-emerald-700 text-sm font-['Barlow_Condensed',sans-serif]">
-                                      {refUser.totalCommission > 0 ? `+₦${refUser.totalCommission.toLocaleString()}` : "₦0 commission"}
+                    {/* Tab 5: Sales Management & Payments */}
+                    {farmerDataTab === "sales" && (
+                      <div className="space-y-4">
+                        {/* Summary Metrics */}
+                        <div className="grid grid-cols-3 gap-2.5">
+                          <div className="bg-emerald-50/80 border border-emerald-200 p-2.5 rounded-xl text-center">
+                            <p className="text-[10px] uppercase font-bold text-emerald-700">Total Sales Value</p>
+                            <p className="text-xl font-extrabold text-emerald-900 font-['Barlow_Condensed',sans-serif] mt-0.5">
+                              ₦{totalSalesAmount.toLocaleString()}
+                            </p>
+                            <p className="text-[10px] text-emerald-600">{allSales.length} calculations</p>
+                          </div>
+                          <div className="bg-blue-50/80 border border-blue-200 p-2.5 rounded-xl text-center">
+                            <p className="text-[10px] uppercase font-bold text-blue-700">Total Collected</p>
+                            <p className="text-xl font-extrabold text-blue-900 font-['Barlow_Condensed',sans-serif] mt-0.5">
+                              ₦{totalSalesPaid.toLocaleString()}
+                            </p>
+                            <p className="text-[10px] text-blue-600">Payments recorded</p>
+                          </div>
+                          <div className="bg-amber-50/80 border border-amber-200 p-2.5 rounded-xl text-center">
+                            <p className="text-[10px] uppercase font-bold text-amber-700">Outstanding Balance</p>
+                            <p className="text-xl font-extrabold text-amber-900 font-['Barlow_Condensed',sans-serif] mt-0.5">
+                              ₦{totalSalesOutstanding.toLocaleString()}
+                            </p>
+                            <p className="text-[10px] text-amber-600">Unsettled sales</p>
+                          </div>
+                        </div>
+
+                        {/* Sales Records List */}
+                        <div>
+                          <h3 className="text-xs font-bold text-slate-700 mb-2 flex items-center gap-1.5">
+                            <DollarSign size={14} className="text-emerald-600" />
+                            Sales Calculations & Records ({allSales.length})
+                          </h3>
+                          {allSales.length === 0 ? (
+                            <div className="p-4 text-center border border-slate-200 rounded-xl bg-slate-50 text-slate-400 text-xs">
+                              No sales calculation records found in this period.
+                            </div>
+                          ) : (
+                            <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100 max-h-56 overflow-y-auto">
+                              {allSales.map((sc: any, idx: number) => {
+                                const totalAmt = Number(sc.total_amount) || 0;
+                                const amtPaid = Number(sc.amount_paid) || 0;
+                                const balance = Math.max(0, totalAmt - amtPaid);
+                                const status = sc.payment_status || (amtPaid >= totalAmt && totalAmt > 0 ? "Paid" : amtPaid > 0 ? "Partially Paid" : "Unpaid");
+
+                                return (
+                                  <div key={sc.id || idx} className="p-3 flex items-center justify-between gap-2 text-xs hover:bg-slate-50">
+                                    <div className="min-w-0">
+                                      <div className="flex items-center gap-2">
+                                        <p className="font-bold text-slate-900 truncate">{sc.customer_name || "Direct Customer"}</p>
+                                        <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded-full ${
+                                          status === "Paid"
+                                            ? "bg-emerald-100 text-emerald-800"
+                                            : status === "Partially Paid"
+                                            ? "bg-amber-100 text-amber-800"
+                                            : "bg-rose-100 text-rose-800"
+                                        }`}>
+                                          {status}
+                                        </span>
+                                      </div>
+                                      <p className="text-[10px] text-slate-500 mt-0.5 truncate">
+                                        {fmtDate(sc.calc_date || sc.created_at)} • Weight: {sc.total_weight_kg || sc.weight || 0}kg @ ₦{(Number(sc.price_per_kg) || 0).toLocaleString()}/kg
+                                        {sc.pond_id && ` • Pond: ${sc.pond_id}`}
+                                      </p>
+                                    </div>
+                                    <div className="text-right shrink-0">
+                                      <p className="font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] text-sm">₦{totalAmt.toLocaleString()}</p>
+                                      <p className="text-[10px] text-slate-500">
+                                        Paid: <strong className="text-emerald-700">₦{amtPaid.toLocaleString()}</strong>
+                                        {balance > 0 && <span className="text-amber-700 ml-1">(Bal: ₦{balance.toLocaleString()})</span>}
+                                      </p>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Payment Transactions & Audit History */}
+                        <div>
+                          <h3 className="text-xs font-bold text-slate-700 mb-2 flex items-center gap-1.5">
+                            <Clock size={13} className="text-blue-600" />
+                            Payment Transactions & Audit Trail ({allPayments.length})
+                          </h3>
+                          {allPayments.length === 0 ? (
+                            <div className="p-4 text-center border border-slate-200 rounded-xl bg-slate-50 text-slate-400 text-xs">
+                              No separate payment entries recorded.
+                            </div>
+                          ) : (
+                            <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100 max-h-44 overflow-y-auto">
+                              {allPayments.map((p: any, i: number) => (
+                                <div key={p.id || i} className="p-2.5 flex items-center justify-between gap-2 text-xs hover:bg-slate-50">
+                                  <div>
+                                    <span className="font-bold text-slate-800">Payment: ₦{Number(p.amount || 0).toLocaleString()}</span>
+                                    <span className="text-slate-400 text-[11px] ml-1.5">{fmtDate(p.payment_date || p.created_at)}</span>
+                                    {p.notes && <p className="text-[10px] text-slate-500 mt-0.5">{p.notes}</p>}
+                                  </div>
+                                  <span className="text-[10px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded font-mono">
+                                    {p.calculation_id ? `Ref: ${String(p.calculation_id).slice(0, 8)}` : "Direct"}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Tab 6: Financials & Invoices */}
+                    {farmerDataTab === "finance" && (
+                      <div className="space-y-4">
+                        {/* Summary Metric Cards */}
+                        <div className="grid grid-cols-3 gap-3">
+                          <div className="bg-emerald-50/80 border border-emerald-200 p-3 rounded-xl text-center">
+                            <p className="text-[10px] uppercase font-bold text-emerald-700">Recorded Revenue</p>
+                            <p className="text-xl font-bold text-emerald-900 font-['Barlow_Condensed',sans-serif] mt-0.5">
+                              ₦{periodRevenue.toLocaleString()}
+                            </p>
+                            <p className="text-[10px] text-emerald-600 font-medium mt-0.5">{allRev.length} Entries</p>
+                          </div>
+                          <div className="bg-rose-50/80 border border-rose-200 p-3 rounded-xl text-center">
+                            <p className="text-[10px] uppercase font-bold text-rose-700">Recorded Expenses</p>
+                            <p className="text-xl font-bold text-rose-900 font-['Barlow_Condensed',sans-serif] mt-0.5">
+                              ₦{periodExpenses.toLocaleString()}
+                            </p>
+                            <p className="text-[10px] text-rose-600 font-medium mt-0.5">{allExp.length} Entries</p>
+                          </div>
+                          <div className={`p-3 rounded-xl text-center border ${periodNetProfit >= 0 ? "bg-blue-50/80 border-blue-200" : "bg-amber-50/80 border-amber-200"}`}>
+                            <p className={`text-[10px] uppercase font-bold ${periodNetProfit >= 0 ? "text-blue-700" : "text-amber-700"}`}>Net Profit</p>
+                            <p className={`text-xl font-bold font-['Barlow_Condensed',sans-serif] mt-0.5 ${periodNetProfit >= 0 ? "text-blue-900" : "text-amber-900"}`}>
+                              {periodNetProfit < 0 ? "-₦" + Math.abs(periodNetProfit).toLocaleString() : "₦" + periodNetProfit.toLocaleString()}
+                            </p>
+                            <p className={`text-[10px] font-medium mt-0.5 ${periodNetProfit >= 0 ? "text-blue-600" : "text-amber-600"}`}>
+                              {allInvoices.length} Invoices
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Section 1: Recent Revenues */}
+                        <div>
+                          <h3 className="text-xs font-bold text-slate-700 mb-2 flex items-center justify-between">
+                            <span className="flex items-center gap-1.5 text-emerald-700">
+                              <TrendingUp size={14} className="text-emerald-600" />
+                              Recorded Revenues ({allRev.length})
+                            </span>
+                          </h3>
+                          {allRev.length === 0 ? (
+                            <div className="p-3 text-center border border-slate-200 rounded-xl bg-slate-50 text-slate-400 text-xs">
+                              No revenue records logged in this period.
+                            </div>
+                          ) : (
+                            <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100 max-h-48 overflow-y-auto">
+                              {allRev.map((rev: any, i: number) => (
+                                <div key={rev.id || i} className="p-2.5 flex items-center justify-between gap-2 text-xs hover:bg-slate-50 transition-colors">
+                                  <div className="min-w-0">
+                                    <p className="font-bold text-slate-800 truncate">
+                                      {rev.source || rev.category || "Fish Sales"} {rev.pond ? `• Pond: ${rev.pond}` : (rev.customer ? `• ${rev.customer}` : "")}
                                     </p>
-                                    <p className="text-[10px] text-slate-400 font-medium">
-                                      {refUser.commissionBreakdown || (refUser.hasPaid ? "Standard Commission" : "Pending activation")}
+                                    <p className="text-[10px] text-slate-400 truncate">
+                                      {fmtDate(rev.date || rev.created_at)} {rev.notes || rev.description ? `• ${rev.notes || rev.description}` : ""}
+                                    </p>
+                                  </div>
+                                  <div className="text-right shrink-0">
+                                    <p className="font-bold text-emerald-700 font-['Barlow_Condensed',sans-serif] text-sm">
+                                      +₦{(Number(rev.amount) || 0).toLocaleString()}
                                     </p>
                                   </div>
                                 </div>
@@ -2034,315 +2503,245 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                             </div>
                           )}
                         </div>
-                      </>
-                    );
-                  })()}
-                </div>
-              )}
 
-              {/* Tab 2: Ponds & Fish Batches */}
-              {farmerDataTab === "ponds" && (
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
-                      <Droplets size={14} className="text-blue-500" />
-                      All Registered Ponds ({(userExtra?.ponds || []).length})
-                    </h3>
-                    <span className="text-[11px] text-slate-500 font-medium">
-                      Total Fish: <strong className="text-blue-700">{(userExtra?.ponds || []).reduce((s, p) => s + (Number(p?.current_count ?? p?.initial_stock) || 0), 0).toLocaleString()}</strong>
-                    </span>
-                  </div>
-
-                  {(userExtra?.ponds || []).length === 0 ? (
-                    <div className="p-6 text-center border border-slate-200 rounded-xl bg-slate-50 text-slate-400">
-                      No ponds created by this farmer yet.
-                    </div>
-                  ) : (
-                    <div className="border border-slate-200 rounded-xl overflow-hidden shadow-2xs divide-y divide-slate-100">
-                      {(userExtra?.ponds || []).map((p, idx) => (
-                        <div key={p.id || idx} className="p-3 flex items-center justify-between gap-3 hover:bg-slate-50 transition-colors">
-                          <div className="min-w-0">
-                            <p className="font-bold text-slate-900 text-xs truncate">{p.name || `Pond #${idx + 1}`}</p>
-                            <p className="text-[11px] text-slate-500 mt-0.5">
-                              Species: <strong className="text-slate-700">{p.species || "Catfish"}</strong> • Stock Date: {fmtDate(p.stocking_date)}
-                            </p>
-                          </div>
-                          <div className="text-right shrink-0">
-                            <p className="font-bold text-blue-700 text-sm font-['Barlow_Condensed',sans-serif]">
-                              {(p.current_count ?? p.initial_stock ?? 0).toLocaleString()} fish
-                            </p>
-                            <p className="text-[10px] text-slate-400">
-                              {p.size_m2 ? `${p.size_m2} m²` : "Configured"}
-                            </p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Tab 3: Feed Stock & Feeding Logs */}
-              {farmerDataTab === "feed" && (
-                <div className="space-y-4">
-                  <div>
-                    <h3 className="text-xs font-bold text-slate-700 mb-2 flex items-center gap-1.5">
-                      <Package size={14} className="text-emerald-600" />
-                      Feed Inventory in Stock ({(userExtra?.feedInventory || []).length})
-                    </h3>
-                    {(userExtra?.feedInventory || []).length === 0 ? (
-                      <div className="p-4 text-center border border-slate-200 rounded-xl bg-slate-50 text-slate-400 text-xs">
-                        No feed items currently added to inventory.
-                      </div>
-                    ) : (
-                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                        {(userExtra?.feedInventory || []).map((f, i) => (
-                          <div key={f.id || i} className="bg-slate-50 border border-slate-200 p-2.5 rounded-xl">
-                            <p className="font-bold text-slate-900 text-xs truncate">{f.brand || "Feed"}</p>
-                            <p className="text-[11px] text-slate-600 mt-0.5">{f.size || "Standard"} • {f.weight_per_bag || 15}kg/bag</p>
-                            <p className="text-emerald-700 font-bold text-xs mt-1">{f.bags_in_stock ?? 0} bags ({f.total_kg ?? 0} kg)</p>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  <div>
-                    <h3 className="text-xs font-bold text-slate-700 mb-2 flex items-center gap-1.5">
-                      <Clock size={14} className="text-amber-600" />
-                      Recent Feeding Logs ({(userExtra?.feedingRecords || []).length})
-                    </h3>
-                    {(userExtra?.feedingRecords || []).length === 0 ? (
-                      <div className="p-4 text-center border border-slate-200 rounded-xl bg-slate-50 text-slate-400 text-xs">
-                        No feeding records logged yet.
-                      </div>
-                    ) : (
-                      <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100 max-h-48 overflow-y-auto">
-                        {(userExtra?.feedingRecords || []).map((r, i) => (
-                          <div key={r.id || i} className="p-2.5 flex items-center justify-between gap-2 text-xs">
-                            <div>
-                              <span className="font-bold text-slate-800">{r.pond}</span>
-                              <span className="text-slate-400 text-[11px] ml-1.5">{r.date} ({r.size || "—"})</span>
-                            </div>
-                            <span className="font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded">
-                              {r.total || ((r.morning || 0) + (r.evening || 0))} kg
+                        {/* Section 2: Recent Expenses */}
+                        <div>
+                          <h3 className="text-xs font-bold text-slate-700 mb-2 flex items-center justify-between">
+                            <span className="flex items-center gap-1.5 text-rose-700">
+                              <CreditCard size={14} className="text-rose-600" />
+                              Recorded Expenses ({allExp.length})
                             </span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* Tab 4: Financials & Invoices */}
-              {farmerDataTab === "finance" && (
-                <div className="space-y-4">
-                  {/* Summary Metric Cards */}
-                  <div className="grid grid-cols-3 gap-3">
-                    <div className="bg-emerald-50/80 border border-emerald-200 p-3 rounded-xl text-center">
-                      <p className="text-[10px] uppercase font-bold text-emerald-700">Recorded Revenue</p>
-                      <p className="text-xl font-bold text-emerald-900 font-['Barlow_Condensed',sans-serif] mt-0.5">
-                        ₦{(userExtra?.revenues || []).reduce((s, r) => s + (Number(r?.amount) || 0), 0).toLocaleString()}
-                      </p>
-                      <p className="text-[10px] text-emerald-600 font-medium mt-0.5">{(userExtra?.revenues || []).length} Entries</p>
-                    </div>
-                    <div className="bg-rose-50/80 border border-rose-200 p-3 rounded-xl text-center">
-                      <p className="text-[10px] uppercase font-bold text-rose-700">Recorded Expenses</p>
-                      <p className="text-xl font-bold text-rose-900 font-['Barlow_Condensed',sans-serif] mt-0.5">
-                        ₦{(userExtra?.expenses || []).reduce((s, e) => s + (Number(e?.amount) || 0), 0).toLocaleString()}
-                      </p>
-                      <p className="text-[10px] text-rose-600 font-medium mt-0.5">{(userExtra?.expenses || []).length} Entries</p>
-                    </div>
-                    {(() => {
-                      const totalRev = (userExtra?.revenues || []).reduce((s, r) => s + (Number(r?.amount) || 0), 0);
-                      const totalExp = (userExtra?.expenses || []).reduce((s, e) => s + (Number(e?.amount) || 0), 0);
-                      const net = totalRev - totalExp;
-                      return (
-                        <div className={`p-3 rounded-xl text-center border ${net >= 0 ? "bg-blue-50/80 border-blue-200" : "bg-amber-50/80 border-amber-200"}`}>
-                          <p className={`text-[10px] uppercase font-bold ${net >= 0 ? "text-blue-700" : "text-amber-700"}`}>Net Profit</p>
-                          <p className={`text-xl font-bold font-['Barlow_Condensed',sans-serif] mt-0.5 ${net >= 0 ? "text-blue-900" : "text-amber-900"}`}>
-                            {net < 0 ? "-₦" + Math.abs(net).toLocaleString() : "₦" + net.toLocaleString()}
-                          </p>
-                          <p className={`text-[10px] font-medium mt-0.5 ${net >= 0 ? "text-blue-600" : "text-amber-600"}`}>
-                            {(userExtra?.invoices || []).length} Invoices
-                          </p>
+                          </h3>
+                          {allExp.length === 0 ? (
+                            <div className="p-3 text-center border border-slate-200 rounded-xl bg-slate-50 text-slate-400 text-xs">
+                              No expense records logged in this period.
+                            </div>
+                          ) : (
+                            <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100 max-h-48 overflow-y-auto">
+                              {allExp.map((exp: any, i: number) => (
+                                <div key={exp.id || i} className="p-2.5 flex items-center justify-between gap-2 text-xs hover:bg-slate-50 transition-colors">
+                                  <div className="min-w-0">
+                                    <p className="font-bold text-slate-800 truncate">
+                                      {exp.category || "Operational"} {exp.pond ? `• Pond: ${exp.pond}` : (exp.vendor ? `• ${exp.vendor}` : "")}
+                                    </p>
+                                    <p className="text-[10px] text-slate-400 truncate">
+                                      {fmtDate(exp.date || exp.created_at)} {exp.desc || exp.description || exp.notes ? `• ${exp.desc || exp.description || exp.notes}` : ""}
+                                    </p>
+                                  </div>
+                                  <div className="text-right shrink-0">
+                                    <p className="font-bold text-rose-700 font-['Barlow_Condensed',sans-serif] text-sm">
+                                      -₦{(Number(exp.amount) || 0).toLocaleString()}
+                                    </p>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
-                      );
-                    })()}
-                  </div>
 
-                  {/* Section 1: Recent Revenues */}
-                  <div>
-                    <h3 className="text-xs font-bold text-slate-700 mb-2 flex items-center justify-between">
-                      <span className="flex items-center gap-1.5 text-emerald-700">
-                        <TrendingUp size={14} className="text-emerald-600" />
-                        Recorded Revenues ({(userExtra?.revenues || []).length})
-                      </span>
-                    </h3>
-                    {(userExtra?.revenues || []).length === 0 ? (
-                      <div className="p-3 text-center border border-slate-200 rounded-xl bg-slate-50 text-slate-400 text-xs">
-                        No revenue records logged yet.
-                      </div>
-                    ) : (
-                      <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100 max-h-48 overflow-y-auto">
-                        {(userExtra?.revenues || []).map((rev, i) => (
-                          <div key={rev.id || i} className="p-2.5 flex items-center justify-between gap-2 text-xs hover:bg-slate-50 transition-colors">
-                            <div className="min-w-0">
-                              <p className="font-bold text-slate-800 truncate">
-                                {rev.source || rev.category || "Fish Sales"} {rev.pond ? `• Pond: ${rev.pond}` : (rev.customer ? `• ${rev.customer}` : "")}
-                              </p>
-                              <p className="text-[10px] text-slate-400 truncate">
-                                {fmtDate(rev.date || rev.created_at)} {rev.notes || rev.description ? `• ${rev.notes || rev.description}` : ""}
-                              </p>
+                        {/* Section 3: Invoices */}
+                        <div>
+                          <h3 className="text-xs font-bold text-slate-700 mb-2 flex items-center gap-1.5">
+                            <FileText size={14} className="text-purple-600" />
+                            Sales Invoices ({allInvoices.length})
+                          </h3>
+                          {allInvoices.length === 0 ? (
+                            <div className="p-3 text-center border border-slate-200 rounded-xl bg-slate-50 text-slate-400 text-xs">
+                              No sales invoices created in this period.
                             </div>
-                            <div className="text-right shrink-0">
-                              <p className="font-bold text-emerald-700 font-['Barlow_Condensed',sans-serif] text-sm">
-                                +₦{(Number(rev.amount) || 0).toLocaleString()}
-                              </p>
+                          ) : (
+                            <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100 max-h-48 overflow-y-auto">
+                              {allInvoices.map((inv: any, i: number) => {
+                                const custName = (typeof inv.customer === "object" ? inv.customer?.name : inv.customer) || inv.customer_name || "Customer";
+                                return (
+                                  <div key={inv.id || i} className="p-2.5 flex items-center justify-between gap-2 text-xs hover:bg-slate-50 transition-colors">
+                                    <div>
+                                      <p className="font-bold text-slate-800">{inv.inv_number || inv.invoice_number || `Invoice #${i + 1}`} • {custName}</p>
+                                      <p className="text-[10px] text-slate-400">{fmtDate(inv.created_at || inv.invoice_date || inv.due_date)}</p>
+                                    </div>
+                                    <div className="text-right shrink-0">
+                                      <p className="font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">₦{(Number(inv.grand_total || inv.subtotal) || 0).toLocaleString()}</p>
+                                      <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded ${inv.status === "Paid" ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"}`}>
+                                        {inv.status || "Pending"}
+                                      </span>
+                                    </div>
+                                  </div>
+                                );
+                              })}
                             </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Section 2: Recent Expenses */}
-                  <div>
-                    <h3 className="text-xs font-bold text-slate-700 mb-2 flex items-center justify-between">
-                      <span className="flex items-center gap-1.5 text-rose-700">
-                        <CreditCard size={14} className="text-rose-600" />
-                        Recorded Expenses ({(userExtra?.expenses || []).length})
-                      </span>
-                    </h3>
-                    {(userExtra?.expenses || []).length === 0 ? (
-                      <div className="p-3 text-center border border-slate-200 rounded-xl bg-slate-50 text-slate-400 text-xs">
-                        No expense records logged yet.
-                      </div>
-                    ) : (
-                      <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100 max-h-48 overflow-y-auto">
-                        {(userExtra?.expenses || []).map((exp, i) => (
-                          <div key={exp.id || i} className="p-2.5 flex items-center justify-between gap-2 text-xs hover:bg-slate-50 transition-colors">
-                            <div className="min-w-0">
-                              <p className="font-bold text-slate-800 truncate">
-                                {exp.category || "Operational"} {exp.pond ? `• Pond: ${exp.pond}` : (exp.vendor ? `• ${exp.vendor}` : "")}
-                              </p>
-                              <p className="text-[10px] text-slate-400 truncate">
-                                {fmtDate(exp.date || exp.created_at)} {exp.desc || exp.description || exp.notes ? `• ${exp.desc || exp.description || exp.notes}` : ""}
-                              </p>
-                            </div>
-                            <div className="text-right shrink-0">
-                              <p className="font-bold text-rose-700 font-['Barlow_Condensed',sans-serif] text-sm">
-                                -₦{(Number(exp.amount) || 0).toLocaleString()}
-                              </p>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Section 3: Invoices */}
-                  <div>
-                    <h3 className="text-xs font-bold text-slate-700 mb-2 flex items-center gap-1.5">
-                      <FileText size={14} className="text-purple-600" />
-                      Sales Invoices ({(userExtra?.invoices || []).length})
-                    </h3>
-                    {(userExtra?.invoices || []).length === 0 ? (
-                      <div className="p-3 text-center border border-slate-200 rounded-xl bg-slate-50 text-slate-400 text-xs">
-                        No sales invoices created yet.
-                      </div>
-                    ) : (
-                      <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100 max-h-48 overflow-y-auto">
-                        {(userExtra?.invoices || []).map((inv, i) => {
-                          const custName = (typeof inv.customer === "object" ? inv.customer?.name : inv.customer) || inv.customer_name || "Customer";
-                          return (
-                            <div key={inv.id || i} className="p-2.5 flex items-center justify-between gap-2 text-xs hover:bg-slate-50 transition-colors">
-                              <div>
-                                <p className="font-bold text-slate-800">{inv.inv_number || inv.invoice_number || `Invoice #${i + 1}`} • {custName}</p>
-                                <p className="text-[10px] text-slate-400">{fmtDate(inv.created_at || inv.invoice_date || inv.due_date)}</p>
-                              </div>
-                              <div className="text-right shrink-0">
-                                <p className="font-bold text-slate-900">₦{(Number(inv.grand_total || inv.subtotal) || 0).toLocaleString()}</p>
-                                <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded ${inv.status === "Paid" ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"}`}>
-                                  {inv.status || "Pending"}
-                                </span>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* Tab 5: Staff Team */}
-              {farmerDataTab === "staff" && (
-                <div className="space-y-3">
-                  <h3 className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
-                    <UsersIcon size={14} className="text-emerald-600" />
-                    Staff Accounts Added by Farmer ({(userExtra?.staff || []).length})
-                  </h3>
-                  {(userExtra?.staff || []).length === 0 ? (
-                    <div className="p-6 text-center border border-slate-200 rounded-xl bg-slate-50 text-slate-400 text-xs">
-                      No staff members invited yet.
-                    </div>
-                  ) : (
-                    <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100">
-                      {(userExtra?.staff || []).map((st) => (
-                        <div key={st.id} className="p-3 flex items-center justify-between gap-2 hover:bg-slate-50 transition-colors">
-                          <div className="min-w-0">
-                            <p className="font-bold text-slate-800 text-xs truncate">{st.name || "Staff Member"}</p>
-                            <p className="text-[11px] text-slate-500 font-mono truncate">{st.email}</p>
-                          </div>
-                          <div className="flex items-center gap-1.5 shrink-0">
-                            <span className="text-[10px] bg-slate-100 text-slate-700 px-2 py-0.5 rounded font-medium">
-                              {st.role || "Staff"}
-                            </span>
-                            <Bdg label={st.status || "Active"} color={st.status === "Pending" ? "amber" : "green"} />
-                            <button
-                              onClick={() => copyToClipboard(st.email, `Staff email (${st.email})`)}
-                              className="p-1 text-slate-400 hover:text-slate-700 rounded"
-                              title="Copy email"
-                            >
-                              <Copy size={11} />
-                            </button>
-                          </div>
+                          )}
                         </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
+                      </div>
+                    )}
 
-              {/* Tab 6: Farms List */}
-              {farmerDataTab === "farms" && (
-                <div className="space-y-3">
-                  <h3 className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
-                    <Building size={14} className="text-emerald-600" />
-                    Farms Owned by Farmer ({(userExtra?.farms || []).length})
-                  </h3>
-                  {(userExtra?.farms || []).length === 0 ? (
-                    <div className="p-6 text-center border border-slate-200 rounded-xl bg-slate-50 text-slate-400 text-xs">
-                      Primary Farm: {viewUser.farmName || "Primary Farm"}
-                    </div>
-                  ) : (
-                    <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100">
-                      {(userExtra?.farms || []).map((f, idx) => (
-                        <div key={f.id || idx} className="p-3 flex items-center justify-between gap-2 hover:bg-slate-50">
-                          <div>
-                            <p className="font-bold text-slate-900 text-xs">{f.name}</p>
-                            <p className="text-[11px] text-slate-500">{[f.city, f.state, f.country].filter(Boolean).join(", ") || "Nigeria"}</p>
-                          </div>
-                          <span className="text-[10px] text-slate-400">{fmtDate(f.created_at)}</span>
+                    {/* Tab 7: Health, Water Reports & Equipment */}
+                    {farmerDataTab === "health_equipment" && (
+                      <div className="space-y-4">
+                        {/* Treatments */}
+                        <div>
+                          <h3 className="text-xs font-bold text-slate-700 mb-2 flex items-center gap-1.5">
+                            <Layers size={13} className="text-teal-600" />
+                            Fish Health & Medication Treatments ({allTreatments.length})
+                          </h3>
+                          {allTreatments.length === 0 ? (
+                            <div className="p-4 text-center border border-slate-200 rounded-xl bg-slate-50 text-slate-400 text-xs">
+                              No fish treatments recorded.
+                            </div>
+                          ) : (
+                            <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100 max-h-44 overflow-y-auto">
+                              {allTreatments.map((tr: any, i: number) => (
+                                <div key={tr.id || i} className="p-2.5 flex items-center justify-between gap-2 text-xs hover:bg-slate-50">
+                                  <div>
+                                    <p className="font-bold text-slate-800">{tr.disease || tr.diagnosis || "Treatment"} • Pond: {tr.pond || tr.pond_id || "—"}</p>
+                                    <p className="text-[10px] text-slate-500 mt-0.5">
+                                      Medication: {tr.medication || tr.drug || "—"} • Dosage: {tr.dosage || "—"} • {fmtDate(tr.date || tr.created_at)}
+                                    </p>
+                                  </div>
+                                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
+                                    (tr.status || "").toLowerCase() === "completed" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"
+                                  }`}>
+                                    {tr.status || "Active"}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
+
+                        {/* Water Quality Reports */}
+                        <div>
+                          <h3 className="text-xs font-bold text-slate-700 mb-2 flex items-center gap-1.5">
+                            <Droplets size={13} className="text-blue-600" />
+                            Pond Water Quality & Lab Reports ({allPondReports.length})
+                          </h3>
+                          {allPondReports.length === 0 ? (
+                            <div className="p-4 text-center border border-slate-200 rounded-xl bg-slate-50 text-slate-400 text-xs">
+                              No water quality reports logged.
+                            </div>
+                          ) : (
+                            <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100 max-h-44 overflow-y-auto">
+                              {allPondReports.map((rep: any, i: number) => (
+                                <div key={rep.id || i} className="p-2.5 flex items-center justify-between gap-2 text-xs hover:bg-slate-50">
+                                  <div>
+                                    <p className="font-bold text-slate-800">{rep.pond_name || rep.pond_id || "Pond"} Report • {fmtDate(rep.report_date || rep.date || rep.created_at)}</p>
+                                    <p className="text-[10px] text-slate-500 mt-0.5">
+                                      pH: {rep.ph ?? "—"} • Temp: {rep.temp ? `${rep.temp}°C` : "—"} • DO: {rep.dissolved_oxygen ?? "—"} mg/L • Ammonia: {rep.ammonia ?? "—"}
+                                    </p>
+                                  </div>
+                                  <span className="text-[10px] font-bold bg-blue-100 text-blue-800 px-2 py-0.5 rounded">
+                                    Tested
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Farm Equipment */}
+                        <div>
+                          <h3 className="text-xs font-bold text-slate-700 mb-2 flex items-center gap-1.5">
+                            <Wrench size={13} className="text-slate-600" />
+                            Farm Machinery & Equipment ({allEquipment.length})
+                          </h3>
+                          {allEquipment.length === 0 ? (
+                            <div className="p-4 text-center border border-slate-200 rounded-xl bg-slate-50 text-slate-400 text-xs">
+                              No farm equipment registered.
+                            </div>
+                          ) : (
+                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                              {allEquipment.map((eq: any, i: number) => (
+                                <div key={eq.id || i} className="bg-slate-50 border border-slate-200 p-2.5 rounded-xl">
+                                  <p className="font-bold text-slate-900 text-xs truncate">{eq.name || "Equipment"}</p>
+                                  <p className="text-[11px] text-slate-500 mt-0.5">{eq.category || "General"} • Qty: {eq.quantity || 1}</p>
+                                  <div className="flex items-center justify-between mt-1 text-[10px]">
+                                    <span className="text-slate-400">Condition:</span>
+                                    <span className="font-semibold text-slate-700">{eq.condition || eq.status || "Good"}</span>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Tab 8: Staff Team & Investors */}
+                    {farmerDataTab === "staff_investors" && (
+                      <div className="space-y-4">
+                        {/* Staff */}
+                        <div>
+                          <h3 className="text-xs font-bold text-slate-700 mb-2 flex items-center gap-1.5">
+                            <UsersIcon size={14} className="text-emerald-600" />
+                            Farm Staff Accounts ({allStaff.length})
+                          </h3>
+                          {allStaff.length === 0 ? (
+                            <div className="p-4 text-center border border-slate-200 rounded-xl bg-slate-50 text-slate-400 text-xs">
+                              No staff members added by this farmer yet.
+                            </div>
+                          ) : (
+                            <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100">
+                              {allStaff.map((st: any) => (
+                                <div key={st.id} className="p-3 flex items-center justify-between gap-2 hover:bg-slate-50 transition-colors">
+                                  <div className="min-w-0">
+                                    <p className="font-bold text-slate-800 text-xs truncate">{st.name || "Staff Member"}</p>
+                                    <p className="text-[11px] text-slate-500 font-mono truncate">{st.email}</p>
+                                  </div>
+                                  <div className="flex items-center gap-1.5 shrink-0">
+                                    <span className="text-[10px] bg-slate-100 text-slate-700 px-2 py-0.5 rounded font-medium">
+                                      {st.role || "Staff"}
+                                    </span>
+                                    <Bdg label={st.status || "Active"} color={st.status === "Pending" ? "amber" : "green"} />
+                                    <button
+                                      onClick={() => copyToClipboard(st.email, `Staff email (${st.email})`)}
+                                      className="p-1 text-slate-400 hover:text-slate-700 rounded"
+                                      title="Copy email"
+                                    >
+                                      <Copy size={11} />
+                                    </button>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Investors & Capital */}
+                        <div>
+                          <h3 className="text-xs font-bold text-slate-700 mb-2 flex items-center gap-1.5">
+                            <Building size={14} className="text-purple-600" />
+                            Farm Investors & Capital Partners ({allInvestors.length})
+                          </h3>
+                          {allInvestors.length === 0 ? (
+                            <div className="p-4 text-center border border-slate-200 rounded-xl bg-slate-50 text-slate-400 text-xs">
+                              No investors registered for this farm.
+                            </div>
+                          ) : (
+                            <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100">
+                              {allInvestors.map((inv: any) => (
+                                <div key={inv.id} className="p-3 flex items-center justify-between gap-2 hover:bg-slate-50 transition-colors">
+                                  <div className="min-w-0">
+                                    <p className="font-bold text-slate-800 text-xs truncate">{inv.name || "Investor"}</p>
+                                    <p className="text-[11px] text-slate-500 truncate">{inv.email || inv.phone || "Partner"}</p>
+                                  </div>
+                                  <div className="text-right shrink-0">
+                                    <p className="font-bold text-purple-800 font-['Barlow_Condensed',sans-serif] text-sm">
+                                      {inv.amount ? `₦${Number(inv.amount).toLocaleString()}` : (inv.share ? `${inv.share}%` : "Partner")}
+                                    </p>
+                                    <span className="text-[9px] bg-purple-50 text-purple-700 px-1.5 py-0.2 rounded font-semibold">
+                                      {inv.status || "Active"}
+                                    </span>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </>
+              );
+            })()}
 
             {/* Modal Footer / Direct Admin Controls */}
             <div className="px-5 py-3 border-t border-slate-100 bg-slate-50/70 flex flex-wrap items-center justify-between gap-2 shrink-0">

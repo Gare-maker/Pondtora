@@ -8657,15 +8657,36 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     }
   };
 
-  const toggleSalesPaymentStatus = async (sc: SalesCalculation) => {
+  const toggleSalesPaymentStatus = async (sc: SalesCalculation, reason?: string) => {
     if (!checkSubscriptionActive()) return;
     const isNowPaid = sc.paymentStatus !== "Paid";
     const nextStatus: "Paid" | "Unpaid" = isNowPaid ? "Paid" : "Unpaid";
     const nextAmountPaid = isNowPaid ? sc.totalAmount : 0;
+    const userLabel = userProfile?.name || currentStaff?.name || "Staff";
+    
+    // Create an audit history entry for this status change
+    const historyEntry: SalesCalculationEditHistoryEntry = {
+      id: crypto.randomUUID(),
+      calculationId: sc.id,
+      customerName: sc.customerName,
+      previousTotal: sc.totalAmount,
+      newTotal: sc.totalAmount,
+      previousWeightKg: (sc.items || []).reduce((s, it) => s + (Number(it.quantityKg) || 0), 0),
+      newWeightKg: (sc.items || []).reduce((s, it) => s + (Number(it.quantityKg) || 0), 0),
+      difference: 0,
+      actionReason: isNowPaid 
+        ? "Payment marked as fully Paid" 
+        : (reason?.trim() || "Payment status corrected to Unpaid (reversal)"),
+      changedBy: userLabel,
+      changedById: userProfile?.id,
+      createdAt: new Date().toISOString()
+    };
+
     const updated: SalesCalculation = {
       ...sc,
       paymentStatus: nextStatus,
       amountPaid: nextAmountPaid,
+      editHistory: [historyEntry, ...(sc.editHistory || [])],
       updatedAt: new Date().toISOString()
     };
     setSalesCalculations(prev => {
@@ -8680,7 +8701,9 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     try {
       await api.salesCalculations.update(updated);
       if (isNowPaid) {
-        await api.salesCalculations.recordPayment(sc.id, sc.totalAmount, "Cash", userProfile?.name || currentStaff?.name || "Staff");
+        await api.salesCalculations.recordPayment(sc.id, sc.totalAmount, "Cash", userLabel, undefined, "Marked as fully paid");
+      } else {
+        await api.salesCalculations.recordPayment(sc.id, -Number(sc.amountPaid || sc.totalAmount), "Reversal", userLabel, undefined, reason?.trim() || "Payment correction to Unpaid");
       }
     } catch (e) {
       console.warn("Failed to update payment status", e);
