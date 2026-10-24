@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { Card, Bdg, PBtn, Pagination, PER_PAGE, Modal, F, IC, SC, DateInput, ToggleCard, ToggleSwitch, toDateInputValue, getTodayDateStr, addDurationToDate } from "../../app/shared";
 import type { AdminUser, AdminPlan, AccountStatus } from "../types";
-import { fmtDate, trialDaysLeft, fmtMoney, computeSubscriptionStatus, effectivePrice } from "../types";
+import { fmtDate, trialDaysLeft, subscriptionDaysLeft, fmtMoney, computeSubscriptionStatus, effectivePrice } from "../types";
 import { getLagosTodayStr, getLagosDateParts } from "../../app/data";
 import { supabase } from "../../lib/supabase";
 import { isStaffUser } from "../../lib/userSync";
@@ -1423,12 +1423,21 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
 
                     {/* 7. Trial / Expiry */}
                     <td className="px-4 py-3 text-slate-500 whitespace-nowrap">
-                      {u.subscriptionStatus === "Trial" ? (
+                      {u.subscriptionStatus === "Trial" && !u.hasPaid && !u.subscriptionExpiry ? (
                         <span className="text-amber-600 font-bold flex items-center gap-1">
-                          <Clock size={11} className="text-amber-500" /> {trialDaysLeft(u.trialStartDate)}d left
+                          <Clock size={11} className="text-amber-500" /> {trialDaysLeft(u.trialStartDate)}d trial left
                         </span>
                       ) : u.subscriptionExpiry ? (
-                        fmtDate(u.subscriptionExpiry)
+                        <div className="flex flex-col">
+                          <span className="text-emerald-700 font-bold flex items-center gap-1 text-xs">
+                            <Clock size={11} className="text-emerald-600" /> {subscriptionDaysLeft(u.subscriptionExpiry)}d remaining
+                          </span>
+                          <span className="text-[10px] text-slate-400">
+                            Expires {fmtDate(u.subscriptionExpiry)}
+                          </span>
+                        </div>
+                      ) : u.subscriptionStart ? (
+                        <span className="text-xs text-slate-600">Started {fmtDate(u.subscriptionStart)}</span>
                       ) : (
                         <span className="text-slate-300">—</span>
                       )}
@@ -2070,10 +2079,18 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                               </p>
                             </div>
                             <div className="bg-white border border-slate-200 p-2.5 rounded-xl">
-                              <p className="text-[10px] uppercase font-bold text-slate-400">Trial Period</p>
-                              <p className="font-semibold text-xs mt-0.5 text-amber-700">
-                                {trialDaysLeft(viewUser.trialStartDate)} days left (started {fmtDate(viewUser.trialStartDate)})
-                              </p>
+                              <p className="text-[10px] uppercase font-bold text-slate-400">Subscription / Trial Status</p>
+                              {viewUser.subscriptionStatus === "Trial" && !viewUser.hasPaid && !viewUser.subscriptionExpiry ? (
+                                <p className="font-semibold text-xs mt-0.5 text-amber-700">
+                                  {trialDaysLeft(viewUser.trialStartDate)} days trial left (started {fmtDate(viewUser.trialStartDate)})
+                                </p>
+                              ) : viewUser.subscriptionExpiry ? (
+                                <p className="font-semibold text-xs mt-0.5 text-emerald-700">
+                                  {subscriptionDaysLeft(viewUser.subscriptionExpiry)} days remaining (expires {fmtDate(viewUser.subscriptionExpiry)})
+                                </p>
+                              ) : (
+                                <p className="font-semibold text-xs mt-0.5 text-slate-700">Active Account</p>
+                              )}
                             </div>
                             <div className="bg-white border border-slate-200 p-2.5 rounded-xl">
                               <p className="text-[10px] uppercase font-bold text-slate-400">Payment Status</p>

@@ -409,9 +409,6 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
                 <input type="date" value={dailyDate} onChange={e=>{setDailyDate(e.target.value);setDailyPage(1);}} className="text-sm font-bold text-slate-800 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-green-500" style={{ colorScheme: "light" }}/>
               </div>
               <button onClick={()=>shiftDailyDate(1)} className="p-2 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-600 transition-colors" title="Next Day"><ChevronRight size={16}/></button>
-              {dailyDate!==TODAY&&(
-                <button onClick={()=>{setDailyDate(TODAY);setDailyPage(1);}} className="px-2.5 py-1.5 text-xs font-semibold text-green-700 bg-green-50 border border-green-200 rounded-lg hover:bg-green-100 transition-colors">Today</button>
-              )}
             </div>
             <div className="hidden md:flex items-center gap-2 flex-wrap">
               <button onClick={()=>downloadCSV(`feed-stock-history-${dailyDate}.csv`,["#","Date","Fish Stock (Stock Date)","Brand","Pellet Size","Bags Opened","Kg/Bag","KG Deducted","Remaining KG in Stock"],filteredDailyRows.map((r,i)=>[i+1,r.date,`${r.fishStock}${r.stockDate&&r.stockDate!=="—"?` (${r.stockDate})`:""}`,r.brand,r.size,r.bagsOpened,r.kgPerBag,r.totalKgOpened,r.remainingKg]))} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 text-xs font-semibold hover:border-green-400 hover:text-green-600 transition-colors"><Download size={12}/> CSV</button>

@@ -2,7 +2,7 @@ import React, { useState, useMemo } from "react";
 import { Search, Edit2, Gift, CreditCard, Sparkles, CheckCircle, Clock, DollarSign, Calendar, TrendingUp, ShieldCheck, Check, RotateCcw, CalendarDays, RefreshCw, Trash2, AlertTriangle } from "lucide-react";
 import { Card, Bdg, PBtn, Pagination, PER_PAGE, Modal, F, IC, SC, DateInput, ToggleCard, ToggleSwitch, toDateInputValue, getTodayDateStr, addDurationToDate } from "../../app/shared";
 import type { AdminUser, AdminPlan } from "../types";
-import { fmtDate, trialDaysLeft, fmtMoney, computeSubscriptionStatus, effectivePrice } from "../types";
+import { fmtDate, trialDaysLeft, subscriptionDaysLeft, fmtMoney, computeSubscriptionStatus, effectivePrice } from "../types";
 import { isStaffUser, clearAllPaymentDataInDbAndStorage, loadAllAdminUsers, isValidPaystackRef } from "../../lib/userSync";
 import { syncReferralOnUserPayment } from "../../lib/referralStore";
 import { toast } from "sonner";
@@ -415,12 +415,21 @@ export default function SubscriptionsPage({ users, plans, onUpdate }: Props) {
                     </td>
 
                     <td className="px-4 py-3 text-slate-500 whitespace-nowrap">
-                      {u.subscriptionStatus === "Trial" ? (
+                      {u.subscriptionStatus === "Trial" && !u.hasPaid && !u.subscriptionExpiry ? (
                         <span className="text-amber-600 font-bold flex items-center gap-1">
-                          <Clock size={11} className="text-amber-500" /> {trialDaysLeft(u.trialStartDate)}d left
+                          <Clock size={11} className="text-amber-500" /> {trialDaysLeft(u.trialStartDate)}d trial left
                         </span>
                       ) : u.subscriptionExpiry ? (
-                        fmtDate(u.subscriptionExpiry)
+                        <div className="flex flex-col">
+                          <span className="text-emerald-700 font-bold flex items-center gap-1 text-xs">
+                            <Clock size={11} className="text-emerald-600" /> {subscriptionDaysLeft(u.subscriptionExpiry)}d remaining
+                          </span>
+                          <span className="text-[10px] text-slate-400">
+                            Expires {fmtDate(u.subscriptionExpiry)}
+                          </span>
+                        </div>
+                      ) : u.subscriptionStart ? (
+                        <span className="text-xs text-slate-600">Started {fmtDate(u.subscriptionStart)}</span>
                       ) : (
                         <span className="text-slate-300">—</span>
                       )}

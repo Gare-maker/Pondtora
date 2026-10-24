@@ -354,7 +354,55 @@ export async function fetchLiveAdminUsers(): Promise<{
   isLiveFromDb: boolean;
   count: number;
 }> {
-  const existingLocal = loadAllAdminUsers().filter(u => !isStaffUser(u));
+  // Load deleted users tombstone from platform_settings and local storage
+  const deletedUserIds = new Set<string>();
+  const deletedUserEmails = new Set<string>();
+
+  try {
+    const { data: delRow } = await supabase
+      .from("platform_settings")
+      .select("value")
+      .eq("key", "deleted_users")
+      .maybeSingle();
+    if (delRow?.value) {
+      const val = delRow.value;
+      if (Array.isArray(val)) {
+        val.forEach((x: any) => {
+          const str = String(x).trim().toLowerCase();
+          if (str.includes("@")) deletedUserEmails.add(str);
+          else deletedUserIds.add(str);
+        });
+      } else if (typeof val === "object") {
+        Object.keys(val).forEach((k: string) => {
+          const str = k.trim().toLowerCase();
+          if (str.includes("@")) deletedUserEmails.add(str);
+          else deletedUserIds.add(str);
+        });
+      }
+    }
+  } catch {}
+
+  try {
+    const localDel = localStorage.getItem("pondtora_deleted_users");
+    if (localDel) {
+      const parsed = JSON.parse(localDel);
+      if (Array.isArray(parsed)) {
+        parsed.forEach((x: any) => {
+          const str = String(x).trim().toLowerCase();
+          if (str.includes("@")) deletedUserEmails.add(str);
+          else deletedUserIds.add(str);
+        });
+      }
+    }
+  } catch {}
+
+  const isDeleted = (id?: string | null, email?: string | null): boolean => {
+    if (id && deletedUserIds.has(String(id).trim().toLowerCase())) return true;
+    if (email && deletedUserEmails.has(String(email).trim().toLowerCase())) return true;
+    return false;
+  };
+
+  const existingLocal = loadAllAdminUsers().filter(u => !isStaffUser(u) && !isDeleted(u.id, u.email));
   let dbUsers: AdminUser[] = [];
   let fetchedStats: PlatformOperationalStats | null = null;
   let isLive = false;
@@ -383,8 +431,8 @@ export async function fetchLiveAdminUsers(): Promise<{
   try {
     const { data: rpcUsers, error: rpcErr } = await supabase.rpc("get_all_users_for_admin");
     if (!rpcErr && Array.isArray(rpcUsers) && rpcUsers.length > 0) {
-      // Strictly exclude any staff accounts that might match
-      const validOwners = rpcUsers.filter((p: any) => !isStaffUser(p));
+      // Strictly exclude any staff accounts and deleted users
+      const validOwners = rpcUsers.filter((p: any) => !isStaffUser(p) && !isDeleted(p.id, p.email));
       dbUsers = validOwners.map((p: any) => {
         const pEmail = (p.email || "").toLowerCase().trim();
         const local = existingLocal.find(
@@ -403,9 +451,11 @@ export async function fetchLiveAdminUsers(): Promise<{
             override?.hasPaid === true ||
             local?.hasPaid === true ||
             rawSubStatus === "Paid" ||
-            (rawSubStatus === "Active" && (hasValidRef || Boolean(p.last_payment_date || override?.lastPaymentDate || local?.lastPaymentDate || p.subscription_amount))) ||
+            rawSubStatus === "Active" ||
             hasValidRef ||
-            Boolean(p.last_payment_date || override?.lastPaymentDate || local?.lastPaymentDate)
+            Boolean(p.last_payment_date || override?.lastPaymentDate || local?.lastPaymentDate) ||
+            Boolean(p.subscription_expiry || override?.subscriptionExpiry || local?.subscriptionExpiry) ||
+            Boolean((p.subscription_amount && Number(p.subscription_amount) > 0) || (override?.subscriptionAmount && Number(override.subscriptionAmount) > 0))
           )
         );
 
@@ -503,10 +553,10 @@ export async function fetchLiveAdminUsers(): Promise<{
       const staffEmails = new Set(rawStaff.map((s: any) => (s.email || "").toLowerCase().trim()).filter(Boolean));
       const staffAuthIds = new Set(rawStaff.map((s: any) => s.staff_auth_id).filter(Boolean));
 
-      // 2a. Process ONLY farm-owner customer profiles (strictly exclude staff members)
+      // 2a. Process ONLY farm-owner customer profiles (strictly exclude staff members and deleted users)
       const ownerProfiles = rawProfiles.filter((p: any) => {
         const pEmail = (p.email || "").toLowerCase().trim();
-        if (isStaffUser(p)) return false;
+        if (isStaffUser(p) || isDeleted(p.id, pEmail)) return false;
         if (p.id && staffAuthIds.has(p.id)) return false;
         if (pEmail && staffEmails.has(pEmail)) {
           const sm = rawStaff.find((s: any) => (s.email || "").toLowerCase().trim() === pEmail);
@@ -569,9 +619,11 @@ export async function fetchLiveAdminUsers(): Promise<{
               override?.hasPaid === true ||
               local?.hasPaid === true ||
               rawSubStatus === "Paid" ||
-              (rawSubStatus === "Active" && (hasValidRef || Boolean(p.last_payment_date || override?.lastPaymentDate || local?.lastPaymentDate || p.subscription_amount))) ||
+              rawSubStatus === "Active" ||
               hasValidRef ||
-              Boolean(p.last_payment_date || override?.lastPaymentDate || local?.lastPaymentDate)
+              Boolean(p.last_payment_date || override?.lastPaymentDate || local?.lastPaymentDate) ||
+              Boolean(p.subscription_expiry || override?.subscriptionExpiry || local?.subscriptionExpiry) ||
+              Boolean((p.subscription_amount && Number(p.subscription_amount) > 0) || (override?.subscriptionAmount && Number(override.subscriptionAmount) > 0))
             )
           );
 
@@ -712,15 +764,15 @@ export async function fetchLiveAdminUsers(): Promise<{
   if (dbUsers.length > 0 || remoteReferrals.length > 0 || existingLocal.length > 0) {
     const userMap = new Map<string, AdminUser>();
 
-    // Start with existing cached users (strictly farm owners!)
-    existingLocal.filter(u => !isStaffUser(u)).forEach(u => {
+    // Start with existing cached users (strictly farm owners and non-deleted!)
+    existingLocal.filter(u => !isStaffUser(u) && !isDeleted(u.id, u.email)).forEach(u => {
       if (u && (u.id || u.email)) {
         userMap.set((u.email || u.id).toLowerCase(), u);
       }
     });
 
     // Merge in remote referrals from platform_settings
-    remoteReferrals.forEach((ref: any) => {
+    remoteReferrals.filter((ref: any) => !isDeleted(ref?.id, ref?.email)).forEach((ref: any) => {
       if (ref && (ref.id || ref.email)) {
         const key = (ref.email || ref.id).toLowerCase();
         const existing = userMap.get(key) || (ref.id ? userMap.get(ref.id.toLowerCase()) : null);
@@ -762,7 +814,7 @@ export async function fetchLiveAdminUsers(): Promise<{
     });
 
     // Merge in newly fetched db users (updating or inserting)
-    dbUsers.filter(u => !isStaffUser(u)).forEach(u => {
+    dbUsers.filter(u => !isStaffUser(u) && !isDeleted(u.id, u.email)).forEach(u => {
       if (u && (u.id || u.email)) {
         const key = (u.email || u.id).toLowerCase();
         const existing = userMap.get(key) || userMap.get(u.id.toLowerCase());
@@ -796,7 +848,7 @@ export async function fetchLiveAdminUsers(): Promise<{
       }
     });
 
-    const finalUsers = Array.from(userMap.values()).filter(u => !isStaffUser(u));
+    const finalUsers = Array.from(userMap.values()).filter(u => !isStaffUser(u) && !isDeleted(u.id, u.email));
     saveAllAdminUsers(finalUsers);
 
     const finalStats = fetchedStats || calculateAggregatedStats(finalUsers);
@@ -1216,9 +1268,80 @@ export async function updateAdminUserInDb(u: AdminUser): Promise<boolean> {
  */
 export async function deleteAdminUserInDb(id: string, email?: string): Promise<boolean> {
   const cleanEmail = (email || "").trim().toLowerCase();
+  const cleanId = (id || "").trim().toLowerCase();
   let anySuccess = false;
 
-  // 1. Primary: Server-side Edge Function with service-role permissions
+  // 1. Immediately tombstone in local storage so page refreshes never resurrect this user
+  try {
+    const localDelRaw = localStorage.getItem("pondtora_deleted_users");
+    const localDelList: string[] = localDelRaw ? JSON.parse(localDelRaw) : [];
+    if (cleanId && !localDelList.includes(cleanId)) localDelList.push(cleanId);
+    if (cleanEmail && !localDelList.includes(cleanEmail)) localDelList.push(cleanEmail);
+    localStorage.setItem("pondtora_deleted_users", JSON.stringify(localDelList));
+  } catch {}
+
+  // 2. Immediately remove from local cached admin users
+  try {
+    const cached = loadAllAdminUsers();
+    const filtered = cached.filter(u => {
+      const uId = (u.id || "").trim().toLowerCase();
+      const uEm = (u.email || "").trim().toLowerCase();
+      return uId !== cleanId && (!cleanEmail || uEm !== cleanEmail);
+    });
+    saveAllAdminUsers(filtered);
+  } catch {}
+
+  // 3. Persist tombstone to platform_settings and clean remote overrides & referral registry
+  try {
+    const { data: delRow } = await supabase.from("platform_settings").select("value").eq("key", "deleted_users").maybeSingle();
+    let currentDeleted: Record<string, boolean> = {};
+    if (delRow?.value) {
+      if (Array.isArray(delRow.value)) {
+        delRow.value.forEach((x: any) => { currentDeleted[String(x).trim().toLowerCase()] = true; });
+      } else if (typeof delRow.value === "object") {
+        currentDeleted = { ...delRow.value };
+      }
+    }
+    if (cleanId) currentDeleted[cleanId] = true;
+    if (cleanEmail) currentDeleted[cleanEmail] = true;
+    await supabase.from("platform_settings").upsert({
+      key: "deleted_users",
+      value: currentDeleted,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "key" });
+
+    // Clean overrides
+    const { data: overRow } = await supabase.from("platform_settings").select("value").eq("key", "admin_user_overrides").maybeSingle();
+    if (overRow?.value && typeof overRow.value === "object") {
+      const overrides = { ...overRow.value };
+      if (cleanId) delete overrides[cleanId];
+      if (cleanEmail) delete overrides[cleanEmail];
+      await supabase.from("platform_settings").upsert({
+        key: "admin_user_overrides",
+        value: overrides,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "key" });
+    }
+
+    // Clean referral registry
+    const { data: refRow } = await supabase.from("platform_settings").select("value").eq("key", "referral_registry").maybeSingle();
+    if (refRow?.value && Array.isArray(refRow.value)) {
+      const filteredRefs = refRow.value.filter((r: any) => {
+        const rEmail = (r.email || "").toLowerCase().trim();
+        const rId = (r.id || "").toLowerCase().trim();
+        return rId !== cleanId && (!cleanEmail || rEmail !== cleanEmail);
+      });
+      await supabase.from("platform_settings").upsert({
+        key: "referral_registry",
+        value: filteredRefs,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "key" });
+    }
+  } catch (err) {
+    console.warn("Notice: Failed to update platform_settings on user deletion:", err);
+  }
+
+  // 4. Primary: Server-side Edge Function with service-role permissions
   // This removes the user directly from Supabase Auth (auth.users, sessions, identities)
   // so the email address is immediately released for re-registration.
   const baseUrl = import.meta.env.VITE_SUPABASE_URL || "https://fegtvgfkxueorybefthj.supabase.co";
@@ -1251,7 +1374,7 @@ export async function deleteAdminUserInDb(id: string, email?: string): Promise<b
     }
   }
 
-  // 2. Postgres RPC: delete_user_completely (SECURITY DEFINER)
+  // 5. Postgres RPC: delete_user_completely (SECURITY DEFINER)
   try {
     const { error: rpcErr } = await supabase.rpc("delete_user_completely", { target_user_id: id });
     if (!rpcErr) anySuccess = true;
@@ -1259,7 +1382,7 @@ export async function deleteAdminUserInDb(id: string, email?: string): Promise<b
     console.warn("RPC delete_user_completely attempt:", e);
   }
 
-  // 3. Postgres RPC: delete_user_by_email if email is available
+  // 6. Postgres RPC: delete_user_by_email if email is available
   if (cleanEmail) {
     try {
       const { error: emailRpcErr } = await supabase.rpc("delete_user_by_email", { target_email: cleanEmail });
@@ -1269,7 +1392,7 @@ export async function deleteAdminUserInDb(id: string, email?: string): Promise<b
     }
   }
 
-  // 4. Direct Supabase table cascading cleanup
+  // 7. Direct Supabase table cascading cleanup
   try {
     // Nullify references in shared records
     await Promise.allSettled([
@@ -1335,7 +1458,7 @@ export async function deleteAdminUserInDb(id: string, email?: string): Promise<b
     console.warn("Direct table delete attempt:", e);
   }
 
-  // 5. Clean up local storage in the active browser for this user
+  // 8. Clean up local storage in the active browser for this user
   try {
     const keys = Object.keys(localStorage);
     for (const k of keys) {
@@ -1345,7 +1468,41 @@ export async function deleteAdminUserInDb(id: string, email?: string): Promise<b
     }
   } catch {}
 
-  return anySuccess;
+  return true;
+}
+
+/**
+ * Removes a user from the tombstone when they register or authenticate afresh with that email
+ */
+export async function unmarkDeletedUser(id?: string, email?: string): Promise<void> {
+  const cleanEmail = (email || "").trim().toLowerCase();
+  const cleanId = (id || "").trim().toLowerCase();
+
+  try {
+    const raw = localStorage.getItem("pondtora_deleted_users");
+    if (raw) {
+      const list: string[] = JSON.parse(raw);
+      const filtered = list.filter(x => {
+        const cln = String(x).trim().toLowerCase();
+        return cln !== cleanId && (!cleanEmail || cln !== cleanEmail);
+      });
+      localStorage.setItem("pondtora_deleted_users", JSON.stringify(filtered));
+    }
+  } catch {}
+
+  try {
+    const { data: delRow } = await supabase.from("platform_settings").select("value").eq("key", "deleted_users").maybeSingle();
+    if (delRow?.value && typeof delRow.value === "object") {
+      const current = { ...delRow.value };
+      if (cleanId) delete current[cleanId];
+      if (cleanEmail) delete current[cleanEmail];
+      await supabase.from("platform_settings").upsert({
+        key: "deleted_users",
+        value: current,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "key" });
+    }
+  } catch {}
 }
 
 /**
@@ -1815,6 +1972,7 @@ export interface FarmSubscriptionDetails {
   isPaidActive: boolean;
   hasFreeAccess: boolean;
   trialDaysLeft: number;
+  subscriptionDaysLeft: number;
   expiryDate: string | null;
   formattedExpiryDate: string | null;
   activePlan: string;
@@ -1865,7 +2023,8 @@ export function getFarmSubscriptionDetails(
       isTrial: false,
       isPaidActive: true,
       hasFreeAccess: true,
-      trialDaysLeft: 999,
+      trialDaysLeft: 0,
+      subscriptionDaysLeft: 999,
       expiryDate: null,
       formattedExpiryDate: "Lifetime Access",
       activePlan: override.activePlan || targetUser?.activePlan || "Commercial",
@@ -1883,6 +2042,7 @@ export function getFarmSubscriptionDetails(
       isPaidActive: false,
       hasFreeAccess: false,
       trialDaysLeft: 0,
+      subscriptionDaysLeft: 0,
       expiryDate: null,
       formattedExpiryDate: "Account Suspended",
       activePlan: override.activePlan || targetUser?.activePlan || "Starter",
@@ -1892,12 +2052,19 @@ export function getFarmSubscriptionDetails(
     };
   }
 
-  // Real payment check: has the owner/user completed payment with valid reference
+  // Real payment check: has the owner/user completed payment with valid reference or active subscription
   const hasPaid = Boolean(
     override.hasPaid ||
     targetUser?.hasPaid ||
     isValidPaystackRef(targetUser?.paystackReference) ||
-    isValidPaystackRef(targetUser?.paystack_reference)
+    isValidPaystackRef(targetUser?.paystack_reference) ||
+    targetUser?.subscriptionStatus === "Paid" ||
+    targetUser?.subscriptionStatus === "Active" ||
+    (targetUser as any)?.subscription_status === "Paid" ||
+    (targetUser as any)?.subscription_status === "Active" ||
+    Boolean(targetUser?.subscriptionExpiry || (targetUser as any)?.subscription_expiry) ||
+    Boolean(targetUser?.lastPaymentDate || (targetUser as any)?.last_payment_date) ||
+    Boolean((targetUser?.subscriptionAmount && targetUser.subscriptionAmount > 0) || ((targetUser as any)?.subscription_amount && (targetUser as any).subscription_amount > 0))
   );
 
   const expiryRaw =
@@ -1907,6 +2074,10 @@ export function getFarmSubscriptionDetails(
     null;
 
   if (hasPaid) {
+    let subDaysRemaining = 0;
+    let formatted: string | null = null;
+    let isExp = false;
+
     if (expiryRaw) {
       try {
         const exp = new Date(expiryRaw);
@@ -1916,36 +2087,23 @@ export function getFarmSubscriptionDetails(
           const expDay = new Date(exp);
           expDay.setHours(23, 59, 59, 999);
 
-          const isExp = expDay.getTime() < today.getTime();
-          const formatted = exp.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
-
-          return {
-            status: isExp ? "Expired" : "Active",
-            isExpired: isExp,
-            isTrial: false,
-            isPaidActive: !isExp,
-            hasFreeAccess: false,
-            trialDaysLeft: 0,
-            expiryDate: expiryRaw,
-            formattedExpiryDate: formatted,
-            activePlan: override.activePlan || targetUser?.activePlan || "Starter",
-            isStaff,
-            ownerName: targetUser?.name,
-            ownerEmail: targetUser?.email,
-          };
+          isExp = expDay.getTime() < today.getTime();
+          subDaysRemaining = Math.max(0, Math.ceil((expDay.getTime() - today.getTime()) / 86400000));
+          formatted = exp.toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
         }
       } catch {}
     }
 
     return {
-      status: "Active",
-      isExpired: false,
+      status: isExp ? "Expired" : "Active",
+      isExpired: isExp,
       isTrial: false,
-      isPaidActive: true,
+      isPaidActive: !isExp,
       hasFreeAccess: false,
       trialDaysLeft: 0,
-      expiryDate: null,
-      formattedExpiryDate: null,
+      subscriptionDaysLeft: subDaysRemaining,
+      expiryDate: expiryRaw,
+      formattedExpiryDate: formatted,
       activePlan: override.activePlan || targetUser?.activePlan || "Starter",
       isStaff,
       ownerName: targetUser?.name,
@@ -1992,6 +2150,7 @@ export function getFarmSubscriptionDetails(
     isPaidActive: false,
     hasFreeAccess: false,
     trialDaysLeft: daysRemaining,
+    subscriptionDaysLeft: 0,
     expiryDate: trialExpiryStr,
     formattedExpiryDate: formattedTrialExp,
     activePlan: override.activePlan || targetUser?.activePlan || "Starter",

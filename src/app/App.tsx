@@ -3212,8 +3212,13 @@ function SubscriptionPage({
               </p>
             )}
             {currentFarmSub.isPaidActive && (
-              <p className="text-xs text-emerald-700 font-semibold mt-1">
-                Active Plan: <strong className="text-slate-800">{activePlan || effectiveProfile?.activePlan || currentFarmSub.activePlan}</strong>
+              <p className="text-xs text-emerald-700 font-semibold mt-1 flex items-center gap-1.5 flex-wrap">
+                <span>Active Plan: <strong className="text-slate-800">{activePlan || effectiveProfile?.activePlan || currentFarmSub.activePlan}</strong></span>
+                {currentFarmSub.subscriptionDaysLeft > 0 && (
+                  <span className="text-emerald-800 font-bold bg-emerald-100/80 px-2 py-0.5 rounded-md border border-emerald-200">
+                    ({currentFarmSub.subscriptionDaysLeft} day{currentFarmSub.subscriptionDaysLeft === 1 ? "" : "s"} remaining)
+                  </span>
+                )}
               </p>
             )}
           </div>
@@ -7000,7 +7005,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
         if (prev?.activePlan && !next.activePlan) {
           next.activePlan = prev.activePlan;
         }
-        if (prev?.trialStartDate && !next.trialStartDate) {
+        if (prev?.trialStartDate && !next.trialStartDate && !next.hasPaid && next.subscriptionStatus !== "Active" && next.subscriptionStatus !== "Paid") {
           next.trialStartDate = prev.trialStartDate;
         }
         if (next.id) {

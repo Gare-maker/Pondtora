@@ -93,7 +93,7 @@ export function computeSubscriptionStatus(
   const rawStatus = (u.subscriptionStatus || (u as any).subscription_status || "").trim();
   if (rawStatus === "Suspended") return "Suspended";
 
-  // Real payment check: has the user completed a verified payment (Paystack reference, payment date, explicit hasPaid flag, or explicit Paid status)
+  // Real payment check: has the user completed a payment transaction or has an active subscription recorded
   const hasCompletedPayment = Boolean(
     !u.freeAccess &&
     (
@@ -102,7 +102,12 @@ export function computeSubscriptionStatus(
       Boolean((u as any).paystack_reference && String((u as any).paystack_reference).trim() !== "") ||
       Boolean(u.lastPaymentDate && u.lastPaymentDate.trim() !== "") ||
       Boolean((u as any).last_payment_date && String((u as any).last_payment_date).trim() !== "") ||
-      rawStatus === "Paid"
+      rawStatus === "Paid" ||
+      rawStatus === "Active" ||
+      Boolean(u.subscriptionExpiry && String(u.subscriptionExpiry).trim() !== "") ||
+      Boolean((u as any).subscription_expiry && String((u as any).subscription_expiry).trim() !== "") ||
+      (typeof u.subscriptionAmount === "number" && u.subscriptionAmount > 0) ||
+      (typeof (u as any).subscription_amount === "number" && (u as any).subscription_amount > 0)
     )
   );
 
@@ -159,6 +164,20 @@ export function trialDaysLeft(trialStart: string | null | undefined): number {
     if (isNaN(end.getTime())) return 0;
     end.setDate(end.getDate() + 40);
     return Math.max(0, Math.ceil((end.getTime() - Date.now()) / 86400000));
+  } catch {
+    return 0;
+  }
+}
+
+export function subscriptionDaysLeft(expiry: string | null | undefined): number {
+  if (!expiry) return 0;
+  try {
+    const end = new Date(expiry);
+    if (isNaN(end.getTime())) return 0;
+    end.setHours(23, 59, 59, 999);
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+    return Math.max(0, Math.ceil((end.getTime() - now.getTime()) / 86400000));
   } catch {
     return 0;
   }

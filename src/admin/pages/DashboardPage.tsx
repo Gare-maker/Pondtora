@@ -7,7 +7,7 @@ import {
 } from "lucide-react";
 import { Card, Bdg } from "../../app/shared";
 import type { AdminUser, AdminPlan, AdminActivityLog } from "../types";
-import { fmtDate, trialDaysLeft, fmtMoney, effectivePrice } from "../types";
+import { fmtDate, trialDaysLeft, subscriptionDaysLeft, fmtMoney, effectivePrice } from "../types";
 import { isStaffUser } from "../../lib/userSync";
 import type { PlatformOperationalStats } from "../../lib/userSync";
 import { toast } from "sonner";
@@ -714,11 +714,15 @@ export default function DashboardPage({
                               {effectivePrice(u, plans) !== null ? `${fmtMoney(effectivePrice(u, plans) as number)} / ${u.billingFrequency === "yearly" ? "yr" : "mo"}` : ""}
                             </span>
                           )}
-                          {u.subscriptionStatus === "Trial" && (
+                          {u.subscriptionStatus === "Trial" && !u.hasPaid && !u.subscriptionExpiry ? (
                             <span className="text-amber-600 font-semibold text-[10px]">
                               ({trialDaysLeft(u.trialStartDate)}d trial left)
                             </span>
-                          )}
+                          ) : u.subscriptionExpiry ? (
+                            <span className="text-emerald-700 font-semibold text-[10px]">
+                              ({subscriptionDaysLeft(u.subscriptionExpiry)}d remaining)
+                            </span>
+                          ) : null}
                         </div>
                       </td>
                       <td className="py-3 px-3">
@@ -813,7 +817,11 @@ export default function DashboardPage({
                   <Bdg label={selectedUserDossier.subscriptionStatus} color={SC[selectedUserDossier.subscriptionStatus] || "gray"} />
                 </div>
                 <p className="text-slate-500 text-[11px]">
-                  {selectedUserDossier.subscriptionStatus === "Trial" ? `${trialDaysLeft(selectedUserDossier.trialStartDate)} days trial left` : "Active Plan"}
+                  {selectedUserDossier.subscriptionStatus === "Trial" && !selectedUserDossier.hasPaid && !selectedUserDossier.subscriptionExpiry
+                    ? `${trialDaysLeft(selectedUserDossier.trialStartDate)} days trial left`
+                    : selectedUserDossier.subscriptionExpiry
+                    ? `${subscriptionDaysLeft(selectedUserDossier.subscriptionExpiry)} days remaining (expires ${fmtDate(selectedUserDossier.subscriptionExpiry)})`
+                    : "Active Plan"}
                 </p>
               </div>
             </div>
