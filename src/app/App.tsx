@@ -6835,38 +6835,61 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       } catch {}
     }
 
-    // 10. Database persistence via direct entity updates and transfer RPC
-    Promise.allSettled([
-      api.ponds.transferFishStock({
+    // 10. Database persistence
+    try {
+      const rpcResult = await api.ponds.transferFishStock({
         fromPond: fromPond,
         toPond: toPond,
         percentage: pct,
         count: safeCount,
         date: dateLabel,
         transferredBy: userProfile?.name || userProfile?.email || "User",
-        sourceFeeding: sourceFeedRecs,
-        sourceMortality: mortality.filter(isSourceMort),
-        sourceTreatments: treatments.filter(t => t.pondId === fromId),
-      }),
-      api.ponds.update(updatedFrom),
-      api.ponds.update(updatedTo),
-      ...updatedSourceFeed.map(r => api.feeding.update({ ...r, _skipInventoryCheck: true } as any)),
-      ...createdDestFeed.map(r => api.feeding.create({ ...r, _skipInventoryCheck: true } as any)),
-      ...updatedSourceMort.map(m => api.mortality.update(m)),
-      ...createdDestMort.map(m => api.mortality.create(m)),
-      ...updatedSourceTreat.map(t => api.treatments.update(t)),
-      ...createdDestTreat.map(t => api.treatments.create(t)),
-      ...(isFullTransfer
-        ? [
-            ...pondReports.filter(r => r.pondId === fromId).map(r => api.pondReports.update({ ...r, pondId: toId, fishStockId: stockLabel })),
-            ...fishCountHistory.filter(h => h.pondId === fromId).map(h => api.fishCountHistory.update({ ...h, pondId: toId, pondName: toPond.name }))
-          ]
-        : createdDestReports.map(r => api.pondReports.create(r))
-      ),
-      api.fishCountHistory.create(transferEntryDest),
-      api.fishCountHistory.create(transferEntrySrc),
-      ...newStockEvents.map(se => api.stockEvents.create(se))
-    ]).catch(err => console.warn("Notice during background transfer sync:", err));
+      });
+
+      if (!rpcResult?.success) {
+        // Direct database updates fallback
+        await Promise.all([
+          api.ponds.update(updatedFrom),
+          api.ponds.update(updatedTo),
+          ...updatedSourceFeed.map(r => api.feeding.update({ ...r, _skipInventoryCheck: true } as any)),
+          ...createdDestFeed.map(r => api.feeding.create({ ...r, _skipInventoryCheck: true } as any)),
+          ...updatedSourceMort.map(m => api.mortality.update(m)),
+          ...createdDestMort.map(m => api.mortality.create(m)),
+          ...updatedSourceTreat.map(t => api.treatments.update(t)),
+          ...createdDestTreat.map(t => api.treatments.create(t)),
+          ...(isFullTransfer
+            ? [
+                ...pondReports.filter(r => r.pondId === fromId).map(r => api.pondReports.update({ ...r, pondId: toId, fishStockId: stockLabel })),
+                ...fishCountHistory.filter(h => h.pondId === fromId).map(h => api.fishCountHistory.update({ ...h, pondId: toId, pondName: toPond.name }))
+              ]
+            : createdDestReports.map(r => api.pondReports.create(r))
+          ),
+          api.fishCountHistory.create(transferEntryDest),
+          api.fishCountHistory.create(transferEntrySrc),
+          ...newStockEvents.map(se => api.stockEvents.create(se))
+        ]);
+      } else {
+        // RPC handled ponds, feeding, mortality, treatments, stock events, and count history.
+        // Sync any pond reports:
+        if (isFullTransfer) {
+          await Promise.allSettled(
+            pondReports.filter(r => r.pondId === fromId).map(r => api.pondReports.update({ ...r, pondId: toId, fishStockId: stockLabel }))
+          );
+        } else if (createdDestReports.length > 0) {
+          await Promise.allSettled(createdDestReports.map(r => api.pondReports.create(r)));
+        }
+      }
+    } catch (err: any) {
+      console.warn("Transfer sync fallback notice:", err);
+      // Secondary fallback
+      await Promise.allSettled([
+        api.ponds.update(updatedFrom),
+        api.ponds.update(updatedTo),
+        ...updatedSourceFeed.map(r => api.feeding.update({ ...r, _skipInventoryCheck: true } as any)),
+        ...createdDestFeed.map(r => api.feeding.create({ ...r, _skipInventoryCheck: true } as any)),
+        ...newStockEvents.map(se => api.stockEvents.create(se))
+      ]);
+    }
 
     // 11. Notification
     const farm = farms.find(f => f.id === activeFarmId) || farms[0];
@@ -6885,19 +6908,21 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       },
     ]);
 
+    // Display success notification only AFTER database save is completed
     toast.success(
       isFullTransfer
         ? `100% fish stock and all associated records transferred from ${fromPond.name} to ${toPond.name}. ${fromPond.name} is now cleared.`
         : `${safeCount.toLocaleString()} fish (${Math.round(fraction * 100)}%) + proportional feed and mortality records transferred from ${fromPond.name} to ${toPond.name}.`
     );
+    return true;
   };
 
-  const transferStock = (fromId: string, toId: string, date: string) => {
-    handleExecuteTransfer(fromId, toId, 100, undefined, date);
+  const transferStock = async (fromId: string, toId: string, date: string): Promise<boolean> => {
+    return await handleExecuteTransfer(fromId, toId, 100, undefined, date);
   };
 
-  const nurseryTransfer = (fromId: string, toId: string, count: number, pct: number, date: string) => {
-    handleExecuteTransfer(fromId, toId, pct, count, date);
+  const nurseryTransfer = async (fromId: string, toId: string, count: number, pct: number, date: string): Promise<boolean> => {
+    return await handleExecuteTransfer(fromId, toId, pct, count, date);
   };
   const [onboardingSubmitting, setOnboardingSubmitting] = useState(false);
   const [authLoading,setAuthLoading]=useState(()=>{
@@ -6950,9 +6975,16 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     const mergedServerPonds = serverPonds.filter((p: Pond) => !isDeletedId(p.id)).map((sp: Pond) => {
       const lp = localPondMap.get(sp.id);
       if (!lp) return sp;
-      const fishStock = lp.fishStock || sp.fishStock;
-      // If local pond has an un-synced transfer state (transferNote differs), preserve it
-      if (lp.transferNote && lp.transferNote !== sp.transferNote) {
+      if (sp.status === "Empty") {
+        return {
+          ...sp,
+          fishStock: undefined,
+          transferNote: sp.transferNote || lp.transferNote
+        };
+      }
+      const fishStock = sp.fishStock || (sp.stockingDate && sp.stockingDate !== "—" ? formatFishStockDate(sp.stockingDate) : undefined) || lp.fishStock;
+      // If local pond has an un-synced transfer state (transferNote differs), preserve it unless empty
+      if (lp.transferNote && lp.transferNote !== sp.transferNote && lp.status !== "Empty") {
         return { ...sp, ...lp, fishStock };
       }
       return { ...sp, fishStock: fishStock || sp.fishStock };

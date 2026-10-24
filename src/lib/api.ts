@@ -2548,40 +2548,7 @@ export const api = {
       sourceMortality?: MortalityEntry[];
       sourceTreatments?: TreatmentRecord[];
     }) => {
-      const baseUrl = import.meta.env.VITE_SUPABASE_URL || "https://fegtvgfkxueorybefthj.supabase.co";
-      const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
-      const endpoints = [
-        `${baseUrl}/functions/v1/make-server-1da59a07/ponds/transfer`,
-        `${baseUrl}/functions/v1/server/ponds/transfer`,
-        `${baseUrl}/functions/v1/ponds/transfer`,
-      ];
-
-      // 1. Try server edge function
-      for (const ep of endpoints) {
-        try {
-          const res = await fetch(ep, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${anonKey}`,
-            },
-            body: JSON.stringify({
-              fromPondId: opts.fromPond.id,
-              toPondId: opts.toPond.id,
-              percentage: opts.percentage,
-              count: opts.count,
-              date: opts.date,
-              transferredBy: opts.transferredBy || "User",
-            }),
-          });
-          if (res.ok) {
-            const json = await res.json().catch(() => ({}));
-            if (json.success) return json;
-          }
-        } catch {}
-      }
-
-      // 2. Try PostgreSQL RPC
+      // Direct atomic transfer via PostgreSQL RPC
       try {
         const { data: rpcRes, error: rpcErr } = await supabase.rpc("transfer_fish_stock", {
           p_from_pond_id: opts.fromPond.id,
@@ -2592,13 +2559,16 @@ export const api = {
           p_transferred_by: opts.transferredBy || "User",
         });
         if (!rpcErr && rpcRes && rpcRes.success) {
-          return rpcRes;
+          return { success: true, rpcExecuted: true, ...rpcRes };
+        }
+        if (rpcErr) {
+          console.warn("RPC transfer_fish_stock error notice:", rpcErr.message || rpcErr);
         }
       } catch (rpcErr) {
-        console.warn("RPC transfer_fish_stock notice:", rpcErr);
+        console.warn("RPC transfer_fish_stock call exception:", rpcErr);
       }
 
-      return { success: true };
+      return { success: false, fallbackRequired: true };
     },
   },
 
