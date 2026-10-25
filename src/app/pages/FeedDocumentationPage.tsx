@@ -567,53 +567,107 @@ function FeedDocumentation({
   }, [viewYear]);
 
   /* Helper to get prior leftover carryover for a fish stock and pallet size strictly before targetDate */
+  /* Helper to get prior leftover carryover for a fish stock and pallet size strictly before targetDate */
   const getPriorCarryover = useCallback((stockName: string, size: string, targetDate: string): number => {
     if (!stockName || !targetDate) return 0;
     const normStock = normalizeFishStock(stockName);
     const targetIso = dateToIso(targetDate);
     if (!targetIso) return 0;
 
-    const priorLogs = (remainLogs || []).filter(r => {
-      if (!r || !r.date) return false;
-      const rIso = dateToIso(r.date);
-      if (!rIso || rIso >= targetIso) return false;
-      if (!isStockMatch(r.fishStock, normStock)) return false;
-      if (size && size !== "—" && r.size && r.size !== "—" && !isSamePelletSize(r.size, size)) return false;
-      return true;
-    }).sort((a, b) => {
-      const isoA = dateToIso(a.date);
-      const isoB = dateToIso(b.date);
-      return isoB.localeCompare(isoA);
+    // Collect all unique ISO dates strictly before targetIso where any feed activity occurred for this stock & size
+    const activityDates = new Set<string>();
+
+    (remainLogs || []).forEach(r => {
+      if (!r || !r.date) return;
+      const iso = dateToIso(r.date);
+      if (iso && iso < targetIso && isStockMatch(r.fishStock, normStock) && (!size || size === "—" || !r.size || r.size === "—" || isSamePelletSize(r.size, size))) {
+        activityDates.add(iso);
+      }
     });
 
-    let baseCarryover = priorLogs.length > 0 ? (Number(priorLogs[0].remainingKg) || 0) : 0;
+    (bagLogs || []).forEach(b => {
+      if (!b || !b.date) return;
+      const iso = dateToIso(b.date);
+      if (iso && iso < targetIso && isStockMatch(b.fishStock, normStock) && (!size || size === "—" || !b.size || b.size === "—" || isSamePelletSize(b.size, size))) {
+        activityDates.add(iso);
+      }
+    });
 
-    // Factor in unconsumed incoming transfers strictly before targetDate
-    const latestRemainIso = priorLogs.length > 0 ? dateToIso(priorLogs[0].date) : "";
-    const priorTransfersIn = (feedTransfers || []).filter(t => {
-      if (!isStockMatch(t.destinationStock, normStock)) return false;
-      if (size && size !== "—" && !isSamePelletSize(t.feedSize, size)) return false;
+    (feedTransfers || []).forEach(t => {
+      if (!t) return;
       const tIso = dateToIso(t.transferDate);
-      if (!tIso || tIso >= targetIso) return false;
-      if (latestRemainIso && tIso <= latestRemainIso) return false;
-      return true;
+      const isDest = isStockMatch(t.destinationStock, normStock);
+      const isSrc = isStockMatch(t.sourceStock, normStock);
+      if (tIso && tIso < targetIso && (isDest || isSrc) && (!size || size === "—" || isSamePelletSize(t.feedSize, size))) {
+        activityDates.add(tIso);
+      }
     });
 
-    const additionalTransferCarryover = priorTransfersIn.reduce((s, t) => {
-      const transIso = dateToIso(t.transferDate);
-      const feedings = (feedingRecords || []).filter(r => {
-        const matchStock = isStockMatch(r.fishStock, normStock) || isStockMatch(pondToStock(r.pond), normStock) || isStockMatch(r.pond, normStock);
-        if (!matchStock) return false;
-        if (!isSamePelletSize(r.size, t.feedSize)) return false;
-        const fIso = dateToIso(r.date);
-        return Boolean(transIso && fIso && fIso >= transIso && fIso < targetIso);
-      });
-      const fed = feedings.reduce((sf, r) => sf + (Number(r.total) || ((Number(r.morning) || 0) + (Number(r.evening) || 0))), 0);
-      return s + Math.max(0, t.quantityKg - fed);
-    }, 0);
+    (feedingRecords || []).forEach(r => {
+      if (!r || !r.date) return;
+      const iso = dateToIso(r.date);
+      if (iso && iso < targetIso && (isStockMatch(r.fishStock, normStock) || isStockMatch(pondToStock(r.pond), normStock) || isStockMatch(r.pond, normStock)) && (!size || size === "—" || !r.size || r.size === "—" || isSamePelletSize(r.size, size))) {
+        activityDates.add(iso);
+      }
+    });
 
-    return Math.max(0, Math.round((baseCarryover + additionalTransferCarryover) * 10) / 10);
-  }, [remainLogs, feedTransfers, feedingRecords, dateToIso]);
+    if (activityDates.size === 0) {
+      return 0;
+    }
+
+    const sortedDates = Array.from(activityDates).sort();
+    let balance = 0;
+
+    for (const dIso of sortedDates) {
+      // 1. Explicit user leftover recorded on this date (if any)
+      const matchingRemains = (remainLogs || []).filter(r => 
+        dateToIso(r.date) === dIso && 
+        isStockMatch(r.fishStock, normStock) && 
+        (!size || size === "—" || !r.size || r.size === "—" || isSamePelletSize(r.size, size))
+      );
+      const rLog = matchingRemains.length > 0 ? matchingRemains[matchingRemains.length - 1] : null;
+
+      // 2. Bags opened on this date
+      const dayBags = (bagLogs || []).filter(b => 
+        dateToIso(b.date) === dIso && 
+        isStockMatch(b.fishStock, normStock) && 
+        (!size || size === "—" || !b.size || b.size === "—" || isSamePelletSize(b.size, size))
+      );
+      const dayBagsKg = dayBags.reduce((s, b) => s + (Number(b.totalKg) || ((Number(b.bagsOpened) || 0) * (Number(b.kgPerBag) || 15))), 0);
+
+      // 3. Transfers in on this date
+      const dayTransfersIn = (feedTransfers || []).filter(t => 
+        dateToIso(t.transferDate) === dIso && 
+        isStockMatch(t.destinationStock, normStock) && 
+        (!size || size === "—" || isSamePelletSize(t.feedSize, size))
+      );
+      const dayTransfersInKg = dayTransfersIn.reduce((s, t) => s + (Number(t.quantityKg) || 0), 0);
+
+      // 4. Transfers out on this date
+      const dayTransfersOut = (feedTransfers || []).filter(t => 
+        (dateToIso(t.transferDate) === dIso || dateToIso(t.originalDate) === dIso) && 
+        isStockMatch(t.sourceStock, normStock) && 
+        (!size || size === "—" || isSamePelletSize(t.feedSize, size))
+      );
+      const dayTransfersOutKg = dayTransfersOut.reduce((s, t) => s + (Number(t.quantityKg) || 0), 0);
+
+      // 5. Feeding on this date
+      const dayFeedings = (feedingRecords || []).filter(r => 
+        dateToIso(r.date) === dIso && 
+        (isStockMatch(r.fishStock, normStock) || isStockMatch(pondToStock(r.pond), normStock) || isStockMatch(r.pond, normStock)) && 
+        (!size || size === "—" || !r.size || r.size === "—" || isSamePelletSize(r.size, size))
+      );
+      const dayFedKg = dayFeedings.reduce((s, r) => s + (Number(r.total) || ((Number(r.morning) || 0) + (Number(r.evening) || 0))), 0);
+
+      if (rLog && rLog.remainingKg !== undefined && rLog.remainingKg !== null) {
+        balance = Number(rLog.remainingKg) || 0;
+      } else {
+        balance = Math.max(0, balance + dayBagsKg + dayTransfersInKg - dayTransfersOutKg - dayFedKg);
+      }
+    }
+
+    return Math.max(0, Math.round(balance * 10) / 10);
+  }, [remainLogs, bagLogs, feedingRecords, feedTransfers, dateToIso]);
 
   /* Helper to retrieve all pallets associated with a fish stock */
   const getAssociatedPalletsForStock = useCallback((fishStock: string, targetDate?: string): string[] => {
@@ -1401,13 +1455,13 @@ function FeedDocumentation({
     );
     const totalTransferredOut = transfersOutToday.reduce((s, t) => s + (Number(t.quantityKg) || 0), 0);
 
-    const effectiveCarryover = carryover + availableTransfersIn;
+    const effectiveCarryover = Math.max(0, carryover + availableTransfersIn - totalTransferredOut);
     const netNeeded = Math.max(0, totalFed - effectiveCarryover);
     const expectedBags = netNeeded > 0 ? Math.ceil(netNeeded / bagWeight) : 0;
     const loggedBags = getBagsLoggedTodayForStockAndSize(normStock, brand, size, targetDate);
     const effectiveBags = bagsOpenedOverride !== undefined ? bagsOpenedOverride : (totalFed > 0 ? expectedBags : loggedBags);
     const totalAvailable = effectiveCarryover + (effectiveBags * bagWeight);
-    const expectedRemaining = Math.max(0, Math.round((totalAvailable - totalFed - totalTransferredOut) * 10) / 10);
+    const expectedRemaining = Math.max(0, Math.round((totalAvailable - totalFed) * 10) / 10);
 
     return {
       hasFed: totalFed > 0,
@@ -1935,7 +1989,25 @@ function FeedDocumentation({
                         (inventory || []).find(f => f && (size !== "—" ? isSamePelletSize(f.size, size) : true));
         const bagWeight = invItem?.weightPerBag || 15;
 
-        const netNeeded = Math.max(0, sizeFedKg - carryoverKg);
+        // Incoming & Outgoing transfers today
+        const transfersInToday = (feedTransfers || []).filter(t => 
+          isStockMatch(t.destinationStock, stockInfo.stockName) && 
+          isSamePelletSize(t.feedSize, size) && 
+          isSameDate(t.transferDate, selDate)
+        );
+        const availableTransfersIn = transfersInToday.reduce((s, t) => s + (Number(t.quantityKg) || 0), 0);
+
+        const transfersOutToday = (feedTransfers || []).filter(t => 
+          isStockMatch(t.sourceStock, stockInfo.stockName) && 
+          isSamePelletSize(t.feedSize, size) && 
+          (isSameDate(t.originalDate, selDate) || isSameDate(t.transferDate, selDate))
+        );
+        const totalTransferredOut = transfersOutToday.reduce((s, t) => s + (Number(t.quantityKg) || 0), 0);
+
+        // Effective feed available BEFORE opening any new bags today
+        const effectiveAvailable = Math.max(0, carryoverKg + availableTransfersIn - totalTransferredOut);
+
+        const netNeeded = Math.max(0, sizeFedKg - effectiveAvailable);
         const expectedBags = netNeeded > 0 ? Math.ceil(netNeeded / bagWeight) : 0;
 
         // Recorded bags opened on selDate
@@ -1954,7 +2026,7 @@ function FeedDocumentation({
               status: "Not Opened",
               expectedBags,
               recordedBags: 0,
-              expectedRemaining: Math.max(0, Math.round((carryoverKg + (expectedBags * bagWeight) - sizeFedKg) * 10) / 10),
+              expectedRemaining: Math.max(0, Math.round((effectiveAvailable + (expectedBags * bagWeight) - sizeFedKg) * 10) / 10),
               recordedRemaining: null,
               totalFed: sizeFedKg,
               carryover: carryoverKg,
@@ -1966,24 +2038,9 @@ function FeedDocumentation({
 
         const recordedBags = bagLogsForSize.reduce((s, b) => s + (Number(b.bagsOpened) || 0), 0);
 
-        // Incoming & Outgoing transfers today
-        const transfersInToday = (feedTransfers || []).filter(t => 
-          isStockMatch(t.destinationStock, stockInfo.stockName) && 
-          isSamePelletSize(t.feedSize, size) && 
-          isSameDate(t.transferDate, selDate)
-        );
-        const availableTransfersIn = transfersInToday.reduce((s, t) => s + getTransferUsage(t).remainingKg, 0);
-
-        const transfersOutToday = (feedTransfers || []).filter(t => 
-          isStockMatch(t.sourceStock, stockInfo.stockName) && 
-          isSamePelletSize(t.feedSize, size) && 
-          (isSameDate(t.originalDate, selDate) || isSameDate(t.transferDate, selDate))
-        );
-        const totalTransferredOut = transfersOutToday.reduce((s, t) => s + (Number(t.quantityKg) || 0), 0);
-
         // Expected remaining feed calculation
-        const totalAvailable = carryoverKg + (recordedBags * bagWeight) + availableTransfersIn;
-        const expectedRemaining = Math.max(0, Math.round((totalAvailable - sizeFedKg - totalTransferredOut) * 10) / 10);
+        const totalAvailable = effectiveAvailable + (recordedBags * bagWeight);
+        const expectedRemaining = Math.max(0, Math.round((totalAvailable - sizeFedKg) * 10) / 10);
 
         // Recorded leftover on selDate
         const remainLogsForSize = (remainLogs || []).filter(r =>
