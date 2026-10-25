@@ -5704,11 +5704,16 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     const nextStockEvents = [...stockEvents, se];
     setStockEvents(nextStockEvents);
 
+    const nextFishCountHistory = fishCountHistory.filter(h => h.pondId !== id);
+    setFishCountHistory(nextFishCountHistory);
+
     if (userProfile?.id) {
       try {
         saveUserLocal(userProfile.id, "stock_events", "stockEvents", nextStockEvents);
+        saveUserLocal(userProfile.id, "fish_count_history", "fishCountHistory", nextFishCountHistory);
         if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
           saveUserLocal(userProfile.ownerId, "stock_events", "stockEvents", nextStockEvents);
+          saveUserLocal(userProfile.ownerId, "fish_count_history", "fishCountHistory", nextFishCountHistory);
         }
       } catch {}
     }
@@ -5731,7 +5736,6 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     if(!p)return;
     const fid=p.farmId||activeFarmId||farms[0]?.id||"";
     const fs = data.fishStock || data.species;
-    const prevCount = Number(p.currentCount) || 0;
     const newCount = Number(data.initialStock) || 0;
     const updated: Pond = {
       ...p,
@@ -5751,11 +5755,11 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       pondId: p.id,
       pondName: p.name,
       farmId: fid,
-      previousCount: prevCount,
+      previousCount: 0,
       newCount: newCount,
-      difference: newCount - prevCount,
+      difference: newCount,
       changedBy: userProfile?.name || userProfile?.email || "User",
-      actionReason: `Pond restocked with ${data.species}`,
+      actionReason: `Initial stocking with ${data.species} (${newCount.toLocaleString()} fish)`,
       createdAt: new Date().toISOString(),
     });
 

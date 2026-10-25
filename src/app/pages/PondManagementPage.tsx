@@ -1023,22 +1023,38 @@ function PondDetail({
       {showCountHistory && (
         <Modal title={`Fish Count Edit History — ${pond.name}`} onClose={() => setShowCountHistory(false)} wide>
           {(() => {
+            const pNameNorm = (pond.name || "").trim().toLowerCase();
+            const closedEvents = (stockEvents || []).filter(e =>
+              (e.pondId === pond.id || (e.pondName && e.pondName.trim().toLowerCase() === pNameNorm)) && e.type === "Closed"
+            );
+            const latestClosedDate = closedEvents.length > 0
+              ? closedEvents.map(e => toValidDbDate(e.clearedDate || e.date)).filter(Boolean).sort().reverse()[0]
+              : null;
+            const pStockDbDate = toValidDbDate(pond.stockingDate);
+
             const pondHistory = pond.status === "Empty"
               ? []
               : (fishCountHistory || [])
-                  .filter(h => h.pondId === pond.id)
+                  .filter(h => {
+                    if (h.pondId !== pond.id) return false;
+                    const hDate = toValidDbDate(h.createdAt);
+                    if (latestClosedDate && hDate && hDate <= latestClosedDate) return false;
+                    if (pStockDbDate && hDate && hDate < pStockDbDate) return false;
+                    return true;
+                  })
                   .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
             return (
               <div className="space-y-3">
-                <div className="flex items-center justify-between text-xs text-slate-500 bg-slate-50 border border-slate-200/80 rounded-xl px-4 py-2.5">
+                <div className="flex items-center justify-between text-xs text-slate-500 bg-slate-50 border border-slate-200/80 rounded-xl px-4 py-2.5 flex-wrap gap-2">
+                  <span>Current Stock: <strong className="text-slate-800">{pond.fishStock || pond.species} {pond.stockingDate && pond.stockingDate !== "—" ? `(${fmtStockingDate(pond.stockingDate)})` : ""}</strong></span>
                   <span>Current Pond Count: <strong className="text-slate-800">{pond.currentCount.toLocaleString()} fish</strong></span>
-                  <span>Total Recorded Modifications: <strong className="text-slate-800">{pondHistory.length}</strong></span>
+                  <span>Total Modifications: <strong className="text-slate-800">{pondHistory.length}</strong></span>
                 </div>
                 {pondHistory.length === 0 ? (
                   <div className="text-center py-10 text-slate-400 text-xs bg-slate-50/50 rounded-xl border border-dashed border-slate-200">
                     <History size={28} className="mx-auto mb-2 text-slate-300" />
-                    <p className="font-semibold text-slate-600">No count edit history recorded yet</p>
-                    <p className="mt-0.5 text-slate-400">All fish count increases, reductions, transfers, and edit modifications will appear here.</p>
+                    <p className="font-semibold text-slate-600">No count edit history recorded for this stock</p>
+                    <p className="mt-0.5 text-slate-400">All fish count increases, reductions, transfers, and edit modifications for this stock will appear here.</p>
                   </div>
                 ) : (
                   <div className="overflow-x-auto border border-slate-200 rounded-xl">

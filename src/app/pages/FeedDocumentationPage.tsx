@@ -112,6 +112,8 @@ export type MergedBagRow = {
   feedRemainingToday?: number | null;
   hasBagLog?: boolean;
   hasRemainLog?: boolean;
+  hasFedToday?: boolean;
+  totalFedToday?: number;
   transfersOut?: FeedTransferRecord[];
   transfersIn?: FeedTransferRecord[];
   totalTransferredOutKg?: number;
@@ -2340,7 +2342,7 @@ function FeedDocumentation({
       (!r.size || r.size === "—" || isSamePelletSize(r.size, size)) && 
       (isStockMatch(r.fishStock, fs) || normalizeFishStock(r.fishStock) === normalizeFishStock(fs))
     );
-    setEditBagRemainKg(existing ? String(existing.remainingKg) : (row.remainingKg !== undefined && row.remainingKg !== null ? String(row.remainingKg) : ""));
+    setEditBagRemainKg(existing ? String(existing.remainingKg) : (row.hasRemainLog && row.feedRemainingToday !== null && row.feedRemainingToday !== undefined ? String(row.feedRemainingToday) : ""));
   };
 
   const handleSaveEditDocBag = () => {
@@ -2498,11 +2500,10 @@ function FeedDocumentation({
       );
 
       let feedRemainingToday: number | null = null;
-      if (matchingRemain) {
+      if (matchingRemain && matchingRemain.remainingKg !== undefined && matchingRemain.remainingKg !== null) {
         feedRemainingToday = Number(matchingRemain.remainingKg) || 0;
       } else {
-        const totalAvailable = carryoverKg + totalKg;
-        feedRemainingToday = Math.max(0, Math.round((totalAvailable - totalFed) * 10) / 10);
+        feedRemainingToday = null;
       }
 
       if (existing) {
@@ -2513,6 +2514,7 @@ function FeedDocumentation({
         existing.carryoverKg = carryoverKg;
         existing.feedRemainingToday = feedRemainingToday;
         existing.remainingKg = feedRemainingToday ?? 0;
+        existing.hasRemainLog = Boolean(matchingRemain);
       } else {
         map.set(k, {
           brand,
@@ -2525,6 +2527,7 @@ function FeedDocumentation({
           carryoverKg,
           feedRemainingToday,
           hasBagLog: true,
+          hasRemainLog: Boolean(matchingRemain),
           lastBagLog: b
         });
       }
@@ -2648,7 +2651,7 @@ function FeedDocumentation({
           (size === "—" || isSamePelletSize(r.size, size)) &&
           (brand === "—" || !r.brand || r.brand === "—" || !brand || r.brand.toLowerCase().trim() === brand.toLowerCase().trim())
         );
-        const initialRemaining = matchingRemain ? (Number(matchingRemain.remainingKg) || 0) : carryoverKg;
+        const initialRemaining = matchingRemain ? (Number(matchingRemain.remainingKg) || 0) : null;
 
         map.set(k, {
           brand,
@@ -2657,7 +2660,7 @@ function FeedDocumentation({
           stockDate: stockDate !== fs ? stockDate : "—",
           bagsOpened: 0,
           totalKgOpened: 0,
-          remainingKg: initialRemaining,
+          remainingKg: initialRemaining ?? 0,
           carryoverKg,
           feedRemainingToday: initialRemaining,
           hasBagLog: false,
@@ -2761,17 +2764,16 @@ function FeedDocumentation({
         (entry.brand === "—" || !r.brand || r.brand === "—" || !entry.brand || r.brand.toLowerCase().trim() === entry.brand.toLowerCase().trim())
       );
 
-      let finalRemaining: number;
+      let finalRemaining: number | null = null;
       if (matchingRemain && matchingRemain.remainingKg !== undefined && matchingRemain.remainingKg !== null) {
         // Explicit user entry/edit takes precedence so manual edits always save and display properly
         finalRemaining = Number(matchingRemain.remainingKg) || 0;
         entry.hasRemainLog = true;
       } else {
-        // Automatic calculation:
-        // Total Available = (carryover from previous day) + (bags opened today * kgPerBag) + (transferred in today) - (transferred out today)
-        // Feed Remaining Today = Total Available - Total Feed Fed Today
-        const totalAvailable = (entry.carryoverKg || 0) + (entry.totalKgOpened || 0) + totalTransferredInKg - totalTransferredOutKg;
-        finalRemaining = Math.max(0, Math.round((totalAvailable - totalFed) * 10) / 10);
+        // DO NOT automatically deduct feed given from feed remaining today!
+        // The user must explicitly log bags opened and/or leftover remaining feed.
+        finalRemaining = null;
+        entry.hasRemainLog = false;
       }
 
       entry.transfersOut = transfersOut;
@@ -2779,9 +2781,11 @@ function FeedDocumentation({
       entry.totalTransferredOutKg = totalTransferredOutKg;
       entry.totalTransferredInKg = totalTransferredInKg;
       entry.feedRemainingToday = finalRemaining;
-      entry.remainingKg = finalRemaining;
-      entry.availableRemainingKg = finalRemaining;
+      entry.remainingKg = finalRemaining !== null ? finalRemaining : 0;
+      entry.availableRemainingKg = finalRemaining !== null ? finalRemaining : 0;
       entry.grossRemainingKg = (entry.carryoverKg || 0) + (entry.totalKgOpened || 0) + totalTransferredInKg;
+      entry.hasFedToday = totalFed > 0;
+      entry.totalFedToday = totalFed;
     });
 
     return Array.from(map.values()).filter(row => 
@@ -2791,13 +2795,14 @@ function FeedDocumentation({
       (row.availableRemainingKg && row.availableRemainingKg > 0.001) ||
       (row.carryoverKg && row.carryoverKg > 0.001) ||
       row.hasBagLog ||
-      row.hasRemainLog
+      row.hasRemainLog ||
+      row.hasFedToday
     );
   }, [bagLogs, remainLogs, feedingRecords, feedTransfers, getTransferUsage, selDate, ponds, inventory, getPriorCarryover, dateToIso, getAssociatedPalletsForStock, getMatchingBrandsForPallet, availablePelletSizes, isStockCurrentlyActive]);
 
   const filteredMergedBagRows = useMemo(() => {
     let list = mergedBagRows;
-    // Bags Opened view: Only display rows where bags were opened today OR feed is remaining
+    // Bags Opened view: Only display rows where bags were opened today OR feed is remaining OR stock was fed today
     list = list.filter(r => 
       r.hasBagLog || 
       r.hasRemainLog ||
@@ -2806,7 +2811,8 @@ function FeedDocumentation({
       (r.feedRemainingToday && r.feedRemainingToday > 0.001) ||
       (r.availableRemainingKg && r.availableRemainingKg > 0.001) ||
       (r.carryoverKg && r.carryoverKg > 0.001) ||
-      (r.totalTransferredInKg && r.totalTransferredInKg > 0.001)
+      (r.totalTransferredInKg && r.totalTransferredInKg > 0.001) ||
+      (r.hasFedToday && isStockCurrentlyActive(r.fishStock))
     );
     if (bagsStockFilter !== "All") {
       list = list.filter(r =>
@@ -3891,7 +3897,7 @@ function FeedDocumentation({
 
                       const expData = getExpectedFeedData(selDate, row.fishStock, row.brand, row.size, row.hasBagLog ? row.bagsOpened : undefined);
                       const isBagsMismatch = Boolean(expData.hasFed && (row.bagsOpened !== expData.expectedBags || (!row.hasBagLog && expData.expectedBags > 0)));
-                      const isRemainMismatch = Boolean(row.hasBagLog && expData.hasFed && Math.abs(((row.feedRemainingToday ?? row.remainingKg) || 0) - expData.expectedRemaining) > 0.05);
+                      const isRemainMismatch = Boolean(row.hasRemainLog && expData.hasFed && Math.abs(((row.feedRemainingToday ?? row.remainingKg) || 0) - expData.expectedRemaining) > 0.05);
 
                       return (
                         <tr
@@ -3963,7 +3969,7 @@ function FeedDocumentation({
                           {/* Feed Remaining Today */}
                           <td className={`px-4 py-3 relative z-0 transition-all ${isRemainColHighlighted ? "bg-amber-50 ring-1 ring-amber-400 ring-inset rounded" : ""}`}>
                             <div className="font-bold text-sm font-['Barlow_Condensed',sans-serif]">
-                              {row.feedRemainingToday !== null && row.feedRemainingToday !== undefined ? (
+                              {row.hasRemainLog && row.feedRemainingToday !== null && row.feedRemainingToday !== undefined ? (
                                 <span className={isRemainMismatch ? "text-red-600 font-bold" : "text-emerald-800 font-bold"}>
                                   {row.feedRemainingToday} kg
                                 </span>
@@ -4156,7 +4162,7 @@ function FeedDocumentation({
 
                 const expData = getExpectedFeedData(selDate, row.fishStock, row.brand, row.size, row.hasBagLog ? row.bagsOpened : undefined);
                 const isBagsMismatch = Boolean(expData.hasFed && (row.bagsOpened !== expData.expectedBags || (!row.hasBagLog && expData.expectedBags > 0)));
-                const isRemainMismatch = Boolean(row.hasBagLog && expData.hasFed && Math.abs(((row.feedRemainingToday ?? row.remainingKg) || 0) - expData.expectedRemaining) > 0.05);
+                const isRemainMismatch = Boolean(row.hasRemainLog && expData.hasFed && Math.abs(((row.feedRemainingToday ?? row.remainingKg) || 0) - expData.expectedRemaining) > 0.05);
                 const isMenuOpen = activeBagMenuId === `${row.fishStock}__${row.brand}__${row.size}`;
 
                 return (
@@ -4329,8 +4335,8 @@ function FeedDocumentation({
                         <span className={`text-[10px] block mb-1 font-semibold leading-tight ${isRemainMismatch ? "text-red-600 font-bold" : "text-slate-500"}`}>
                           Feed Remaining Today
                         </span>
-                        <span className={`font-bold text-sm sm:text-base font-['Barlow_Condensed',sans-serif] tracking-tight ${isRemainMismatch ? "text-red-600 font-bold" : "text-emerald-800"}`}>
-                          {row.feedRemainingToday !== null && row.feedRemainingToday !== undefined ? (
+                        <span className={`font-bold text-sm sm:text-base font-['Barlow_Condensed',sans-serif] tracking-tight ${isRemainMismatch ? "text-red-600 font-bold" : row.hasRemainLog ? "text-emerald-800" : "text-slate-400 font-normal"}`}>
+                          {row.hasRemainLog && row.feedRemainingToday !== null && row.feedRemainingToday !== undefined ? (
                             `${row.feedRemainingToday} kg`
                           ) : (
                             "0 kg"
@@ -5670,7 +5676,7 @@ function FeedDocumentation({
                 <div className="bg-amber-50 rounded-xl p-3 border border-amber-200">
                   <p className="text-[10px] uppercase tracking-wider text-amber-600 mb-0.5">Feed Remaining Today</p>
                   <p className="text-base font-bold text-amber-800 font-['Barlow_Condensed',sans-serif]">
-                    {viewBagDetail.feedRemainingToday !== null && viewBagDetail.feedRemainingToday !== undefined
+                    {viewBagDetail.hasRemainLog && viewBagDetail.feedRemainingToday !== null && viewBagDetail.feedRemainingToday !== undefined
                       ? `${viewBagDetail.feedRemainingToday} kg`
                       : "0 kg"}
                   </p>
