@@ -222,7 +222,8 @@ const TABLE_ALLOWED_COLUMNS: Record<string, Set<string>> = {
   feeding_records: new Set([
     "id", "user_id", "farm_id", "date", "month", "year", "pond", "brand", "size",
     "morning", "evening", "total", "recorded_by", "morning_time", "evening_time",
-    "created_by", "created_by_id", "created_at"
+    "created_by", "created_by_id", "created_at",
+    "fish_stock", "fish_stock_id", "pond_id", "edit_history"
   ]),
   staff_members: new Set([
     "id", "user_id", "staff_auth_id", "name", "email", "phone", "role", "status",
@@ -257,13 +258,13 @@ const TABLE_ALLOWED_COLUMNS: Record<string, Set<string>> = {
   ]),
   stock_events: new Set([
     "id", "user_id", "pond_id", "farm_id", "pond_name", "date", "species",
-    "count", "avg_weight", "cost", "sale_price", "type", "from_pond", "cleared_date", "supplier", "created_at"
+    "count", "avg_weight", "cost", "sale_price", "type", "from_pond", "cleared_date", "supplier", "batch", "created_at"
   ]),
   mortality_entries: new Set([
-    "id", "user_id", "pond_id", "farm_id", "date", "count", "cause", "notes", "created_at"
+    "id", "user_id", "pond_id", "farm_id", "date", "count", "cause", "notes", "fish_stock", "pond_name", "created_at"
   ]),
   treatment_records: new Set([
-    "id", "user_id", "pond_id", "farm_id", "date", "cause", "medicine", "remarks", "created_at"
+    "id", "user_id", "pond_id", "farm_id", "date", "cause", "medicine", "remarks", "fish_stock", "pond_name", "created_at"
   ]),
   farms: new Set([
     "id", "user_id", "name", "city", "state", "country", "created_at", "updated_at"
@@ -2626,6 +2627,10 @@ export const api = {
         if (dbRec.pond) {
           q = q.eq("pond", dbRec.pond);
         }
+        const fsVal = dbRec.fish_stock || dbRec.fishStock;
+        if (fsVal) {
+          q = q.eq("fish_stock", fsVal);
+        }
         const { data: existingDups } = await q;
         if (existingDups && existingDups.length > 0) {
           throw new Error(`Feed size "${dbRec.size}" has already been logged for ${dbRec.fish_stock || dbRec.fishStock || dbRec.pond} on ${dbRec.date}. Duplicate feed sizes are not permitted.`);
@@ -2684,6 +2689,10 @@ export const api = {
           .neq("id", dbRec.id);
         if (dbRec.pond) {
           q = q.eq("pond", dbRec.pond);
+        }
+        const fsVal = dbRec.fish_stock || dbRec.fishStock;
+        if (fsVal) {
+          q = q.eq("fish_stock", fsVal);
         }
         const { data: existingDups } = await q;
         if (existingDups && existingDups.length > 0) {

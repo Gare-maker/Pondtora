@@ -274,13 +274,14 @@ export function formatFishStock(stock: string | null | undefined): string {
 
 export function getPondFishStock(pond?: { species?: string; stockingDate?: string; name?: string; fishStock?: string } | null): string {
   if (!pond) return "General Stock";
-  // Stock date is the primary fish stock identity
+  // If an explicit fish stock identity/batch is set, use it as the source of truth
+  if ((pond as any).fishStock && (pond as any).fishStock.trim() && (pond as any).fishStock !== "—") {
+    return (pond as any).fishStock.trim();
+  }
+  // Otherwise check stock date
   if (pond.stockingDate && pond.stockingDate !== "—" && pond.stockingDate.trim()) {
     const formatted = formatFishStockDate(pond.stockingDate);
     if (formatted && formatted !== "—") return formatted;
-  }
-  if ((pond as any).fishStock && (pond as any).fishStock.trim() && (pond as any).fishStock !== "—") {
-    return formatFishStock((pond as any).fishStock.trim());
   }
   if (pond.species && pond.species !== "—" && !POND_SPECIES.includes(pond.species)) {
     return pond.species;
@@ -400,25 +401,19 @@ export function isStockMatch(stockA?: string | null, stockB?: string | null, pon
 
   const fa = formatFishStock(stockA).trim().toLowerCase();
   const fb = formatFishStock(stockB).trim().toLowerCase();
-  if (fa === fb && fa !== "—") return true;
-
-  const fda = formatFishStockDate(stockA).trim().toLowerCase();
-  const fdb = formatFishStockDate(stockB).trim().toLowerCase();
-  if (fda === fdb && fda !== "—") return true;
+  if (fa === fb && fa !== "—" && !isFormattedDate(fa)) return true;
 
   if (ponds && ponds.length > 0) {
     const pA = (ponds || []).find(p => p && p.name && p.name.toLowerCase().trim() === a);
     if (pA) {
       const psA = getPondFishStock(pA).trim().toLowerCase();
-      if (psA === b || psA === fb || psA === fdb) return true;
-      if (pA.stockingDate && formatFishStockDate(pA.stockingDate).trim().toLowerCase() === b) return true;
+      if (psA === b || psA === fb) return true;
       if (pA.fishStock && pA.fishStock.trim().toLowerCase() === b) return true;
     }
     const pB = (ponds || []).find(p => p && p.name && p.name.toLowerCase().trim() === b);
     if (pB) {
       const psB = getPondFishStock(pB).trim().toLowerCase();
-      if (psB === a || psB === fa || psB === fda) return true;
-      if (pB.stockingDate && formatFishStockDate(pB.stockingDate).trim().toLowerCase() === a) return true;
+      if (psB === a || psB === fa) return true;
       if (pB.fishStock && pB.fishStock.trim().toLowerCase() === a) return true;
     }
   }

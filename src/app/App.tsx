@@ -5474,7 +5474,16 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       return;
     }
     const pondId = (p.id && isUuid(p.id)) ? p.id : crypto.randomUUID();
-    const np:Pond={...p,id:pondId,name:trimmed,farmId:fid};
+    const stockId = (p.species && p.species !== "—" && p.species !== "Empty") ? (p.fishStockId || crypto.randomUUID()) : undefined;
+    const stockBatch = (p.species && p.species !== "—") ? (p.fishStock || `${p.species} (${p.stockingDate ? fmtStockingDate(p.stockingDate) : "Stocked"}) - ${trimmed}`) : undefined;
+    const np:Pond={
+      ...p,
+      id:pondId,
+      name:trimmed,
+      farmId:fid,
+      fishStockId: stockId,
+      fishStock: stockBatch || p.fishStock,
+    };
     const nextPonds = [...ponds, np];
     setPonds(nextPonds);
     if (userProfile?.id) {
@@ -5684,6 +5693,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       totalCost:0,
       species:"—",
       fishStock:undefined,
+      fishStockId:undefined,
       transferNote:undefined,
       maxKgByPallet:{},
       farmId:fid,
@@ -5730,17 +5740,19 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       console.warn("Error closing pond:", err);
     }
   };
-  const restockPond=async(id:string,data:{species:string;initialStock:number;stockingDate:string;supplier?:string;fishStock?:string})=>{
+  const restockPond=async(id:string,data:{species:string;initialStock:number;stockingDate:string;supplier?:string;fishStock?:string;fishStockId?:string})=>{
     if (!checkSubscriptionActive()) return;
     const p=ponds.find(x=>x.id===id);
     if(!p)return;
     const fid=p.farmId||activeFarmId||farms[0]?.id||"";
-    const fs = data.fishStock || data.species;
+    const stockId = data.fishStockId || crypto.randomUUID();
+    const fs = data.fishStock || `${data.species} (${fmtStockingDate(data.stockingDate)}) - ${p.name}`;
     const newCount = Number(data.initialStock) || 0;
     const updated: Pond = {
       ...p,
       ...data,
       fishStock: fs,
+      fishStockId: stockId,
       currentCount: newCount,
       totalCost: 0,
       status: "Active" as const,
@@ -5783,7 +5795,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       type:"Restock" as const,
       supplier:data.supplier,
       farmId:fid,
-      batch: data.fishStock || (data.stockingDate ? fmtStockingDate(data.stockingDate) : data.species),
+      batch: fs,
     };
     const nextStockEvents = [...stockEvents, se];
     setStockEvents(nextStockEvents);
@@ -5919,7 +5931,18 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       return;
     }
     const fid=r.farmId||activeFarmId||farms[0]?.id||"";
-    const farmRec:FeedingRecord={...r,id:isUuid(r.id)?r.id:crypto.randomUUID(),farmId:fid};
+    const targetPond = ponds.find(p => (r.pondId && p.id === r.pondId) || (r.pond && p.name.trim().toLowerCase() === r.pond.trim().toLowerCase()));
+    const pondId = r.pondId || targetPond?.id;
+    const fishStockId = r.fishStockId || targetPond?.fishStockId || pondId;
+    const fishStock = r.fishStock || (targetPond ? getPondFishStock(targetPond) : undefined);
+    const farmRec:FeedingRecord={
+      ...r,
+      id:isUuid(r.id)?r.id:crypto.randomUUID(),
+      farmId:fid,
+      pondId: pondId,
+      fishStockId: fishStockId,
+      fishStock: fishStock,
+    };
 
     // Prevent duplicate feed sizes for the same fish stock/pond on the same date
     if (farmRec.size && farmRec.date) {
@@ -5927,8 +5950,14 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
         (!fr.farmId || fr.farmId === fid) &&
         fr.id !== farmRec.id &&
         isSameDate(fr.date, farmRec.date) &&
-        ((fr.pond && farmRec.pond && fr.pond.trim().toLowerCase() === farmRec.pond.trim().toLowerCase()) ||
-         (fr.fishStock && farmRec.fishStock && isStockMatch(fr.fishStock, farmRec.fishStock))) &&
+        (
+          (farmRec.pondId && fr.pondId && fr.pondId === farmRec.pondId) ||
+          (fr.pond && farmRec.pond && fr.pond.trim().toLowerCase() === farmRec.pond.trim().toLowerCase())
+        ) &&
+        (
+          (farmRec.fishStockId && fr.fishStockId && farmRec.fishStockId === fr.fishStockId) ||
+          (!farmRec.fishStock || !fr.fishStock || isStockMatch(fr.fishStock, farmRec.fishStock))
+        ) &&
         isSamePelletSize(fr.size, farmRec.size)
       );
       if (isDuplicate) {
@@ -5994,7 +6023,18 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       toast.error("You do not have permission to edit feeding records.");
       return;
     }
-    const farmRec:FeedingRecord={...r,farmId:r.farmId||activeFarmId||farms[0]?.id||""};
+    const fid=r.farmId||activeFarmId||farms[0]?.id||"";
+    const targetPond = ponds.find(p => (r.pondId && p.id === r.pondId) || (r.pond && p.name.trim().toLowerCase() === r.pond.trim().toLowerCase()));
+    const pondId = r.pondId || targetPond?.id;
+    const fishStockId = r.fishStockId || targetPond?.fishStockId || pondId;
+    const fishStock = r.fishStock || (targetPond ? getPondFishStock(targetPond) : undefined);
+    const farmRec:FeedingRecord={
+      ...r,
+      farmId:fid,
+      pondId: pondId,
+      fishStockId: fishStockId,
+      fishStock: fishStock,
+    };
 
     // Prevent duplicate feed sizes for the same fish stock/pond on the same date
     if (farmRec.size && farmRec.date) {
@@ -6002,8 +6042,14 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
         (!fr.farmId || fr.farmId === farmRec.farmId) &&
         fr.id !== farmRec.id &&
         isSameDate(fr.date, farmRec.date) &&
-        ((fr.pond && farmRec.pond && fr.pond.trim().toLowerCase() === farmRec.pond.trim().toLowerCase()) ||
-         (fr.fishStock && farmRec.fishStock && isStockMatch(fr.fishStock, farmRec.fishStock))) &&
+        (
+          (farmRec.pondId && fr.pondId && fr.pondId === farmRec.pondId) ||
+          (fr.pond && farmRec.pond && fr.pond.trim().toLowerCase() === farmRec.pond.trim().toLowerCase())
+        ) &&
+        (
+          (farmRec.fishStockId && fr.fishStockId && farmRec.fishStockId === fr.fishStockId) ||
+          (!farmRec.fishStock || !fr.fishStock || isStockMatch(fr.fishStock, farmRec.fishStock))
+        ) &&
         isSamePelletSize(fr.size, farmRec.size)
       );
       if (isDuplicate) {

@@ -759,3 +759,20 @@ END;
 $$;
 
 GRANT EXECUTE ON FUNCTION transfer_fish_stock(UUID, UUID, NUMERIC, INTEGER, TEXT, TEXT) TO authenticated, anon;
+
+-- ==============================================================================
+-- 6. Feeding Records & Stock Isolation Schema Safeguards
+-- ==============================================================================
+ALTER TABLE public.feeding_records ADD COLUMN IF NOT EXISTS pond_id TEXT;
+ALTER TABLE public.feeding_records ADD COLUMN IF NOT EXISTS fish_stock TEXT;
+ALTER TABLE public.feeding_records ADD COLUMN IF NOT EXISTS fish_stock_id TEXT;
+ALTER TABLE public.feeding_records ADD COLUMN IF NOT EXISTS edit_history JSONB;
+
+ALTER TABLE public.ponds ADD COLUMN IF NOT EXISTS fish_stock_id TEXT;
+
+ALTER TABLE public.stock_events ADD COLUMN IF NOT EXISTS batch TEXT;
+
+ALTER TABLE public.mortality_entries ADD COLUMN IF NOT EXISTS fish_stock TEXT;
+ALTER TABLE public.mortality_entries ADD COLUMN IF NOT EXISTS pond_name TEXT;
+
+ALTER TABLE public.treatment_records ADD COLUMN IF NOT EXISTS fish_stock TEXT;

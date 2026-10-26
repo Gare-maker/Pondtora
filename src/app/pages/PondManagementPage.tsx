@@ -511,9 +511,16 @@ function PondDetail({
     return feedingRecords.filter(r => {
       // 1. Match Pond (by name, ID, or pondId property, case/whitespace insensitive)
       const rPondNorm = (r.pond || "").trim().toLowerCase();
-      const isSamePond = (rPondNorm && (rPondNorm === pNameNorm || rPondNorm === pIdNorm)) ||
-        ((r as any).pondId && (r as any).pondId === pond.id);
+      const isSamePond = Boolean(
+        (r.pondId && r.pondId === pond.id) ||
+        (rPondNorm && (rPondNorm === pNameNorm || rPondNorm === pIdNorm))
+      );
       if (!isSamePond) return false;
+
+      // 2. Direct unique fishStockId match
+      if (r.fishStockId && (pond as any).fishStockId) {
+        return r.fishStockId === (pond as any).fishStockId;
+      }
 
       const fsTrimmed = (r.fishStock || "").trim();
       const fsLower = fsTrimmed.toLowerCase();
@@ -521,28 +528,30 @@ function PondDetail({
       // Check if this record explicitly matches a past closed batch for this pond
       const matchesClosedBatch = Boolean(fsTrimmed) && closedEvents.some(ce => {
         const ceBatch = ce.batch || (ce.date ? fmtStockingDate(ce.date) : null);
-        return Boolean(ceBatch && (isStockMatch(fsTrimmed, ceBatch, ponds) || isSameDate(fsTrimmed, ce.date)));
+        return Boolean(ceBatch && ceBatch.trim().toLowerCase() === fsTrimmed.toLowerCase());
       });
       if (matchesClosedBatch) return false;
-
-      const rDate = toValidDbDate(r.date);
-      if (latestClosedDate && rDate && rDate <= latestClosedDate) {
-        return false;
-      }
-      if (pStockDbDate && rDate && rDate < pStockDbDate) {
-        return false;
-      }
 
       // Check if this record explicitly matches current active stock
       const matchesCurrentBatch = fsTrimmed && (
         (pond.species && pond.species !== "—" && (fsLower === pond.species.trim().toLowerCase() || isStockMatch(fsTrimmed, pond.species, ponds))) ||
-        (pDateLabel && (fsTrimmed === pDateLabel || isSameDate(fsTrimmed, pDateLabel))) ||
-        (pond.stockingDate && (isSameDate(fsTrimmed, pond.stockingDate) || fsTrimmed === fmtStockingDate(pond.stockingDate))) ||
-        (pond.fishStock && (fsTrimmed === pond.fishStock || isSameDate(fsTrimmed, pond.fishStock))) ||
+        (pond.fishStock && (fsTrimmed === pond.fishStock || isStockMatch(fsTrimmed, pond.fishStock, ponds))) ||
         (pStockIdentity && isStockMatch(fsTrimmed, pStockIdentity, ponds)) ||
         (activeFishStockLabel && isStockMatch(fsTrimmed, activeFishStockLabel, ponds)) ||
         (defaultFishStockLabel && isStockMatch(fsTrimmed, defaultFishStockLabel, ponds))
       );
+
+      const rDate = toValidDbDate(r.date);
+      if (latestClosedDate && rDate && rDate < latestClosedDate) {
+        if (!fsTrimmed || !matchesCurrentBatch) {
+          return false;
+        }
+      }
+      if (pStockDbDate && rDate && rDate < pStockDbDate) {
+        if (!fsTrimmed || !matchesCurrentBatch) {
+          return false;
+        }
+      }
 
       // 3. Fish stock matching
       if (fsTrimmed && fsTrimmed !== "—" && fsTrimmed !== "General Stock" && fsTrimmed !== "Current Stock" && fsLower !== pNameNorm) {
@@ -609,8 +618,9 @@ function PondDetail({
     if(Object.keys(errs).length){setRestockErr(errs);return;}
     const s = (restockF.species === "Other" ? restockF.customSpecies.trim() : restockF.species.trim()) || "Catfish";
     const stockDate = restockF.stockingDate || TODAY;
-    const stockLabel = fmtStockingDate(stockDate);
-    onRestockPond(pond.id,{species:s,fishStock:stockLabel,initialStock:Number(restockF.initialStock),stockingDate:stockDate,stockMonth:toMon(stockDate),supplier:restockF.supplier});
+    const stockId = crypto.randomUUID();
+    const stockLabel = `${s} (${fmtStockingDate(stockDate)}) - ${pond.name}`;
+    onRestockPond(pond.id,{species:s,fishStock:stockLabel,fishStockId:stockId,initialStock:Number(restockF.initialStock),stockingDate:stockDate,stockMonth:toMon(stockDate),supplier:restockF.supplier});
     setShowRestock(false);
     setRestockF({species:"Catfish",customSpecies:"",initialStock:"",stockingDate:"",supplier:""});
   };
@@ -1727,7 +1737,6 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
           getPondFishStock(p) === g.key ||
           p.fishStock === g.stockName ||
           formatFishStock(p.fishStock || "") === g.stockName ||
-          (p.stockingDate && (fmtStockingDate(p.stockingDate) === g.key || p.stockingDate === g.stockingDate || isSameDate(p.stockingDate, g.stockingDate))) ||
           isStockMatch(p.fishStock || "", g.stockName) ||
           isStockMatch(getPondFishStock(p), g.key)
         )
@@ -2380,7 +2389,7 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
               const totalCurrentFish=ponds.filter(p=>(grp.pondIds.includes(p.id)||grp.pondNames.includes(p.name))&&p.status==="Active").reduce((s,p)=>s+p.currentCount,0);
               const allFeedRecs=feedingRecords.filter(r=>{
                 if(r.fishStock){
-                  return isStockMatch(r.fishStock,grp.stockName,ponds) || (grp.stockingDate && isSameDate(r.fishStock,grp.stockingDate));
+                  return isStockMatch(r.fishStock,grp.stockName,ponds);
                 }
                 return grp.pondNames.includes(r.pond);
               });
@@ -2388,7 +2397,7 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
               const bySize=allFeedRecs.reduce<Record<string,number>>((acc,r)=>{acc[r.size]=(acc[r.size]||0)+r.total;return acc;},{});
               const allMort=mortality.filter(m=>{
                 if((m as any).fishStock){
-                  return isStockMatch((m as any).fishStock,grp.stockName,ponds) || (grp.stockingDate && isSameDate((m as any).fishStock,grp.stockingDate));
+                  return isStockMatch((m as any).fishStock,grp.stockName,ponds);
                 }
                 return grp.pondIds.includes(m.pondId);
               });

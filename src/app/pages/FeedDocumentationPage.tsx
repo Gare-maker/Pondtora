@@ -222,13 +222,30 @@ function FeedDocumentation({
 
 
   useEffect(() => {
-    const h = (e: MouseEvent) => {
-      if (feedMobileMenuRef.current && !feedMobileMenuRef.current.contains(e.target as Node)) setFeedMobileMenuOpen(false);
-      setActiveDailyMenuId(null);
+    const handleOutsideInteraction = (e: Event) => {
+      const target = e.target as HTMLElement | null;
+      if (feedMobileMenuRef.current && !feedMobileMenuRef.current.contains(target as Node)) {
+        setFeedMobileMenuOpen(false);
+      }
+      if (target?.closest("[data-bag-menu-button]") || target?.closest("[data-bag-menu-dropdown]")) {
+        return;
+      }
       setActiveBagMenuId(null);
+      setActiveDailyMenuId(null);
     };
-    document.addEventListener("click", h);
-    return () => document.removeEventListener("click", h);
+
+    const handleScroll = () => {
+      setActiveBagMenuId(null);
+      setActiveDailyMenuId(null);
+    };
+
+    document.addEventListener("pointerdown", handleOutsideInteraction, true);
+    window.addEventListener("scroll", handleScroll, true);
+
+    return () => {
+      document.removeEventListener("pointerdown", handleOutsideInteraction, true);
+      window.removeEventListener("scroll", handleScroll, true);
+    };
   }, []);
 
   /* ── pellet size normalization helper ── */
@@ -414,14 +431,12 @@ function FeedDocumentation({
     if (pA) {
       const psA = getPondFishStock(pA).trim().toLowerCase();
       if (psA === b || psA === nb || psA === fb) return true;
-      if (pA.stockingDate && formatFishStockDate(pA.stockingDate).trim().toLowerCase() === b) return true;
       if (pA.fishStock && pA.fishStock.trim().toLowerCase() === b) return true;
     }
     const pB = (ponds || []).find(p => p && p.name && p.name.toLowerCase().trim() === b);
     if (pB) {
       const psB = getPondFishStock(pB).trim().toLowerCase();
       if (psB === a || psB === na || psB === fa) return true;
-      if (pB.stockingDate && formatFishStockDate(pB.stockingDate).trim().toLowerCase() === a) return true;
       if (pB.fishStock && pB.fishStock.trim().toLowerCase() === a) return true;
     }
 
@@ -941,19 +956,39 @@ function FeedDocumentation({
         });
       }
 
-      // If destination stock already had an explicit remaining log today, update it with the transferred amount
+      // Add transferred amount to destination stock remaining balance immediately
       const existingDestRemain = (remainLogs || []).find(r => 
         isSameDate(r.date, tDate) && 
         (size === "—" || isSamePelletSize(r.size, size)) && 
         (isStockMatch(r.fishStock, destFs) || normalizeFishStock(r.fishStock) === normalizeFishStock(destFs))
       );
 
+      const destRow = mergedBagRows.find(r =>
+        (isStockMatch(r.fishStock, destFs) || normalizeFishStock(r.fishStock) === normalizeFishStock(destFs)) &&
+        (size === "—" || isSamePelletSize(r.size, size))
+      );
+      const destPrevBalance = destRow
+        ? ((destRow.feedRemainingToday !== null && destRow.feedRemainingToday !== undefined)
+            ? destRow.feedRemainingToday
+            : (destRow.availableRemainingKg ?? destRow.remainingKg ?? destRow.carryoverKg ?? 0))
+        : 0;
+      const updatedDestRemain = Math.max(0, Math.round((destPrevBalance + numQty) * 10) / 10);
+
       if (existingDestRemain && onEditRemainLog) {
-        const updatedDestRemain = Math.max(0, Math.round(((Number(existingDestRemain.remainingKg) || 0) + numQty) * 10) / 10);
         await onEditRemainLog({
           ...existingDestRemain,
           remainingKg: updatedDestRemain,
           date: tDate
+        });
+      } else if (onAddRemainLog) {
+        await onAddRemainLog({
+          id: uid(),
+          brand,
+          size,
+          fishStock: destFs,
+          remainingKg: updatedDestRemain,
+          date: tDate,
+          farmId: activeFarmId
         });
       }
 
@@ -2764,15 +2799,17 @@ function FeedDocumentation({
         (entry.brand === "—" || !r.brand || r.brand === "—" || !entry.brand || r.brand.toLowerCase().trim() === entry.brand.toLowerCase().trim())
       );
 
+      const grossRemainingKg = (entry.carryoverKg || 0) + (entry.totalKgOpened || 0) + totalTransferredInKg;
+      const computedAvailable = Math.max(0, Math.round((grossRemainingKg - totalTransferredOutKg - totalFed) * 10) / 10);
+
       let finalRemaining: number | null = null;
       if (matchingRemain && matchingRemain.remainingKg !== undefined && matchingRemain.remainingKg !== null) {
         // Explicit user entry/edit takes precedence so manual edits always save and display properly
         finalRemaining = Number(matchingRemain.remainingKg) || 0;
         entry.hasRemainLog = true;
       } else {
-        // DO NOT automatically deduct feed given from feed remaining today!
-        // The user must explicitly log bags opened and/or leftover remaining feed.
-        finalRemaining = null;
+        const hasBalance = (entry.carryoverKg || 0) > 0 || totalTransferredInKg > 0 || (entry.totalKgOpened || 0) > 0;
+        finalRemaining = hasBalance ? computedAvailable : null;
         entry.hasRemainLog = false;
       }
 
@@ -2781,9 +2818,9 @@ function FeedDocumentation({
       entry.totalTransferredOutKg = totalTransferredOutKg;
       entry.totalTransferredInKg = totalTransferredInKg;
       entry.feedRemainingToday = finalRemaining;
-      entry.remainingKg = finalRemaining !== null ? finalRemaining : 0;
-      entry.availableRemainingKg = finalRemaining !== null ? finalRemaining : 0;
-      entry.grossRemainingKg = (entry.carryoverKg || 0) + (entry.totalKgOpened || 0) + totalTransferredInKg;
+      entry.remainingKg = finalRemaining !== null ? finalRemaining : computedAvailable;
+      entry.availableRemainingKg = finalRemaining !== null ? finalRemaining : computedAvailable;
+      entry.grossRemainingKg = grossRemainingKg;
       entry.hasFedToday = totalFed > 0;
       entry.totalFedToday = totalFed;
     });
@@ -2898,15 +2935,16 @@ function FeedDocumentation({
     };
 
     const rows: BulkRow[] = [];
+
+    // 1. First add any ponds with existing records for this date (display previously saved records)
     activePonds.forEach(p => {
       const existingList = (feedingRecords || []).filter(r =>
         r &&
-        (r.pond || "").trim().toLowerCase() === p.name.trim().toLowerCase() &&
+        ((r.pondId && r.pondId === p.id) || (r.pond || "").trim().toLowerCase() === p.name.trim().toLowerCase()) &&
         (isSameDate(r.date, targetDate) || r.date === dateLabel)
       );
       const fsStock = getPondFishStock(p);
       const stockDate = p.stockingDate && p.stockingDate !== "—" ? formatFishStockDate(p.stockingDate) : "—";
-      const consecutiveSuggestion = getSuggestedPallet(p.name);
 
       if (existingList.length > 0) {
         existingList.forEach((existing, idx) => {
@@ -2930,27 +2968,185 @@ function FeedDocumentation({
             existingRecordId: existing.id
           });
         });
-      } else {
-        const defSize = consecutiveSuggestion || (p.defaultPellet && availablePelletSizes.includes(p.defaultPellet) ? p.defaultPellet : (availablePelletSizes[0] || "4.0 mm"));
-        rows.push({
-          rowId: `row-${p.id}-0`,
-          pondId: p.id,
-          pondName: p.name,
-          initialStock: p.initialStock || 0,
-          currentCount: p.currentCount || 0,
-          size: defSize,
-          morning: "",
-          evening: "",
-          morningTime: "",
-          eveningTime: "",
-          fishStock: fsStock,
-          stockDate,
-          isExtraPallet: false,
-          palletNumber: 1
-        });
       }
     });
+
+    // 2. If no existing records exist yet for this date, pre-populate only the first active pond
+    if (rows.length === 0 && activePonds.length > 0) {
+      const p = activePonds[0];
+      const fsStock = getPondFishStock(p);
+      const stockDate = p.stockingDate && p.stockingDate !== "—" ? formatFishStockDate(p.stockingDate) : "—";
+      const consecutiveSuggestion = getSuggestedPallet(p.name);
+      const defSize = consecutiveSuggestion || (p.defaultPellet && availablePelletSizes.includes(p.defaultPellet) ? p.defaultPellet : (availablePelletSizes[0] || "4.0 mm"));
+      rows.push({
+        rowId: `row-${p.id}-0`,
+        pondId: p.id,
+        pondName: p.name,
+        initialStock: p.initialStock || 0,
+        currentCount: p.currentCount || 0,
+        size: defSize,
+        morning: "",
+        evening: "",
+        morningTime: "",
+        eveningTime: "",
+        fishStock: fsStock,
+        stockDate,
+        isExtraPallet: false,
+        palletNumber: 1
+      });
+    }
+
     return rows;
+  };
+
+  const [selectedStockToAdd, setSelectedStockToAdd] = useState<string>("");
+  const [savingRowId, setSavingRowId] = useState<string | null>(null);
+
+  const handleAddStockCard = (pondId: string) => {
+    if (!pondId) return;
+    const p = ponds.find(x => x.id === pondId);
+    if (!p) return;
+    const fsStock = getPondFishStock(p);
+    const stockDate = p.stockingDate && p.stockingDate !== "—" ? formatFishStockDate(p.stockingDate) : "—";
+    const consecutiveSuggestion = getSuggestedPallet(p.name);
+    const defSize = consecutiveSuggestion || (p.defaultPellet && availablePelletSizes.includes(p.defaultPellet) ? p.defaultPellet : (availablePelletSizes[0] || "4.0 mm"));
+
+    const existingCount = bulkRows.filter(r => r.pondId === p.id).length;
+    const newRow: BulkRow = {
+      rowId: `row-${p.id}-${existingCount}-${Date.now()}`,
+      pondId: p.id,
+      pondName: p.name,
+      initialStock: p.initialStock || 0,
+      currentCount: p.currentCount || 0,
+      size: defSize,
+      morning: "",
+      evening: "",
+      morningTime: "",
+      eveningTime: "",
+      fishStock: fsStock,
+      stockDate,
+      isExtraPallet: existingCount > 0,
+      palletNumber: existingCount + 1
+    };
+
+    setBulkRows(prev => [...prev, newRow]);
+    setSelectedStockToAdd("");
+  };
+
+  const handleRemoveStockCard = (rowId: string) => {
+    setBulkRows(prev => prev.filter(r => r.rowId !== rowId));
+  };
+
+  const handleSaveSingleRow = async (r: BulkRow) => {
+    const m = Number(r.morning) || 0;
+    const e = Number(r.evening) || 0;
+    if (m <= 0 && e <= 0) {
+      toast.error(`Please enter morning or evening kg for ${r.pondName}`);
+      return;
+    }
+    if (!r.size) {
+      toast.error(`Please select a pellet size for ${r.pondName}`);
+      return;
+    }
+
+    const dateLabel = toDateLabel(bulkDate);
+    const stock = getPelletStock(r.size);
+    const existingForSizeOnDate = (feedingRecords || [])
+      .filter(x => x && (isSameDate(x.date, bulkDate) || x.date === dateLabel) && isSamePelletSize(x.size, r.size) && (x.id === r.existingRecordId || (x.pond || "").toLowerCase().trim() === r.pondName.toLowerCase().trim()))
+      .reduce((s, x) => s + (Number(x.total) || ((Number(x.morning) || 0) + (Number(x.evening) || 0))), 0);
+    const effectiveAvailable = stock.availableKg + existingForSizeOnDate;
+    const requestedKg = m + e;
+
+    if (!stock.exists) {
+      toast.error(`Pellet size "${r.size}" is not available in Feed Inventory. Please add feed stock first.`);
+      return;
+    }
+    if (effectiveAvailable <= 0) {
+      toast.error(`Pellet size "${r.size}" is completely empty (0 kg remaining in stock). Please add feed stock before feeding.`);
+      return;
+    }
+    if (requestedKg > effectiveAvailable) {
+      toast.error(`Insufficient stock for pellet size "${r.size}". Available: ${Math.round(effectiveAvailable * 10) / 10} kg, requested: ${requestedKg} kg.`);
+      return;
+    }
+
+    setSavingRowId(r.rowId);
+    const now = new Date().toLocaleString("en", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+    const recorder = bulkBy.trim() || currentUser?.name || "Admin";
+    const cleanPondName = (r.pondName || "").trim();
+    const cleanLower = cleanPondName.toLowerCase();
+    const targetPond = ponds.find(p => p.id === r.pondId || p.name.trim().toLowerCase() === cleanLower);
+    const pondId = r.pondId || targetPond?.id;
+    const fishStockId = targetPond?.fishStockId || pondId;
+    const fishStock = r.fishStock || (targetPond ? getPondFishStock(targetPond) : pondToStock(cleanPondName));
+
+    try {
+      const existing = r.existingRecordId
+        ? (feedingRecords || []).find(x => x && x.id === r.existingRecordId)
+        : (feedingRecords || []).find(x =>
+            x &&
+            ((x.pondId && pondId && x.pondId === pondId) || (x.pond || "").trim().toLowerCase() === cleanLower) &&
+            (isSameDate(x.date, bulkDate) || x.date === dateLabel) &&
+            isSamePelletSize(x.size, r.size)
+          );
+
+      if (existing) {
+        const hasChange = m !== existing.morning || e !== existing.evening || r.size !== existing.size;
+        const entry: FeedEditEntry = {
+          originalMorning: existing.morning,
+          updatedMorning: m,
+          originalEvening: existing.evening,
+          updatedEvening: e,
+          editedAt: now,
+          editedBy: recorder,
+          editedById: ""
+        };
+        await onEditFeedRecord({
+          ...existing,
+          pondId: existing.pondId || pondId,
+          fishStockId: existing.fishStockId || fishStockId,
+          pond: cleanPondName || existing.pond,
+          size: r.size,
+          morning: m,
+          evening: e,
+          total: m + e,
+          recordedBy: recorder,
+          morningTime: r.morningTime || existing.morningTime,
+          eveningTime: r.eveningTime || existing.eveningTime,
+          fishStock: r.fishStock || existing.fishStock || fishStock,
+          editHistory: hasChange ? [...(existing.editHistory || []), entry] : (existing.editHistory || [])
+        });
+        toast.success(`Feeding record updated for ${cleanPondName} (${r.size})`);
+      } else {
+        const brandForFeed = (bagLogs || []).find(b => (isSameDate(b.date, bulkDate) || isSameDate(b.date, dateLabel)) && isSamePelletSize(b.size, r.size) && (!b.fishStock || normalizeFishStock(b.fishStock) === pondToStock(cleanPondName)))?.brand || (inventory || []).find(f => f && isSamePelletSize(f.size, r.size))?.brand || "";
+        const newId = uid();
+        await onAddRecord({
+          id: newId,
+          date: dateLabel,
+          month: toMon(bulkDate),
+          year: toYr(bulkDate),
+          pond: cleanPondName,
+          pondId,
+          fishStockId,
+          fishStock,
+          brand: brandForFeed,
+          size: r.size,
+          morning: m,
+          evening: e,
+          total: m + e,
+          recordedBy: recorder,
+          morningTime: r.morningTime || undefined,
+          eveningTime: r.eveningTime || undefined
+        });
+        setBulkRows(prev => prev.map(item => item.rowId === r.rowId ? { ...item, existingRecordId: newId } : item));
+        toast.success(`Feeding record saved for ${cleanPondName} (${r.size})`);
+      }
+    } catch (err: any) {
+      console.error("Error saving feeding record:", err);
+      toast.error(err?.message || "Failed to save feeding record.");
+    } finally {
+      setSavingRowId(null);
+    }
   };
 
   const openLog = () => {
@@ -3204,11 +3400,16 @@ function FeedDocumentation({
       if (m > 0 || e > 0) {
         const cleanPondName = (r.pondName || "").trim();
         const cleanLower = cleanPondName.toLowerCase();
+        const targetPond = ponds.find(p => p.id === r.pondId || p.name.trim().toLowerCase() === cleanLower);
+        const pondId = r.pondId || targetPond?.id;
+        const fishStockId = targetPond?.fishStockId || pondId;
+        const fishStock = r.fishStock || (targetPond ? getPondFishStock(targetPond) : pondToStock(cleanPondName));
+
         const existing = r.existingRecordId
           ? (feedingRecords || []).find(x => x && x.id === r.existingRecordId)
           : (feedingRecords || []).find(x =>
               x &&
-              (x.pond || "").trim().toLowerCase() === cleanLower &&
+              ((x.pondId && pondId && x.pondId === pondId) || (x.pond || "").trim().toLowerCase() === cleanLower) &&
               (isSameDate(x.date, bulkDate) || x.date === dateLabel) &&
               isSamePelletSize(x.size, r.size)
             );
@@ -3225,6 +3426,8 @@ function FeedDocumentation({
           };
           promises.push(Promise.resolve(onEditFeedRecord({
             ...existing,
+            pondId: existing.pondId || pondId,
+            fishStockId: existing.fishStockId || fishStockId,
             pond: cleanPondName || existing.pond,
             size: r.size,
             morning: m,
@@ -3233,7 +3436,7 @@ function FeedDocumentation({
             recordedBy: recorder,
             morningTime: r.morningTime || existing.morningTime,
             eveningTime: r.eveningTime || existing.eveningTime,
-            fishStock: r.fishStock || existing.fishStock || pondToStock(cleanPondName),
+            fishStock: r.fishStock || existing.fishStock || fishStock,
             editHistory: hasChange ? [...(existing.editHistory || []), entry] : (existing.editHistory || [])
           })));
         } else {
@@ -3244,7 +3447,9 @@ function FeedDocumentation({
             month: toMon(bulkDate),
             year: toYr(bulkDate),
             pond: cleanPondName,
-            fishStock: r.fishStock || pondToStock(cleanPondName),
+            pondId,
+            fishStockId,
+            fishStock,
             brand: brandForFeed,
             size: r.size,
             morning: m,
@@ -4007,6 +4212,7 @@ function FeedDocumentation({
                               <div className="relative">
                                 <button
                                   type="button"
+                                  data-bag-menu-button="true"
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     const mId = `desktop__${row.fishStock}__${row.brand}__${row.size}`;
@@ -4019,6 +4225,7 @@ function FeedDocumentation({
                                 </button>
                                 {activeBagMenuId === `desktop__${row.fishStock}__${row.brand}__${row.size}` && (
                                   <div 
+                                    data-bag-menu-dropdown="true"
                                     onClick={e => e.stopPropagation()} 
                                     className="absolute right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl z-40 py-1 min-w-[200px] animate-in fade-in zoom-in-95 duration-100 text-left"
                                   >
@@ -4220,21 +4427,29 @@ function FeedDocumentation({
                         ) : null}
                       </div>
 
-                      <div className="flex items-center gap-1.5 shrink-0" onClick={e => e.stopPropagation()}>
+                      <div className="flex items-center gap-1.5 shrink-0">
                         <span className="text-xs font-semibold text-slate-600">{row.brand}</span>
                         <Bdg label={row.size} color="blue" />
                         {/* 3-dots Menu Button */}
                         <div className="relative">
                           <button
                             type="button"
-                            onClick={() => setActiveBagMenuId(isMenuOpen ? null : `${row.fishStock}__${row.brand}__${row.size}`)}
+                            data-bag-menu-button="true"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setActiveBagMenuId(isMenuOpen ? null : `${row.fishStock}__${row.brand}__${row.size}`);
+                            }}
                             className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
                             title="Actions"
                           >
                             <MoreVertical size={16} />
                           </button>
                           {isMenuOpen && (
-                            <div className="absolute right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl z-30 py-1 min-w-[190px] animate-in fade-in zoom-in-95 duration-100 text-left">
+                            <div 
+                              data-bag-menu-dropdown="true"
+                              onClick={e => e.stopPropagation()}
+                              className="absolute right-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-xl z-30 py-1 min-w-[190px] animate-in fade-in zoom-in-95 duration-100 text-left"
+                            >
                               <button
                                 type="button"
                                 onClick={() => { setActiveBagMenuId(null); setViewBagDetail(row); }}
@@ -4574,37 +4789,70 @@ function FeedDocumentation({
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-6xl flex flex-col overflow-hidden h-[90vh] max-h-[90dvh]">
             <div className="flex items-start justify-between px-4 sm:px-6 py-3.5 border-b border-slate-200 bg-white shrink-0 z-30 shadow-xs">
               <div className="min-w-0 flex-1 mr-3">
-                <div className="flex items-center justify-between gap-2 flex-wrap">
-                  <h2 className="text-lg font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Log Feeding — All Ponds</h2>
-                  {/* Mobile Table / Card Toggle (Mobile Only) */}
-                  <div className="flex md:hidden items-center gap-0.5 bg-slate-100 p-0.5 rounded-xl border border-slate-200/80">
-                    <button
-                      type="button"
-                      onClick={() => setBulkMobileView("table")}
-                      className={`px-2.5 py-1 rounded-lg text-xs transition-all ${
-                        bulkMobileView === "table"
-                          ? "bg-white text-green-700 font-bold shadow-xs border border-slate-200/80"
-                          : "text-slate-500 hover:text-slate-800 font-medium"
-                      }`}
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <div>
+                    <h2 className="text-lg font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Log Feeding</h2>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Record feeding for individual fish stocks for <span className="font-semibold text-slate-800">{toDateLabel(bulkDate)}</span>.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <input
+                      type="date"
+                      value={bulkDate}
+                      onChange={e => handleBulkDateChange(e.target.value)}
+                      className={`${TI} text-xs py-1 px-2.5 w-auto`}
+                      title="Feeding Date"
+                    />
+                    <select
+                      value={selectedStockToAdd}
+                      onChange={e => {
+                        if (e.target.value) handleAddStockCard(e.target.value);
+                      }}
+                      className={`${SC} text-xs py-1.5 px-3 min-w-[210px] bg-teal-50/50 border-teal-200 text-teal-900 font-medium`}
+                      aria-label="Add Fish Stock to Log"
                     >
-                      Table
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setBulkMobileView("card")}
-                      className={`px-2.5 py-1 rounded-lg text-xs transition-all ${
-                        bulkMobileView === "card"
-                          ? "bg-white text-green-700 font-bold shadow-xs border border-slate-200/80"
-                          : "text-slate-500 hover:text-slate-800 font-medium"
-                      }`}
-                    >
-                      Cards
-                    </button>
+                      <option value="">+ Add Another Fish Stock...</option>
+                      {activePonds.map(p => {
+                        const isAlreadyAdded = bulkRows.some(r => r.pondId === p.id);
+                        const hasLogToday = (feedingRecords || []).some(r =>
+                          ((r.pondId && r.pondId === p.id) || (r.pond || "").trim().toLowerCase() === p.name.trim().toLowerCase()) &&
+                          (isSameDate(r.date, bulkDate) || r.date === toDateLabel(bulkDate))
+                        );
+                        return (
+                          <option key={p.id} value={p.id}>
+                            {p.name} ({getPondFishStock(p)}) {hasLogToday ? "✓ Logged" : isAlreadyAdded ? "• Added" : ""}
+                          </option>
+                        );
+                      })}
+                    </select>
+                    {/* Mobile Table / Card Toggle (Mobile Only) */}
+                    <div className="flex md:hidden items-center gap-0.5 bg-slate-100 p-0.5 rounded-xl border border-slate-200/80">
+                      <button
+                        type="button"
+                        onClick={() => setBulkMobileView("table")}
+                        className={`px-2.5 py-1 rounded-lg text-xs transition-all ${
+                          bulkMobileView === "table"
+                            ? "bg-white text-green-700 font-bold shadow-xs border border-slate-200/80"
+                            : "text-slate-500 hover:text-slate-800 font-medium"
+                        }`}
+                      >
+                        Table
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setBulkMobileView("card")}
+                        className={`px-2.5 py-1 rounded-lg text-xs transition-all ${
+                          bulkMobileView === "card"
+                            ? "bg-white text-green-700 font-bold shadow-xs border border-slate-200/80"
+                            : "text-slate-500 hover:text-slate-800 font-medium"
+                        }`}
+                      >
+                        Cards
+                      </button>
+                    </div>
                   </div>
                 </div>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  Enter morning &amp; evening amounts for each pond for <span className="font-semibold text-slate-700">{toDateLabel(bulkDate)}</span>.
-                </p>
               </div>
               <button onClick={() => setShowLog(false)} className="text-slate-400 hover:text-slate-700 p-1 shrink-0 rounded-lg hover:bg-slate-100 transition-colors"><X size={20} /></button>
             </div>
@@ -4617,7 +4865,7 @@ function FeedDocumentation({
                   <thead className="sticky top-0 z-10 bg-slate-100">
                     <tr className="bg-slate-100">
                       <th className="w-12 min-w-[48px] max-w-[48px] px-2 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-center sticky top-0 left-0 z-20 bg-slate-100 border-b border-slate-200">#</th>
-                      <th className="px-3 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left min-w-[110px] max-w-[135px] sticky top-0 left-[48px] z-20 bg-slate-100 border-b border-r border-slate-200">Pond</th>
+                      <th className="px-3 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left min-w-[130px] max-w-[170px] sticky top-0 left-[48px] z-20 bg-slate-100 border-b border-r border-slate-200">Pond / Stock</th>
                       {logColOrder.map(col => {
                         let label = "";
                         let align = "text-left";
@@ -4646,6 +4894,7 @@ function FeedDocumentation({
                           </th>
                         );
                       })}
+                      <th className="px-3 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-center border-b border-slate-200 min-w-[125px]">Action</th>
                     </tr>
                   </thead>
                   <tbody className="bg-white">
@@ -4660,7 +4909,7 @@ function FeedDocumentation({
                         <tr key={row.rowId} className={`transition-colors ${hasFeed ? "bg-green-50/40" : "hover:bg-slate-50/80"}`}>
                           <td className={`w-12 min-w-[48px] max-w-[48px] px-2 py-3 text-slate-400 text-xs font-mono text-center sticky left-0 z-10 border-b border-slate-100 ${hasFeed ? "bg-[#f2faf4]" : "bg-white"}`}>{i + 1}</td>
                           <td
-                            className={`px-3 py-2.5 min-w-[110px] max-w-[145px] sticky left-[48px] z-10 border-b border-r border-slate-200 select-none cursor-pointer group ${hasFeed ? "bg-[#f2faf4]" : "bg-white"}`}
+                            className={`px-3 py-2.5 min-w-[130px] max-w-[170px] sticky left-[48px] z-10 border-b border-r border-slate-200 select-none cursor-pointer group ${hasFeed ? "bg-[#f2faf4]" : "bg-white"}`}
                             onMouseDown={() => handlePondSectionMouseDown(row)}
                             onMouseUp={handlePondSectionMouseUp}
                             onMouseLeave={handlePondSectionMouseUp}
@@ -4679,25 +4928,36 @@ function FeedDocumentation({
                                   </span>
                                 )}
                               </p>
-                              <button
-                                type="button"
-                                onClick={e => {
-                                  e.stopPropagation();
-                                  setPalletPondModal({
-                                    pondId: row.pondId,
-                                    pondName: row.pondName,
-                                    fishStock: row.fishStock,
-                                    stockDate: row.stockDate,
-                                    rowId: row.rowId,
-                                    isExtra: row.isExtraPallet,
-                                    palletNumber: row.palletNumber
-                                  });
-                                }}
-                                className="p-0.5 rounded text-teal-600 hover:bg-teal-50 transition-colors"
-                                title="Pallet Options (Add Another Pallet)"
-                              >
-                                <Plus size={13} className="stroke-[2.5]" />
-                              </button>
+                              <div className="flex items-center gap-1 shrink-0">
+                                {row.existingRecordId ? (
+                                  <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800" title="Already logged for this date">
+                                    ✓ Logged
+                                  </span>
+                                ) : (
+                                  <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800">
+                                    Pending
+                                  </span>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={e => {
+                                    e.stopPropagation();
+                                    setPalletPondModal({
+                                      pondId: row.pondId,
+                                      pondName: row.pondName,
+                                      fishStock: row.fishStock,
+                                      stockDate: row.stockDate,
+                                      rowId: row.rowId,
+                                      isExtra: row.isExtraPallet,
+                                      palletNumber: row.palletNumber
+                                    });
+                                  }}
+                                  className="p-0.5 rounded text-teal-600 hover:bg-teal-50 transition-colors"
+                                  title="Pallet Options (Add Another Pallet)"
+                                >
+                                  <Plus size={13} className="stroke-[2.5]" />
+                                </button>
+                              </div>
                             </div>
                             {row.stockDate && row.stockDate !== "—" ? (
                               <p className="text-[11px] font-medium text-teal-700 leading-tight mt-0.5 truncate" title={`Stocked: ${row.stockDate}`}>
@@ -4766,6 +5026,33 @@ function FeedDocumentation({
                               return null;
                           }
                         })}
+                        <td className="px-3 py-2.5 text-center border-b border-slate-100 bg-transparent">
+                          <div className="flex items-center justify-center gap-1.5">
+                            <button
+                              type="button"
+                              disabled={savingRowId === row.rowId}
+                              onClick={() => handleSaveSingleRow(row)}
+                              className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all ${
+                                row.existingRecordId
+                                  ? "bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-300 shadow-2xs"
+                                  : "bg-green-600 hover:bg-green-700 text-white shadow-xs"
+                              }`}
+                              title={row.existingRecordId ? "Update saved feeding record" : "Save this fish stock record"}
+                            >
+                              {savingRowId === row.rowId ? "Saving..." : (row.existingRecordId ? "Update" : "Save")}
+                            </button>
+                            {bulkRows.length > 1 && (
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveStockCard(row.rowId)}
+                                className="p-1.5 text-slate-300 hover:text-red-500 rounded-lg hover:bg-red-50 transition-colors"
+                                title="Remove stock from this session"
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            )}
+                          </div>
+                        </td>
                       </tr>
                     );
                   })}
@@ -4773,7 +5060,7 @@ function FeedDocumentation({
                 {bulkRows.length > 0 && (
                   <tfoot>
                     <tr className="bg-slate-50 border-t-2 border-slate-200">
-                      <td colSpan={logColOrder.length + 1} className="px-4 py-3 text-right text-xs font-bold text-slate-500 uppercase tracking-wider">Grand Total</td>
+                      <td colSpan={logColOrder.length + 2} className="px-4 py-3 text-right text-xs font-bold text-slate-500 uppercase tracking-wider">Grand Total</td>
                       <td className="px-3 py-3 text-center"><span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-green-600 text-white font-bold text-sm font-['Barlow_Condensed',sans-serif]">{grandTotal}kg</span></td>
                     </tr>
                   </tfoot>
@@ -4817,11 +5104,20 @@ function FeedDocumentation({
                             <span className="w-5 h-5 rounded-full bg-slate-100 text-slate-500 text-[11px] font-bold flex items-center justify-center font-mono">
                               {i + 1}
                             </span>
-                            <h3 className="font-bold text-slate-900 text-sm leading-tight">
+                            <h3 className="font-bold text-slate-900 text-sm leading-tight flex items-center gap-1.5 flex-wrap">
                               {row.pondName}
                               {row.isExtraPallet && (
-                                <span className="ml-1.5 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-teal-100 text-teal-800">
+                                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-teal-100 text-teal-800">
                                   Pallet {row.palletNumber || 2}
+                                </span>
+                              )}
+                              {row.existingRecordId ? (
+                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                  <CheckCircle size={10} /> Logged
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-slate-100 text-slate-500">
+                                  Pending
                                 </span>
                               )}
                             </h3>
@@ -4925,6 +5221,36 @@ function FeedDocumentation({
                           />
                         </div>
                       </div>
+
+                      {/* Mobile Card Action Buttons */}
+                      <div className="mt-3 pt-2.5 border-t border-slate-100 flex items-center justify-between gap-2">
+                        {bulkRows.length > 1 ? (
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveStockCard(row.rowId)}
+                            className="p-1.5 text-slate-400 hover:text-red-500 rounded-lg hover:bg-red-50 transition-colors flex items-center gap-1 text-xs"
+                            title="Remove stock from this session"
+                          >
+                            <Trash2 size={13} />
+                            <span className="text-[11px]">Remove</span>
+                          </button>
+                        ) : <div />}
+                        <button
+                          type="button"
+                          disabled={savingFeed || savingRowId === row.rowId || (Number(row.morning) || 0) + (Number(row.evening) || 0) <= 0}
+                          onClick={() => handleSaveSingleRow(row)}
+                          className={`px-3 py-1.5 rounded-xl font-bold text-xs transition-all flex items-center gap-1.5 ${
+                            (Number(row.morning) || 0) + (Number(row.evening) || 0) > 0
+                              ? row.existingRecordId
+                                ? "bg-emerald-600 text-white shadow-xs hover:bg-emerald-700"
+                                : "bg-teal-600 text-white shadow-xs hover:bg-teal-700"
+                              : "bg-slate-100 text-slate-400 cursor-not-allowed"
+                          }`}
+                        >
+                          <CheckCircle size={13} />
+                          {savingRowId === row.rowId ? "Saving..." : (row.existingRecordId ? "Update Record" : "Save Record")}
+                        </button>
+                      </div>
                     </div>
                   );
                 })}
@@ -4934,17 +5260,17 @@ function FeedDocumentation({
           <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 shrink-0 flex flex-wrap items-center justify-between gap-3 rounded-b-2xl z-30">
               <div>
                 <p className="text-sm font-semibold text-slate-700"><span className="text-green-600">{filledCount}</span> of {bulkRows.length} entry{bulkRows.length !== 1 ? "ies" : "y"} filled</p>
-                <p className="text-xs text-slate-400 mt-0.5">Only entries with a value entered will be saved</p>
+                <p className="text-xs text-slate-400 mt-0.5">Save individual fish stocks above or save all filled entries together</p>
                 {feedErr.amounts && <p className="text-xs text-red-500 mt-1">{feedErr.amounts}</p>}
                 {feedErr.date && <p className="text-xs text-red-500 mt-1">{feedErr.date}</p>}
               </div>
               <div className="flex gap-3">
-                <button disabled={savingFeed} onClick={() => { setShowLog(false); setFeedErr({}); }} className="px-4 py-2 text-sm text-slate-500 hover:text-slate-800 font-semibold transition-colors disabled:opacity-50">Cancel</button>
-                <PBtn disabled={savingFeed} onClick={handleSaveAll}>
+                <button disabled={savingFeed} onClick={() => { setShowLog(false); setFeedErr({}); }} className="px-4 py-2 text-sm text-slate-600 hover:text-slate-800 font-semibold transition-colors disabled:opacity-50">Done</button>
+                <PBtn disabled={savingFeed || filledCount === 0} onClick={handleSaveAll}>
                   {savingFeed ? (
                     <span className="flex items-center gap-2">Saving...</span>
                   ) : (
-                    <span className="flex items-center gap-1.5"><CheckCircle size={15} /> Save {filledCount > 0 ? filledCount : ""} Record{filledCount !== 1 ? "s" : ""}</span>
+                    <span className="flex items-center gap-1.5"><CheckCircle size={15} /> Save All {filledCount > 0 ? `(${filledCount})` : ""}</span>
                   )}
                 </PBtn>
               </div>
