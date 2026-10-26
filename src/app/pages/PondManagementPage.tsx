@@ -538,7 +538,9 @@ function PondDetail({
         (pond.fishStock && (fsTrimmed === pond.fishStock || isStockMatch(fsTrimmed, pond.fishStock, ponds))) ||
         (pStockIdentity && isStockMatch(fsTrimmed, pStockIdentity, ponds)) ||
         (activeFishStockLabel && isStockMatch(fsTrimmed, activeFishStockLabel, ponds)) ||
-        (defaultFishStockLabel && isStockMatch(fsTrimmed, defaultFishStockLabel, ponds))
+        (defaultFishStockLabel && isStockMatch(fsTrimmed, defaultFishStockLabel, ponds)) ||
+        isStockMatch(fsTrimmed, getPondFishStock(pond)) ||
+        (pond.stockingDate && (isSameDate(fsTrimmed, pond.stockingDate) || isStockMatch(fsTrimmed, fmtStockingDate(pond.stockingDate))))
       );
 
       const rDate = toValidDbDate(r.date);

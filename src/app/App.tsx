@@ -5930,15 +5930,16 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       toast.error("You do not have permission to log feeding.");
       return;
     }
-    const fid=r.farmId||activeFarmId||farms[0]?.id||"";
     const targetPond = ponds.find(p => (r.pondId && p.id === r.pondId) || (r.pond && p.name.trim().toLowerCase() === r.pond.trim().toLowerCase()));
-    const pondId = r.pondId || targetPond?.id;
+    const fid=r.farmId||targetPond?.farmId||activeFarmId||farms[0]?.id||"";
+    const pondId = targetPond?.id || r.pondId;
     const fishStockId = r.fishStockId || targetPond?.fishStockId || pondId;
     const fishStock = r.fishStock || (targetPond ? getPondFishStock(targetPond) : undefined);
     const farmRec:FeedingRecord={
       ...r,
       id:isUuid(r.id)?r.id:crypto.randomUUID(),
       farmId:fid,
+      pond: targetPond?.name || r.pond,
       pondId: pondId,
       fishStockId: fishStockId,
       fishStock: fishStock,
@@ -6023,14 +6024,15 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       toast.error("You do not have permission to edit feeding records.");
       return;
     }
-    const fid=r.farmId||activeFarmId||farms[0]?.id||"";
     const targetPond = ponds.find(p => (r.pondId && p.id === r.pondId) || (r.pond && p.name.trim().toLowerCase() === r.pond.trim().toLowerCase()));
-    const pondId = r.pondId || targetPond?.id;
+    const fid=r.farmId||targetPond?.farmId||activeFarmId||farms[0]?.id||"";
+    const pondId = targetPond?.id || r.pondId;
     const fishStockId = r.fishStockId || targetPond?.fishStockId || pondId;
     const fishStock = r.fishStock || (targetPond ? getPondFishStock(targetPond) : undefined);
     const farmRec:FeedingRecord={
       ...r,
       farmId:fid,
+      pond: targetPond?.name || r.pond,
       pondId: pondId,
       fishStockId: fishStockId,
       fishStock: fishStock,
