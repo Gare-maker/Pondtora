@@ -5414,7 +5414,9 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   const addTreatment=async(t:TreatmentRecord)=>{
     if (!checkSubscriptionActive()) return;
     const fid=t.farmId||activeFarmId||farms[0]?.id||"";
-    const farmTr:TreatmentRecord={...t,id:isUuid(t.id)?t.id:crypto.randomUUID(),farmId:fid};
+    const targetPond = ponds.find(p => p.id === t.pondId);
+    const fStock = t.fishStock || (targetPond ? getPondFishStock(targetPond) : undefined);
+    const farmTr:TreatmentRecord={...t,id:isUuid(t.id)?t.id:crypto.randomUUID(),farmId:fid,fishStock:fStock};
     setTreatments(prev=>{
       const next = [farmTr, ...prev];
       if (userProfile?.id) {
@@ -6469,10 +6471,11 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   const addMort=async(m:MortalityEntry,pondId:string)=>{
     if (!checkSubscriptionActive()) return;
     const fid=m.farmId||activeFarmId||farms[0]?.id||"";
-    const farmMort:MortalityEntry={...m,id:isUuid(m.id)?m.id:crypto.randomUUID(),pondId,farmId:fid};
+    const updPond=ponds.find(p=>p.id===pondId);
+    const fStock=m.fishStock || (updPond ? getPondFishStock(updPond) : undefined);
+    const farmMort:MortalityEntry={...m,id:isUuid(m.id)?m.id:crypto.randomUUID(),pondId,farmId:fid,fishStock:fStock};
     toast.success("Mortality recorded");
     setMortality(prev=>[farmMort,...prev]);
-    const updPond=ponds.find(p=>p.id===pondId);
     const prevCount = updPond ? Number(updPond.currentCount) || 0 : 0;
     const newCount = Math.max(0, prevCount - farmMort.count);
     setPonds(prev=>prev.map(p=>p.id===pondId?{...p,currentCount:newCount}:p));

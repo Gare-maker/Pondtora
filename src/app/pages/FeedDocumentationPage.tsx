@@ -583,21 +583,30 @@ function FeedDocumentation({
     return s;
   }, [viewYear]);
 
-  /* Helper to get prior leftover carryover for a fish stock and pallet size strictly before targetDate */
-  /* Helper to get prior leftover carryover for a fish stock and pallet size strictly before targetDate */
-  const getPriorCarryover = useCallback((stockName: string, size: string, targetDate: string): number => {
+  /* Helper to get prior leftover carryover for a fish stock, pallet size, and optional brand strictly before targetDate */
+  const getPriorCarryover = useCallback((stockName: string, size: string, targetDate: string, brand?: string): number => {
     if (!stockName || !targetDate) return 0;
     const normStock = normalizeFishStock(stockName);
     const targetIso = dateToIso(targetDate);
     if (!targetIso) return 0;
 
-    // Collect all unique ISO dates strictly before targetIso where any feed activity occurred for this stock & size
+    const brandFilter = (b?: string | null): boolean => {
+      if (!brand || brand === "—" || !b || b === "—") return true;
+      return b.trim().toLowerCase() === brand.trim().toLowerCase();
+    };
+
+    // Collect all unique ISO dates strictly before targetIso where any feed activity occurred for this stock, size & brand
     const activityDates = new Set<string>();
 
     (remainLogs || []).forEach(r => {
       if (!r || !r.date) return;
       const iso = dateToIso(r.date);
-      if (iso && iso < targetIso && isStockMatch(r.fishStock, normStock) && (!size || size === "—" || !r.size || r.size === "—" || isSamePelletSize(r.size, size))) {
+      if (
+        iso && iso < targetIso &&
+        isStockMatch(r.fishStock, normStock) &&
+        (!size || size === "—" || !r.size || r.size === "—" || isSamePelletSize(r.size, size)) &&
+        brandFilter(r.brand)
+      ) {
         activityDates.add(iso);
       }
     });
@@ -605,7 +614,12 @@ function FeedDocumentation({
     (bagLogs || []).forEach(b => {
       if (!b || !b.date) return;
       const iso = dateToIso(b.date);
-      if (iso && iso < targetIso && isStockMatch(b.fishStock, normStock) && (!size || size === "—" || !b.size || b.size === "—" || isSamePelletSize(b.size, size))) {
+      if (
+        iso && iso < targetIso &&
+        isStockMatch(b.fishStock, normStock) &&
+        (!size || size === "—" || !b.size || b.size === "—" || isSamePelletSize(b.size, size)) &&
+        brandFilter(b.brand)
+      ) {
         activityDates.add(iso);
       }
     });
@@ -615,7 +629,12 @@ function FeedDocumentation({
       const tIso = dateToIso(t.transferDate);
       const isDest = isStockMatch(t.destinationStock, normStock);
       const isSrc = isStockMatch(t.sourceStock, normStock);
-      if (tIso && tIso < targetIso && (isDest || isSrc) && (!size || size === "—" || isSamePelletSize(t.feedSize, size))) {
+      if (
+        tIso && tIso < targetIso &&
+        (isDest || isSrc) &&
+        (!size || size === "—" || isSamePelletSize(t.feedSize, size)) &&
+        brandFilter(t.feedBrand)
+      ) {
         activityDates.add(tIso);
       }
     });
@@ -623,7 +642,12 @@ function FeedDocumentation({
     (feedingRecords || []).forEach(r => {
       if (!r || !r.date) return;
       const iso = dateToIso(r.date);
-      if (iso && iso < targetIso && (isStockMatch(r.fishStock, normStock) || isStockMatch(pondToStock(r.pond), normStock) || isStockMatch(r.pond, normStock)) && (!size || size === "—" || !r.size || r.size === "—" || isSamePelletSize(r.size, size))) {
+      if (
+        iso && iso < targetIso &&
+        (isStockMatch(r.fishStock, normStock) || isStockMatch(pondToStock(r.pond), normStock) || isStockMatch(r.pond, normStock)) &&
+        (!size || size === "—" || !r.size || r.size === "—" || isSamePelletSize(r.size, size)) &&
+        brandFilter(r.brand)
+      ) {
         activityDates.add(iso);
       }
     });
@@ -640,7 +664,8 @@ function FeedDocumentation({
       const matchingRemains = (remainLogs || []).filter(r => 
         dateToIso(r.date) === dIso && 
         isStockMatch(r.fishStock, normStock) && 
-        (!size || size === "—" || !r.size || r.size === "—" || isSamePelletSize(r.size, size))
+        (!size || size === "—" || !r.size || r.size === "—" || isSamePelletSize(r.size, size)) &&
+        brandFilter(r.brand)
       );
       const rLog = matchingRemains.length > 0 ? matchingRemains[matchingRemains.length - 1] : null;
 
@@ -648,7 +673,8 @@ function FeedDocumentation({
       const dayBags = (bagLogs || []).filter(b => 
         dateToIso(b.date) === dIso && 
         isStockMatch(b.fishStock, normStock) && 
-        (!size || size === "—" || !b.size || b.size === "—" || isSamePelletSize(b.size, size))
+        (!size || size === "—" || !b.size || b.size === "—" || isSamePelletSize(b.size, size)) &&
+        brandFilter(b.brand)
       );
       const dayBagsKg = dayBags.reduce((s, b) => s + (Number(b.totalKg) || ((Number(b.bagsOpened) || 0) * (Number(b.kgPerBag) || 15))), 0);
 
@@ -656,7 +682,8 @@ function FeedDocumentation({
       const dayTransfersIn = (feedTransfers || []).filter(t => 
         dateToIso(t.transferDate) === dIso && 
         isStockMatch(t.destinationStock, normStock) && 
-        (!size || size === "—" || isSamePelletSize(t.feedSize, size))
+        (!size || size === "—" || isSamePelletSize(t.feedSize, size)) &&
+        brandFilter(t.feedBrand)
       );
       const dayTransfersInKg = dayTransfersIn.reduce((s, t) => s + (Number(t.quantityKg) || 0), 0);
 
@@ -664,7 +691,8 @@ function FeedDocumentation({
       const dayTransfersOut = (feedTransfers || []).filter(t => 
         (dateToIso(t.transferDate) === dIso || dateToIso(t.originalDate) === dIso) && 
         isStockMatch(t.sourceStock, normStock) && 
-        (!size || size === "—" || isSamePelletSize(t.feedSize, size))
+        (!size || size === "—" || isSamePelletSize(t.feedSize, size)) &&
+        brandFilter(t.feedBrand)
       );
       const dayTransfersOutKg = dayTransfersOut.reduce((s, t) => s + (Number(t.quantityKg) || 0), 0);
 
@@ -672,7 +700,8 @@ function FeedDocumentation({
       const dayFeedings = (feedingRecords || []).filter(r => 
         dateToIso(r.date) === dIso && 
         (isStockMatch(r.fishStock, normStock) || isStockMatch(pondToStock(r.pond), normStock) || isStockMatch(r.pond, normStock)) && 
-        (!size || size === "—" || !r.size || r.size === "—" || isSamePelletSize(r.size, size))
+        (!size || size === "—" || !r.size || r.size === "—" || isSamePelletSize(r.size, size)) &&
+        brandFilter(r.brand)
       );
       const dayFedKg = dayFeedings.reduce((s, r) => s + (Number(r.total) || ((Number(r.morning) || 0) + (Number(r.evening) || 0))), 0);
 
@@ -748,12 +777,14 @@ function FeedDocumentation({
   const getTransferUsage = useCallback((transfer: FeedTransferRecord) => {
     const normDest = normalizeFishStock(transfer.destinationStock);
     const transIso = dateToIso(transfer.transferDate);
+    const brand = transfer.feedBrand;
 
-    // All feedings for destination stock with this size on or after transferDate
+    // All feedings for destination stock with this size and brand on or after transferDate
     const feedings = (feedingRecords || []).filter(r => {
       const matchStock = isStockMatch(r.fishStock, normDest) || isStockMatch(pondToStock(r.pond), normDest) || isStockMatch(r.pond, normDest);
       if (!matchStock) return false;
       if (!isSamePelletSize(r.size, transfer.feedSize)) return false;
+      if (brand && brand !== "—" && r.brand && r.brand !== "—" && r.brand.trim().toLowerCase() !== brand.trim().toLowerCase()) return false;
       const fIso = dateToIso(r.date);
       if (transIso && fIso && fIso < transIso) return false;
       return true;
@@ -761,10 +792,11 @@ function FeedDocumentation({
 
     const totalFedAfter = feedings.reduce((s, r) => s + (Number(r.total) || ((Number(r.morning) || 0) + (Number(r.evening) || 0))), 0);
 
-    // Find all transfers into this destination stock of the same size ordered by transferDate
+    // Find all transfers into this destination stock of the same size and brand ordered by transferDate
     const allIn = (feedTransfers || []).filter(t => 
       isStockMatch(t.destinationStock, normDest) && 
-      isSamePelletSize(t.feedSize, transfer.feedSize)
+      isSamePelletSize(t.feedSize, transfer.feedSize) &&
+      (!brand || brand === "—" || !t.feedBrand || t.feedBrand === "—" || t.feedBrand.trim().toLowerCase() === brand.trim().toLowerCase())
     ).sort((a, b) => (dateToIso(a.transferDate) || "").localeCompare(dateToIso(b.transferDate) || ""));
 
     // Allocate feeding in FIFO order
@@ -836,6 +868,7 @@ function FeedDocumentation({
     }
     const fs = row.fishStock;
     const size = row.size;
+    const brand = row.brand;
 
     const baseRemaining = (row.feedRemainingToday !== null && row.feedRemainingToday !== undefined)
       ? row.feedRemainingToday
@@ -844,6 +877,7 @@ function FeedDocumentation({
     const outTransfers = (feedTransfers || []).filter(t => 
       isStockMatch(t.sourceStock, fs) &&
       isSamePelletSize(t.feedSize, size) &&
+      (!brand || brand === "—" || !t.feedBrand || t.feedBrand === "—" || t.feedBrand.trim().toLowerCase() === brand.trim().toLowerCase()) &&
       (isSameDate(t.originalDate, selDate) || isSameDate(t.transferDate, selDate))
     );
     const totalOut = outTransfers.reduce((s, t) => s + (Number(t.quantityKg) || 0), 0);
@@ -936,6 +970,7 @@ function FeedDocumentation({
       const existingSourceRemain = (remainLogs || []).find(r => 
         isSameDate(r.date, origDate) && 
         (size === "—" || isSamePelletSize(r.size, size)) && 
+        (!brand || brand === "—" || !r.brand || r.brand === "—" || r.brand.trim().toLowerCase() === brand.trim().toLowerCase()) &&
         (isStockMatch(r.fishStock, sourceFs) || normalizeFishStock(r.fishStock) === normalizeFishStock(sourceFs))
       );
 
@@ -960,12 +995,14 @@ function FeedDocumentation({
       const existingDestRemain = (remainLogs || []).find(r => 
         isSameDate(r.date, tDate) && 
         (size === "—" || isSamePelletSize(r.size, size)) && 
+        (!brand || brand === "—" || !r.brand || r.brand === "—" || r.brand.trim().toLowerCase() === brand.trim().toLowerCase()) &&
         (isStockMatch(r.fishStock, destFs) || normalizeFishStock(r.fishStock) === normalizeFishStock(destFs))
       );
 
       const destRow = mergedBagRows.find(r =>
         (isStockMatch(r.fishStock, destFs) || normalizeFishStock(r.fishStock) === normalizeFishStock(destFs)) &&
-        (size === "—" || isSamePelletSize(r.size, size))
+        (size === "—" || isSamePelletSize(r.size, size)) &&
+        (!brand || brand === "—" || !r.brand || r.brand === "—" || r.brand.trim().toLowerCase() === brand.trim().toLowerCase())
       );
       const destPrevBalance = destRow
         ? ((destRow.feedRemainingToday !== null && destRow.feedRemainingToday !== undefined)
@@ -1458,6 +1495,7 @@ function FeedDocumentation({
       const dateMatch = isSameDate(r.date, targetDate) || isSameDate(r.date, dateLabel);
       if (!dateMatch) return false;
       if (size && size !== "—" && r.size && !isSamePelletSize(r.size, size)) return false;
+      if (brand && brand !== "—" && r.brand && r.brand !== "—" && r.brand.toLowerCase().trim() !== brand.toLowerCase().trim()) return false;
       if (normStock && normStock !== "—") {
         const rStock = r.fishStock || pondToStock(r.pond);
         const matchesStock = isStockMatch(normStock, rStock) ||
@@ -1471,7 +1509,7 @@ function FeedDocumentation({
     });
     const totalFed = fedRecords.reduce((s, r) => s + (Number(r.total) || ((Number(r.morning) || 0) + (Number(r.evening) || 0))), 0);
 
-    const carryover = getPriorCarryover(normStock, size, targetDate);
+    const carryover = getPriorCarryover(normStock, size, targetDate, brand);
 
     const invItem = (inventory || []).find(f => f && (brand && brand !== "—" ? f.brand.toLowerCase().trim() === brand.toLowerCase().trim() : true) && isSamePelletSize(f.size, size)) || (inventory || []).find(f => f && isSamePelletSize(f.size, size));
     const bagWeight = invItem?.weightPerBag || 15;
@@ -1480,6 +1518,7 @@ function FeedDocumentation({
     const transfersInToday = (feedTransfers || []).filter(t => 
       isStockMatch(t.destinationStock, normStock) && 
       isSamePelletSize(t.feedSize, size) && 
+      (!brand || brand === "—" || !t.feedBrand || t.feedBrand === "—" || t.feedBrand.trim().toLowerCase() === brand.trim().toLowerCase()) &&
       isSameDate(t.transferDate, targetDate)
     );
     const availableTransfersIn = transfersInToday.reduce((s, t) => s + (Number(t.quantityKg) || 0), 0);
@@ -1488,6 +1527,7 @@ function FeedDocumentation({
     const transfersOutToday = (feedTransfers || []).filter(t => 
       isStockMatch(t.sourceStock, normStock) && 
       isSamePelletSize(t.feedSize, size) && 
+      (!brand || brand === "—" || !t.feedBrand || t.feedBrand === "—" || t.feedBrand.trim().toLowerCase() === brand.trim().toLowerCase()) &&
       (isSameDate(t.originalDate, targetDate) || isSameDate(t.transferDate, targetDate))
     );
     const totalTransferredOut = transfersOutToday.reduce((s, t) => s + (Number(t.quantityKg) || 0), 0);
@@ -2002,24 +2042,30 @@ function FeedDocumentation({
         return;
       }
 
-      // Group feed by pellet size
-      const fedSizes = [...new Set(fedRecords.map(r => r.size).filter(Boolean))];
-      const loggedBagSizes = (bagLogs || []).filter(b => b && isSameDate(b.date, selDate) && isStockMatch(b.fishStock, stockInfo.stockName)).map(b => b.size).filter(Boolean);
-      const loggedRemainSizes = (remainLogs || []).filter(r => r && isSameDate(r.date, selDate) && isStockMatch(r.fishStock, stockInfo.stockName)).map(r => r.size).filter(Boolean);
-      const allSizes = [...new Set([...fedSizes, ...loggedBagSizes, ...loggedRemainSizes])];
-      const sizesToEvaluate = allSizes.length > 0 ? allSizes : ["—"];
+      // Group feed by brand and pellet size
+      const pairs: { brand: string; size: string }[] = [];
+      const addMismatchPair = (bRaw?: string | null, szRaw?: string | null) => {
+        const sz = (szRaw && szRaw !== "—" && szRaw.trim()) ? szRaw.trim() : "—";
+        const b = (bRaw && bRaw !== "—" && bRaw.trim()) ? bRaw.trim() : (sz !== "—" ? (getMatchingBrandsForPallet(sz)[0] || "—") : "—");
+        if (!pairs.some(p => p.brand.toLowerCase().trim() === b.toLowerCase().trim() && isSamePelletSize(p.size, sz))) {
+          pairs.push({ brand: b, size: sz });
+        }
+      };
 
-      sizesToEvaluate.forEach(size => {
-        const sizeFedRecords = fedRecords.filter(r => size === "—" || isSamePelletSize(r.size, size));
+      fedRecords.forEach(r => addMismatchPair(r.brand, r.size));
+      (bagLogs || []).filter(b => b && isSameDate(b.date, selDate) && isStockMatch(b.fishStock, stockInfo.stockName)).forEach(b => addMismatchPair(b.brand, b.size));
+      (remainLogs || []).filter(r => r && isSameDate(r.date, selDate) && isStockMatch(r.fishStock, stockInfo.stockName)).forEach(r => addMismatchPair(r.brand, r.size));
+      const pairsToEvaluate = pairs.length > 0 ? pairs : [{ brand: "—", size: "—" }];
+
+      pairsToEvaluate.forEach(({ brand, size }) => {
+        const sizeFedRecords = fedRecords.filter(r => 
+          (size === "—" || isSamePelletSize(r.size, size)) &&
+          (brand === "—" || !r.brand || r.brand === "—" || r.brand.toLowerCase().trim() === brand.toLowerCase().trim())
+        );
         const sizeFedKg = sizeFedRecords.reduce((s, r) => s + (Number(r.total) || ((Number(r.morning) || 0) + (Number(r.evening) || 0))), 0);
 
-        const brand = sizeFedRecords[0]?.brand ||
-          (bagLogs || []).find(b => isSameDate(b.date, selDate) && isStockMatch(b.fishStock, stockInfo.stockName) && (size === "—" || isSamePelletSize(b.size, size)))?.brand ||
-          (inventory || []).find(f => f && (size === "—" || isSamePelletSize(f.size, size)))?.brand ||
-          "—";
-
         // Carryover from previous feeding records
-        const carryoverKg = getPriorCarryover(stockInfo.stockName, size, selDate);
+        const carryoverKg = getPriorCarryover(stockInfo.stockName, size, selDate, brand);
 
         // Bag weight
         const invItem = (inventory || []).find(f => f && (brand !== "—" ? f.brand.toLowerCase().trim() === brand.toLowerCase().trim() : true) && (size !== "—" ? isSamePelletSize(f.size, size) : true)) ||
@@ -2030,6 +2076,7 @@ function FeedDocumentation({
         const transfersInToday = (feedTransfers || []).filter(t => 
           isStockMatch(t.destinationStock, stockInfo.stockName) && 
           isSamePelletSize(t.feedSize, size) && 
+          (!brand || brand === "—" || !t.feedBrand || t.feedBrand === "—" || t.feedBrand.trim().toLowerCase() === brand.trim().toLowerCase()) &&
           isSameDate(t.transferDate, selDate)
         );
         const availableTransfersIn = transfersInToday.reduce((s, t) => s + (Number(t.quantityKg) || 0), 0);
@@ -2037,6 +2084,7 @@ function FeedDocumentation({
         const transfersOutToday = (feedTransfers || []).filter(t => 
           isStockMatch(t.sourceStock, stockInfo.stockName) && 
           isSamePelletSize(t.feedSize, size) && 
+          (!brand || brand === "—" || !t.feedBrand || t.feedBrand === "—" || t.feedBrand.trim().toLowerCase() === brand.trim().toLowerCase()) &&
           (isSameDate(t.originalDate, selDate) || isSameDate(t.transferDate, selDate))
         );
         const totalTransferredOut = transfersOutToday.reduce((s, t) => s + (Number(t.quantityKg) || 0), 0);
@@ -2049,7 +2097,9 @@ function FeedDocumentation({
 
         // Recorded bags opened on selDate
         const bagLogsForSize = (bagLogs || []).filter(b =>
-          b && isSameDate(b.date, selDate) && isStockMatch(b.fishStock, stockInfo.stockName) && (size === "—" || !b.size || b.size === "—" || isSamePelletSize(b.size, size))
+          b && isSameDate(b.date, selDate) && isStockMatch(b.fishStock, stockInfo.stockName) && 
+          (size === "—" || !b.size || b.size === "—" || isSamePelletSize(b.size, size)) &&
+          (brand === "—" || !b.brand || b.brand === "—" || b.brand.toLowerCase().trim() === brand.toLowerCase().trim())
         );
         const hasBagLog = bagLogsForSize.length > 0;
         if (!hasBagLog) {
@@ -2081,7 +2131,9 @@ function FeedDocumentation({
 
         // Recorded leftover on selDate
         const remainLogsForSize = (remainLogs || []).filter(r =>
-          r && isSameDate(r.date, selDate) && isStockMatch(r.fishStock, stockInfo.stockName) && (size === "—" || !r.size || r.size === "—" || isSamePelletSize(r.size, size))
+          r && isSameDate(r.date, selDate) && isStockMatch(r.fishStock, stockInfo.stockName) && 
+          (size === "—" || !r.size || r.size === "—" || isSamePelletSize(r.size, size)) &&
+          (brand === "—" || !r.brand || r.brand === "—" || r.brand.toLowerCase().trim() === brand.toLowerCase().trim())
         );
         const hasRemainLog = remainLogsForSize.length > 0;
         const recordedRemaining = hasRemainLog 
@@ -2113,7 +2165,7 @@ function FeedDocumentation({
 
         if (status) {
           rows.push({
-            stockKey: `${key}__${size}`,
+            stockKey: `${key}__${brand}__${size}`,
             stockName: stockInfo.stockName,
             stockDate: stockInfo.stockDate,
             brand,
@@ -2247,7 +2299,50 @@ function FeedDocumentation({
   const dayRows = useMemo(() => {
     const list: { pond: Pond; rec: FeedingRecord | null }[] = [];
     activePondsForSelectedStock.forEach(pond => {
-      const recs = dayRecords.filter(r => (r.pondId && r.pondId === pond.id) || (r.pond || "").trim().toLowerCase() === pond.name.trim().toLowerCase());
+      const pNameNorm = (pond.name || "").trim().toLowerCase();
+      const closedEvents = (stockEvents || []).filter(e =>
+        (e.pondId === pond.id || (e.pondName && e.pondName.trim().toLowerCase() === pNameNorm)) && e.type === "Closed"
+      );
+      const latestClosedDate = closedEvents.length > 0
+        ? closedEvents.map(e => toValidDbDate(e.clearedDate || e.date)).filter(Boolean).sort().reverse()[0]
+        : null;
+      const pondStock = getPondFishStock(pond);
+      const pondStockDbDate = toValidDbDate(pond.stockingDate);
+
+      const recs = dayRecords.filter(r => {
+        const matchesPond = (r.pondId && r.pondId === pond.id) || (r.pond || "").trim().toLowerCase() === pNameNorm;
+        if (!matchesPond) return false;
+
+        const rStock = (r.fishStock || "").trim();
+        // Check if this record explicitly matches a closed cycle for this pond
+        const matchesClosed = Boolean(rStock && rStock !== "—") && closedEvents.some(ce => {
+          const ceBatch = ce.batch || (ce.date ? fmtStockingDate(ce.date) : null);
+          return Boolean(ceBatch && (isStockMatch(rStock, ceBatch) || isSameDate(rStock, ce.date)));
+        });
+        if (matchesClosed) return false;
+
+        const rDate = toValidDbDate(r.date);
+        // If there's a closed date and this record is strictly before it, it belongs to closed stock
+        if (latestClosedDate && rDate && rDate < latestClosedDate) return false;
+
+        // If rStock is specified and differs from the current active stock of the pond:
+        if (rStock && rStock !== "—") {
+          const matchesCurrentStock = 
+            isStockMatch(rStock, pondStock) ||
+            isStockMatch(rStock, pond.fishStock) ||
+            isStockMatch(rStock, pond.name) ||
+            (pond.stockingDate && isSameDate(rStock, pond.stockingDate));
+          if (!matchesCurrentStock) {
+            // It belongs to a different stock
+            return false;
+          }
+        } else if (pondStockDbDate && rDate && rDate < pondStockDbDate) {
+          return false;
+        }
+
+        return true;
+      });
+
       if (recs.length > 0) {
         recs.forEach(rec => {
           list.push({ pond, rec });
@@ -2257,12 +2352,12 @@ function FeedDocumentation({
       }
     });
     return list;
-  }, [activePondsForSelectedStock, dayRecords]);
+  }, [activePondsForSelectedStock, dayRecords, stockEvents]);
 
   const totalPonds = activePondsForSelectedStock.length;
   const pondsFedToday = useMemo(() => {
-    return [...new Set(dayRecords.filter(r => activePondsForSelectedStock.some(p => (r.pondId && r.pondId === p.id) || (r.pond || "").trim().toLowerCase() === p.name.trim().toLowerCase())).map(r => r.pondId || r.pond))].length;
-  }, [dayRecords, activePondsForSelectedStock]);
+    return [...new Set(dayRows.filter(r => r.rec !== null).map(r => r.pond.id || r.pond.name))].length;
+  }, [dayRows]);
   const pondsRemaining = Math.max(0, totalPonds - pondsFedToday);
   const bagsOpenedToday = useMemo(() => {
     return (bagLogs || [])
@@ -2518,12 +2613,13 @@ function FeedDocumentation({
         ? formatFishStockDate(matchingPond.stockingDate)
         : (fs && /^\d{4}-\d{2}-\d{2}/.test(fs) ? formatFishStockDate(fs) : (fs !== "—" && fs !== "General Stock" ? formatFishStock(fs) : "—"));
 
-      const carryoverKg = getPriorCarryover(fs, size, selDate);
+      const carryoverKg = getPriorCarryover(fs, size, selDate, brand);
 
       // Feeding records for this stock and size today
       const fedForSize = dayFeedRecords.filter(r =>
         (isStockMatch(r.fishStock, fs) || isStockMatch(pondToStock(r.pond), fs) || isStockMatch(r.pond, fs)) &&
-        (size === "—" || isSamePelletSize(r.size, size))
+        (size === "—" || isSamePelletSize(r.size, size)) &&
+        (brand === "—" || !r.brand || r.brand === "—" || !brand || r.brand.toLowerCase().trim() === brand.toLowerCase().trim())
       );
       const totalFed = fedForSize.reduce((s, r) => s + (Number(r.total) || ((Number(r.morning) || 0) + (Number(r.evening) || 0))), 0);
 
@@ -2589,7 +2685,7 @@ function FeedDocumentation({
         const stockDate = matchingPond?.stockingDate && matchingPond.stockingDate !== "—"
           ? formatFishStockDate(matchingPond.stockingDate)
           : (fs && /^\d{4}-\d{2}-\d{2}/.test(fs) ? formatFishStockDate(fs) : (fs !== "—" && fs !== "General Stock" ? formatFishStock(fs) : "—"));
-        const carryoverKg = getPriorCarryover(fs, size, selDate);
+        const carryoverKg = getPriorCarryover(fs, size, selDate, brand);
 
         map.set(k, {
           brand,
@@ -2617,20 +2713,30 @@ function FeedDocumentation({
         isStockMatch(r.fishStock, fs) || isStockMatch(pondToStock(r.pond), fs) || isStockMatch(r.pond, fs)
       );
 
-      const candidateSizes = [
-        ...new Set([
-          ...(remainLogs || []).filter(r => isStockMatch(r.fishStock, fs)).map(r => r.size),
-          ...(bagLogs || []).filter(b => isStockMatch(b.fishStock, fs)).map(b => b.size),
-          ...fedForStock.map(r => r.size),
-          ...(feedTransfers || []).filter(t => isStockMatch(t.destinationStock, fs)).map(t => t.feedSize),
-          ...(stockInfo.defaultPellet ? [stockInfo.defaultPellet] : [])
-        ].filter(Boolean))
-      ];
+      const candidatePairs: { brand: string; size: string }[] = [];
+      const addCandidate = (bRaw?: string | null, szRaw?: string | null) => {
+        if (!szRaw || szRaw === "—" || !szRaw.trim()) return;
+        const sz = szRaw.trim();
+        const b = (bRaw && bRaw !== "—" && bRaw.trim()) ? bRaw.trim() : (getMatchingBrandsForPallet(sz)[0] || "—");
+        if (!candidatePairs.some(cp => cp.brand.toLowerCase().trim() === b.toLowerCase().trim() && isSamePelletSize(cp.size, sz))) {
+          candidatePairs.push({ brand: b, size: sz });
+        }
+      };
 
-      candidateSizes.forEach(size => {
-        if (!size || size === "—") return;
-        const carryoverKg = getPriorCarryover(fs, size, selDate);
-        const fedForSize = fedForStock.filter(r => isSamePelletSize(r.size, size));
+      (remainLogs || []).filter(r => isStockMatch(r.fishStock, fs)).forEach(r => addCandidate(r.brand, r.size));
+      (bagLogs || []).filter(b => isStockMatch(b.fishStock, fs)).forEach(b => addCandidate(b.brand, b.size));
+      fedForStock.forEach(r => addCandidate(r.brand, r.size));
+      (feedTransfers || []).filter(t => isStockMatch(t.destinationStock, fs)).forEach(t => addCandidate(t.feedBrand, t.feedSize));
+      if (stockInfo.defaultPellet) {
+        addCandidate(null, stockInfo.defaultPellet);
+      }
+
+      candidatePairs.forEach(({ brand, size }) => {
+        const carryoverKg = getPriorCarryover(fs, size, selDate, brand);
+        const fedForSize = fedForStock.filter(r => 
+          isSamePelletSize(r.size, size) &&
+          (brand === "—" || !r.brand || r.brand === "—" || !brand || r.brand.toLowerCase().trim() === brand.toLowerCase().trim())
+        );
         const totalFed = fedForSize.reduce((s, r) => s + (Number(r.total) || ((Number(r.morning) || 0) + (Number(r.evening) || 0))), 0);
 
         // Only include if there was genuine unconsumed carryover from prior days
@@ -2638,15 +2744,10 @@ function FeedDocumentation({
 
         const feedRemainingToday = Math.max(0, Math.round((carryoverKg - totalFed) * 10) / 10);
 
-        const matchingBrand = fedForSize[0]?.brand ||
-          (bagLogs || []).find(b => isStockMatch(b.fishStock, fs) && isSamePelletSize(b.size, size))?.brand ||
-          (remainLogs || []).find(r => isStockMatch(r.fishStock, fs) && isSamePelletSize(r.size, size))?.brand ||
-          getMatchingBrandsForPallet(size)[0] || "—";
-
-        const k = `${matchingBrand.toLowerCase().trim()}||${size.toLowerCase().trim()}||${key}`;
+        const k = `${brand.toLowerCase().trim()}||${size.toLowerCase().trim()}||${key}`;
         if (!map.has(k)) {
           map.set(k, {
-            brand: matchingBrand,
+            brand,
             size,
             fishStock: fs,
             stockDate: stockInfo.stockDate && stockInfo.stockDate !== fs ? stockInfo.stockDate : "—",
@@ -2680,7 +2781,7 @@ function FeedDocumentation({
           ? stockInfo.stockDate 
           : (matchingPond?.stockingDate && matchingPond.stockingDate !== "—" ? formatFishStockDate(matchingPond.stockingDate) : "—");
 
-        const carryoverKg = getPriorCarryover(fs, size, selDate);
+        const carryoverKg = getPriorCarryover(fs, size, selDate, brand);
         const matchingRemain = dayRemainLogs.find(r =>
           isStockMatch(r.fishStock, fs) &&
           (size === "—" || isSamePelletSize(r.size, size)) &&
@@ -2720,35 +2821,36 @@ function FeedDocumentation({
       const key = normalizeFishStock(fs).toLowerCase().trim();
       if (!key) return;
 
-      const candidateSizes = [
-        ...new Set([
-          ...(remainLogs || []).filter(r => isStockMatch(r.fishStock, fs)).map(r => r.size),
-          ...(bagLogs || []).filter(b => isStockMatch(b.fishStock, fs)).map(b => b.size),
-          ...(feedTransfers || []).filter(t => isStockMatch(t.sourceStock, fs) || isStockMatch(t.destinationStock, fs)).map(t => t.feedSize)
-        ].filter(Boolean))
-      ];
+      const candidatePairs: { brand: string; size: string }[] = [];
+      const addCandidate = (bRaw?: string | null, szRaw?: string | null) => {
+        if (!szRaw || szRaw === "—" || !szRaw.trim()) return;
+        const sz = szRaw.trim();
+        const b = (bRaw && bRaw !== "—" && bRaw.trim()) ? bRaw.trim() : (getMatchingBrandsForPallet(sz)[0] || "—");
+        if (!candidatePairs.some(cp => cp.brand.toLowerCase().trim() === b.toLowerCase().trim() && isSamePelletSize(cp.size, sz))) {
+          candidatePairs.push({ brand: b, size: sz });
+        }
+      };
 
-      candidateSizes.forEach(size => {
-        if (!size || size === "—") return;
-        const carryoverKg = getPriorCarryover(fs, size, selDate);
+      (remainLogs || []).filter(r => isStockMatch(r.fishStock, fs)).forEach(r => addCandidate(r.brand, r.size));
+      (bagLogs || []).filter(b => isStockMatch(b.fishStock, fs)).forEach(b => addCandidate(b.brand, b.size));
+      (feedTransfers || []).filter(t => isStockMatch(t.sourceStock, fs) || isStockMatch(t.destinationStock, fs)).forEach(t => addCandidate(t.feedBrand, t.feedSize));
+
+      candidatePairs.forEach(({ brand, size }) => {
+        const carryoverKg = getPriorCarryover(fs, size, selDate, brand);
         if (carryoverKg <= 0) return;
 
         const fedForSize = dayFeedRecords.filter(r =>
           (isStockMatch(r.fishStock, fs) || isStockMatch(pondToStock(r.pond), fs) || isStockMatch(r.pond, fs)) &&
-          isSamePelletSize(r.size, size)
+          isSamePelletSize(r.size, size) &&
+          (brand === "—" || !r.brand || r.brand === "—" || !brand || r.brand.toLowerCase().trim() === brand.toLowerCase().trim())
         );
         const totalFed = fedForSize.reduce((s, r) => s + (Number(r.total) || ((Number(r.morning) || 0) + (Number(r.evening) || 0))), 0);
         const feedRemainingToday = Math.max(0, Math.round((carryoverKg - totalFed) * 10) / 10);
 
-        const matchingBrand = fedForSize[0]?.brand ||
-          (bagLogs || []).find(b => isStockMatch(b.fishStock, fs) && isSamePelletSize(b.size, size))?.brand ||
-          (remainLogs || []).find(r => isStockMatch(r.fishStock, fs) && isSamePelletSize(r.size, size))?.brand ||
-          getMatchingBrandsForPallet(size)[0] || "—";
-
-        const k = `${matchingBrand.toLowerCase().trim()}||${size.toLowerCase().trim()}||${key}`;
+        const k = `${brand.toLowerCase().trim()}||${size.toLowerCase().trim()}||${key}`;
         if (!map.has(k)) {
           map.set(k, {
-            brand: matchingBrand,
+            brand,
             size,
             fishStock: fs,
             stockDate: "—",
@@ -2768,27 +2870,31 @@ function FeedDocumentation({
     map.forEach(entry => {
       const fs = entry.fishStock;
       const size = entry.size;
+      const brand = entry.brand;
 
-      // 1. Outgoing transfers from this stock & size (associated with selDate or origDate)
+      // 1. Outgoing transfers from this stock & size & brand (associated with selDate or origDate)
       const transfersOut = (feedTransfers || []).filter(t =>
         isStockMatch(t.sourceStock, fs) &&
         (size === "—" || isSamePelletSize(t.feedSize, size)) &&
+        (brand === "—" || !t.feedBrand || t.feedBrand === "—" || !brand || t.feedBrand.toLowerCase().trim() === brand.toLowerCase().trim()) &&
         (isSameDate(t.originalDate, selDate) || isSameDate(t.transferDate, selDate))
       );
       const totalTransferredOutKg = transfersOut.reduce((s, t) => s + (Number(t.quantityKg) || 0), 0);
 
-      // 2. Incoming transfers to this stock & size received on selDate
+      // 2. Incoming transfers to this stock & size & brand received on selDate
       const transfersIn = (feedTransfers || []).filter(t =>
         isStockMatch(t.destinationStock, fs) &&
         (size === "—" || isSamePelletSize(t.feedSize, size)) &&
+        (brand === "—" || !t.feedBrand || t.feedBrand === "—" || !brand || t.feedBrand.toLowerCase().trim() === brand.toLowerCase().trim()) &&
         isSameDate(t.transferDate, selDate)
       );
       const totalTransferredInKg = transfersIn.reduce((s, t) => s + (Number(t.quantityKg) || 0), 0);
 
-      // Feeding for this stock and pellet size on selDate
+      // Feeding for this stock, pellet size, and brand on selDate
       const fedForSize = dayFeedRecords.filter(r =>
         (isStockMatch(r.fishStock, fs) || isStockMatch(pondToStock(r.pond), fs) || isStockMatch(r.pond, fs)) &&
-        (size === "—" || isSamePelletSize(r.size, size))
+        (size === "—" || isSamePelletSize(r.size, size)) &&
+        (brand === "—" || !r.brand || r.brand === "—" || !brand || r.brand.toLowerCase().trim() === brand.toLowerCase().trim())
       );
       const totalFed = fedForSize.reduce((s, r) => s + (Number(r.total) || ((Number(r.morning) || 0) + (Number(r.evening) || 0))), 0);
 
@@ -4119,13 +4225,16 @@ function FeedDocumentation({
                           {/* Feed Remaining Today */}
                           <td className={`px-4 py-3 relative z-0 transition-all ${isRemainColHighlighted ? "bg-amber-50 ring-1 ring-amber-400 ring-inset rounded" : ""}`}>
                             <div className="font-bold text-sm font-['Barlow_Condensed',sans-serif]">
-                              {row.hasRemainLog && row.feedRemainingToday !== null && row.feedRemainingToday !== undefined ? (
-                                <span className={isRemainMismatch ? "text-red-600 font-bold" : "text-emerald-800 font-bold"}>
-                                  {row.feedRemainingToday} kg
-                                </span>
-                              ) : (
-                                <span className="text-slate-400 font-normal">0 kg</span>
-                              )}
+                              {(() => {
+                                const remToDisplay = row.hasRemainLog && row.feedRemainingToday !== null && row.feedRemainingToday !== undefined
+                                  ? row.feedRemainingToday
+                                  : (row.feedRemainingToday !== null && row.feedRemainingToday !== undefined ? row.feedRemainingToday : (row.availableRemainingKg ?? 0));
+                                return (
+                                  <span className={isRemainMismatch ? "text-red-600 font-bold" : remToDisplay > 0 ? "text-emerald-800 font-bold" : "text-slate-400 font-normal"}>
+                                    {remToDisplay} kg
+                                  </span>
+                                );
+                              })()}
                             </div>
                             {row.totalTransferredOutKg && row.totalTransferredOutKg > 0 ? (
                               <p className="text-[10px] text-teal-700 font-medium leading-tight mt-0.5">
@@ -4495,13 +4604,16 @@ function FeedDocumentation({
                         <span className={`text-[10px] block mb-1 font-semibold leading-tight ${isRemainMismatch ? "text-red-600 font-bold" : "text-slate-500"}`}>
                           Feed Remaining Today
                         </span>
-                        <span className={`font-bold text-sm sm:text-base font-['Barlow_Condensed',sans-serif] tracking-tight ${isRemainMismatch ? "text-red-600 font-bold" : row.hasRemainLog ? "text-emerald-800" : "text-slate-400 font-normal"}`}>
-                          {row.hasRemainLog && row.feedRemainingToday !== null && row.feedRemainingToday !== undefined ? (
-                            `${row.feedRemainingToday} kg`
-                          ) : (
-                            "0 kg"
-                          )}
-                        </span>
+                        {(() => {
+                          const remToDisplay = row.hasRemainLog && row.feedRemainingToday !== null && row.feedRemainingToday !== undefined
+                            ? row.feedRemainingToday
+                            : (row.feedRemainingToday !== null && row.feedRemainingToday !== undefined ? row.feedRemainingToday : (row.availableRemainingKg ?? 0));
+                          return (
+                            <span className={`font-bold text-sm sm:text-base font-['Barlow_Condensed',sans-serif] tracking-tight ${isRemainMismatch ? "text-red-600 font-bold" : remToDisplay > 0 ? "text-emerald-800" : "text-slate-400 font-normal"}`}>
+                              {remToDisplay} kg
+                            </span>
+                          );
+                        })()}
                         {row.totalTransferredOutKg && row.totalTransferredOutKg > 0 ? (
                           <p className="text-[10px] text-teal-700 font-medium leading-tight mt-0.5">
                             ({row.totalTransferredOutKg} kg transferred)
@@ -5904,9 +6016,12 @@ function FeedDocumentation({
                 <div className="bg-amber-50 rounded-xl p-3 border border-amber-200">
                   <p className="text-[10px] uppercase tracking-wider text-amber-600 mb-0.5">Feed Remaining Today</p>
                   <p className="text-base font-bold text-amber-800 font-['Barlow_Condensed',sans-serif]">
-                    {viewBagDetail.hasRemainLog && viewBagDetail.feedRemainingToday !== null && viewBagDetail.feedRemainingToday !== undefined
-                      ? `${viewBagDetail.feedRemainingToday} kg`
-                      : "0 kg"}
+                    {(() => {
+                      const remToDisplay = viewBagDetail.hasRemainLog && viewBagDetail.feedRemainingToday !== null && viewBagDetail.feedRemainingToday !== undefined
+                        ? viewBagDetail.feedRemainingToday
+                        : (viewBagDetail.feedRemainingToday !== null && viewBagDetail.feedRemainingToday !== undefined ? viewBagDetail.feedRemainingToday : (viewBagDetail.availableRemainingKg ?? 0));
+                      return `${remToDisplay} kg`;
+                    })()}
                   </p>
                 </div>
               </div>

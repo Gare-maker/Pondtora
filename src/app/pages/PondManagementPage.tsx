@@ -244,48 +244,46 @@ function PondDetail({
 
     const rawTreatments = treatments.filter(t => {
       if (t.pondId !== pond.id) return false;
+      const tStock = (t.fishStock || "").trim();
+      const matchesClosed = Boolean(tStock && tStock !== "—") && closedEvents.some(ce => {
+        const ceBatch = ce.batch || (ce.date ? fmtStockingDate(ce.date) : null);
+        return Boolean(ceBatch && (isStockMatch(tStock, ceBatch, ponds) || isSameDate(tStock, ce.date)));
+      });
+      if (matchesClosed) return false;
+
       const tDate = toValidDbDate(t.date);
-      if (latestClosedDate && tDate && tDate <= latestClosedDate) return false;
-      if (pStockDbDate && tDate && tDate < pStockDbDate) return false;
-
-      const isCurrentStock = Boolean(
-        (activeFishStockLabel && t.fishStock && (isStockMatch(t.fishStock, activeFishStockLabel, ponds) || isSameDate(t.fishStock, pond.stockingDate))) ||
-        (pond.fishStock && t.fishStock && (isStockMatch(t.fishStock, pond.fishStock, ponds) || isSameDate(t.fishStock, pond.fishStock)))
-      );
-      if (t.fishStock && t.fishStock !== "—") {
-        const matchesClosed = closedEvents.some(ce => {
-          const ceBatch = ce.batch || (ce.date ? fmtStockingDate(ce.date) : null);
-          return Boolean(ceBatch && (isStockMatch(t.fishStock, ceBatch, ponds) || isSameDate(t.fishStock, ce.date)));
-        });
-        if (matchesClosed) return false;
-
-        if (!isCurrentStock && activeFishStockLabel && !isStockMatch(t.fishStock, activeFishStockLabel, ponds) && !isSameDate(t.fishStock, pond.stockingDate)) {
-          return false;
-        }
+      if (pStockDbDate && tDate && tDate < pStockDbDate) {
+        const isCurrent = tStock && (
+          (activeFishStockLabel && isStockMatch(tStock, activeFishStockLabel, ponds)) ||
+          (defaultFishStockLabel && isStockMatch(tStock, defaultFishStockLabel, ponds)) ||
+          (pond.fishStock && isStockMatch(tStock, pond.fishStock, ponds)) ||
+          (pond.species && isStockMatch(tStock, pond.species, ponds)) ||
+          (pond.stockingDate && isSameDate(tStock, pond.stockingDate))
+        );
+        if (!isCurrent) return false;
       }
       return true;
     });
 
     const repTreatments = (pondReports || []).filter(r => {
       if (r.pondId !== pond.id || r.reportType !== "treatment") return false;
+      const rStock = (r.fishStockId || "").trim();
+      const matchesClosed = Boolean(rStock && rStock !== "—") && closedEvents.some(ce => {
+        const ceBatch = ce.batch || (ce.date ? fmtStockingDate(ce.date) : null);
+        return Boolean(ceBatch && (isStockMatch(rStock, ceBatch, ponds) || isSameDate(rStock, ce.date)));
+      });
+      if (matchesClosed) return false;
+
       const rDate = toValidDbDate(r.reportDate);
-      if (latestClosedDate && rDate && rDate <= latestClosedDate) return false;
-      if (pStockDbDate && rDate && rDate < pStockDbDate) return false;
-
-      const isCurrentStock = Boolean(
-        (activeFishStockLabel && r.fishStockId && (isStockMatch(r.fishStockId, activeFishStockLabel, ponds) || isSameDate(r.fishStockId, pond.stockingDate))) ||
-        (pond.fishStock && r.fishStockId && (isStockMatch(r.fishStockId, pond.fishStock, ponds) || isSameDate(r.fishStockId, pond.fishStock)))
-      );
-      if (r.fishStockId && r.fishStockId !== "—") {
-        const matchesClosed = closedEvents.some(ce => {
-          const ceBatch = ce.batch || (ce.date ? fmtStockingDate(ce.date) : null);
-          return Boolean(ceBatch && (isStockMatch(r.fishStockId, ceBatch, ponds) || isSameDate(r.fishStockId, ce.date)));
-        });
-        if (matchesClosed) return false;
-
-        if (!isCurrentStock && activeFishStockLabel && !isStockMatch(r.fishStockId, activeFishStockLabel, ponds) && !isSameDate(r.fishStockId, pond.stockingDate)) {
-          return false;
-        }
+      if (pStockDbDate && rDate && rDate < pStockDbDate) {
+        const isCurrent = rStock && (
+          (activeFishStockLabel && isStockMatch(rStock, activeFishStockLabel, ponds)) ||
+          (defaultFishStockLabel && isStockMatch(rStock, defaultFishStockLabel, ponds)) ||
+          (pond.fishStock && isStockMatch(rStock, pond.fishStock, ponds)) ||
+          (pond.species && isStockMatch(rStock, pond.species, ponds)) ||
+          (pond.stockingDate && isSameDate(rStock, pond.stockingDate))
+        );
+        if (!isCurrent) return false;
       }
       return true;
     });
@@ -348,24 +346,35 @@ function PondDetail({
 
   const otherIssues = useMemo(() => {
     if (pond.status === "Empty") return [];
+    const pNameNorm = (pond.name || "").trim().toLowerCase();
+    const closedEvents = (stockEvents || []).filter(e =>
+      (e.pondId === pond.id || (e.pondName && e.pondName.trim().toLowerCase() === pNameNorm)) && e.type === "Closed"
+    );
     return (pondReports || [])
       .filter(r => {
         if (r.pondId !== pond.id || r.reportType === "treatment") return false;
+        const rStock = (r.fishStockId || "").trim();
+        const matchesClosed = Boolean(rStock && rStock !== "—") && closedEvents.some(ce => {
+          const ceBatch = ce.batch || (ce.date ? fmtStockingDate(ce.date) : null);
+          return Boolean(ceBatch && (isStockMatch(rStock, ceBatch, ponds) || isSameDate(rStock, ce.date)));
+        });
+        if (matchesClosed) return false;
+
         const rDate = toValidDbDate(r.reportDate);
-        const isCurrentStock = Boolean(
-          (activeFishStockLabel && r.fishStockId && (isStockMatch(r.fishStockId, activeFishStockLabel, ponds) || isSameDate(r.fishStockId, pond.stockingDate))) ||
-          (pond.fishStock && r.fishStockId && (isStockMatch(r.fishStockId, pond.fishStock, ponds) || isSameDate(r.fishStockId, pond.fishStock)))
-        );
-        if (!isCurrentStock && pStockDbDate && rDate && rDate < pStockDbDate) return false;
-        if (activeFishStockLabel && r.fishStockId && r.fishStockId !== "—") {
-          if (!isStockMatch(r.fishStockId, activeFishStockLabel, ponds) && !isSameDate(r.fishStockId, pond.stockingDate)) {
-            return false;
-          }
+        if (pStockDbDate && rDate && rDate < pStockDbDate) {
+          const isCurrent = rStock && (
+            (activeFishStockLabel && isStockMatch(rStock, activeFishStockLabel, ponds)) ||
+            (defaultFishStockLabel && isStockMatch(rStock, defaultFishStockLabel, ponds)) ||
+            (pond.fishStock && isStockMatch(rStock, pond.fishStock, ponds)) ||
+            (pond.species && isStockMatch(rStock, pond.species, ponds)) ||
+            (pond.stockingDate && isSameDate(rStock, pond.stockingDate))
+          );
+          if (!isCurrent) return false;
         }
         return true;
       })
       .sort((a, b) => (b.reportDate || "").localeCompare(a.reportDate || ""));
-  }, [pondReports, pond.id, pond.status, activeFishStockLabel, pStockDbDate, pond.stockingDate, pond.fishStock, ponds]);
+  }, [pondReports, pond.id, pond.status, activeFishStockLabel, defaultFishStockLabel, pStockDbDate, pond.stockingDate, pond.fishStock, ponds, stockEvents]);
 
   const handleTreat = async () => {
     if (!treatF.medicine.trim()) return;
@@ -380,7 +389,8 @@ function PondDetail({
       date: treatF.date,
       cause: treatF.cause.trim(),
       medicine: treatF.medicine.trim(),
-      remarks: remarksCombined || treatF.remarks.trim()
+      remarks: remarksCombined || treatF.remarks.trim(),
+      fishStock: fishStockLabel
     });
 
     if (onAddPondReport) {
@@ -464,27 +474,23 @@ function PondDetail({
     const closedEvents = (stockEvents || []).filter(e => 
       (e.pondId === pond.id || (e.pondName && e.pondName.trim().toLowerCase() === pNameNorm)) && e.type === "Closed"
     );
-    const latestClosedDate = closedEvents.length > 0
-      ? closedEvents.map(e => toValidDbDate(e.clearedDate || e.date)).filter(Boolean).sort().reverse()[0]
-      : null;
 
     return mortality.filter(m => {
       if (m.pondId !== pond.id) return false;
-      const mDate = toValidDbDate(m.date);
-      if (latestClosedDate && mDate && mDate <= latestClosedDate) return false;
-      if (pStockDbDate && mDate && mDate < pStockDbDate) return false;
-
       const mStock = (m as any).fishStock;
-      if (mStock && mStock !== "—") {
-        const matchesClosed = closedEvents.some(ce => {
-          const ceBatch = ce.batch || (ce.date ? fmtStockingDate(ce.date) : null);
-          return Boolean(ceBatch && (isStockMatch(mStock, ceBatch, ponds) || isSameDate(mStock, ce.date)));
-        });
-        if (matchesClosed) return false;
+      const matchesClosed = Boolean(mStock && mStock !== "—") && closedEvents.some(ce => {
+        const ceBatch = ce.batch || (ce.date ? fmtStockingDate(ce.date) : null);
+        return Boolean(ceBatch && (isStockMatch(mStock, ceBatch, ponds) || isSameDate(mStock, ce.date)));
+      });
+      if (matchesClosed) return false;
 
-        if (pStockIdentity && !isStockMatch(mStock, pStockIdentity) && !isSameDate(mStock, pond.stockingDate)) {
-          return false;
-        }
+      const mDate = toValidDbDate(m.date);
+      if (pStockDbDate && mDate && mDate < pStockDbDate) {
+        const isCurrent = mStock && (
+          (pStockIdentity && isStockMatch(mStock, pStockIdentity)) ||
+          (pond.stockingDate && isSameDate(mStock, pond.stockingDate))
+        );
+        if (!isCurrent) return false;
       }
       return true;
     });
@@ -572,7 +578,16 @@ function PondDetail({
     if(!mortF.date)errs.date="Date is required";
     if(Object.keys(errs).length){setMortErr(errs);return;}
     setMortErr({});
-    onAddMortality({id:uid(),pondId:pond.id,date:mortF.date,count:Number(mortF.count),cause:mortF.cause,notes:mortF.notes},pond.id);
+    onAddMortality({
+      id: uid(),
+      pondId: pond.id,
+      farmId: pond.farmId,
+      date: mortF.date,
+      count: Number(mortF.count),
+      cause: mortF.cause,
+      notes: mortF.notes,
+      fishStock: defaultFishStockLabel
+    }, pond.id);
     setShowMort(false);setMortF({date:TODAY,count:"",cause:"Unknown",notes:""});
   };
   const handleCost=()=>{
@@ -729,17 +744,43 @@ function PondDetail({
             return`${months} month${months!==1?"s":""} ${remainDays} day${remainDays!==1?"s":""}`;
           })();
           return(
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
-              {[{l:"Initial Stock",v:pond.initialStock.toLocaleString()},{l:"Current Count",v:pond.currentCount.toLocaleString(),hi:true,clickable:true},{l:"Stocking Date",v:fmtStockingDate(pond.stockingDate)},{l:"Total Dead",v:String(dead),clickable:true},{l:"Mortality Rate",v:`${mRate}%`}].map(item=>(
-                <div key={item.l} className={`p-2.5 rounded-lg bg-white/5 border border-white/10 ${(item as any).clickable?"cursor-pointer hover:bg-white/10 transition-colors group":""}`} onClick={(item as any).clickable?(item.l==="Current Count"?()=>setShowCountHistory(true):()=>setShowMortHistory(true)):undefined} title={item.l==="Current Count"?"Click to view fish count edit history":undefined}>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3">
+              {[
+                {l:"Initial Stock",v:pond.initialStock.toLocaleString()},
+                {l:"Current Count",v:pond.currentCount.toLocaleString(),hi:true,clickable:true},
+                {l:"Stocking Date",v:fmtStockingDate(pond.stockingDate)},
+                {l:"Total Dead",v:String(dead),clickable:true},
+                {l:"Mortality Rate",v:`${mRate}%`},
+                {l:"Treatments",v:String(unifiedTreatments.length),clickable:true,target:"treatments"},
+                {l:"Pond Issues",v:String(otherIssues.length),clickable:true,target:"issues"}
+              ].map(item=>(
+                <div
+                  key={item.l}
+                  className={`p-2.5 rounded-lg bg-white/5 border border-white/10 ${(item as any).clickable?"cursor-pointer hover:bg-white/10 transition-colors group":""}`}
+                  onClick={() => {
+                    if ((item as any).target === "treatments") {
+                      setPondTab("treatment");
+                      document.getElementById("pond-tabs-section")?.scrollIntoView({ behavior: "smooth" });
+                    } else if ((item as any).target === "issues") {
+                      setPondTab("issues");
+                      document.getElementById("pond-tabs-section")?.scrollIntoView({ behavior: "smooth" });
+                    } else if (item.l === "Current Count") {
+                      setShowCountHistory(true);
+                    } else if (item.l === "Total Dead") {
+                      setShowMortHistory(true);
+                    }
+                  }}
+                  title={(item as any).target === "treatments" ? "Click to view treatment records" : (item as any).target === "issues" ? "Click to view pond issues" : item.l === "Current Count" ? "Click to view fish count edit history" : item.l === "Total Dead" ? "Click to view mortality history" : undefined}
+                >
                   <p className="text-[11px] text-blue-200 font-medium uppercase tracking-wider flex items-center justify-between">
                     <span>{item.l}</span>
                     {item.l==="Current Count"&&<History size={11} className="text-emerald-300 opacity-70 group-hover:opacity-100" />}
+                    {(item as any).target&&<Eye size={11} className="text-blue-200 opacity-70 group-hover:opacity-100" />}
                   </p>
-                  <p className={`text-xl font-bold mt-1 font-['Barlow_Condensed',sans-serif] ${(item as any).hi?"text-emerald-300 group-hover:underline":(item as any).clickable?"text-rose-300 group-hover:underline":"text-white"}`}>{item.v}</p>
+                  <p className={`text-xl font-bold mt-1 font-['Barlow_Condensed',sans-serif] ${(item as any).hi?"text-emerald-300 group-hover:underline":(item as any).clickable?"text-white group-hover:underline":"text-white"}`}>{item.v}</p>
                 </div>
               ))}
-              {pondAge&&<div className="col-span-2 sm:col-span-3 lg:col-span-5 mt-1 w-full flex items-center gap-2 bg-white/10 border border-white/20 rounded-xl px-4 py-2.5"><span className="text-xs text-blue-200 font-bold uppercase tracking-wider">Pond Age</span><span className="text-sm font-bold text-white">{pondAge}</span></div>}
+              {pondAge&&<div className="col-span-2 sm:col-span-3 lg:col-span-7 mt-1 w-full flex items-center gap-2 bg-white/10 border border-white/20 rounded-xl px-4 py-2.5"><span className="text-xs text-blue-200 font-bold uppercase tracking-wider">Pond Age</span><span className="text-sm font-bold text-white">{pondAge}</span></div>}
             </div>
           );
         })()}
@@ -801,6 +842,7 @@ function PondDetail({
           );
         })()}
       </Card>
+      <div id="pond-tabs-section">
       <Card>
         <div className="px-5 py-3 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
           <div className="flex gap-1 bg-slate-200/90 border border-slate-300/80 p-1 rounded-xl shadow-2xs">
@@ -951,6 +993,7 @@ function PondDetail({
           </>
         )}
       </Card>
+      </div>
       {showMaxKg&&<Modal title="Set Max kg per Pallet" onClose={()=>setShowMaxKg(false)}>
         <p className="text-xs text-slate-500 bg-slate-50 rounded-lg px-3 py-2">Set the maximum cumulative feed (kg) for a pallet size for this fish stock. A notification will be sent when the limit is reached.</p>
         <F label="Pallet Size"><select value={maxKgSize} onChange={e=>setMaxKgSize(e.target.value)} className={SC}>{allInvSizes.map(s=><option key={s}>{s}</option>)}</select></F>
@@ -1048,10 +1091,8 @@ function PondDetail({
               ? []
               : (fishCountHistory || [])
                   .filter(h => {
-                    if (h.pondId !== pond.id) return false;
-                    const hDate = toValidDbDate(h.createdAt);
-                    if (latestClosedDate && hDate && hDate <= latestClosedDate) return false;
-                    if (pStockDbDate && hDate && hDate < pStockDbDate) return false;
+                    const matchesPond = (h.pondId && h.pondId === pond.id) || (h.pondName && h.pondName.trim().toLowerCase() === pNameNorm);
+                    if (!matchesPond) return false;
                     return true;
                   })
                   .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
@@ -2487,7 +2528,25 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
                           const pondDead=pondMort.reduce((s,m)=>s+m.count,0);
                           const initCnt=stockEvents.filter(e=>e.pondId===pondId&&(e.type==="Initial"||e.type==="Restock")).reduce((s,e)=>s+e.count,0)||(thisPond?.initialStock)||1;
                           const pondMortRate=((pondDead/initCnt)*100).toFixed(1);
-                          const pondTreat=treatments.filter(t=>t.pondId===pondId && (!t.fishStock || isStockMatch(t.fishStock,grp.stockName,ponds) || (grp.stockingDate && isSameDate(t.fishStock,grp.stockingDate))));
+                          const rawPondTreats = [
+                            ...treatments.filter(t=>t.pondId===pondId && (!t.fishStock || isStockMatch(t.fishStock,grp.stockName,ponds) || (grp.stockingDate && isSameDate(t.fishStock,grp.stockingDate)))).map(t => ({
+                              id: t.id,
+                              date: t.date,
+                              medicine: t.medicine,
+                              cause: t.cause || "—",
+                              remarks: t.remarks || "—"
+                            })),
+                            ...(pondReports || []).filter(r => r.pondId === pondId && r.reportType === "treatment" && (!r.fishStockId || isStockMatch(r.fishStockId, grp.stockName, ponds) || (grp.stockingDate && isSameDate(r.fishStockId, grp.stockingDate)))).map(r => ({
+                              id: r.id,
+                              date: r.reportDate,
+                              medicine: r.medicine || r.issue || "—",
+                              cause: r.cause || "—",
+                              remarks: r.remarks || r.notes || "—"
+                            }))
+                          ];
+                          const pondTreat = Array.from(new Map(rawPondTreats.map(item => [item.id, item])).values());
+                          const pondIssues = (pondReports || []).filter(r => r.pondId === pondId && r.reportType !== "treatment" && (!r.fishStockId || isStockMatch(r.fishStockId, grp.stockName, ponds) || (grp.stockingDate && isSameDate(r.fishStockId, grp.stockingDate))));
+                          const pondCountHist = (fishCountHistory || []).filter(h => h.pondId === pondId || (h.pondName && h.pondName.trim().toLowerCase() === pondName.trim().toLowerCase())).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
                           const clearedEv=stockEvents.find(e=>e.pondId===pondId&&e.type==="Closed");
                           const hasSale=!!((clearedEv as any)?.salePrice>0);
                           const pondStatus=thisPond?.status==="Active"?"Active":hasSale?"Sold":"Cleared";
@@ -2540,11 +2599,59 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
                                 })()}
                                 {pondTreat.length>0&&(
                                   <div>
-                                    <p className="text-[10px] text-slate-400 uppercase tracking-wider mb-1.5">Treatment History</p>
-                                    <div className="overflow-x-auto">
+                                    <p className="text-[10px] text-slate-500 uppercase tracking-wider font-bold mb-1.5 flex items-center gap-1.5">
+                                      <span>Treatment History</span>
+                                      <span className="text-[10px] font-semibold text-slate-400">({pondTreat.length})</span>
+                                    </p>
+                                    <div className="overflow-x-auto border border-slate-200/80 rounded-xl">
                                       <table className="w-full text-xs min-w-[380px]">
-                                        <thead><tr className="border-b border-slate-100"><th className="pb-1.5 pr-3 text-left text-slate-400 font-semibold">Date</th><th className="pb-1.5 pr-3 text-left text-slate-400 font-semibold">Medicine</th><th className="pb-1.5 pr-3 text-left text-slate-400 font-semibold">Cause</th><th className="pb-1.5 text-left text-slate-400 font-semibold">Remarks</th></tr></thead>
-                                        <tbody className="divide-y divide-slate-50">{pondTreat.map(t=><tr key={t.id} className="hover:bg-slate-50"><td className="py-1.5 pr-3 text-slate-500 whitespace-nowrap">{t.date}</td><td className="py-1.5 pr-3 font-semibold text-slate-700">{t.medicine}</td><td className="py-1.5 pr-3 text-slate-500">{t.cause||"—"}</td><td className="py-1.5 text-slate-400">{t.remarks||"—"}</td></tr>)}</tbody>
+                                        <thead className="bg-slate-50 text-[10px] uppercase font-bold text-slate-500 tracking-wider"><tr className="border-b border-slate-200/80"><th className="py-2 px-3 text-left">Date</th><th className="py-2 px-3 text-left">Medicine / Treatment</th><th className="py-2 px-3 text-left">Cause</th><th className="py-2 px-3 text-left">Remarks</th></tr></thead>
+                                        <tbody className="divide-y divide-slate-100">{pondTreat.map(t=><tr key={t.id} className="hover:bg-slate-50/70"><td className="py-2 px-3 text-slate-600 whitespace-nowrap">{t.date}</td><td className="py-2 px-3 font-semibold text-slate-800">{t.medicine}</td><td className="py-2 px-3 text-slate-600">{t.cause||"—"}</td><td className="py-2 px-3 text-slate-500">{t.remarks||"—"}</td></tr>)}</tbody>
+                                      </table>
+                                    </div>
+                                  </div>
+                                )}
+                                {pondIssues.length>0&&(
+                                  <div>
+                                    <p className="text-[10px] text-slate-500 uppercase tracking-wider font-bold mb-1.5 flex items-center gap-1.5">
+                                      <span>Other Pond Issues</span>
+                                      <span className="text-[10px] font-semibold text-slate-400">({pondIssues.length})</span>
+                                    </p>
+                                    <div className="overflow-x-auto border border-slate-200/80 rounded-xl">
+                                      <table className="w-full text-xs min-w-[380px]">
+                                        <thead className="bg-slate-50 text-[10px] uppercase font-bold text-slate-500 tracking-wider"><tr className="border-b border-slate-200/80"><th className="py-2 px-3 text-left">Date</th><th className="py-2 px-3 text-left">Issue</th><th className="py-2 px-3 text-left">Action Taken</th><th className="py-2 px-3 text-left">Remarks</th></tr></thead>
+                                        <tbody className="divide-y divide-slate-100">{pondIssues.map(iss=><tr key={iss.id} className="hover:bg-slate-50/70"><td className="py-2 px-3 text-slate-600 whitespace-nowrap">{iss.reportDate}</td><td className="py-2 px-3 font-semibold text-slate-800">{iss.issue||iss.title||"—"}</td><td className="py-2 px-3 text-slate-600">{iss.actionTaken||"—"}</td><td className="py-2 px-3 text-slate-500">{iss.remarks||iss.notes||"—"}</td></tr>)}</tbody>
+                                      </table>
+                                    </div>
+                                  </div>
+                                )}
+                                {pondCountHist.length>0&&(
+                                  <div>
+                                    <p className="text-[10px] text-slate-500 uppercase tracking-wider font-bold mb-1.5 flex items-center gap-1.5">
+                                      <span>Fish Count History</span>
+                                      <span className="text-[10px] font-semibold text-slate-400">({pondCountHist.length})</span>
+                                    </p>
+                                    <div className="overflow-x-auto border border-slate-200/80 rounded-xl">
+                                      <table className="w-full text-xs min-w-[420px]">
+                                        <thead className="bg-slate-50 text-[10px] uppercase font-bold text-slate-500 tracking-wider"><tr className="border-b border-slate-200/80"><th className="py-2 px-3 text-left">Date</th><th className="py-2 px-3 text-right">Prev</th><th className="py-2 px-3 text-right">New</th><th className="py-2 px-3 text-center">Change</th><th className="py-2 px-3 text-left">Reason</th></tr></thead>
+                                        <tbody className="divide-y divide-slate-100">{pondCountHist.map(h=>{
+                                          const isInc = h.difference > 0;
+                                          const hDate = new Date(h.createdAt);
+                                          const fmtHDate = !isNaN(hDate.getTime()) ? hDate.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : h.createdAt;
+                                          return (
+                                            <tr key={h.id} className="hover:bg-slate-50/70">
+                                              <td className="py-2 px-3 text-slate-600 whitespace-nowrap font-mono">{fmtHDate}</td>
+                                              <td className="py-2 px-3 text-right font-semibold text-slate-700">{h.previousCount.toLocaleString()}</td>
+                                              <td className="py-2 px-3 text-right font-bold text-slate-900">{h.newCount.toLocaleString()}</td>
+                                              <td className="py-2 px-3 text-center">
+                                                <span className={`inline-flex items-center px-1.5 py-0.5 rounded font-bold text-[10px] ${isInc ? "bg-emerald-100 text-emerald-800" : h.difference < 0 ? "bg-rose-100 text-rose-800" : "bg-slate-100 text-slate-600"}`}>
+                                                  {isInc ? `+${h.difference.toLocaleString()}` : h.difference.toLocaleString()}
+                                                </span>
+                                              </td>
+                                              <td className="py-2 px-3 text-slate-600">{h.actionReason || "Count modified"}</td>
+                                            </tr>
+                                          );
+                                        })}</tbody>
                                       </table>
                                     </div>
                                   </div>
