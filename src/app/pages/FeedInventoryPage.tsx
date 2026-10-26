@@ -146,7 +146,7 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
     }
     const stockLower = stockStr.toLowerCase().trim();
     const matchingPonds = (ponds || []).filter(p =>
-      p && (
+      p && p.status === "Active" && (
         (p.name && getPondFishStock(p).toLowerCase().trim() === stockLower) ||
         (p.species && p.species.toLowerCase().trim() === stockLower) ||
         (p.stockingDate && (formatFishStockDate(p.stockingDate).toLowerCase() === stockLower || p.stockingDate.toLowerCase() === stockLower)) ||

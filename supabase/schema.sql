@@ -1215,8 +1215,20 @@ BEGIN
 
     UPDATE feeding_records SET
       pond = v_to_pond.name,
+      pond_id = p_to_pond_id::text,
       fish_stock = v_stock_label
-    WHERE (LOWER(TRIM(pond)) = LOWER(TRIM(v_from_pond.name)) OR fish_stock = v_stock_label)
+    WHERE (LOWER(TRIM(pond)) = LOWER(TRIM(v_from_pond.name)) OR pond_id = p_from_pond_id::text OR fish_stock = v_stock_label)
+      AND (user_id = v_from_pond.user_id OR farm_id = v_from_pond.farm_id);
+
+    UPDATE bag_open_logs SET
+      pond = v_to_pond.name,
+      fish_stock = v_stock_label
+    WHERE (LOWER(TRIM(COALESCE(pond, ''))) = LOWER(TRIM(v_from_pond.name)) OR fish_stock = v_stock_label OR fish_stock = v_from_pond.name)
+      AND (user_id = v_from_pond.user_id OR farm_id = v_from_pond.farm_id);
+
+    UPDATE feed_remaining_logs SET
+      fish_stock = v_stock_label
+    WHERE (fish_stock = v_stock_label OR fish_stock = v_from_pond.name)
       AND (user_id = v_from_pond.user_id OR farm_id = v_from_pond.farm_id);
 
     UPDATE mortality_entries SET
@@ -1296,12 +1308,13 @@ BEGIN
       total_cost = v_cost_share,
       supplier = v_from_pond.supplier,
       avg_weight = v_from_pond.avg_weight,
+      default_pellet = v_from_pond.default_pellet,
       transfer_note = v_safe_count || ' fish (' || ROUND(v_fraction * 100) || '%) received from ' || v_from_pond.name || ' on ' || v_date_label
     WHERE id = p_to_pond_id;
 
     FOR v_feed_rec IN
       SELECT * FROM feeding_records
-      WHERE (LOWER(TRIM(pond)) = LOWER(TRIM(v_from_pond.name)) OR fish_stock = v_stock_label)
+      WHERE (LOWER(TRIM(pond)) = LOWER(TRIM(v_from_pond.name)) OR pond_id = p_from_pond_id::text OR fish_stock = v_stock_label)
         AND (user_id = v_from_pond.user_id OR farm_id = v_from_pond.farm_id)
     LOOP
       v_morning_dest := ROUND(COALESCE(v_feed_rec.morning, 0) * v_fraction, 2);
@@ -1311,15 +1324,16 @@ BEGIN
         morning = GREATEST(0, COALESCE(v_feed_rec.morning, 0) - v_morning_dest),
         evening = GREATEST(0, COALESCE(v_feed_rec.evening, 0) - v_evening_dest),
         total = GREATEST(0, (COALESCE(v_feed_rec.morning, 0) - v_morning_dest) + (COALESCE(v_feed_rec.evening, 0) - v_evening_dest)),
-        fish_stock = v_stock_label
+        fish_stock = v_stock_label,
+        pond_id = p_from_pond_id::text
       WHERE id = v_feed_rec.id;
 
       INSERT INTO feeding_records (
-        id, user_id, farm_id, date, month, year, pond, brand, size,
+        id, user_id, farm_id, date, month, year, pond, pond_id, brand, size,
         morning, evening, total, recorded_by, morning_time, evening_time, fish_stock, created_at
       ) VALUES (
         gen_random_uuid(), v_feed_rec.user_id, COALESCE(v_to_pond.farm_id, v_feed_rec.farm_id),
-        v_feed_rec.date, v_feed_rec.month, v_feed_rec.year, v_to_pond.name, v_feed_rec.brand, v_feed_rec.size,
+        v_feed_rec.date, v_feed_rec.month, v_feed_rec.year, v_to_pond.name, p_to_pond_id::text, v_feed_rec.brand, v_feed_rec.size,
         v_morning_dest, v_evening_dest, v_morning_dest + v_evening_dest,
         v_feed_rec.recorded_by, v_feed_rec.morning_time, v_feed_rec.evening_time, v_stock_label, NOW()
       );

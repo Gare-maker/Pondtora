@@ -182,6 +182,22 @@ function PondDetail({
   const [transferF,setTransferF]=useState({toPond:"",date:TODAY,pct:"100",count:""});
   const [transferErr,setTransferErr]=useState<Record<string,string>>({});
   const emptyPonds=ponds.filter(p=>p.id!==pond.id&&p.status==="Empty"&&(Number(p.currentCount)||0)===0);
+  const transferDestinationPonds = useMemo(() => {
+    return ponds.filter(p =>
+      p.id !== pond.id && (
+        (p.status === "Empty" && (Number(p.currentCount) || 0) === 0) ||
+        p.id === transferF.toPond
+      )
+    );
+  }, [ponds, pond.id, transferF.toPond]);
+  const nurseryDestinationPonds = useMemo(() => {
+    return ponds.filter(p =>
+      p.id !== pond.id && (
+        (p.status === "Empty" && (Number(p.currentCount) || 0) === 0) ||
+        p.id === nurseryTF.toPond
+      )
+    );
+  }, [ponds, pond.id, nurseryTF.toPond]);
   const [restockF,setRestockF]=useState({species:"Catfish",customSpecies:"",initialStock:"",stockingDate:"",supplier:""});
   const [restockErr,setRestockErr]=useState<Record<string,string>>({});
   const [mortF,setMortF]=useState({date:TODAY,count:"",cause:"Unknown",notes:""});
@@ -474,6 +490,10 @@ function PondDetail({
     const closedEvents = (stockEvents || []).filter(e => 
       (e.pondId === pond.id || (e.pondName && e.pondName.trim().toLowerCase() === pNameNorm)) && e.type === "Closed"
     );
+    const hasPriorClosedCycle = closedEvents.length > 0;
+    const latestClosedDate = hasPriorClosedCycle
+      ? closedEvents.map(e => toValidDbDate(e.clearedDate || e.date)).filter(Boolean).sort().reverse()[0]
+      : null;
 
     return mortality.filter(m => {
       if (m.pondId !== pond.id) return false;
@@ -485,6 +505,9 @@ function PondDetail({
       if (matchesClosed) return false;
 
       const mDate = toValidDbDate(m.date);
+      if (latestClosedDate && mDate && mDate <= latestClosedDate) {
+        return false;
+      }
       if (pStockDbDate && mDate && mDate < pStockDbDate) {
         const isCurrent = mStock && (
           (pStockIdentity && isStockMatch(mStock, pStockIdentity)) ||
@@ -534,13 +557,12 @@ function PondDetail({
       // Check if this record explicitly matches a past closed batch for this pond
       const matchesClosedBatch = Boolean(fsTrimmed) && closedEvents.some(ce => {
         const ceBatch = ce.batch || (ce.date ? fmtStockingDate(ce.date) : null);
-        return Boolean(ceBatch && ceBatch.trim().toLowerCase() === fsTrimmed.toLowerCase());
+        return Boolean(ceBatch && (ceBatch.trim().toLowerCase() === fsTrimmed.toLowerCase() || isStockMatch(fsTrimmed, ceBatch, ponds)));
       });
       if (matchesClosedBatch) return false;
 
       // Check if this record explicitly matches current active stock
       const matchesCurrentBatch = fsTrimmed && (
-        (pond.species && pond.species !== "—" && (fsLower === pond.species.trim().toLowerCase() || isStockMatch(fsTrimmed, pond.species, ponds))) ||
         (pond.fishStock && (fsTrimmed === pond.fishStock || isStockMatch(fsTrimmed, pond.fishStock, ponds))) ||
         (pStockIdentity && isStockMatch(fsTrimmed, pStockIdentity, ponds)) ||
         (activeFishStockLabel && isStockMatch(fsTrimmed, activeFishStockLabel, ponds)) ||
@@ -550,13 +572,13 @@ function PondDetail({
       );
 
       const rDate = toValidDbDate(r.date);
-      if (latestClosedDate && rDate && rDate < latestClosedDate) {
-        if (!fsTrimmed || !matchesCurrentBatch) {
+      if (latestClosedDate && rDate && rDate <= latestClosedDate) {
+        if (!fsTrimmed || !matchesCurrentBatch || fsLower === (pond.species || "").trim().toLowerCase()) {
           return false;
         }
       }
       if (pStockDbDate && rDate && rDate < pStockDbDate) {
-        if (!fsTrimmed || !matchesCurrentBatch) {
+        if (!fsTrimmed || !matchesCurrentBatch || fsLower === (pond.species || "").trim().toLowerCase()) {
           return false;
         }
       }
@@ -605,7 +627,7 @@ function PondDetail({
   const handleTransfer = async () => {
     if (!transferF.toPond) { setTransferErr({ toPond: "Please select a destination pond" }); return; }
     const destPond = ponds.find(p => p.id === transferF.toPond);
-    if (!destPond || destPond.status !== "Empty" || (Number(destPond.currentCount) || 0) > 0) {
+    if (!destPond || (destPond.status !== "Empty" && destPond.id !== transferF.toPond) || (destPond.id !== transferF.toPond && (Number(destPond.currentCount) || 0) > 0)) {
       setTransferErr({ toPond: "Transfer destination must be an empty pond with no fish" });
       return;
     }
@@ -614,16 +636,21 @@ function PondDetail({
     const pct = Number(transferF.pct) || 100;
     setIsTransferring(true);
     try {
+      let success: any = false;
       if (pct >= 100) {
-        await onTransfer(pond.id, destId, transferF.date);
+        success = await onTransfer(pond.id, destId, transferF.date);
       } else {
         const count = transferF.count ? Number(transferF.count) : Math.round(pond.currentCount * (pct / 100));
-        await onNurseryTransfer(pond.id, destId, count, pct, transferF.date);
+        success = await onNurseryTransfer(pond.id, destId, count, pct, transferF.date);
       }
-      setShowTransfer(false);
-      setTransferF({ toPond: "", date: TODAY, pct: "100", count: "" });
+      if (success !== false) {
+        setShowTransfer(false);
+        setTransferF({ toPond: "", date: TODAY, pct: "100", count: "" });
+        onNavigatePond?.(destId);
+      }
     } catch (err: any) {
       console.error("Transfer error:", err);
+      setTransferErr({ toPond: err?.message || "Failed to transfer fish stock. Please try again." });
     } finally {
       setIsTransferring(false);
     }
@@ -1160,7 +1187,7 @@ function PondDetail({
       )}
       {showNurseryTransfer&&<Modal title={`Nursery Transfer — ${pond.name}`} onClose={()=>{setShowNurseryTransfer(false);setNurseryTF({toPond:"",count:"",pct:"100",date:TODAY});setNurseryErr({});}} wide>
         <div className="bg-purple-50 border border-purple-200 rounded-xl px-4 py-3 text-xs text-purple-700">Nursery ponds support partial transfers. Select an empty destination pond, fish count, and transfer percentage. Feed quantities and mortality records will be proportionally allocated between ponds, and medical treatments will be copied.</div>
-        <div><F label="Destination Pond (Empty Ponds Only)"><select value={nurseryTF.toPond} onChange={e=>{setNurseryTF(p=>({...p,toPond:e.target.value}));if(e.target.value)setNurseryErr(p=>({...p,toPond:""}));}} className={`${SC}${nurseryErr.toPond?" border-red-400":""}`}><option value="">Select empty destination pond…</option>{emptyPonds.map(p=><option key={p.id} value={p.id}>{p.name} — {p.type} (Empty)</option>)}</select></F>{emptyPonds.length === 0 && <p className="text-xs text-amber-600 mt-1">No empty ponds available. Transfers require an empty destination pond.</p>}{nurseryErr.toPond&&<p className="text-xs text-red-500 mt-1">{nurseryErr.toPond}</p>}</div>
+        <div><F label="Destination Pond (Empty Ponds Only)"><select value={nurseryTF.toPond} disabled={isTransferring} onChange={e=>{setNurseryTF(p=>({...p,toPond:e.target.value}));if(e.target.value)setNurseryErr(p=>({...p,toPond:""}));}} className={`${SC}${nurseryErr.toPond?" border-red-400":""}`}><option value="">Select empty destination pond…</option>{nurseryDestinationPonds.map(p=><option key={p.id} value={p.id}>{p.name} — {p.type}{p.status === "Empty" ? " (Empty)" : ""}</option>)}</select></F>{nurseryDestinationPonds.length === 0 && <p className="text-xs text-amber-600 mt-1">No empty ponds available. Transfers require an empty destination pond.</p>}{nurseryErr.toPond&&<p className="text-xs text-red-500 mt-1">{nurseryErr.toPond}</p>}</div>
         <div className="grid grid-cols-2 gap-3">
           <div><F label={`Fish to Transfer (max ${pond.currentCount.toLocaleString()})`}><input type="number" min="1" max={String(pond.currentCount)} value={nurseryTF.count} onChange={e=>{const val=e.target.value;const num=Number(val);const synPct=num>0&&pond.currentCount>0?String(Math.min(100,Math.max(1,Math.round((num/pond.currentCount)*100)))):"";setNurseryTF(p=>({...p,count:val,...(synPct?{pct:synPct}:{})}));if(val&&num>0)setNurseryErr(p=>({...p,count:""}));}} className={`${IC}${nurseryErr.count?" border-red-400":""}`} placeholder="0"/></F>{nurseryErr.count&&<p className="text-xs text-red-500 mt-1">{nurseryErr.count}</p>}</div>
           <F label="% of Fish & Records"><input type="number" min="1" max="100" value={nurseryTF.pct} onChange={e=>{const pVal=Math.min(100,Math.max(1,Number(e.target.value)||1));const cnt=Math.round(pond.currentCount*(pVal/100));setNurseryTF(p=>({...p,pct:String(pVal),count:String(cnt)}));if(cnt>0)setNurseryErr(p=>({...p,count:""}));}} className={IC} placeholder="100"/></F>
@@ -1181,7 +1208,7 @@ function PondDetail({
               const errs: Record<string, string> = {};
               if (!nurseryTF.toPond) errs.toPond = "Please select a destination pond";
               const destPond = ponds.find(p => p.id === nurseryTF.toPond);
-              if (nurseryTF.toPond && (!destPond || destPond.status !== "Empty" || (Number(destPond.currentCount) || 0) > 0)) {
+              if (nurseryTF.toPond && (!destPond || (destPond.status !== "Empty" && destPond.id !== nurseryTF.toPond) || (destPond.id !== nurseryTF.toPond && (Number(destPond.currentCount) || 0) > 0))) {
                 errs.toPond = "Selected destination pond is not empty";
               }
               if (!nurseryTF.count || Number(nurseryTF.count) <= 0) errs.count = "Fish count is required";
@@ -1190,11 +1217,15 @@ function PondDetail({
               const destId = nurseryTF.toPond;
               setIsTransferring(true);
               try {
-                await onNurseryTransfer(pond.id, destId, Number(nurseryTF.count), Number(nurseryTF.pct) || 100, nurseryTF.date);
-                setShowNurseryTransfer(false);
-                setNurseryTF({ toPond: "", count: "", pct: "100", date: TODAY });
+                const success = await onNurseryTransfer(pond.id, destId, Number(nurseryTF.count), Number(nurseryTF.pct) || 100, nurseryTF.date);
+                if (success !== false) {
+                  setShowNurseryTransfer(false);
+                  setNurseryTF({ toPond: "", count: "", pct: "100", date: TODAY });
+                  onNavigatePond?.(destId);
+                }
               } catch (err: any) {
                 console.error("Nursery transfer error:", err);
+                setNurseryErr({ toPond: err?.message || "Transfer failed. Please try again." });
               } finally {
                 setIsTransferring(false);
               }
@@ -1228,12 +1259,12 @@ function PondDetail({
         </F>
         {Number(transferF.pct)<100&&<F label={`Fish Count to Transfer (of ${pond.currentCount.toLocaleString()})`}><input type="number" value={transferF.count} onChange={e=>{const val=e.target.value;const num=Number(val);const synPct=num>0&&pond.currentCount>0?String(Math.min(100,Math.max(1,Math.round((num/pond.currentCount)*100)))):"";setTransferF(f=>({...f,count:val,...(synPct?{pct:synPct}:{})}));}} className={IC} min="1" max={pond.currentCount}/></F>}
         <div><F label="Transfer To (Empty Ponds Only)">
-          <select value={transferF.toPond} onChange={e=>{setTransferF(p=>({...p,toPond:e.target.value}));if(e.target.value)setTransferErr(p=>({...p,toPond:""}));}} className={`${SC}${transferErr.toPond?" border-red-400":""}`}>
+          <select value={transferF.toPond} disabled={isTransferring} onChange={e=>{setTransferF(p=>({...p,toPond:e.target.value}));if(e.target.value)setTransferErr(p=>({...p,toPond:""}));}} className={`${SC}${transferErr.toPond?" border-red-400":""}`}>
             <option value="">Select empty destination pond…</option>
-            {emptyPonds.map(p=><option key={p.id} value={p.id}>{p.name} — {p.type} (Empty)</option>)}
+            {transferDestinationPonds.map(p=><option key={p.id} value={p.id}>{p.name} — {p.type}{p.status === "Empty" ? " (Empty)" : ""}</option>)}
           </select>
         </F>
-        {emptyPonds.length === 0 && <p className="text-xs text-amber-600 mt-1">No empty ponds available. Fish stock transfers require an empty destination pond.</p>}
+        {transferDestinationPonds.length === 0 && <p className="text-xs text-amber-600 mt-1">No empty ponds available. Fish stock transfers require an empty destination pond.</p>}
         {transferErr.toPond&&<p className="text-xs text-red-500 mt-1">{transferErr.toPond}</p>}</div>
         <F label="Transfer Date"><input type="date" value={transferF.date} onChange={e=>setTransferF(p=>({...p,date:e.target.value}))} className={IC}/></F>
         {transferF.toPond&&Number(transferF.pct)>=100&&<div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-xs text-amber-800 space-y-1">

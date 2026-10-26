@@ -3,7 +3,7 @@ import {
   Plus, CheckCircle, X, Layers, Droplets,
   ChevronDown, ChevronLeft, ChevronRight,
   Package, BookOpen, Download, FileText, Pencil, Trash2, MoreVertical, Lock, History, Fish, Search, AlertTriangle, AlertCircle, Eye,
-  Calendar, ArrowRightLeft, ArrowRight, Send, Check
+  Calendar, ArrowRightLeft, ArrowRight, Send, Check, Loader2
 } from "lucide-react";
 import { toast } from "sonner";
 import type { FeedingRecord, FeedEditEntry, Pond, FeedItem, BagOpenLog, FeedRemainingLog, FeedTransferRecord, StockEvent } from "../types";
@@ -1039,7 +1039,9 @@ function FeedDocumentation({
       setTransferQty("");
       setTransferNotes("");
     } catch (err: any) {
-      toast.error(err?.message || "Failed to complete feed transfer. Please try again.");
+      const errMsg = err?.message || "Failed to complete feed transfer. Please try again.";
+      setTransferError(errMsg);
+      toast.error(errMsg);
     } finally {
       setIsSubmittingTransfer(false);
     }
@@ -6452,7 +6454,10 @@ function FeedDocumentation({
                 className="inline-flex items-center gap-2 px-5 py-2.5 bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isSubmittingTransfer ? (
-                  <span>Processing Transfer…</span>
+                  <>
+                    <Loader2 size={14} className="animate-spin shrink-0" />
+                    <span>Processing Transfer…</span>
+                  </>
                 ) : (
                   <>
                     <Check size={14} />

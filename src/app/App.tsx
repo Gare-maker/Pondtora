@@ -5696,6 +5696,8 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       species:"—",
       fishStock:undefined,
       fishStockId:undefined,
+      defaultPellet:undefined,
+      supplier:undefined,
       transferNote:undefined,
       maxKgByPallet:{},
       farmId:fid,
@@ -5703,11 +5705,57 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     const nextPonds = ponds.map(x=>x.id===id?closed:x);
     setPonds(nextPonds);
 
+    // 1. Seal and dissociate active feeding records so they are historical and won't match future stocks
+    const pNameNorm = (p.name || "").trim().toLowerCase();
+    const updatedFeeding = feeding.map(r => {
+      const rPondNorm = (r.pond || "").trim().toLowerCase();
+      if ((r.pondId && r.pondId === p.id) || (rPondNorm && rPondNorm === pNameNorm)) {
+        return {
+          ...r,
+          fishStock: (r.fishStock && r.fishStock !== "—" && r.fishStock !== p.name && r.fishStock !== "General Stock" && r.fishStock !== "Current Stock") ? r.fishStock : stockLabel,
+          fishStockId: r.fishStockId || p.fishStockId || stockLabel,
+        };
+      }
+      return r;
+    });
+    setFeeding(updatedFeeding);
+
+    // 2. Dissociate bag open logs and remaining feed logs
+    const updatedBags = bagLogs.map(b => {
+      const bPondNorm = (b.pond || "").trim().toLowerCase();
+      if ((bPondNorm && bPondNorm === pNameNorm) || (b.fishStock && (b.fishStock === p.name || b.fishStock === p.fishStock))) {
+        return {
+          ...b,
+          pond: undefined,
+          fishStock: (b.fishStock && b.fishStock !== "—" && b.fishStock !== p.name && b.fishStock !== "General Stock") ? b.fishStock : stockLabel,
+        };
+      }
+      return b;
+    });
+    setBagLogs(updatedBags);
+
+    const updatedRemain = remainLogs.map(r => {
+      if (r.fishStock && (r.fishStock === p.name || r.fishStock === p.fishStock)) {
+        return {
+          ...r,
+          fishStock: stockLabel,
+        };
+      }
+      return r;
+    });
+    setRemainLogs(updatedRemain);
+
     if (userProfile?.id) {
       try {
         saveUserLocal(userProfile.id, "ponds", "ponds", nextPonds);
+        saveUserLocal(userProfile.id, "feeding", "feedingRecords", updatedFeeding);
+        saveUserLocal(userProfile.id, "bag_logs", "bagOpenLogs", updatedBags);
+        saveUserLocal(userProfile.id, "remain_logs", "feedRemainingLogs", updatedRemain);
         if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
           saveUserLocal(userProfile.ownerId, "ponds", "ponds", nextPonds);
+          saveUserLocal(userProfile.ownerId, "feeding", "feedingRecords", updatedFeeding);
+          saveUserLocal(userProfile.ownerId, "bag_logs", "bagOpenLogs", updatedBags);
+          saveUserLocal(userProfile.ownerId, "remain_logs", "feedRemainingLogs", updatedRemain);
         }
       } catch {}
     }
@@ -5758,6 +5806,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       currentCount: newCount,
       totalCost: 0,
       status: "Active" as const,
+      defaultPellet: undefined,
       transferNote: undefined,
       maxKgByPallet: {},
       farmId: fid,
@@ -5995,9 +6044,9 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       const updated=[farmRec,...prev];
       if (userProfile?.id) {
         try {
-          saveUserLocal(userProfile.id, "feeding", "feeding", updated);
+          saveUserLocal(userProfile.id, "feeding", "feedingRecords", updated);
           if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
-            saveUserLocal(userProfile.ownerId, "feeding", "feeding", updated);
+            saveUserLocal(userProfile.ownerId, "feeding", "feedingRecords", updated);
           }
         } catch {}
       }
@@ -6085,9 +6134,9 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       const next = prev.map(x=>x.id===farmRec.id?farmRec:x);
       if (userProfile?.id) {
         try {
-          saveUserLocal(userProfile.id, "feeding", "feeding", next);
+          saveUserLocal(userProfile.id, "feeding", "feedingRecords", next);
           if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
-            saveUserLocal(userProfile.ownerId, "feeding", "feeding", next);
+            saveUserLocal(userProfile.ownerId, "feeding", "feedingRecords", next);
           }
         } catch {}
       }
@@ -6109,9 +6158,9 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     markDeletedId(id);
     if(userProfile?.id){
       try{
-        saveUserLocal(userProfile.id,"feeding","feeding",previous.filter(x=>x.id!==id));
+        saveUserLocal(userProfile.id,"feeding","feedingRecords",previous.filter(x=>x.id!==id));
         if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
-          saveUserLocal(userProfile.ownerId, "feeding", "feeding", previous.filter(x=>x.id!==id));
+          saveUserLocal(userProfile.ownerId, "feeding", "feedingRecords", previous.filter(x=>x.id!==id));
         }
       }catch{}
     }
@@ -6795,6 +6844,83 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     }
     setPondReports(nextReports);
 
+    // 6b. Bag Open Logs & Feed Remaining Logs allocation
+    const isSourceBag = (b: BagOpenLog) => {
+      const bPondNorm = (b.pond || "").trim().toLowerCase();
+      if (bPondNorm && bPondNorm === fromPondNameNorm) return true;
+      if (b.fishStock && (isStockMatch(b.fishStock, stockLabel, ponds) || b.fishStock.trim().toLowerCase() === fromPondNameNorm)) return true;
+      return false;
+    };
+
+    let nextBags = bagLogs;
+    const updatedSourceBags: BagOpenLog[] = [];
+    if (isFullTransfer) {
+      nextBags = bagLogs.map(b => {
+        if (isSourceBag(b)) {
+          const upd: BagOpenLog = {
+            ...b,
+            pond: toPond.name,
+            fishStock: stockLabel,
+            farmId: toPond.farmId || b.farmId || activeFarmId
+          };
+          updatedSourceBags.push(upd);
+          return upd;
+        }
+        return b;
+      });
+      setBagLogs(nextBags);
+    }
+
+    const isSourceRemain = (r: FeedRemainingLog) => {
+      if (r.fishStock && (isStockMatch(r.fishStock, stockLabel, ponds) || r.fishStock.trim().toLowerCase() === fromPondNameNorm)) return true;
+      return false;
+    };
+
+    let nextRemain: FeedRemainingLog[] = [];
+    const updatedSourceRemains: FeedRemainingLog[] = [];
+    const createdDestRemains: FeedRemainingLog[] = [];
+
+    if (isFullTransfer) {
+      nextRemain = remainLogs.map(r => {
+        if (isSourceRemain(r)) {
+          const upd: FeedRemainingLog = {
+            ...r,
+            fishStock: stockLabel,
+            farmId: toPond.farmId || r.farmId || activeFarmId
+          };
+          updatedSourceRemains.push(upd);
+          return upd;
+        }
+        return r;
+      });
+    } else {
+      const updatedExistingRemain = remainLogs.map(r => {
+        if (isSourceRemain(r)) {
+          const rVal = Number(r.remainingKg) || 0;
+          const destKg = Math.round(rVal * fraction * 10) / 10;
+          const keepKg = Math.max(0, Math.round((rVal - destKg) * 10) / 10);
+          const updSource: FeedRemainingLog = { ...r, remainingKg: keepKg, fishStock: stockLabel };
+          updatedSourceRemains.push(updSource);
+          if (destKg > 0) {
+            const destR: FeedRemainingLog = {
+              id: crypto.randomUUID(),
+              brand: r.brand,
+              size: r.size,
+              fishStock: stockLabel,
+              remainingKg: destKg,
+              date: dateInput || TODAY,
+              farmId: toPond.farmId || r.farmId || activeFarmId
+            };
+            createdDestRemains.push(destR);
+          }
+          return updSource;
+        }
+        return r;
+      });
+      nextRemain = [...updatedExistingRemain, ...createdDestRemains];
+    }
+    setRemainLogs(nextRemain);
+
     // 7. Fish count history allocation & transfer logs
     const transferEntryDest: FishCountHistoryEntry = {
       id: crypto.randomUUID(),
@@ -6872,6 +6998,8 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       try {
         saveUserLocal(targetUid, "ponds", "ponds", nextPonds);
         saveUserLocal(targetUid, "feeding", "feedingRecords", nextFeeding);
+        saveUserLocal(targetUid, "bag_logs", "bagOpenLogs", nextBags);
+        saveUserLocal(targetUid, "remain_logs", "feedRemainingLogs", nextRemain);
         saveUserLocal(targetUid, "mortality", "mortalityEntries", nextMortality);
         saveUserLocal(targetUid, "treatments", "treatmentRecords", nextTreatments);
         saveUserLocal(targetUid, "pond_reports", "pondReports", nextReports);
@@ -6881,6 +7009,8 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
         if (userProfile?.ownerId && userProfile.ownerId !== targetUid) {
           saveUserLocal(userProfile.ownerId, "ponds", "ponds", nextPonds);
           saveUserLocal(userProfile.ownerId, "feeding", "feedingRecords", nextFeeding);
+          saveUserLocal(userProfile.ownerId, "bag_logs", "bagOpenLogs", nextBags);
+          saveUserLocal(userProfile.ownerId, "remain_logs", "feedRemainingLogs", nextRemain);
           saveUserLocal(userProfile.ownerId, "mortality", "mortalityEntries", nextMortality);
           saveUserLocal(userProfile.ownerId, "treatments", "treatmentRecords", nextTreatments);
           saveUserLocal(userProfile.ownerId, "pond_reports", "pondReports", nextReports);
@@ -6912,6 +7042,9 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
           ...createdDestMort.map(m => api.mortality.create(m)),
           ...updatedSourceTreat.map(t => api.treatments.update(t)),
           ...createdDestTreat.map(t => api.treatments.create(t)),
+          ...updatedSourceBags.map(b => api.bagLogs.update(b)),
+          ...updatedSourceRemains.map(r => api.remainLogs.update(r)),
+          ...createdDestRemains.map(r => api.remainLogs.create(r)),
           ...(isFullTransfer
             ? [
                 ...pondReports.filter(r => r.pondId === fromId).map(r => api.pondReports.update({ ...r, pondId: toId, fishStockId: stockLabel })),
@@ -6925,14 +7058,15 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
         ]);
       } else {
         // RPC handled ponds, feeding, mortality, treatments, stock events, and count history.
-        // Sync any pond reports:
-        if (isFullTransfer) {
-          await Promise.allSettled(
-            pondReports.filter(r => r.pondId === fromId).map(r => api.pondReports.update({ ...r, pondId: toId, fishStockId: stockLabel }))
-          );
-        } else if (createdDestReports.length > 0) {
-          await Promise.allSettled(createdDestReports.map(r => api.pondReports.create(r)));
-        }
+        // Sync any bag logs, remain logs, and pond reports:
+        await Promise.allSettled([
+          ...updatedSourceBags.map(b => api.bagLogs.update(b)),
+          ...updatedSourceRemains.map(r => api.remainLogs.update(r)),
+          ...createdDestRemains.map(r => api.remainLogs.create(r)),
+          ...(isFullTransfer
+            ? pondReports.filter(r => r.pondId === fromId).map(r => api.pondReports.update({ ...r, pondId: toId, fishStockId: stockLabel }))
+            : createdDestReports.map(r => api.pondReports.create(r)))
+        ]);
       }
     } catch (err: any) {
       console.warn("Transfer sync fallback notice:", err);
@@ -6942,11 +7076,21 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
         api.ponds.update(updatedTo),
         ...updatedSourceFeed.map(r => api.feeding.update({ ...r, _skipInventoryCheck: true } as any)),
         ...createdDestFeed.map(r => api.feeding.create({ ...r, _skipInventoryCheck: true } as any)),
+        ...updatedSourceBags.map(b => api.bagLogs.update(b)),
+        ...updatedSourceRemains.map(r => api.remainLogs.update(r)),
+        ...createdDestRemains.map(r => api.remainLogs.create(r)),
         ...newStockEvents.map(se => api.stockEvents.create(se))
       ]);
     }
 
-    // 11. Notification
+    // 11. Refresh backend state automatically so all components and pages are up-to-date
+    try {
+      await loadFromBackend();
+    } catch (reloadErr) {
+      console.warn("Post-transfer backend reload note:", reloadErr);
+    }
+
+    // 12. Notification
     const farm = farms.find(f => f.id === activeFarmId) || farms[0];
     const nid = `transfer-${uid()}`;
     setExtraNotifs(prev => [
