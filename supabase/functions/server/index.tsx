@@ -1515,7 +1515,7 @@ app.post(`/admin/delete-user`, handleDeleteUserRoute);
 const handleFishTransferRoute = async (c: any) => {
   try {
     const body = await c.req.json().catch(() => ({}));
-    const { fromPondId, toPondId, percentage, count, date, transferredBy } = body;
+    const { fromPondId, toPondId, percentage, count, date, transferredBy, stockInstanceId } = body;
     const svc = adminDb();
 
     const { data, error } = await svc.rpc("transfer_fish_stock", {
@@ -1524,7 +1524,8 @@ const handleFishTransferRoute = async (c: any) => {
       p_percentage: percentage || 100,
       p_count: count || null,
       p_date: date || null,
-      p_transferred_by: transferredBy || "User"
+      p_transferred_by: transferredBy || "User",
+      p_stock_instance_id: stockInstanceId || null
     });
 
     if (error) {

@@ -233,7 +233,7 @@ const TABLE_ALLOWED_COLUMNS: Record<string, Set<string>> = {
     "id", "user_id", "farm_id", "name", "type", "species", "size_m2", "initial_stock",
     "current_count", "avg_weight", "stocking_date", "stock_month", "total_cost",
     "status", "notes", "default_pellet", "category", "max_kg_by_pallet", "supplier",
-    "transfer_note", "length_ft", "width_ft", "created_at"
+    "transfer_note", "length_ft", "width_ft", "fish_stock", "fish_stock_id", "created_at"
   ]),
   expenses: new Set([
     "id", "user_id", "farm_id", "category", "amount", "date", "month", "year",
@@ -251,20 +251,20 @@ const TABLE_ALLOWED_COLUMNS: Record<string, Set<string>> = {
   ]),
   bag_open_logs: new Set([
     "id", "user_id", "farm_id", "date", "month", "year", "brand", "size",
-    "kg_per_bag", "bags_opened", "total_kg", "fish_stock", "created_at"
+    "kg_per_bag", "bags_opened", "total_kg", "fish_stock", "fish_stock_id", "pond", "pond_id", "created_at"
   ]),
   feed_remaining_logs: new Set([
-    "id", "user_id", "farm_id", "brand", "size", "fish_stock", "remaining_kg", "date", "month", "year", "created_at"
+    "id", "user_id", "farm_id", "brand", "size", "fish_stock", "fish_stock_id", "remaining_kg", "date", "month", "year", "pond", "pond_id", "created_at"
   ]),
   stock_events: new Set([
     "id", "user_id", "pond_id", "farm_id", "pond_name", "date", "species",
     "count", "avg_weight", "cost", "sale_price", "type", "from_pond", "cleared_date", "supplier", "batch", "created_at"
   ]),
   mortality_entries: new Set([
-    "id", "user_id", "pond_id", "farm_id", "date", "count", "cause", "notes", "fish_stock", "pond_name", "created_at"
+    "id", "user_id", "pond_id", "farm_id", "date", "count", "cause", "notes", "fish_stock", "fish_stock_id", "pond_name", "created_at"
   ]),
   treatment_records: new Set([
-    "id", "user_id", "pond_id", "farm_id", "date", "cause", "medicine", "remarks", "fish_stock", "pond_name", "created_at"
+    "id", "user_id", "pond_id", "farm_id", "date", "cause", "medicine", "remarks", "fish_stock", "fish_stock_id", "pond_name", "created_at"
   ]),
   farms: new Set([
     "id", "user_id", "name", "city", "state", "country", "created_at", "updated_at"
@@ -2444,12 +2444,14 @@ export const api = {
         dbPond.stockingDate = null;
         dbPond.stockMonth = null;
         dbPond.defaultPellet = null;
+        dbPond.fishStock = null;
+        dbPond.fishStockId = null;
         dbPond.maxKgByPallet = {};
       } else {
         if (p.defaultPellet !== undefined) dbPond.defaultPellet = p.defaultPellet || null;
+        if (p.fishStock !== undefined) dbPond.fishStock = p.fishStock || null;
+        if (p.fishStockId !== undefined) dbPond.fishStockId = p.fishStockId || null;
       }
-      delete dbPond.fishStock;
-      delete dbPond.fish_stock;
 
       // Check duplicate name on update if changed
       const userId = await getUserId();
@@ -2545,6 +2547,7 @@ export const api = {
       count?: number;
       date: string;
       transferredBy?: string;
+      stockInstanceId?: string;
       sourceFeeding?: FeedingRecord[];
       sourceMortality?: MortalityEntry[];
       sourceTreatments?: TreatmentRecord[];
@@ -2558,6 +2561,7 @@ export const api = {
           p_count: opts.count || null,
           p_date: opts.date,
           p_transferred_by: opts.transferredBy || "User",
+          p_stock_instance_id: opts.stockInstanceId || opts.fromPond.fishStockId || null,
         });
         if (!rpcErr && rpcRes && rpcRes.success) {
           return { success: true, rpcExecuted: true, ...rpcRes };

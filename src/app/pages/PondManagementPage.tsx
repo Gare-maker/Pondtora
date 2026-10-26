@@ -269,13 +269,13 @@ function PondDetail({
 
       const tDate = toValidDbDate(t.date);
       if (pStockDbDate && tDate && tDate < pStockDbDate) {
-        const isCurrent = tStock && (
+        const isCurrent = ((t.fishStockId && (pond as any).fishStockId && t.fishStockId === (pond as any).fishStockId) || (tStock && (
           (activeFishStockLabel && isStockMatch(tStock, activeFishStockLabel, ponds)) ||
           (defaultFishStockLabel && isStockMatch(tStock, defaultFishStockLabel, ponds)) ||
           (pond.fishStock && isStockMatch(tStock, pond.fishStock, ponds)) ||
           (pond.species && isStockMatch(tStock, pond.species, ponds)) ||
           (pond.stockingDate && isSameDate(tStock, pond.stockingDate))
-        );
+        )));
         if (!isCurrent) return false;
       }
       return true;
@@ -292,13 +292,13 @@ function PondDetail({
 
       const rDate = toValidDbDate(r.reportDate);
       if (pStockDbDate && rDate && rDate < pStockDbDate) {
-        const isCurrent = rStock && (
+        const isCurrent = ((r.fishStockId && (pond as any).fishStockId && r.fishStockId === (pond as any).fishStockId) || (rStock && (
           (activeFishStockLabel && isStockMatch(rStock, activeFishStockLabel, ponds)) ||
           (defaultFishStockLabel && isStockMatch(rStock, defaultFishStockLabel, ponds)) ||
           (pond.fishStock && isStockMatch(rStock, pond.fishStock, ponds)) ||
           (pond.species && isStockMatch(rStock, pond.species, ponds)) ||
           (pond.stockingDate && isSameDate(rStock, pond.stockingDate))
-        );
+        )));
         if (!isCurrent) return false;
       }
       return true;
@@ -378,13 +378,13 @@ function PondDetail({
 
         const rDate = toValidDbDate(r.reportDate);
         if (pStockDbDate && rDate && rDate < pStockDbDate) {
-          const isCurrent = rStock && (
+          const isCurrent = ((r.fishStockId && (pond as any).fishStockId && r.fishStockId === (pond as any).fishStockId) || (rStock && (
             (activeFishStockLabel && isStockMatch(rStock, activeFishStockLabel, ponds)) ||
             (defaultFishStockLabel && isStockMatch(rStock, defaultFishStockLabel, ponds)) ||
             (pond.fishStock && isStockMatch(rStock, pond.fishStock, ponds)) ||
             (pond.species && isStockMatch(rStock, pond.species, ponds)) ||
             (pond.stockingDate && isSameDate(rStock, pond.stockingDate))
-          );
+          )));
           if (!isCurrent) return false;
         }
         return true;
@@ -509,10 +509,10 @@ function PondDetail({
         return false;
       }
       if (pStockDbDate && mDate && mDate < pStockDbDate) {
-        const isCurrent = mStock && (
+        const isCurrent = (((m as any).fishStockId && (pond as any).fishStockId && (m as any).fishStockId === (pond as any).fishStockId) || (mStock && (
           (pStockIdentity && isStockMatch(mStock, pStockIdentity)) ||
           (pond.stockingDate && isSameDate(mStock, pond.stockingDate))
-        );
+        )));
         if (!isCurrent) return false;
       }
       return true;
@@ -2064,7 +2064,12 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
               const logs = p.status === "Empty" ? [] : mortality.filter(m => {
                 if (m.pondId !== p.id) return false;
                 const mDate = toValidDbDate(m.date);
-                if (pStockDbDate && mDate && mDate < pStockDbDate) return false;
+                if (pStockDbDate && mDate && mDate < pStockDbDate) {
+                  if ((m as any).fishStockId && (p as any).fishStockId && (m as any).fishStockId === (p as any).fishStockId) {
+                    return true;
+                  }
+                  return false;
+                }
                 return true;
               });
               const dead = p.status === "Empty" ? 0 : logs.reduce((s, m) => s + m.count, 0);

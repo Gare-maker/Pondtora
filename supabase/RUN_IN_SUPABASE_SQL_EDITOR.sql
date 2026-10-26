@@ -440,7 +440,8 @@ CREATE OR REPLACE FUNCTION transfer_fish_stock(
   p_percentage NUMERIC DEFAULT 100,
   p_count INTEGER DEFAULT NULL,
   p_date TEXT DEFAULT NULL,
-  p_transferred_by TEXT DEFAULT 'User'
+  p_transferred_by TEXT DEFAULT 'User',
+  p_stock_instance_id TEXT DEFAULT NULL
 )
 RETURNS JSONB LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE
@@ -451,6 +452,8 @@ DECLARE
   v_is_full BOOLEAN;
   v_date_label TEXT;
   v_stock_label TEXT;
+  v_stock_instance_id TEXT;
+  v_dest_stock_instance_id TEXT;
   v_cost_share NUMERIC;
   v_init_dest INTEGER;
   v_from_init INTEGER;
@@ -495,6 +498,10 @@ BEGIN
   v_date_label := COALESCE(p_date, TO_CHAR(CURRENT_DATE, 'Mon DD, YYYY'));
   v_stock_label := COALESCE(v_from_pond.fish_stock, v_from_pond.species || ' (' || COALESCE(v_from_pond.stocking_date, '—') || ')');
 
+  -- Ensure reliable stock instance identity
+  v_stock_instance_id := COALESCE(p_stock_instance_id, v_from_pond.fish_stock_id, gen_random_uuid()::text);
+  v_dest_stock_instance_id := CASE WHEN v_is_full THEN v_stock_instance_id ELSE gen_random_uuid()::text END;
+
   v_from_init := COALESCE(v_from_pond.initial_stock, v_from_pond.current_count);
   IF v_from_init <= 0 THEN
     v_from_init := v_from_pond.current_count;
@@ -502,7 +509,7 @@ BEGIN
 
   IF v_is_full THEN
     -- =========================================================================
-    -- A. 100% FISH STOCK TRANSFER
+    -- A. 100% FISH STOCK TRANSFER (PRESERVES COMPLETE HISTORICAL DATA)
     -- =========================================================================
     v_cost_share := COALESCE(v_from_pond.total_cost, 0);
 
@@ -517,17 +524,19 @@ BEGIN
       total_cost = 0,
       species = '—',
       fish_stock = NULL,
+      fish_stock_id = NULL,
       supplier = NULL,
       default_pellet = NULL,
       max_kg_by_pallet = '{}'::jsonb,
       transfer_note = 'All fish transferred to ' || v_to_pond.name || ' on ' || v_date_label
     WHERE id = p_from_pond_id;
 
-    -- 2. Activate destination pond with complete stock details
+    -- 2. Activate destination pond with complete stock details & preserved stock instance identity
     UPDATE ponds SET
       status = 'Active',
       species = v_from_pond.species,
       fish_stock = v_stock_label,
+      fish_stock_id = v_dest_stock_instance_id,
       initial_stock = v_from_init,
       current_count = v_from_pond.current_count,
       stocking_date = v_from_pond.stocking_date,
@@ -540,43 +549,54 @@ BEGIN
       transfer_note = 'Full stock received from ' || v_from_pond.name || ' on ' || v_date_label
     WHERE id = p_to_pond_id;
 
-    -- 3. Reassociate all feeding records to destination pond
+    -- 3. Reassociate all feeding records to destination pond - isolated strictly to source pond
     UPDATE feeding_records SET
       pond = v_to_pond.name,
       pond_id = p_to_pond_id::text,
-      fish_stock = v_stock_label
-    WHERE (LOWER(TRIM(pond)) = LOWER(TRIM(v_from_pond.name)) OR pond_id = p_from_pond_id::text OR fish_stock = v_stock_label)
+      fish_stock = v_stock_label,
+      fish_stock_id = v_dest_stock_instance_id
+    WHERE (pond_id = p_from_pond_id::text OR LOWER(TRIM(pond)) = LOWER(TRIM(v_from_pond.name)))
       AND (user_id = v_from_pond.user_id OR farm_id = v_from_pond.farm_id);
 
     -- 3b. Reassociate bag open logs to destination pond
     UPDATE bag_open_logs SET
       pond = v_to_pond.name,
-      fish_stock = v_stock_label
-    WHERE (LOWER(TRIM(COALESCE(pond, ''))) = LOWER(TRIM(v_from_pond.name)) OR fish_stock = v_stock_label OR fish_stock = v_from_pond.name)
+      pond_id = p_to_pond_id::text,
+      fish_stock = v_stock_label,
+      fish_stock_id = v_dest_stock_instance_id
+    WHERE (pond_id = p_from_pond_id::text OR LOWER(TRIM(COALESCE(pond, ''))) = LOWER(TRIM(v_from_pond.name)))
       AND (user_id = v_from_pond.user_id OR farm_id = v_from_pond.farm_id);
 
     -- 3c. Reassociate feed remaining logs to destination stock
     UPDATE feed_remaining_logs SET
-      fish_stock = v_stock_label
-    WHERE (fish_stock = v_stock_label OR fish_stock = v_from_pond.name)
+      pond = v_to_pond.name,
+      pond_id = p_to_pond_id::text,
+      fish_stock = v_stock_label,
+      fish_stock_id = v_dest_stock_instance_id
+    WHERE (pond_id = p_from_pond_id::text OR LOWER(TRIM(COALESCE(pond, ''))) = LOWER(TRIM(v_from_pond.name)))
       AND (user_id = v_from_pond.user_id OR farm_id = v_from_pond.farm_id);
 
     -- 4. Reassociate all mortality entries to destination pond
     UPDATE mortality_entries SET
       pond_id = p_to_pond_id,
-      fish_stock = v_stock_label
+      pond_name = v_to_pond.name,
+      fish_stock = v_stock_label,
+      fish_stock_id = v_dest_stock_instance_id
     WHERE pond_id = p_from_pond_id;
 
     -- 5. Reassociate all treatment records to destination pond
     UPDATE treatment_records SET
       pond_id = p_to_pond_id,
-      fish_stock = v_stock_label
+      pond_name = v_to_pond.name,
+      fish_stock = v_stock_label,
+      fish_stock_id = v_dest_stock_instance_id
     WHERE pond_id = p_from_pond_id;
 
     -- 6. Reassociate pond reports (treatments and other issues)
     UPDATE pond_reports SET
       pond_id = p_to_pond_id,
-      fish_stock_id = v_stock_label
+      pond_name = v_to_pond.name,
+      fish_stock_id = v_dest_stock_instance_id
     WHERE pond_id = p_from_pond_id;
 
     -- 7. Update fish count history pond association
@@ -630,11 +650,12 @@ BEGIN
       v_init_dest := v_safe_count;
     END IF;
 
-    -- 1. Update source pond with remaining count and cost
+    -- 1. Update source pond with remaining count, cost, and stock instance ID
     UPDATE ponds SET
       current_count = GREATEST(0, v_from_pond.current_count - v_safe_count),
       initial_stock = GREATEST(v_from_pond.current_count - v_safe_count, v_from_init - v_init_dest),
       total_cost = GREATEST(0, COALESCE(v_from_pond.total_cost, 0) - v_cost_share),
+      fish_stock_id = v_stock_instance_id,
       transfer_note = 'Transferred ' || v_safe_count || ' fish (' || ROUND(v_fraction * 100) || '%) to ' || v_to_pond.name || ' on ' || v_date_label
     WHERE id = p_from_pond_id;
 
@@ -643,6 +664,7 @@ BEGIN
       status = 'Active',
       species = v_from_pond.species,
       fish_stock = v_stock_label,
+      fish_stock_id = v_dest_stock_instance_id,
       initial_stock = v_init_dest,
       current_count = v_safe_count,
       stocking_date = v_from_pond.stocking_date,
@@ -654,10 +676,10 @@ BEGIN
       transfer_note = v_safe_count || ' fish (' || ROUND(v_fraction * 100) || '%) received from ' || v_from_pond.name || ' on ' || v_date_label
     WHERE id = p_to_pond_id;
 
-    -- 3. Proportionally allocate feeding records
+    -- 3. Proportionally allocate feeding records - strictly isolated to source pond
     FOR v_feed_rec IN
       SELECT * FROM feeding_records
-      WHERE (LOWER(TRIM(pond)) = LOWER(TRIM(v_from_pond.name)) OR pond_id = p_from_pond_id::text OR fish_stock = v_stock_label)
+      WHERE (pond_id = p_from_pond_id::text OR LOWER(TRIM(pond)) = LOWER(TRIM(v_from_pond.name)))
         AND (user_id = v_from_pond.user_id OR farm_id = v_from_pond.farm_id)
     LOOP
       v_morning_dest := ROUND(COALESCE(v_feed_rec.morning, 0) * v_fraction, 2);
@@ -669,18 +691,19 @@ BEGIN
         evening = GREATEST(0, COALESCE(v_feed_rec.evening, 0) - v_evening_dest),
         total = GREATEST(0, (COALESCE(v_feed_rec.morning, 0) - v_morning_dest) + (COALESCE(v_feed_rec.evening, 0) - v_evening_dest)),
         fish_stock = v_stock_label,
+        fish_stock_id = v_stock_instance_id,
         pond_id = p_from_pond_id::text
       WHERE id = v_feed_rec.id;
 
       -- Insert allocated quantity record for destination pond
       INSERT INTO feeding_records (
         id, user_id, farm_id, date, month, year, pond, pond_id, brand, size,
-        morning, evening, total, recorded_by, morning_time, evening_time, fish_stock, created_at
+        morning, evening, total, recorded_by, morning_time, evening_time, fish_stock, fish_stock_id, created_at
       ) VALUES (
         gen_random_uuid(), v_feed_rec.user_id, COALESCE(v_to_pond.farm_id, v_feed_rec.farm_id),
         v_feed_rec.date, v_feed_rec.month, v_feed_rec.year, v_to_pond.name, p_to_pond_id::text, v_feed_rec.brand, v_feed_rec.size,
         v_morning_dest, v_evening_dest, v_morning_dest + v_evening_dest,
-        v_feed_rec.recorded_by, v_feed_rec.morning_time, v_feed_rec.evening_time, v_stock_label, NOW()
+        v_feed_rec.recorded_by, v_feed_rec.morning_time, v_feed_rec.evening_time, v_stock_label, v_dest_stock_instance_id, NOW()
       );
     END LOOP;
 
@@ -693,16 +716,17 @@ BEGIN
       IF v_mort_dest > 0 THEN
         UPDATE mortality_entries SET
           count = GREATEST(0, COALESCE(v_mort_rec.count, 0) - v_mort_dest),
-          fish_stock = v_stock_label
+          fish_stock = v_stock_label,
+          fish_stock_id = v_stock_instance_id
         WHERE id = v_mort_rec.id;
 
         INSERT INTO mortality_entries (
-          id, user_id, pond_id, farm_id, date, count, cause, notes, fish_stock, created_at
+          id, user_id, pond_id, pond_name, farm_id, date, count, cause, notes, fish_stock, fish_stock_id, created_at
         ) VALUES (
-          gen_random_uuid(), v_mort_rec.user_id, p_to_pond_id, COALESCE(v_to_pond.farm_id, v_mort_rec.farm_id),
+          gen_random_uuid(), v_mort_rec.user_id, p_to_pond_id, v_to_pond.name, COALESCE(v_to_pond.farm_id, v_mort_rec.farm_id),
           v_mort_rec.date, v_mort_dest, v_mort_rec.cause,
           COALESCE(v_mort_rec.notes, '') || ' (Transferred from ' || v_from_pond.name || ')',
-          v_stock_label, NOW()
+          v_stock_label, v_dest_stock_instance_id, NOW()
         );
       END IF;
     END LOOP;
@@ -713,23 +737,23 @@ BEGIN
       WHERE pond_id = p_from_pond_id
     LOOP
       INSERT INTO treatment_records (
-        id, user_id, pond_id, farm_id, date, cause, medicine, details, action_taken, remarks, fish_stock, recorded_by, created_at
+        id, user_id, pond_id, pond_name, farm_id, date, cause, medicine, details, action_taken, remarks, fish_stock, fish_stock_id, recorded_by, created_at
       ) VALUES (
-        gen_random_uuid(), v_treat_rec.user_id, p_to_pond_id, COALESCE(v_to_pond.farm_id, v_treat_rec.farm_id),
+        gen_random_uuid(), v_treat_rec.user_id, p_to_pond_id, v_to_pond.name, COALESCE(v_to_pond.farm_id, v_treat_rec.farm_id),
         v_treat_rec.date, v_treat_rec.cause, v_treat_rec.medicine, v_treat_rec.details, v_treat_rec.action_taken,
         COALESCE(v_treat_rec.remarks, '') || ' (Medical reference from ' || v_from_pond.name || ')',
-        v_stock_label, v_treat_rec.recorded_by, NOW()
+        v_stock_label, v_dest_stock_instance_id, v_treat_rec.recorded_by, NOW()
       );
     END LOOP;
 
     -- 5b. Copy pond_reports (treatment & other issues) to destination pond for medical and incident reference
     INSERT INTO pond_reports (
-      id, user_id, farm_id, pond_id, fish_stock_id, report_type,
+      id, user_id, farm_id, pond_id, pond_name, fish_stock_id, report_type,
       report_date, issue, description, medicine, cause, treatment_details,
       action_taken, remarks, notes, treatment_id, recorded_by, created_by, created_at
     )
     SELECT
-      gen_random_uuid(), user_id, COALESCE(v_to_pond.farm_id, farm_id), p_to_pond_id, v_stock_label, report_type,
+      gen_random_uuid(), user_id, COALESCE(v_to_pond.farm_id, farm_id), p_to_pond_id, v_to_pond.name, v_dest_stock_instance_id, report_type,
       report_date, issue, description, medicine, cause, treatment_details,
       action_taken, COALESCE(remarks, '') || ' (From ' || v_from_pond.name || ')', notes, treatment_id, recorded_by, created_by, NOW()
     FROM pond_reports
@@ -773,6 +797,7 @@ BEGIN
 END;
 $$;
 
+GRANT EXECUTE ON FUNCTION transfer_fish_stock(UUID, UUID, NUMERIC, INTEGER, TEXT, TEXT, TEXT) TO authenticated, anon;
 GRANT EXECUTE ON FUNCTION transfer_fish_stock(UUID, UUID, NUMERIC, INTEGER, TEXT, TEXT) TO authenticated, anon;
 
 -- ==============================================================================
@@ -783,11 +808,28 @@ ALTER TABLE public.feeding_records ADD COLUMN IF NOT EXISTS fish_stock TEXT;
 ALTER TABLE public.feeding_records ADD COLUMN IF NOT EXISTS fish_stock_id TEXT;
 ALTER TABLE public.feeding_records ADD COLUMN IF NOT EXISTS edit_history JSONB;
 
+ALTER TABLE public.ponds ADD COLUMN IF NOT EXISTS fish_stock TEXT;
 ALTER TABLE public.ponds ADD COLUMN IF NOT EXISTS fish_stock_id TEXT;
 
 ALTER TABLE public.stock_events ADD COLUMN IF NOT EXISTS batch TEXT;
 
 ALTER TABLE public.mortality_entries ADD COLUMN IF NOT EXISTS fish_stock TEXT;
+ALTER TABLE public.mortality_entries ADD COLUMN IF NOT EXISTS fish_stock_id TEXT;
 ALTER TABLE public.mortality_entries ADD COLUMN IF NOT EXISTS pond_name TEXT;
 
 ALTER TABLE public.treatment_records ADD COLUMN IF NOT EXISTS fish_stock TEXT;
+ALTER TABLE public.treatment_records ADD COLUMN IF NOT EXISTS fish_stock_id TEXT;
+ALTER TABLE public.treatment_records ADD COLUMN IF NOT EXISTS pond_name TEXT;
+
+ALTER TABLE public.bag_open_logs ADD COLUMN IF NOT EXISTS pond TEXT;
+ALTER TABLE public.bag_open_logs ADD COLUMN IF NOT EXISTS pond_id TEXT;
+ALTER TABLE public.bag_open_logs ADD COLUMN IF NOT EXISTS fish_stock TEXT;
+ALTER TABLE public.bag_open_logs ADD COLUMN IF NOT EXISTS fish_stock_id TEXT;
+
+ALTER TABLE public.feed_remaining_logs ADD COLUMN IF NOT EXISTS pond TEXT;
+ALTER TABLE public.feed_remaining_logs ADD COLUMN IF NOT EXISTS pond_id TEXT;
+ALTER TABLE public.feed_remaining_logs ADD COLUMN IF NOT EXISTS fish_stock TEXT;
+ALTER TABLE public.feed_remaining_logs ADD COLUMN IF NOT EXISTS fish_stock_id TEXT;
+
+ALTER TABLE public.pond_reports ADD COLUMN IF NOT EXISTS pond_name TEXT;
+ALTER TABLE public.pond_reports ADD COLUMN IF NOT EXISTS fish_stock_id TEXT;
