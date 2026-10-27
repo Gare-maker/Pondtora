@@ -6633,7 +6633,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
           fishStockId: undefined,
           defaultPellet: undefined,
           supplier: undefined,
-          transferNote: `All fish transferred to ${toPond.name} on ${dateLabel}`,
+          transferNote: undefined,
           maxKgByPallet: {},
         }
       : {
@@ -6688,11 +6688,11 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       const rPondNorm = (r.pond || "").trim().toLowerCase();
       if (rPondNorm && rPondNorm !== fromPondNameNorm) return false;
       if (r.pondId === fromId) {
-        if (r.fishStockId && fromPond.fishStockId && r.fishStockId !== fromPond.fishStockId) return false;
+        if (!isFullTransfer && r.fishStockId && fromPond.fishStockId && r.fishStockId !== fromPond.fishStockId) return false;
         return true;
       }
       if (rPondNorm === fromPondNameNorm) {
-        if (r.fishStockId && fromPond.fishStockId && r.fishStockId !== fromPond.fishStockId) return false;
+        if (!isFullTransfer && r.fishStockId && fromPond.fishStockId && r.fishStockId !== fromPond.fishStockId) return false;
         return true;
       }
       if (r.fishStockId && fromPond.fishStockId && r.fishStockId === fromPond.fishStockId) return true;
@@ -6778,11 +6778,11 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       const mPondNorm = ((m as any).pondName || (m as any).pond || "").trim().toLowerCase();
       if (mPondNorm && mPondNorm !== fromPondNameNorm) return false;
       if (m.pondId === fromId) {
-        if ((m as any).fishStockId && fromPond.fishStockId && (m as any).fishStockId !== fromPond.fishStockId) return false;
+        if (!isFullTransfer && (m as any).fishStockId && fromPond.fishStockId && (m as any).fishStockId !== fromPond.fishStockId) return false;
         return true;
       }
       if (mPondNorm === fromPondNameNorm) {
-        if ((m as any).fishStockId && fromPond.fishStockId && (m as any).fishStockId !== fromPond.fishStockId) return false;
+        if (!isFullTransfer && (m as any).fishStockId && fromPond.fishStockId && (m as any).fishStockId !== fromPond.fishStockId) return false;
         return true;
       }
       if ((m as any).fishStockId && fromPond.fishStockId && (m as any).fishStockId === fromPond.fishStockId) return true;
@@ -6856,11 +6856,11 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       const tPondNorm = ((t as any).pondName || (t as any).pond || "").trim().toLowerCase();
       if (tPondNorm && tPondNorm !== fromPondNameNorm) return false;
       if (t.pondId === fromId) {
-        if ((t as any).fishStockId && fromPond.fishStockId && (t as any).fishStockId !== fromPond.fishStockId) return false;
+        if (!isFullTransfer && (t as any).fishStockId && fromPond.fishStockId && (t as any).fishStockId !== fromPond.fishStockId) return false;
         return true;
       }
       if (tPondNorm === fromPondNameNorm) {
-        if ((t as any).fishStockId && fromPond.fishStockId && (t as any).fishStockId !== fromPond.fishStockId) return false;
+        if (!isFullTransfer && (t as any).fishStockId && fromPond.fishStockId && (t as any).fishStockId !== fromPond.fishStockId) return false;
         return true;
       }
       if ((t as any).fishStockId && fromPond.fishStockId && (t as any).fishStockId === fromPond.fishStockId) return true;
@@ -6914,11 +6914,11 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       const rPondNorm = ((r as any).pondName || "").trim().toLowerCase();
       if (rPondNorm && rPondNorm !== fromPondNameNorm) return false;
       if (r.pondId === fromId) {
-        if (r.fishStockId && fromPond.fishStockId && r.fishStockId !== fromPond.fishStockId) return false;
+        if (!isFullTransfer && r.fishStockId && fromPond.fishStockId && r.fishStockId !== fromPond.fishStockId) return false;
         return true;
       }
       if (rPondNorm === fromPondNameNorm) {
-        if (r.fishStockId && fromPond.fishStockId && r.fishStockId !== fromPond.fishStockId) return false;
+        if (!isFullTransfer && r.fishStockId && fromPond.fishStockId && r.fishStockId !== fromPond.fishStockId) return false;
         return true;
       }
       if (r.fishStockId && fromPond.fishStockId && r.fishStockId === fromPond.fishStockId) return true;
@@ -6961,7 +6961,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       const bPondNorm = (b.pond || "").trim().toLowerCase();
       if (bPondNorm && bPondNorm !== fromPondNameNorm) return false;
       if (b.pondId === fromId || bPondNorm === fromPondNameNorm) {
-        if (b.fishStockId && fromPond.fishStockId && b.fishStockId !== fromPond.fishStockId) return false;
+        if (!isFullTransfer && b.fishStockId && fromPond.fishStockId && b.fishStockId !== fromPond.fishStockId) return false;
         return true;
       }
       if (b.fishStockId && fromPond.fishStockId && b.fishStockId === fromPond.fishStockId) return true;
@@ -6994,7 +6994,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       const rPondNorm = ((r as any).pond || (r as any).pondName || "").trim().toLowerCase();
       if (rPondNorm && rPondNorm !== fromPondNameNorm) return false;
       if (r.pondId === fromId || rPondNorm === fromPondNameNorm) {
-        if (r.fishStockId && fromPond.fishStockId && r.fishStockId !== fromPond.fishStockId) return false;
+        if (!isFullTransfer && r.fishStockId && fromPond.fishStockId && r.fishStockId !== fromPond.fishStockId) return false;
         return true;
       }
       if (r.fishStockId && fromPond.fishStockId && r.fishStockId === fromPond.fishStockId) return true;
@@ -7305,13 +7305,35 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     const pendingLocalPonds = localPonds.filter((lp: Pond) => lp?.id && !serverPondIds.has(lp.id) && !isDeletedId(lp.id));
     const mergedServerPonds = serverPonds.filter((p: Pond) => !isDeletedId(p.id)).map((sp: Pond) => {
       const lp = localPondMap.get(sp.id);
-      if (!lp) return sp;
-      if (sp.status === "Empty") {
+      if (!lp) {
+        if (sp.status === "Empty") {
+          return {
+            ...sp,
+            fishStock: undefined,
+            fishStockId: undefined,
+            transferNote: undefined,
+            maxKgByPallet: {},
+          };
+        }
+        return sp;
+      }
+      if (sp.status === "Empty" || lp.status === "Empty") {
         return {
           ...sp,
+          status: "Empty" as const,
+          currentCount: 0,
+          initialStock: 0,
+          avgWeight: undefined,
+          stockingDate: "—",
+          stockMonth: "",
+          totalCost: 0,
+          species: "—",
           fishStock: undefined,
           fishStockId: undefined,
-          transferNote: sp.transferNote || lp.transferNote
+          defaultPellet: undefined,
+          supplier: undefined,
+          transferNote: undefined,
+          maxKgByPallet: {},
         };
       }
       const fishStock = sp.fishStock || (sp.stockingDate && sp.stockingDate !== "—" ? formatFishStockDate(sp.stockingDate) : undefined) || lp.fishStock;

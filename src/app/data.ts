@@ -399,19 +399,36 @@ export function isStockMatch(stockA?: string | null, stockB?: string | null, pon
   const b = stockB.trim().toLowerCase();
   if (a === b) return true;
 
+  // Strict date verification: If both strings contain stocking dates and the dates differ, they CANNOT match
+  const da = formatFishStockDate(stockA);
+  const db = formatFishStockDate(stockB);
+  if (da && da !== "—" && isFormattedDate(da) && db && db !== "—" && isFormattedDate(db)) {
+    if (!isSameDate(da, db)) {
+      return false;
+    }
+  }
+
   const fa = formatFishStock(stockA).trim().toLowerCase();
   const fb = formatFishStock(stockB).trim().toLowerCase();
   if (fa === fb && fa !== "—" && !isFormattedDate(fa)) return true;
 
   if (ponds && ponds.length > 0) {
     const pA = (ponds || []).find(p => p && p.name && p.name.toLowerCase().trim() === a);
-    if (pA) {
+    if (pA && pA.status === "Active") {
+      const pADate = pA.stockingDate && pA.stockingDate !== "—" ? formatFishStockDate(pA.stockingDate) : null;
+      if (db && isFormattedDate(db) && pADate && isFormattedDate(pADate) && !isSameDate(db, pADate)) {
+        return false;
+      }
       const psA = getPondFishStock(pA).trim().toLowerCase();
       if (psA === b || psA === fb) return true;
       if (pA.fishStock && pA.fishStock.trim().toLowerCase() === b) return true;
     }
     const pB = (ponds || []).find(p => p && p.name && p.name.toLowerCase().trim() === b);
-    if (pB) {
+    if (pB && pB.status === "Active") {
+      const pBDate = pB.stockingDate && pB.stockingDate !== "—" ? formatFishStockDate(pB.stockingDate) : null;
+      if (da && isFormattedDate(da) && pBDate && isFormattedDate(pBDate) && !isSameDate(da, pBDate)) {
+        return false;
+      }
       const psB = getPondFishStock(pB).trim().toLowerCase();
       if (psB === a || psB === fa) return true;
       if (pB.fishStock && pB.fishStock.trim().toLowerCase() === a) return true;

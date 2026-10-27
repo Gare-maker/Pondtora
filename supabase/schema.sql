@@ -1211,7 +1211,7 @@ BEGIN
       supplier = NULL,
       default_pellet = NULL,
       max_kg_by_pallet = '{}'::jsonb,
-      transfer_note = 'All fish transferred to ' || v_to_pond.name || ' on ' || v_date_label
+      transfer_note = NULL
     WHERE id = p_from_pond_id;
 
     -- 2. Activate destination pond with complete stock details & preserved stock instance identity

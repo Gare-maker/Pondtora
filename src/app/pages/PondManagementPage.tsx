@@ -547,8 +547,23 @@ function PondDetail({
       if (!isSamePond) return false;
 
       // 2. Direct unique fishStockId match
-      if (r.fishStockId && (pond as any).fishStockId) {
-        return r.fishStockId === (pond as any).fishStockId;
+      if ((pond as any).fishStockId) {
+        if (r.fishStockId) {
+          return r.fishStockId === (pond as any).fishStockId;
+        }
+        // If pond has a unique fishStockId but r has no fishStockId:
+        const rDate = toValidDbDate(r.date);
+        if (pStockDbDate && rDate && rDate < pStockDbDate) return false;
+        if (latestClosedDate && rDate && rDate <= latestClosedDate) return false;
+
+        const fsTrimmed = (r.fishStock || "").trim();
+        // A generic or pond-name label cannot be assumed to belong to this new stock
+        if (!fsTrimmed || fsTrimmed === "—" || fsTrimmed === "General Stock" || fsTrimmed === "Current Stock" || fsTrimmed.toLowerCase() === pNameNorm) {
+          return false;
+        }
+        const matchesCurrentBatch = (pond.fishStock && (fsTrimmed === pond.fishStock || isStockMatch(fsTrimmed, pond.fishStock, ponds))) ||
+          (pond.stockingDate && (isSameDate(fsTrimmed, pond.stockingDate) || isStockMatch(fsTrimmed, fmtStockingDate(pond.stockingDate), ponds)));
+        return Boolean(matchesCurrentBatch);
       }
 
       const fsTrimmed = (r.fishStock || "").trim();
@@ -715,12 +730,6 @@ function PondDetail({
           <div className="flex flex-col items-center text-center">
             <Fish size={36} className="text-slate-200 mb-3"/>
             <p className="text-base font-semibold text-slate-500 mb-1">No fish stock in this pond</p>
-            {pond.transferNote&&(
-              <div className="my-2 px-3 py-1.5 rounded-lg bg-blue-50 border border-blue-100 text-xs text-blue-700 flex items-center gap-1.5">
-                <ArrowRightLeft size={13} className="shrink-0 text-blue-500"/>
-                <span>{pond.transferNote}</span>
-              </div>
-            )}
             <p className="text-xs text-slate-400 mb-5">This pond is empty. Add a fish stock record to activate it and begin tracking feeding, mortality, and treatment data.</p>
             {canCreate&&<PBtn onClick={()=>setShowRestock(true)}><Plus size={14}/> Add Fish Stock</PBtn>}
           </div>
