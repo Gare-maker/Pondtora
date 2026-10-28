@@ -1232,10 +1232,8 @@ BEGIN
       transfer_note = 'Full stock received from ' || v_from_pond.name || ' on ' || v_date_label
     WHERE id = p_to_pond_id;
 
-    -- 3. Reassociate all feeding records to destination pond - isolated strictly to source pond
+    -- 3. Maintain authoritative feeding history: preserve physical pond where feeding occurred, link to stock identity
     UPDATE feeding_records SET
-      pond = v_to_pond.name,
-      pond_id = p_to_pond_id::text,
       fish_stock = v_stock_label,
       fish_stock_id = v_dest_stock_instance_id
     WHERE (pond_id = p_from_pond_id::text OR LOWER(TRIM(pond)) = LOWER(TRIM(v_from_pond.name)))
@@ -1359,36 +1357,12 @@ BEGIN
       transfer_note = v_safe_count || ' fish (' || ROUND(v_fraction * 100) || '%) received from ' || v_from_pond.name || ' on ' || v_date_label
     WHERE id = p_to_pond_id;
 
-    -- 3. Proportionally allocate feeding records - strictly isolated to source pond
-    FOR v_feed_rec IN
-      SELECT * FROM feeding_records
-      WHERE (pond_id = p_from_pond_id::text OR LOWER(TRIM(pond)) = LOWER(TRIM(v_from_pond.name)))
-        AND (user_id = v_from_pond.user_id OR farm_id = v_from_pond.farm_id)
-    LOOP
-      v_morning_dest := ROUND(COALESCE(v_feed_rec.morning, 0) * v_fraction, 2);
-      v_evening_dest := ROUND(COALESCE(v_feed_rec.evening, 0) * v_fraction, 2);
-
-      -- Update source record with remaining quantity
-      UPDATE feeding_records SET
-        morning = GREATEST(0, COALESCE(v_feed_rec.morning, 0) - v_morning_dest),
-        evening = GREATEST(0, COALESCE(v_feed_rec.evening, 0) - v_evening_dest),
-        total = GREATEST(0, (COALESCE(v_feed_rec.morning, 0) - v_morning_dest) + (COALESCE(v_feed_rec.evening, 0) - v_evening_dest)),
-        fish_stock = v_stock_label,
-        fish_stock_id = v_stock_instance_id,
-        pond_id = p_from_pond_id::text
-      WHERE id = v_feed_rec.id;
-
-      -- Insert allocated quantity record for destination pond
-      INSERT INTO feeding_records (
-        id, user_id, farm_id, date, month, year, pond, pond_id, brand, size,
-        morning, evening, total, recorded_by, morning_time, evening_time, fish_stock, fish_stock_id, created_at
-      ) VALUES (
-        gen_random_uuid(), v_feed_rec.user_id, COALESCE(v_to_pond.farm_id, v_feed_rec.farm_id),
-        v_feed_rec.date, v_feed_rec.month, v_feed_rec.year, v_to_pond.name, p_to_pond_id::text, v_feed_rec.brand, v_feed_rec.size,
-        v_morning_dest, v_evening_dest, v_morning_dest + v_evening_dest,
-        v_feed_rec.recorded_by, v_feed_rec.morning_time, v_feed_rec.evening_time, v_stock_label, v_dest_stock_instance_id, NOW()
-      );
-    END LOOP;
+    -- 3. Maintain authoritative feeding history: historical feeding remains in source pond, single source of truth without duplication
+    UPDATE feeding_records SET
+      fish_stock = v_stock_label,
+      fish_stock_id = v_stock_instance_id
+    WHERE (pond_id = p_from_pond_id::text OR LOWER(TRIM(pond)) = LOWER(TRIM(v_from_pond.name)))
+      AND (user_id = v_from_pond.user_id OR farm_id = v_from_pond.farm_id);
 
     -- 4. Proportionally allocate mortality records
     FOR v_mort_rec IN

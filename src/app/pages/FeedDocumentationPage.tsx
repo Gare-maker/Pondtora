@@ -2405,14 +2405,14 @@ function FeedDocumentation({
         });
         if (matchesClosed) return false;
 
+        // 1. Direct unique fishStockId match
+        if ((pond as any).fishStockId && r.fishStockId) {
+          return r.fishStockId === (pond as any).fishStockId;
+        }
+
         const rDate = toValidDbDate(r.date);
         // If there's a closed date and this record is on or before it, it belongs to closed stock
         if (latestClosedDate && rDate && rDate <= latestClosedDate) return false;
-
-        // If pond has a specific fishStockId, enforce it if record has one:
-        if ((pond as any).fishStockId && r.fishStockId && r.fishStockId !== (pond as any).fishStockId) {
-          return false;
-        }
 
         // If record date is before pond's current stocking date, it cannot belong to this stock
         if (pondStockDbDate && rDate && rDate < pondStockDbDate) {

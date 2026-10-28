@@ -6563,6 +6563,107 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       });
     }
   };
+
+  const editMort=async(updated:MortalityEntry, original:MortalityEntry)=>{
+    if (!checkSubscriptionActive()) return;
+    const pondId = updated.pondId;
+    const updPond = ponds.find(p=>p.id===pondId);
+    const fid = updated.farmId || updPond?.farmId || activeFarmId || farms[0]?.id || "";
+    const fStock = updated.fishStock || (updPond ? getPondFishStock(updPond) : undefined);
+    const fStockId = (updated as any).fishStockId || (original as any).fishStockId || updPond?.fishStockId || pondId;
+    const countDiff = (Number(updated.count) || 0) - (Number(original.count) || 0);
+
+    const farmMort: MortalityEntry = {
+      ...updated,
+      count: Number(updated.count) || 0,
+      pondId,
+      pondName: updPond?.name || updated.pondName,
+      farmId: fid,
+      fishStock: fStock,
+      fishStockId: fStockId,
+    };
+
+    setMortality(prev => prev.map(m => m.id === updated.id ? farmMort : m));
+
+    let nextPonds = ponds;
+    if (updPond && countDiff !== 0) {
+      const prevCount = Number(updPond.currentCount) || 0;
+      const newCount = Math.max(0, prevCount - countDiff);
+      const updatedPond = { ...updPond, currentCount: newCount };
+      nextPonds = ponds.map(p => p.id === pondId ? updatedPond : p);
+      setPonds(nextPonds);
+      api.ponds.update(updatedPond).catch(console.warn);
+
+      recordFishCountHistory({
+        pondId: updPond.id,
+        pondName: updPond.name,
+        farmId: fid,
+        previousCount: prevCount,
+        newCount: newCount,
+        difference: -countDiff,
+        changedBy: userProfile?.name || userProfile?.email || "User",
+        actionReason: countDiff > 0
+          ? `Mortality increased by ${countDiff} (${original.count} → ${updated.count} fish)`
+          : `Mortality reduced by ${Math.abs(countDiff)} (${original.count} → ${updated.count} fish restored)`,
+        createdAt: new Date().toISOString(),
+      });
+    }
+
+    if (userProfile?.id) {
+      try {
+        saveUserLocal(userProfile.id, "mortality", "mortalityEntries", mortality.map(m => m.id === updated.id ? farmMort : m));
+        saveUserLocal(userProfile.id, "ponds", "ponds", nextPonds);
+      } catch {}
+    }
+
+    toast.success("Mortality record updated");
+    api.mortality.update(farmMort).catch(console.warn);
+  };
+
+  const deleteMort=async(mortId:string)=>{
+    if (!checkSubscriptionActive()) return;
+    const target = mortality.find(m => m.id === mortId);
+    if (!target) return;
+
+    const pondId = target.pondId;
+    const updPond = ponds.find(p=>p.id===pondId);
+    const fid = target.farmId || updPond?.farmId || activeFarmId || farms[0]?.id || "";
+    const countRestored = Number(target.count) || 0;
+
+    setMortality(prev => prev.filter(m => m.id !== mortId));
+
+    let nextPonds = ponds;
+    if (updPond && countRestored > 0) {
+      const prevCount = Number(updPond.currentCount) || 0;
+      const newCount = prevCount + countRestored;
+      const updatedPond = { ...updPond, currentCount: newCount };
+      nextPonds = ponds.map(p => p.id === pondId ? updatedPond : p);
+      setPonds(nextPonds);
+      api.ponds.update(updatedPond).catch(console.warn);
+
+      recordFishCountHistory({
+        pondId: updPond.id,
+        pondName: updPond.name,
+        farmId: fid,
+        previousCount: prevCount,
+        newCount: newCount,
+        difference: countRestored,
+        changedBy: userProfile?.name || userProfile?.email || "User",
+        actionReason: `Mortality record deleted (${countRestored} fish restored to count)`,
+        createdAt: new Date().toISOString(),
+      });
+    }
+
+    if (userProfile?.id) {
+      try {
+        saveUserLocal(userProfile.id, "mortality", "mortalityEntries", mortality.filter(m => m.id !== mortId));
+        saveUserLocal(userProfile.id, "ponds", "ponds", nextPonds);
+      } catch {}
+    }
+
+    toast.success("Mortality record deleted");
+    api.mortality.remove(mortId).catch(console.warn);
+  };
   const handleExecuteTransfer = async (
     fromId: string,
     toId: string,
@@ -6705,16 +6806,13 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     const updatedSourceFeed: FeedingRecord[] = [];
 
     if (isFullTransfer) {
-      // 100% transfer: update all source feeding records to destination pond preserving complete history
+      // 100% transfer: preserve original physical pond where feeding occurred, link to stock identity
       nextFeeding = feeding.map(r => {
         if (isSourceFeed(r)) {
           const upd: FeedingRecord = {
             ...r,
-            pond: toPond.name,
             fishStock: stockLabel,
             fishStockId: destStockInstanceId,
-            pondId: toPond.id,
-            farmId: toPond.farmId || r.farmId || activeFarmId
           };
           updatedSourceFeed.push(upd);
           return upd;
@@ -6722,53 +6820,19 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
         return r;
       });
     } else {
-      // Partial transfer: reduce source pond feed and create destination pond feed
-      const newDestRecs: FeedingRecord[] = [];
-      const updatedExisting = feeding.map(r => {
+      // Partial transfer: preserve feeding history in source pond for original stock instance, single source of truth without duplication
+      nextFeeding = feeding.map(r => {
         if (isSourceFeed(r)) {
-          const mDest = Math.round((Number(r.morning) || 0) * fraction * 100) / 100;
-          const eDest = Math.round((Number(r.evening) || 0) * fraction * 100) / 100;
-          const mKeep = Math.round(((Number(r.morning) || 0) - mDest) * 100) / 100;
-          const eKeep = Math.round(((Number(r.evening) || 0) - eDest) * 100) / 100;
-
-          const updatedRec: FeedingRecord = {
+          const upd: FeedingRecord = {
             ...r,
-            pondId: fromPond.id,
-            morning: mKeep,
-            evening: eKeep,
-            total: Math.round((mKeep + eKeep) * 100) / 100,
             fishStock: stockLabel,
             fishStockId: stockInstanceId,
           };
-          updatedSourceFeed.push(updatedRec);
-
-          const destRec: FeedingRecord = {
-            id: crypto.randomUUID(),
-            pond: toPond.name,
-            fishStock: stockLabel,
-            fishStockId: destStockInstanceId,
-            date: r.date,
-            month: r.month,
-            year: r.year,
-            brand: r.brand,
-            size: r.size,
-            morning: mDest,
-            evening: eDest,
-            total: Math.round((mDest + eDest) * 100) / 100,
-            recordedBy: r.recordedBy,
-            morningTime: r.morningTime,
-            eveningTime: r.eveningTime,
-            farmId: toPond.farmId || r.farmId || activeFarmId,
-          };
-          (destRec as any).pondId = toPond.id;
-          newDestRecs.push(destRec);
-          createdDestFeed.push(destRec);
-
-          return updatedRec;
+          updatedSourceFeed.push(upd);
+          return upd;
         }
         return r;
       });
-      nextFeeding = [...updatedExisting, ...newDestRecs];
     }
     setFeeding(nextFeeding);
 
@@ -10151,7 +10215,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
             ) : (
               <AppErrorBoundary key={active}>
                 {active==="financial"     &&(hasPerm("Financial Dashboard")?<FinancialDashboard expenses={farmExpenses} revenues={farmRevenues} onAddExpense={addExp} onAddRevenue={addRev} onEditExpense={editExp} onEditRevenue={editRev} stockEvents={farmStockEvents} ponds={farmPonds} inventory={farmInventory} bagLogs={farmBagLogs} currency={cs} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}} canCreate={canCreate("Financial Dashboard")} canEdit={canEdit("Financial Dashboard")} canDelete={canDelete("Financial Dashboard")}/>:<AccessDenied/>)}
-                {active==="ponds"         &&(hasPerm("Pond Management")?<PondManagementPage ponds={farmPonds} onAddPond={addPond} onClosePond={closePond} onRestockPond={restockPond} onTransfer={transferStock} onNurseryTransfer={nurseryTransfer} mortality={farmMortality} onAddMortality={addMort} onAddCost={addExp} feedingRecords={farmFeeding} stockEvents={farmStockEvents} treatments={farmTreatments} onAddTreatment={addTreatment} activeFarmId={activeFarmId} onDeletePond={deletePond} onEditFish={editFish} onSetMaxKg={setPondMaxKg} onEditPond={handleEditPond} onReorderPonds={handleReorderPonds} onScrollTop={()=>mainRef.current?.scrollTo({top:0,behavior:"instant"})} currency={cs} inventory={farmInventory} farms={farms} pondReports={farmPondReports} onAddPondReport={handleAddPondReport} fishCountHistory={fishCountHistory} onEditFeedRecord={editFeedRecord} onEditTreatment={handleEditTreatment} canCreate={canCreate("Pond Management")} canEdit={canEdit("Pond Management")} canDelete={canDelete("Pond Management")}/>:<AccessDenied/>)}
+                {active==="ponds"         &&(hasPerm("Pond Management")?<PondManagementPage ponds={farmPonds} onAddPond={addPond} onClosePond={closePond} onRestockPond={restockPond} onTransfer={transferStock} onNurseryTransfer={nurseryTransfer} mortality={farmMortality} onAddMortality={addMort} onEditMortality={editMort} onDeleteMortality={deleteMort} onAddCost={addExp} feedingRecords={farmFeeding} stockEvents={farmStockEvents} treatments={farmTreatments} onAddTreatment={addTreatment} activeFarmId={activeFarmId} onDeletePond={deletePond} onEditFish={editFish} onSetMaxKg={setPondMaxKg} onEditPond={handleEditPond} onReorderPonds={handleReorderPonds} onScrollTop={()=>mainRef.current?.scrollTo({top:0,behavior:"instant"})} currency={cs} inventory={farmInventory} farms={farms} pondReports={farmPondReports} onAddPondReport={handleAddPondReport} fishCountHistory={fishCountHistory} onEditFeedRecord={editFeedRecord} onEditTreatment={handleEditTreatment} canCreate={canCreate("Pond Management")} canEdit={canEdit("Pond Management")} canDelete={canDelete("Pond Management")}/>:<AccessDenied/>)}
                 {active==="inventory"     &&(hasPerm("Feed Stock")?<FeedInventoryPage inventory={farmInventory} onAdd={addInv} onDelete={delInv} feedingRecords={farmFeeding} bagLogs={farmBagLogs} remainLogs={farmRemainLogs} ponds={farmPonds} onEditBagLog={editBagLog} onEditInv={editInv} currency={cs} canEditLocked={isOwner||currentStaff?.role==="Farm Manager"} canCreate={canCreate("Feed Stock")} canEdit={canEdit("Feed Stock")} canDelete={canDelete("Feed Stock")}/>:<AccessDenied/>)}
                 {active==="documentation" &&(hasPerm("Feeding Records")?<FeedDocumentationPage feedingRecords={farmFeeding} onAddRecord={addFeed} onEditFeedRecord={editFeedRecord} onDeleteRecord={deleteFeedRecord} ponds={farmPonds} inventory={farmInventory} bagLogs={farmBagLogs} onAddBagLog={addBagLog} onEditBagLog={editBagLog} onEditInv={editInv} remainLogs={farmRemainLogs} onAddRemainLog={addRemainLog} onEditRemainLog={editRemainLog} onReconMismatches={onReconMismatches} reconFocus={reconFocus} canEditLocked={isOwner||currentStaff?.role==="Farm Manager"} currentUser={{name:currentStaff?.name||userProfile?.name||"",email:userProfile?.email||""}} canCreate={canCreate("Feeding Records")} canEdit={canEdit("Feeding Records")} canDelete={canDelete("Feeding Records")} stockEvents={farmStockEvents}/>:<AccessDenied/>)}
                 {active==="invoices"      &&(hasPerm("Invoices")||hasPerm("Sales Management")||hasPerm("Sales Calculator")?<InvoicesPage ponds={farmPonds} invoices={farmInvoices} customers={farmCustomers} priceGroups={farmPriceGroups} settings={invSettings} onAddInvoice={addInvoice} onEditInvoice={editInvoice} onDeleteInvoice={deleteInvoice} onAddCustomer={addCustomer} onAddPriceGroup={addPriceGroup} onEditPriceGroup={editPriceGroup} onDeletePriceGroup={delPriceGroup} onUpdateSettings={(s)=>{setInvSettings(s);api.invSettings.update(s).catch(console.warn);}} currentUser={userProfile?.name} currency={cs} canCreate={canCreate("Invoices")} canEdit={canEdit("Invoices")} canDelete={canDelete("Invoices")}/>:<AccessDenied/>)}
