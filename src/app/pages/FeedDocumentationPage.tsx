@@ -1718,70 +1718,6 @@ function FeedDocumentation({
       }
     });
 
-    // Also include stocks and pellet sizes fed on checkDate that do not have a bag log yet
-    const dayFeedings = (feedingRecords || []).filter(f => f && (isSameDate(f.date, checkDate) || isSameDate(f.date, dateLabel) || (isSameDate(checkDate, getIsoDateForSelDate(selDate)) && isSameDate(f.date, selDate))));
-    dayFeedings.forEach(f => {
-      const rawFs = f.fishStock || pondToStock(f.pond);
-      if (!rawFs || rawFs === "—" || rawFs === "General Stock") return;
-      const matchedOpt = dateOptions.find(opt => 
-        opt.name === rawFs || 
-        isStockMatch(opt.name, rawFs) || 
-        normalizeFishStock(opt.name) === normalizeFishStock(rawFs) ||
-        opt.ponds.some(p => p === rawFs || isStockMatch(p, rawFs))
-      );
-      const fs = matchedOpt?.name || (isPondName(rawFs) ? (dateOptions[0]?.name || "") : rawFs);
-      const size = f.size;
-      if (!size || size === "—") return;
-      const matchingBrands = getMatchingBrandsForPallet(size);
-      const brand = f.brand || (matchingBrands[0] || (invBrands[0] || ""));
-
-      const key = `${normalizeFishStock(fs)}__${brand.toLowerCase().trim()}__${size.toLowerCase().trim()}`;
-      if (!map.has(key)) {
-        const inv = (inventory || []).find(it => it && it.brand === brand && isSamePelletSize(it.size, size));
-        const kgPb = inv?.weightPerBag || 15;
-        map.set(key, {
-          fishStock: fs,
-          brand,
-          size,
-          kgPerBag: kgPb,
-          qty: "",
-          remainingKg: ""
-        });
-      }
-    });
-
-    // Also include stocks and pellet sizes received via feed transfers on checkDate that do not have a bag log yet
-    const dayTransfersIn = (feedTransfers || []).filter(t => t && isSameDate(t.transferDate, checkDate));
-    dayTransfersIn.forEach(t => {
-      const rawFs = t.destinationStock;
-      if (!rawFs || rawFs === "—" || rawFs === "General Stock") return;
-      const matchedOpt = dateOptions.find(opt => 
-        opt.name === rawFs || 
-        isStockMatch(opt.name, rawFs) || 
-        normalizeFishStock(opt.name) === normalizeFishStock(rawFs) ||
-        opt.ponds.some(p => p === rawFs || isStockMatch(p, rawFs))
-      );
-      const fs = matchedOpt?.name || (isPondName(rawFs) ? (dateOptions[0]?.name || "") : rawFs);
-      const size = t.feedSize;
-      if (!size || size === "—") return;
-      const matchingBrands = getMatchingBrandsForPallet(size);
-      const brand = t.feedBrand || (matchingBrands[0] || (invBrands[0] || ""));
-
-      const key = `${normalizeFishStock(fs)}__${brand.toLowerCase().trim()}__${size.toLowerCase().trim()}`;
-      if (!map.has(key)) {
-        const inv = (inventory || []).find(it => it && it.brand === brand && isSamePelletSize(it.size, size));
-        const kgPb = inv?.weightPerBag || 15;
-        map.set(key, {
-          fishStock: fs,
-          brand,
-          size,
-          kgPerBag: kgPb,
-          qty: "",
-          remainingKg: ""
-        });
-      }
-    });
-
     if (map.size > 0) {
       return Array.from(map.values());
     }
@@ -2126,20 +2062,29 @@ function FeedDocumentation({
         return;
       }
 
-      // Group feed by brand and pellet size
-      const pairs: { brand: string; size: string }[] = [];
-      const addMismatchPair = (bRaw?: string | null, szRaw?: string | null) => {
-        const sz = (szRaw && szRaw !== "—" && szRaw.trim()) ? szRaw.trim() : "—";
-        const b = (bRaw && bRaw !== "—" && bRaw.trim()) ? bRaw.trim() : (sz !== "—" ? (getMatchingBrandsForPallet(sz)[0] || "—") : "—");
-        if (!pairs.some(p => p.brand.toLowerCase().trim() === b.toLowerCase().trim() && isSamePelletSize(p.size, sz))) {
-          pairs.push({ brand: b, size: sz });
-        }
-      };
+      // 1. Only evaluate mismatch if user has actually logged bags open for this stock on selDate!
+      const stockBagLogs = (bagLogs || []).filter(b => 
+        b && 
+        isSameDate(b.date, selDate) && 
+        isStockMatch(b.fishStock, stockInfo.stockName) &&
+        (Number(b.bagsOpened) || 0) > 0
+      );
 
-      fedRecords.forEach(r => addMismatchPair(r.brand, r.size));
-      (bagLogs || []).filter(b => b && isSameDate(b.date, selDate) && isStockMatch(b.fishStock, stockInfo.stockName)).forEach(b => addMismatchPair(b.brand, b.size));
-      (remainLogs || []).filter(r => r && isSameDate(r.date, selDate) && isStockMatch(r.fishStock, stockInfo.stockName)).forEach(r => addMismatchPair(r.brand, r.size));
-      const pairsToEvaluate = pairs.length > 0 ? pairs : [{ brand: "—", size: "—" }];
+      // If user has not logged bags open for this stock today, do NOT detect or display any mismatch/error
+      if (stockBagLogs.length === 0) {
+        return;
+      }
+
+      // Group ONLY by brand and pellet size that user explicitly logged in bagLogs for this stock
+      const pairs: { brand: string; size: string }[] = [];
+      stockBagLogs.forEach(b => {
+        const sz = (b.size && b.size !== "—" && b.size.trim()) ? b.size.trim() : "—";
+        const br = (b.brand && b.brand !== "—" && b.brand.trim()) ? b.brand.trim() : "—";
+        if (!pairs.some(p => p.brand.toLowerCase().trim() === br.toLowerCase().trim() && isSamePelletSize(p.size, sz))) {
+          pairs.push({ brand: br, size: sz });
+        }
+      });
+      const pairsToEvaluate = pairs;
 
       pairsToEvaluate.forEach(({ brand, size }) => {
         const sizeFedRecords = fedRecords.filter(r => 
@@ -2187,23 +2132,6 @@ function FeedDocumentation({
         );
         const hasBagLog = bagLogsForSize.length > 0;
         if (!hasBagLog) {
-          if (expectedBags > 0) {
-            rows.push({
-              stockKey: `${key}__${brand}__${size}`,
-              stockName: stockInfo.stockName,
-              stockDate: stockInfo.stockDate,
-              brand,
-              size,
-              status: "Not Opened",
-              expectedBags,
-              recordedBags: 0,
-              expectedRemaining: Math.max(0, Math.round((effectiveAvailable + (expectedBags * bagWeight) - sizeFedKg) * 10) / 10),
-              recordedRemaining: null,
-              totalFed: sizeFedKg,
-              carryover: carryoverKg,
-              reason: `Feeding recorded (${sizeFedKg} kg), but bags opened have not been logged for today (expected ${expectedBags} bag${expectedBags !== 1 ? "s" : ""}).`
-            });
-          }
           return;
         }
 
@@ -5787,7 +5715,7 @@ function FeedDocumentation({
                   onClick={addBagRow}
                   className="w-full flex items-center justify-center gap-2 py-2.5 border-2 border-dashed border-emerald-300 text-emerald-700 hover:bg-emerald-50/70 rounded-xl text-xs font-semibold transition-colors"
                 >
-                  <Plus size={14} /> Add Another Entry
+                  <Plus size={14} /> Add Another Stock
                 </button>
               )}
             </div>

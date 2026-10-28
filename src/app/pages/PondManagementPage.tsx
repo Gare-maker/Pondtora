@@ -588,25 +588,8 @@ function PondDetail({
       );
       if (!isSamePond) return false;
 
-      // 2. Direct unique fishStockId match
-      if ((pond as any).fishStockId) {
-        if (r.fishStockId) {
-          return r.fishStockId === (pond as any).fishStockId;
-        }
-        // If pond has a unique fishStockId but r has no fishStockId:
-        const rDate = toValidDbDate(r.date);
-        if (pStockDbDate && rDate && rDate < pStockDbDate) return false;
-        if (latestClosedDate && rDate && rDate <= latestClosedDate) return false;
-
-        const fsTrimmed = (r.fishStock || "").trim();
-        // A generic or pond-name label cannot be assumed to belong to this new stock
-        if (!fsTrimmed || fsTrimmed === "—" || fsTrimmed === "General Stock" || fsTrimmed === "Current Stock" || fsTrimmed.toLowerCase() === pNameNorm) {
-          return false;
-        }
-        const matchesCurrentBatch = (pond.fishStock && (fsTrimmed === pond.fishStock || isStockMatch(fsTrimmed, pond.fishStock, ponds))) ||
-          (pond.stockingDate && (isSameDate(fsTrimmed, pond.stockingDate) || isStockMatch(fsTrimmed, fmtStockingDate(pond.stockingDate), ponds)));
-        return Boolean(matchesCurrentBatch);
-      }
+      const rDate = toValidDbDate(r.date);
+      if (latestClosedDate && rDate && rDate <= latestClosedDate) return false;
 
       const fsTrimmed = (r.fishStock || "").trim();
       const fsLower = fsTrimmed.toLowerCase();
@@ -618,6 +601,11 @@ function PondDetail({
       });
       if (matchesClosedBatch) return false;
 
+      // 2. Direct unique fishStockId match
+      if ((pond as any).fishStockId && r.fishStockId && r.fishStockId === (pond as any).fishStockId) {
+        return true;
+      }
+
       // Check if this record explicitly matches current active stock
       const matchesCurrentBatch = fsTrimmed && (
         (pond.fishStock && (fsTrimmed === pond.fishStock || isStockMatch(fsTrimmed, pond.fishStock, ponds))) ||
@@ -628,22 +616,14 @@ function PondDetail({
         (pond.stockingDate && (isSameDate(fsTrimmed, pond.stockingDate) || isStockMatch(fsTrimmed, fmtStockingDate(pond.stockingDate))))
       );
 
-      const rDate = toValidDbDate(r.date);
-      if (latestClosedDate && rDate && rDate <= latestClosedDate) {
-        if (!fsTrimmed || !matchesCurrentBatch || fsLower === (pond.species || "").trim().toLowerCase()) {
-          return false;
-        }
-      }
       if (pStockDbDate && rDate && rDate < pStockDbDate) {
         if (!fsTrimmed || !matchesCurrentBatch || fsLower === (pond.species || "").trim().toLowerCase()) {
           return false;
         }
       }
 
-      // 3. Fish stock matching
-      if (fsTrimmed && fsTrimmed !== "—" && fsTrimmed !== "General Stock" && fsTrimmed !== "Current Stock" && fsLower !== pNameNorm) {
-        if (!matchesCurrentBatch) return false;
-      }
+      if (matchesCurrentBatch) return true;
+      if (!pStockDbDate || (rDate && rDate >= pStockDbDate)) return true;
       return true;
     });
   }, [feedingRecords, pond.id, pond.name, pond.species, pond.status, pond.stockingDate, pond.fishStock, pStockDbDate, pDateLabel, pStockIdentity, activeFishStockLabel, defaultFishStockLabel, stockEvents, ponds]);
@@ -802,7 +782,6 @@ function PondDetail({
                     {canCreate&&<button onClick={()=>{setShowMort(true);setShowPondMenu(false);}} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-2"><Plus size={13}/> Log Mortality</button>}
                     {canCreate&&<button onClick={()=>{setShowTreat(true);setShowPondMenu(false);}} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-2"><Plus size={13}/> Log Treatment</button>}
                     {canEdit&&<button onClick={()=>{setShowUpdateQty(true);setShowPondMenu(false);}} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-2"><Plus size={13}/> Update Quantity</button>}
-                    {canCreate&&<button onClick={()=>{pond.category==="Nursery"?setShowNurseryTransfer(true):setShowTransfer(true);setShowPondMenu(false);}} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-2"><ArrowRightLeft size={13}/> Transfer Fish Stock</button>}
                     {canEdit&&pond.category!=="Nursery"&&<button onClick={()=>{setShowMaxKg(true);setShowPondMenu(false);}} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-2"><Layers size={13}/> Set Max kg per Pallet</button>}
                     {canDelete&&<button onClick={()=>{setShowClose(true);setShowPondMenu(false);}} className="w-full text-left px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"><X size={13}/> Clear Fish Stock</button>}
                   </>}
@@ -817,7 +796,6 @@ function PondDetail({
                 {canCreate&&<PBtn sm onClick={()=>setShowMort(true)}><Plus size={12}/> Log Mortality</PBtn>}
                 {canCreate&&<PBtn sm onClick={()=>setShowTreat(true)}><Plus size={12}/> Log Treatment</PBtn>}
                 {canEdit&&<PBtn sm outline onClick={()=>setShowUpdateQty(true)}>Update Qty</PBtn>}
-                {canCreate&&<PBtn sm outline onClick={()=>pond.category==="Nursery"?setShowNurseryTransfer(true):setShowTransfer(true)}><ArrowRightLeft size={12}/> Transfer Fish Stock</PBtn>}
                 {canEdit&&pond.category!=="Nursery"&&<PBtn sm outline onClick={()=>setShowMaxKg(true)}>Max kg / Pallet</PBtn>}
                 {canDelete&&<PBtn sm danger onClick={()=>setShowClose(true)}>Clear Fish Stock</PBtn>}
               </>}

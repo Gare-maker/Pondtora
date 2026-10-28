@@ -6006,9 +6006,9 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       fishStock: fishStock,
     };
 
-    // Prevent duplicate feed sizes for the same fish stock/pond on the same date
+    // Prevent duplicate feed sizes for the same fish stock/pond on the same date by updating existing in place
     if (farmRec.size && farmRec.date) {
-      const isDuplicate = feeding.some(fr =>
+      const existingDup = feeding.find(fr =>
         (!fr.farmId || fr.farmId === fid) &&
         fr.id !== farmRec.id &&
         isSameDate(fr.date, farmRec.date) &&
@@ -6022,9 +6022,17 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
         ) &&
         isSamePelletSize(fr.size, farmRec.size)
       );
-      if (isDuplicate) {
-        toast.error(`Feed size "${farmRec.size}" has already been logged for ${farmRec.fishStock || farmRec.pond} on ${farmRec.date}. Duplicate feed sizes are not permitted.`);
-        return;
+      if (existingDup) {
+        return editFeedRecord({
+          ...existingDup,
+          ...farmRec,
+          id: existingDup.id,
+          morning: farmRec.morning,
+          evening: farmRec.evening,
+          total: farmRec.total,
+          morningTime: farmRec.morningTime || existingDup.morningTime,
+          eveningTime: farmRec.eveningTime || existingDup.eveningTime,
+        });
       }
     }
 
