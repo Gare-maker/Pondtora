@@ -3,7 +3,7 @@ import {
   Fish, Plus, CheckCircle, X, ArrowRightLeft, Layers,
   Droplets, Trash2, ChevronDown, ChevronUp,
   ChevronLeft, ChevronRight, Eye, Download, FileText, Pencil,
-  MoreVertical, TrendingUp, TrendingDown, Filter, History, GripVertical, Calendar
+  MoreVertical, TrendingUp, TrendingDown, Filter, History, GripVertical, Calendar, Loader2
 } from "lucide-react";
 import type { Pond, Expense, MortalityEntry, FeedingRecord, StockEvent, TreatmentRecord, BagOpenLog, FeedRemainingLog, FeedItem, Farm, PondReport, FishCountHistoryEntry } from "../types";
 import { EXPENSE_CATS, POND_TYPES, POND_SPECIES, MORT_CAUSES, TODAY, fmt, uid, toMon, toYr, downloadCSV, openPrintWindow, fmtStockingDate, getPondFishStock, formatFishStock, isStockMatch, isSameDate, getFishStockDateLabel, isFormattedDate, isSamePelletSize } from "../data";
@@ -111,7 +111,6 @@ function PondDetail({
   canEdit = true,
   canDelete = true,
   onNavigatePond,
-  onOpenStockHistory,
 }:{
   pond:Pond;
   mortality:MortalityEntry[];
@@ -144,7 +143,6 @@ function PondDetail({
   canEdit?:boolean;
   canDelete?:boolean;
   onNavigatePond?:(id:string)=>void;
-  onOpenStockHistory?:(stockKey?:string)=>void;
 }){
   const cs=currency;
   const existingFishStocks = useMemo(() => {
@@ -720,6 +718,9 @@ function PondDetail({
   };
   const handleClose=()=>{onClosePond(pond.id);setShowClose(false);};
   const [isTransferring, setIsTransferring] = useState(false);
+  const [transferProgress, setTransferProgress] = useState(0);
+  const [transferStage, setTransferStage] = useState("Preparing stock transfer…");
+
   const handleTransfer = async () => {
     if (!transferF.toPond) { setTransferErr({ toPond: "Please select a destination pond" }); return; }
     const destPond = ponds.find(p => p.id === transferF.toPond);
@@ -731,7 +732,19 @@ function PondDetail({
     const destId = transferF.toPond;
     const pct = Number(transferF.pct) || 100;
     setIsTransferring(true);
+    setTransferProgress(20);
+    setTransferStage("Validating stock and allocating counts…");
+    const timer = setInterval(() => {
+      setTransferProgress(p => {
+        if (p < 45) return p + 15;
+        if (p < 75) return p + 10;
+        if (p < 92) return p + 4;
+        return p;
+      });
+    }, 180);
+
     try {
+      setTransferStage("Transferring stock records and updating database…");
       let success: any = false;
       if (pct >= 100) {
         success = await onTransfer(pond.id, destId, transferF.date);
@@ -739,16 +752,24 @@ function PondDetail({
         const count = transferF.count ? Number(transferF.count) : Math.round(pond.currentCount * (pct / 100));
         success = await onNurseryTransfer(pond.id, destId, count, pct, transferF.date);
       }
+      clearInterval(timer);
       if (success !== false) {
+        setTransferProgress(100);
+        setTransferStage("Transfer complete!");
+        await new Promise(r => setTimeout(r, 300));
         setShowTransfer(false);
         setTransferF({ toPond: "", date: TODAY, pct: "100", count: "" });
         onNavigatePond?.(destId);
       }
     } catch (err: any) {
+      clearInterval(timer);
       console.error("Transfer error:", err);
       setTransferErr({ toPond: err?.message || "Failed to transfer fish stock. Please try again." });
     } finally {
+      clearInterval(timer);
       setIsTransferring(false);
+      setTransferProgress(0);
+      setTransferStage("Preparing stock transfer…");
     }
   };
   const handleRestock=()=>{
@@ -819,27 +840,16 @@ function PondDetail({
       <div className="p-5 rounded-xl border border-[#1b3e6b] shadow-md text-white" style={{ backgroundColor: "#0f2744" }}>
         <div className="flex items-center justify-between mb-4">
           <p className="text-xs font-bold uppercase tracking-wider text-blue-200">Fish Information</p>
-          <div className="flex items-center gap-2">
-            {onOpenStockHistory && pond.status === "Active" && (
-              <button
-                onClick={() => onOpenStockHistory(getPondFishStock(pond))}
-                className="flex items-center gap-1.5 text-xs font-semibold text-blue-100 hover:text-white bg-blue-500/20 hover:bg-blue-500/30 border border-blue-400/30 rounded-lg px-2.5 py-1.5 transition-colors"
-                title="View full fish stock history and lifecycle across ponds"
-              >
-                <History size={12}/> Fish Stock History
-              </button>
-            )}
-            {canEdit&&pond.status==="Active"&&<button onClick={()=>{
-              const isStd = ["Catfish","Tilapia","Carp","Salmon","Bass","Trout"].includes(pond.species);
-              setEditFishF({
-                species: pond.species === "—" ? "Catfish" : (isStd ? pond.species : "Other"),
-                customSpecies: !isStd && pond.species !== "—" ? pond.species : "",
-                count: String(pond.currentCount),
-                stockingDate: pond.stockingDate
-              });
-              setShowEditFish(true);
-            }} className="flex items-center gap-1.5 text-xs font-semibold text-white hover:text-white bg-white/15 hover:bg-white/25 border border-white/25 rounded-lg px-3 py-1.5 transition-colors"><Pencil size={12}/> Edit</button>}
-          </div>
+          {canEdit&&pond.status==="Active"&&<button onClick={()=>{
+            const isStd = ["Catfish","Tilapia","Carp","Salmon","Bass","Trout"].includes(pond.species);
+            setEditFishF({
+              species: pond.species === "—" ? "Catfish" : (isStd ? pond.species : "Other"),
+              customSpecies: !isStd && pond.species !== "—" ? pond.species : "",
+              count: String(pond.currentCount),
+              stockingDate: pond.stockingDate
+            });
+            setShowEditFish(true);
+          }} className="flex items-center gap-1.5 text-xs font-semibold text-white hover:text-white bg-white/15 hover:bg-white/25 border border-white/25 rounded-lg px-3 py-1.5 transition-colors"><Pencil size={12}/> Edit</button>}
         </div>
         {pond.transferNote&&(
           <div className="mb-4 flex items-center gap-2 px-3 py-2 rounded-lg bg-white/10 border border-white/20 text-xs text-blue-100">
@@ -1321,6 +1331,26 @@ function PondDetail({
           <p>✓ <strong>All</strong> treatment records (copied for medical reference)</p>
           {pond.maxKgByPallet&&Object.keys(pond.maxKgByPallet).length>0&&<p>✓ <strong>{nurseryTF.pct||100}%</strong> of pallet max kg limits</p>}
         </div>}
+        {isTransferring && (
+          <div className="bg-emerald-50/80 border border-emerald-200 rounded-2xl p-4 space-y-2.5 my-3 animate-fadeIn">
+            <div className="flex items-center justify-between text-xs font-semibold text-emerald-800">
+              <span className="flex items-center gap-2">
+                <Loader2 size={15} className="animate-spin text-emerald-600" />
+                <span>{transferStage}</span>
+              </span>
+              <span className="font-mono font-bold text-emerald-700">{transferProgress}%</span>
+            </div>
+            <div className="w-full bg-emerald-100 rounded-full h-2.5 overflow-hidden shadow-inner">
+              <div
+                className="bg-gradient-to-r from-emerald-500 via-teal-500 to-green-600 h-2.5 rounded-full transition-all duration-200 ease-out shadow-sm"
+                style={{ width: `${transferProgress}%` }}
+              />
+            </div>
+            <p className="text-[11px] text-emerald-600/90 text-center">
+              Please hold on while fish count and stock records are securely updated…
+            </p>
+          </div>
+        )}
         <div className="flex gap-2 pt-1">
           <PBtn
             disabled={isTransferring}
@@ -1336,22 +1366,42 @@ function PondDetail({
               setNurseryErr({});
               const destId = nurseryTF.toPond;
               setIsTransferring(true);
+              setTransferProgress(20);
+              setTransferStage("Validating stock and allocating counts…");
+              const timer = setInterval(() => {
+                setTransferProgress(p => {
+                  if (p < 45) return p + 15;
+                  if (p < 75) return p + 10;
+                  if (p < 92) return p + 4;
+                  return p;
+                });
+              }, 180);
               try {
+                setTransferStage("Transferring nursery stock and updating database…");
                 const success = await onNurseryTransfer(pond.id, destId, Number(nurseryTF.count), Number(nurseryTF.pct) || 100, nurseryTF.date);
+                clearInterval(timer);
                 if (success !== false) {
+                  setTransferProgress(100);
+                  setTransferStage("Transfer complete!");
+                  await new Promise(r => setTimeout(r, 300));
                   setShowNurseryTransfer(false);
                   setNurseryTF({ toPond: "", count: "", pct: "100", date: TODAY });
                   onNavigatePond?.(destId);
                 }
               } catch (err: any) {
+                clearInterval(timer);
                 console.error("Nursery transfer error:", err);
                 setNurseryErr({ toPond: err?.message || "Transfer failed. Please try again." });
               } finally {
+                clearInterval(timer);
                 setIsTransferring(false);
+                setTransferProgress(0);
+                setTransferStage("Preparing stock transfer…");
               }
             }}
           >
-            <ArrowRightLeft size={14} /> {isTransferring ? "Transferring..." : "Confirm Transfer"}
+            {isTransferring ? <Loader2 size={14} className="animate-spin" /> : <ArrowRightLeft size={14} />}
+            {isTransferring ? `Transferring (${transferProgress}%)…` : "Confirm Transfer"}
           </PBtn>
           <button disabled={isTransferring} onClick={() => { setShowNurseryTransfer(false); setNurseryTF({ toPond: "", count: "", pct: "100", date: TODAY }); setNurseryErr({}); }} className="px-4 py-2 text-sm text-slate-400">Cancel</button>
         </div>
@@ -1400,7 +1450,33 @@ function PondDetail({
           <p>✓ <strong>{100 - Math.round(Number(transferF.pct))}%</strong> remains in <strong>{pond.name}</strong> ({pond.currentCount - Number(transferF.count||Math.round(pond.currentCount*Number(transferF.pct)/100))} fish).</p>
           <p>✓ Original stocking date, species, and medical treatment records are preserved in both ponds.</p>
         </div>}
-        <div className="flex gap-2 pt-1"><PBtn disabled={isTransferring} onClick={handleTransfer}><ArrowRightLeft size={14}/> {isTransferring ? "Transferring..." : "Confirm Transfer"}</PBtn><button disabled={isTransferring} onClick={()=>{setShowTransfer(false);setTransferF({toPond:"",date:TODAY,pct:"100",count:""});setTransferErr({});}} className="px-4 py-2 text-sm text-slate-400">Cancel</button></div>
+        {isTransferring && (
+          <div className="bg-emerald-50/80 border border-emerald-200 rounded-2xl p-4 space-y-2.5 my-3 animate-fadeIn">
+            <div className="flex items-center justify-between text-xs font-semibold text-emerald-800">
+              <span className="flex items-center gap-2">
+                <Loader2 size={15} className="animate-spin text-emerald-600" />
+                <span>{transferStage}</span>
+              </span>
+              <span className="font-mono font-bold text-emerald-700">{transferProgress}%</span>
+            </div>
+            <div className="w-full bg-emerald-100 rounded-full h-2.5 overflow-hidden shadow-inner">
+              <div
+                className="bg-gradient-to-r from-emerald-500 via-teal-500 to-green-600 h-2.5 rounded-full transition-all duration-200 ease-out shadow-sm"
+                style={{ width: `${transferProgress}%` }}
+              />
+            </div>
+            <p className="text-[11px] text-emerald-600/90 text-center">
+              Please hold on while fish count and stock records are securely updated…
+            </p>
+          </div>
+        )}
+        <div className="flex gap-2 pt-1">
+          <PBtn disabled={isTransferring} onClick={handleTransfer}>
+            {isTransferring ? <Loader2 size={14} className="animate-spin" /> : <ArrowRightLeft size={14} />}
+            {isTransferring ? `Transferring (${transferProgress}%)…` : "Confirm Transfer"}
+          </PBtn>
+          <button disabled={isTransferring} onClick={()=>{setShowTransfer(false);setTransferF({toPond:"",date:TODAY,pct:"100",count:""});setTransferErr({});}} className="px-4 py-2 text-sm text-slate-400">Cancel</button>
+        </div>
       </Modal>}
       {editFeedRec&&<Modal title="Edit Feeding Record" onClose={()=>setEditFeedRec(null)}>
         <div className="grid grid-cols-2 gap-3">
@@ -2068,7 +2144,7 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
 
   if(pond) return (
     <>
-      <PondDetail pond={pond} mortality={mortality} onAddMortality={onAddMortality} onEditMortality={onEditMortality} onDeleteMortality={onDeleteMortality} onAddCost={onAddCost} feedingRecords={feedingRecords} onBack={()=>setDetailId(null)} onClosePond={onClosePond} onRestockPond={(id,data)=>{setFStatus("All");onRestockPond(id,data);}} ponds={ponds} stockEvents={stockEvents} onTransfer={onTransfer} onNurseryTransfer={onNurseryTransfer} treatments={treatments} onAddTreatment={onAddTreatment} onEditFish={onEditFish} onSetMaxKg={onSetMaxKg} inventory={inventory} onEditThisPond={openEditPond} currency={currency} farms={farms} pondReports={pondReports} onAddPondReport={onAddPondReport} fishCountHistory={fishCountHistory} onEditFeedRecord={onEditFeedRecord} onEditTreatment={onEditTreatment} canCreate={canCreate} canEdit={canEdit} canDelete={canDelete} onNavigatePond={setDetailId} onOpenStockHistory={(stockKey)=>{setStockDetailId(stockKey||null);setShowStockHist(true);}}/>
+      <PondDetail pond={pond} mortality={mortality} onAddMortality={onAddMortality} onEditMortality={onEditMortality} onDeleteMortality={onDeleteMortality} onAddCost={onAddCost} feedingRecords={feedingRecords} onBack={()=>setDetailId(null)} onClosePond={onClosePond} onRestockPond={(id,data)=>{setFStatus("All");onRestockPond(id,data);}} ponds={ponds} stockEvents={stockEvents} onTransfer={onTransfer} onNurseryTransfer={onNurseryTransfer} treatments={treatments} onAddTreatment={onAddTreatment} onEditFish={onEditFish} onSetMaxKg={onSetMaxKg} inventory={inventory} onEditThisPond={openEditPond} currency={currency} farms={farms} pondReports={pondReports} onAddPondReport={onAddPondReport} fishCountHistory={fishCountHistory} onEditFeedRecord={onEditFeedRecord} onEditTreatment={onEditTreatment} canCreate={canCreate} canEdit={canEdit} canDelete={canDelete} onNavigatePond={setDetailId}/>
       {editPondModal}
     </>
   );

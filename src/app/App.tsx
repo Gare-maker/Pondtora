@@ -7229,29 +7229,48 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
 
       if (!rpcResult?.success) {
         // Direct database updates fallback
-        await Promise.all([
+        const fallbackTasks: Promise<any>[] = [
           api.ponds.update(updatedFrom),
           api.ponds.update(updatedTo),
-          ...updatedSourceFeed.map(r => api.feeding.update({ ...r, _skipInventoryCheck: true } as any)),
-          ...createdDestFeed.map(r => api.feeding.create({ ...r, _skipInventoryCheck: true } as any)),
-          ...updatedSourceMort.map(m => api.mortality.update(m)),
-          ...createdDestMort.map(m => api.mortality.create(m)),
-          ...updatedSourceTreat.map(t => api.treatments.update(t)),
-          ...createdDestTreat.map(t => api.treatments.create(t)),
+          api.fishCountHistory.create(transferEntryDest),
+          api.fishCountHistory.create(transferEntrySrc),
+          ...newStockEvents.map(se => api.stockEvents.create(se)),
           ...updatedSourceBags.map(b => api.bagLogs.update(b)),
           ...updatedSourceRemains.map(r => api.remainLogs.update(r)),
           ...createdDestRemains.map(r => api.remainLogs.create(r)),
           ...(isFullTransfer
-            ? [
-                ...pondReports.filter(isSourceReport).map(r => api.pondReports.update({ ...r, pondId: toId, pondName: toPond.name, fishStockId: destStockInstanceId })),
-                ...fishCountHistory.filter(h => h.pondId === fromId).map(h => api.fishCountHistory.update({ ...h, pondId: toId, pondName: toPond.name }))
-              ]
-            : createdDestReports.map(r => api.pondReports.create(r))
-          ),
-          api.fishCountHistory.create(transferEntryDest),
-          api.fishCountHistory.create(transferEntrySrc),
-          ...newStockEvents.map(se => api.stockEvents.create(se))
-        ]);
+            ? pondReports.filter(isSourceReport).map(r => api.pondReports.update({ ...r, pondId: toId, pondName: toPond.name, fishStockId: destStockInstanceId }))
+            : createdDestReports.map(r => api.pondReports.create(r)))
+        ];
+
+        // Efficient batch update for feeding records
+        if (isFullTransfer && updatedSourceFeed.length > 0) {
+          fallbackTasks.push(
+            supabase.from("feeding_records")
+              .update({ fish_stock: stockLabel, fish_stock_id: destStockInstanceId })
+              .or(`pond_id.eq.${fromId},pond.ilike.${fromPond.name}`)
+          );
+        }
+
+        // Efficient batch update for mortality entries
+        if (isFullTransfer && updatedSourceMort.length > 0) {
+          fallbackTasks.push(
+            supabase.from("mortality_entries")
+              .update({ fish_stock: stockLabel, fish_stock_id: destStockInstanceId })
+              .eq("pond_id", fromId)
+          );
+        }
+
+        // Efficient batch update for treatments
+        if (isFullTransfer && updatedSourceTreat.length > 0) {
+          fallbackTasks.push(
+            supabase.from("treatment_records")
+              .update({ pond_id: toId, pond_name: toPond.name, fish_stock: stockLabel, fish_stock_id: destStockInstanceId })
+              .eq("pond_id", fromId)
+          );
+        }
+
+        await Promise.allSettled(fallbackTasks);
       } else {
         // RPC handled ponds, feeding, mortality, treatments, stock events, and count history.
         // Sync any bag logs, remain logs, and pond reports:
@@ -7270,8 +7289,6 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       await Promise.allSettled([
         api.ponds.update(updatedFrom),
         api.ponds.update(updatedTo),
-        ...updatedSourceFeed.map(r => api.feeding.update({ ...r, _skipInventoryCheck: true } as any)),
-        ...createdDestFeed.map(r => api.feeding.create({ ...r, _skipInventoryCheck: true } as any)),
         ...updatedSourceBags.map(b => api.bagLogs.update(b)),
         ...updatedSourceRemains.map(r => api.remainLogs.update(r)),
         ...createdDestRemains.map(r => api.remainLogs.create(r)),
@@ -7279,12 +7296,10 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       ]);
     }
 
-    // 11. Refresh backend state automatically so all components and pages are up-to-date
-    try {
-      await loadFromBackend();
-    } catch (reloadErr) {
+    // 11. Refresh backend state asynchronously in the background so the transfer finishes immediately
+    loadFromBackend().catch(reloadErr => {
       console.warn("Post-transfer backend reload note:", reloadErr);
-    }
+    });
 
     // 12. Notification
     const farm = farms.find(f => f.id === activeFarmId) || farms[0];
