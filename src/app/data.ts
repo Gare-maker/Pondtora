@@ -264,6 +264,20 @@ export function formatFishStockDate(d: string | Date | null | undefined): string
 
 export const fmtStockingDate = formatFishStockDate;
 
+const SHORT_MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+export function toDateLabel(dStr: string): string {
+  if (!dStr) return "";
+  const trimmed = dStr.trim();
+  const iso = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) {
+    const mIdx = parseInt(iso[2], 10) - 1;
+    const day = parseInt(iso[3], 10);
+    return `${SHORT_MONTH_NAMES[mIdx] || iso[2]} ${day}`;
+  }
+  return trimmed;
+}
+
 export function formatFishStock(stock: string | null | undefined): string {
   if (!stock || stock === "—" || !stock.trim()) return "—";
   const trimmed = stock.trim();

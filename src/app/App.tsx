@@ -5989,7 +5989,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     if (!checkSubscriptionActive()) return;
     if (!canCreate("Feeding Records")) {
       toast.error("You do not have permission to log feeding.");
-      return;
+      throw new Error("You do not have permission to log feeding.");
     }
     const targetPond = ponds.find(p => (r.pondId && p.id === r.pondId) || (r.pond && p.name.trim().toLowerCase() === r.pond.trim().toLowerCase()));
     const fid=r.farmId||targetPond?.farmId||activeFarmId||farms[0]?.id||"";
@@ -6004,6 +6004,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       pondId: pondId,
       fishStockId: fishStockId,
       fishStock: fishStock,
+      brand: r.brand?.trim() || "Not specified",
     };
 
     // Prevent duplicate feed sizes for the same fish stock/pond on the same date by updating existing in place
@@ -6038,28 +6039,28 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
 
     // Check pellet stock availability
     if (farmRec.size) {
-      const invItems = inventory.filter(f => (!f.farmId || f.farmId === fid) && f.size === farmRec.size);
+      const invItems = inventory.filter(f => (!f.farmId || f.farmId === fid) && isSamePelletSize(f.size, farmRec.size));
       const totalPurchasedKg = invItems.reduce((s, f) => s + (Number(f.totalKg) || (Number(f.bags) * (Number(f.weightPerBag) || 15))), 0);
       const totalPurchasedBags = invItems.reduce((s, f) => s + (Number(f.bags) || 0), 0);
       if (invItems.length === 0 || (totalPurchasedBags <= 0 && totalPurchasedKg <= 0)) {
         toast.error(`Pellet size "${farmRec.size}" is out of stock / empty in Feed Inventory. Please purchase and add feed stock first.`);
-        return;
+        throw new Error(`Pellet size "${farmRec.size}" is out of stock / empty in Feed Inventory.`);
       }
-      const totalFedKg = feeding.filter(fr => (!fr.farmId || fr.farmId === fid) && fr.size === farmRec.size).reduce((s, fr) => s + (Number(fr.total) || ((Number(fr.morning) || 0) + (Number(fr.evening) || 0))), 0);
+      const totalFedKg = feeding.filter(fr => (!fr.farmId || fr.farmId === fid) && isSamePelletSize(fr.size, farmRec.size)).reduce((s, fr) => s + (Number(fr.total) || ((Number(fr.morning) || 0) + (Number(fr.evening) || 0))), 0);
       const availableKg = totalPurchasedKg - totalFedKg;
       if (availableKg <= 0) {
         toast.error(`Pellet size "${farmRec.size}" is completely empty (0 kg remaining in stock). Please add feed stock before feeding.`);
-        return;
+        throw new Error(`Pellet size "${farmRec.size}" is completely empty (0 kg remaining in stock).`);
       }
       const toFeed = (Number(farmRec.morning) || 0) + (Number(farmRec.evening) || 0);
       if (toFeed > availableKg) {
         toast.error(`Insufficient stock for pellet size "${farmRec.size}". Available: ${Math.round(availableKg * 10) / 10} kg, requested: ${toFeed} kg.`);
-        return;
+        throw new Error(`Insufficient stock for pellet size "${farmRec.size}". Available: ${Math.round(availableKg * 10) / 10} kg, requested: ${toFeed} kg.`);
       }
     }
 
     setFeeding(prev=>{
-      const updated=[farmRec,...prev];
+      const updated=[farmRec,...prev.filter(x => x.id !== farmRec.id)];
       if (userProfile?.id) {
         try {
           saveUserLocal(userProfile.id, "feeding", "feedingRecords", updated);
@@ -6083,15 +6084,21 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       }
       return updated;
     });
-    api.feeding.create(farmRec).catch(err => {
+
+    try {
+      const saved = await api.feeding.create(farmRec);
+      return saved || farmRec;
+    } catch (err: any) {
       console.error("Failed to persist feeding record to database:", err);
-    });
+      toast.error(err?.message || "Failed to persist feeding record to database.");
+      throw err;
+    }
   };
   const editFeedRecord=async(r:FeedingRecord)=>{
     if (!checkSubscriptionActive()) return;
     if (!canEdit("Feeding Records")) {
       toast.error("You do not have permission to edit feeding records.");
-      return;
+      throw new Error("You do not have permission to edit feeding records.");
     }
     const targetPond = ponds.find(p => (r.pondId && p.id === r.pondId) || (r.pond && p.name.trim().toLowerCase() === r.pond.trim().toLowerCase()));
     const fid=r.farmId||targetPond?.farmId||activeFarmId||farms[0]?.id||"";
@@ -6105,6 +6112,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       pondId: pondId,
       fishStockId: fishStockId,
       fishStock: fishStock,
+      brand: r.brand?.trim() || "Not specified",
     };
 
     // Prevent duplicate feed sizes for the same fish stock/pond on the same date
@@ -6125,27 +6133,27 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       );
       if (isDuplicate) {
         toast.error(`Feed size "${farmRec.size}" has already been logged for ${farmRec.fishStock || farmRec.pond} on ${farmRec.date}. Duplicate feed sizes are not permitted.`);
-        return;
+        throw new Error(`Feed size "${farmRec.size}" has already been logged.`);
       }
     }
     if (farmRec.size) {
-      const invItems = inventory.filter(f => (!f.farmId || f.farmId === farmRec.farmId) && f.size === farmRec.size);
+      const invItems = inventory.filter(f => (!f.farmId || f.farmId === farmRec.farmId) && isSamePelletSize(f.size, farmRec.size));
       const totalPurchasedKg = invItems.reduce((s, f) => s + (Number(f.totalKg) || (Number(f.bags) * (Number(f.weightPerBag) || 15))), 0);
       const totalPurchasedBags = invItems.reduce((s, f) => s + (Number(f.bags) || 0), 0);
       if (invItems.length === 0 || (totalPurchasedBags <= 0 && totalPurchasedKg <= 0)) {
         toast.error(`Pellet size "${farmRec.size}" is out of stock / empty in Feed Inventory. Please purchase and add feed stock first.`);
-        return;
+        throw new Error(`Pellet size "${farmRec.size}" is out of stock / empty in Feed Inventory.`);
       }
-      const totalFedKg = feeding.filter(fr => (!fr.farmId || fr.farmId === farmRec.farmId) && fr.size === farmRec.size && fr.id !== farmRec.id).reduce((s, fr) => s + (Number(fr.total) || ((Number(fr.morning) || 0) + (Number(fr.evening) || 0))), 0);
+      const totalFedKg = feeding.filter(fr => (!fr.farmId || fr.farmId === farmRec.farmId) && isSamePelletSize(fr.size, farmRec.size) && fr.id !== farmRec.id).reduce((s, fr) => s + (Number(fr.total) || ((Number(fr.morning) || 0) + (Number(fr.evening) || 0))), 0);
       const availableKg = totalPurchasedKg - totalFedKg;
       if (availableKg <= 0) {
         toast.error(`Pellet size "${farmRec.size}" is completely empty (0 kg remaining in stock). Please add feed stock before feeding.`);
-        return;
+        throw new Error(`Pellet size "${farmRec.size}" is completely empty (0 kg remaining in stock).`);
       }
       const toFeed = (Number(farmRec.morning) || 0) + (Number(farmRec.evening) || 0);
       if (toFeed > availableKg) {
         toast.error(`Insufficient stock for pellet size "${farmRec.size}". Available: ${Math.round(availableKg * 10) / 10} kg, requested: ${toFeed} kg.`);
-        return;
+        throw new Error(`Insufficient stock for pellet size "${farmRec.size}". Available: ${Math.round(availableKg * 10) / 10} kg, requested: ${toFeed} kg.`);
       }
     }
     setFeeding(prev=>{
@@ -6161,9 +6169,14 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       return next;
     });
     toast.success("Feeding record updated");
-    api.feeding.update(farmRec).catch(err => {
+    try {
+      const saved = await api.feeding.update(farmRec);
+      return saved || farmRec;
+    } catch (err: any) {
       console.error("Failed to update feeding record in database:", err);
-    });
+      toast.error(err?.message || "Failed to update feeding record in database.");
+      throw err;
+    }
   };
   const deleteFeedRecord=async(id:string)=>{
     if (!checkSubscriptionActive()) return;
@@ -6535,8 +6548,18 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       toast.error(err?.message || "Failed to delete pond. Kept visible.");
     }
   };
+  const recentMortRef = useRef<{ key: string; time: number }[]>([]);
   const addMort=async(m:MortalityEntry,pondId:string)=>{
     if (!checkSubscriptionActive()) return;
+    const now = Date.now();
+    const mortKey = `${pondId}_${m.date}_${m.count}_${m.cause || ""}`;
+    if (recentMortRef.current.some(r => r.key === mortKey && (now - r.time) < 4000)) {
+      console.warn("Debounced duplicate mortality submission:", mortKey);
+      return;
+    }
+    recentMortRef.current.push({ key: mortKey, time: now });
+    recentMortRef.current = recentMortRef.current.filter(r => (now - r.time) < 30000);
+
     const fid=m.farmId||activeFarmId||farms[0]?.id||"";
     const updPond=ponds.find(p=>p.id===pondId);
     const fStock=m.fishStock || (updPond ? getPondFishStock(updPond) : undefined);
@@ -6551,7 +6574,10 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       fishStockId: fStockId,
     };
     toast.success("Mortality recorded");
-    setMortality(prev=>[farmMort,...prev]);
+    setMortality(prev => {
+      if (prev.some(x => x.id === farmMort.id)) return prev;
+      return [farmMort, ...prev];
+    });
     const prevCount = updPond ? Number(updPond.currentCount) || 0 : 0;
     const newCount = Math.max(0, prevCount - farmMort.count);
     setPonds(prev=>prev.map(p=>p.id===pondId?{...p,currentCount:newCount}:p));
@@ -7655,12 +7681,27 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     const serverMort: MortalityEntry[] = Array.isArray(d.mortalityEntries) ? d.mortalityEntries : [];
     const localMort: MortalityEntry[] = userProfile?.id ? loadUserLocal(userProfile.id, "mortality", "mortalityEntries", []) : [];
     const serverMortIds = new Set(serverMort.map(m => m.id));
-    const pendingLocalMort = localMort.filter(lm => lm?.id && !serverMortIds.has(lm.id) && !isDeletedId(lm.id));
+    const pendingLocalMort = localMort.filter(lm => {
+      if (!lm?.id || isDeletedId(lm.id) || serverMortIds.has(lm.id)) return false;
+      const isDupOnServer = serverMort.some(sm =>
+        sm.pondId === lm.pondId &&
+        isSameDate(sm.date, lm.date) &&
+        Number(sm.count) === Number(lm.count) &&
+        (sm.cause || "") === (lm.cause || "")
+      );
+      return !isDupOnServer;
+    });
     const mortData: MortalityEntry[] = [...serverMort.filter(m => !isDeletedId(m.id)), ...pendingLocalMort];
     if (pendingLocalMort.length > 0) {
       pendingLocalMort.forEach(m => api.mortality.create(m).catch(console.warn));
     }
-    const normMort = mortData.map((m: MortalityEntry) => ({ ...m, farmId: normFid(m.farmId) }));
+    const seenMortIds = new Set<string>();
+    const uniqueMortData = mortData.filter(m => {
+      if (!m?.id || seenMortIds.has(m.id)) return false;
+      seenMortIds.add(m.id);
+      return true;
+    });
+    const normMort = uniqueMortData.map((m: MortalityEntry) => ({ ...m, farmId: normFid(m.farmId) }));
     setMortality(normMort);
 
     const serverTreat: TreatmentRecord[] = Array.isArray(d.treatmentRecords) ? d.treatmentRecords : [];
@@ -10238,7 +10279,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
             ) : (
               <AppErrorBoundary key={active}>
                 {active==="financial"     &&(hasPerm("Financial Dashboard")?<FinancialDashboard expenses={farmExpenses} revenues={farmRevenues} onAddExpense={addExp} onAddRevenue={addRev} onEditExpense={editExp} onEditRevenue={editRev} stockEvents={farmStockEvents} ponds={farmPonds} inventory={farmInventory} bagLogs={farmBagLogs} currency={cs} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}} canCreate={canCreate("Financial Dashboard")} canEdit={canEdit("Financial Dashboard")} canDelete={canDelete("Financial Dashboard")}/>:<AccessDenied/>)}
-                {active==="ponds"         &&(hasPerm("Pond Management")?<PondManagementPage ponds={farmPonds} onAddPond={addPond} onClosePond={closePond} onRestockPond={restockPond} onTransfer={transferStock} onNurseryTransfer={nurseryTransfer} mortality={farmMortality} onAddMortality={addMort} onEditMortality={editMort} onDeleteMortality={deleteMort} onAddCost={addExp} feedingRecords={farmFeeding} stockEvents={farmStockEvents} treatments={farmTreatments} onAddTreatment={addTreatment} activeFarmId={activeFarmId} onDeletePond={deletePond} onEditFish={editFish} onSetMaxKg={setPondMaxKg} onEditPond={handleEditPond} onReorderPonds={handleReorderPonds} onScrollTop={()=>mainRef.current?.scrollTo({top:0,behavior:"instant"})} currency={cs} inventory={farmInventory} farms={farms} pondReports={farmPondReports} onAddPondReport={handleAddPondReport} fishCountHistory={fishCountHistory} onEditFeedRecord={editFeedRecord} onEditTreatment={handleEditTreatment} canCreate={canCreate("Pond Management")} canEdit={canEdit("Pond Management")} canDelete={canDelete("Pond Management")}/>:<AccessDenied/>)}
+                {active==="ponds"         &&(hasPerm("Pond Management")?<PondManagementPage ponds={farmPonds} onAddPond={addPond} onClosePond={closePond} onRestockPond={restockPond} onTransfer={transferStock} onNurseryTransfer={nurseryTransfer} mortality={farmMortality} onAddMortality={addMort} onEditMortality={editMort} onDeleteMortality={deleteMort} onAddCost={addExp} feedingRecords={farmFeeding} onAddFeedRecord={addFeed} stockEvents={farmStockEvents} treatments={farmTreatments} onAddTreatment={addTreatment} activeFarmId={activeFarmId} onDeletePond={deletePond} onEditFish={editFish} onSetMaxKg={setPondMaxKg} onEditPond={handleEditPond} onReorderPonds={handleReorderPonds} onScrollTop={()=>mainRef.current?.scrollTo({top:0,behavior:"instant"})} currency={cs} inventory={farmInventory} farms={farms} pondReports={farmPondReports} onAddPondReport={handleAddPondReport} fishCountHistory={fishCountHistory} onEditFeedRecord={editFeedRecord} onEditTreatment={handleEditTreatment} canCreate={canCreate("Pond Management")} canEdit={canEdit("Pond Management")} canDelete={canDelete("Pond Management")}/>:<AccessDenied/>)}
                 {active==="inventory"     &&(hasPerm("Feed Stock")?<FeedInventoryPage inventory={farmInventory} onAdd={addInv} onDelete={delInv} feedingRecords={farmFeeding} bagLogs={farmBagLogs} remainLogs={farmRemainLogs} ponds={farmPonds} onEditBagLog={editBagLog} onEditInv={editInv} currency={cs} canEditLocked={isOwner||currentStaff?.role==="Farm Manager"} canCreate={canCreate("Feed Stock")} canEdit={canEdit("Feed Stock")} canDelete={canDelete("Feed Stock")}/>:<AccessDenied/>)}
                 {active==="documentation" &&(hasPerm("Feeding Records")?<FeedDocumentationPage feedingRecords={farmFeeding} onAddRecord={addFeed} onEditFeedRecord={editFeedRecord} onDeleteRecord={deleteFeedRecord} ponds={farmPonds} inventory={farmInventory} bagLogs={farmBagLogs} onAddBagLog={addBagLog} onEditBagLog={editBagLog} onEditInv={editInv} remainLogs={farmRemainLogs} onAddRemainLog={addRemainLog} onEditRemainLog={editRemainLog} onReconMismatches={onReconMismatches} reconFocus={reconFocus} canEditLocked={isOwner||currentStaff?.role==="Farm Manager"} currentUser={{name:currentStaff?.name||userProfile?.name||"",email:userProfile?.email||""}} canCreate={canCreate("Feeding Records")} canEdit={canEdit("Feeding Records")} canDelete={canDelete("Feeding Records")} stockEvents={farmStockEvents}/>:<AccessDenied/>)}
                 {active==="invoices"      &&(hasPerm("Invoices")||hasPerm("Sales Management")||hasPerm("Sales Calculator")?<InvoicesPage ponds={farmPonds} invoices={farmInvoices} customers={farmCustomers} priceGroups={farmPriceGroups} settings={invSettings} onAddInvoice={addInvoice} onEditInvoice={editInvoice} onDeleteInvoice={deleteInvoice} onAddCustomer={addCustomer} onAddPriceGroup={addPriceGroup} onEditPriceGroup={editPriceGroup} onDeletePriceGroup={delPriceGroup} onUpdateSettings={(s)=>{setInvSettings(s);api.invSettings.update(s).catch(console.warn);}} currentUser={userProfile?.name} currency={cs} canCreate={canCreate("Invoices")} canEdit={canEdit("Invoices")} canDelete={canDelete("Invoices")}/>:<AccessDenied/>)}

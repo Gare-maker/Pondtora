@@ -11,6 +11,7 @@ import type {
   SalesCalculation, SalesCalculationItem, SalesCalculationPayment, SalesCalculationEditHistoryEntry,
 } from "../app/types";
 import { INIT_K, INIT_C } from "../app/questionsData";
+import { isSamePelletSize } from "../app/data";
 
 // Dedicated non-persisting client for background staff auth provisioning
 // Guarantees the logged-in owner's session in localStorage is NEVER overwritten
@@ -2620,24 +2621,27 @@ export const api = {
         if (d) dbRec.date = d;
       }
       const effectiveUid = (await getOwnerUserId()) || (await getUserId());
-      // Prevent duplicate feed sizes for the same stock/pond on the same date
+      // Prevent duplicate feed sizes for the same stock/pond on the same date by updating existing in place
       if (effectiveUid && dbRec.date && dbRec.size && (dbRec.pond || dbRec.fish_stock || dbRec.fishStock)) {
         let q = supabase
           .from("feeding_records")
-          .select("id, pond, fish_stock, size, date")
+          .select("id, pond, fish_stock, size, date, morning, evening, total")
           .eq("user_id", effectiveUid)
-          .eq("date", dbRec.date)
-          .eq("size", dbRec.size);
+          .eq("date", dbRec.date);
         if (dbRec.pond) {
           q = q.eq("pond", dbRec.pond);
         }
-        const fsVal = dbRec.fish_stock || dbRec.fishStock;
-        if (fsVal) {
-          q = q.eq("fish_stock", fsVal);
-        }
-        const { data: existingDups } = await q;
-        if (existingDups && existingDups.length > 0) {
-          throw new Error(`Feed size "${dbRec.size}" has already been logged for ${dbRec.fish_stock || dbRec.fishStock || dbRec.pond} on ${dbRec.date}. Duplicate feed sizes are not permitted.`);
+        const { data: existingRecords } = await q;
+        const matchingDup = (existingRecords || []).find((er: any) =>
+          isSamePelletSize(er.size, dbRec.size) &&
+          er.id !== dbRec.id
+        );
+        if (matchingDup) {
+          return api.feeding.update({
+            ...dbRec,
+            id: matchingDup.id,
+            _skipInventoryCheck: skipCheck,
+          });
         }
       }
 
@@ -2647,19 +2651,19 @@ export const api = {
           const { data: invRows } = await supabase
             .from("feed_inventory")
             .select("size, bags, weight_per_bag, total_kg")
-            .eq("user_id", effectiveUid)
-            .eq("size", dbRec.size);
-          const totalPurchasedKg = (invRows || []).reduce((s: number, f: any) => s + (Number(f.total_kg) || (Number(f.bags) * (Number(f.weight_per_bag) || 15))), 0);
-          const totalPurchasedBags = (invRows || []).reduce((s: number, f: any) => s + (Number(f.bags) || 0), 0);
-          if (!invRows || invRows.length === 0 || (totalPurchasedBags <= 0 && totalPurchasedKg <= 0)) {
+            .eq("user_id", effectiveUid);
+          const matchingInv = (invRows || []).filter((f: any) => isSamePelletSize(f.size, dbRec.size));
+          const totalPurchasedKg = matchingInv.reduce((s: number, f: any) => s + (Number(f.total_kg) || (Number(f.bags) * (Number(f.weight_per_bag) || 15))), 0);
+          const totalPurchasedBags = matchingInv.reduce((s: number, f: any) => s + (Number(f.bags) || 0), 0);
+          if (matchingInv.length === 0 || (totalPurchasedBags <= 0 && totalPurchasedKg <= 0)) {
             throw new Error(`Pellet size "${dbRec.size}" is out of stock / empty in Feed Inventory. Please purchase and record feed stock before logging feeding.`);
           }
           const { data: fedRows } = await supabase
             .from("feeding_records")
-            .select("morning, evening, total")
-            .eq("user_id", effectiveUid)
-            .eq("size", dbRec.size);
-          const totalFedKg = (fedRows || []).reduce((s: number, fr: any) => s + (Number(fr.total) || ((Number(fr.morning) || 0) + (Number(fr.evening) || 0))), 0);
+            .select("morning, evening, total, size")
+            .eq("user_id", effectiveUid);
+          const matchingFed = (fedRows || []).filter((fr: any) => isSamePelletSize(fr.size, dbRec.size));
+          const totalFedKg = matchingFed.reduce((s: number, fr: any) => s + (Number(fr.total) || ((Number(fr.morning) || 0) + (Number(fr.evening) || 0))), 0);
           const availableKg = totalPurchasedKg - totalFedKg;
           if (availableKg <= 0) {
             throw new Error(`Pellet size "${dbRec.size}" is completely empty (0 kg remaining in stock). Please add feed stock before feeding.`);
@@ -2689,17 +2693,13 @@ export const api = {
           .select("id, pond, fish_stock, size, date")
           .eq("user_id", effectiveUid)
           .eq("date", dbRec.date)
-          .eq("size", dbRec.size)
           .neq("id", dbRec.id);
         if (dbRec.pond) {
           q = q.eq("pond", dbRec.pond);
         }
-        const fsVal = dbRec.fish_stock || dbRec.fishStock;
-        if (fsVal) {
-          q = q.eq("fish_stock", fsVal);
-        }
-        const { data: existingDups } = await q;
-        if (existingDups && existingDups.length > 0) {
+        const { data: existingRecords } = await q;
+        const isDup = (existingRecords || []).some((er: any) => isSamePelletSize(er.size, dbRec.size));
+        if (isDup) {
           throw new Error(`Feed size "${dbRec.size}" has already been logged for ${dbRec.fish_stock || dbRec.fishStock || dbRec.pond} on ${dbRec.date}. Duplicate feed sizes are not permitted.`);
         }
       }
@@ -2709,26 +2709,26 @@ export const api = {
           const { data: invRows } = await supabase
             .from("feed_inventory")
             .select("size, bags, weight_per_bag, total_kg")
-            .eq("user_id", effectiveUid)
-            .eq("size", dbRec.size);
-          const totalPurchasedKg = (invRows || []).reduce((s: number, f: any) => s + (Number(f.total_kg) || (Number(f.bags) * (Number(f.weight_per_bag) || 15))), 0);
-          const totalPurchasedBags = (invRows || []).reduce((s: number, f: any) => s + (Number(f.bags) || 0), 0);
-          if (!invRows || invRows.length === 0 || (totalPurchasedBags <= 0 && totalPurchasedKg <= 0)) {
+            .eq("user_id", effectiveUid);
+          const matchingInv = (invRows || []).filter((f: any) => isSamePelletSize(f.size, dbRec.size));
+          const totalPurchasedKg = matchingInv.reduce((s: number, f: any) => s + (Number(f.total_kg) || (Number(f.bags) * (Number(f.weight_per_bag) || 15))), 0);
+          const totalPurchasedBags = matchingInv.reduce((s: number, f: any) => s + (Number(f.bags) || 0), 0);
+          if (matchingInv.length === 0 || (totalPurchasedBags <= 0 && totalPurchasedKg <= 0)) {
             throw new Error(`Pellet size "${dbRec.size}" is out of stock / empty in Feed Inventory. Please purchase and record feed stock before logging feeding.`);
           }
           const { data: fedRows } = await supabase
             .from("feeding_records")
-            .select("id, morning, evening, total")
-            .eq("user_id", effectiveUid)
-            .eq("size", dbRec.size);
-          const oldFedRow = (fedRows || []).find((fr: any) => fr.id === dbRec.id);
+            .select("id, morning, evening, total, size")
+            .eq("user_id", effectiveUid);
+          const matchingFed = (fedRows || []).filter((fr: any) => isSamePelletSize(fr.size, dbRec.size));
+          const oldFedRow = matchingFed.find((fr: any) => fr.id === dbRec.id);
           const oldFeed = oldFedRow ? (Number(oldFedRow.total) || ((Number(oldFedRow.morning) || 0) + (Number(oldFedRow.evening) || 0))) : 0;
           const toFeed = (Number(dbRec.morning) || 0) + (Number(dbRec.evening) || 0);
           const diff = toFeed - oldFeed;
 
           // Only validate stock availability if the user is actually increasing feed consumption
           if (diff > 0) {
-            const totalFedOthers = (fedRows || []).filter((fr: any) => fr.id !== dbRec.id).reduce((s: number, fr: any) => s + (Number(fr.total) || ((Number(fr.morning) || 0) + (Number(fr.evening) || 0))), 0);
+            const totalFedOthers = matchingFed.filter((fr: any) => fr.id !== dbRec.id).reduce((s: number, fr: any) => s + (Number(fr.total) || ((Number(fr.morning) || 0) + (Number(fr.evening) || 0))), 0);
             const availableKg = totalPurchasedKg - totalFedOthers - oldFeed;
             if (availableKg <= 0) {
               throw new Error(`Pellet size "${dbRec.size}" is completely empty (0 kg remaining in stock). Please add feed stock before increasing feeding.`);
