@@ -2661,28 +2661,36 @@ export const api = {
           const farmId = dbRec.farm_id || dbRec.farmId;
           const { data: invRows } = await supabase
             .from("feed_inventory")
-            .select("size, bags, weight_per_bag, total_kg, farm_id")
+            .select("brand, size, bags, weight_per_bag, total_kg, farm_id")
             .eq("user_id", effectiveUid);
           const farmInvRows = (invRows || []).filter((f: any) => !farmId || !f.farm_id || f.farm_id === farmId);
           const matchingInv = farmInvRows.filter((f: any) => isSamePelletSize(f.size, dbRec.size));
-          const totalPurchasedKg = matchingInv.reduce((s: number, f: any) => s + (Number(f.total_kg) || (Number(f.bags) * (Number(f.weight_per_bag) || 15))), 0);
-          const totalPurchasedBags = matchingInv.reduce((s: number, f: any) => s + (Number(f.bags) || 0), 0);
-          if (matchingInv.length === 0 || (totalPurchasedBags <= 0 && totalPurchasedKg <= 0)) {
-            throw new Error(`Pellet size "${dbRec.size}" is out of stock / empty in Feed Inventory. Please purchase and record feed stock before logging feeding.`);
+          if (matchingInv.length === 0) {
+            throw new Error(`Pellet size "${dbRec.size}" is out of stock in Feed Inventory. Please purchase and record feed stock before logging feeding.`);
           }
-          const { data: fedRows } = await supabase
-            .from("feeding_records")
-            .select("id, morning, evening, total, size, farm_id")
+          const { data: bagLogsRows } = await supabase
+            .from("bag_open_logs")
+            .select("brand, size, bags_opened, farm_id")
             .eq("user_id", effectiveUid);
-          const farmFedRows = (fedRows || []).filter((fr: any) => (!farmId || !fr.farm_id || fr.farm_id === farmId) && isSamePelletSize(fr.size, dbRec.size) && fr.id !== dbRec.id);
-          const totalFedKg = farmFedRows.reduce((s: number, fr: any) => s + (Number(fr.total) || ((Number(fr.morning) || 0) + (Number(fr.evening) || 0))), 0);
-          const availableKg = totalPurchasedKg - totalFedKg;
-          if (availableKg <= 0) {
-            throw new Error(`Pellet size "${dbRec.size}" is completely empty (0 kg remaining in stock). Please add feed stock before feeding.`);
+          const farmBagLogs = (bagLogsRows || []).filter((b: any) => !farmId || !b.farm_id || b.farm_id === farmId);
+          let inStockBags = 0;
+          let inStockKg = 0;
+          matchingInv.forEach((inv: any) => {
+            const opened = farmBagLogs
+              .filter((b: any) => (b.brand || "").toLowerCase().trim() === (inv.brand || "").toLowerCase().trim() && isSamePelletSize(b.size, inv.size))
+              .reduce((s: number, b: any) => s + (Number(b.bags_opened) || 0), 0);
+            const wpb = Number(inv.weight_per_bag) || 15;
+            const remaining = Math.max(0, (Number(inv.bags) || 0) - opened);
+            inStockBags += remaining;
+            inStockKg += remaining * wpb;
+          });
+
+          if (inStockBags <= 0 && inStockKg <= 0) {
+            throw new Error(`Pellet size "${dbRec.size}" is completely empty (0 bags in stock). Please add feed stock before feeding.`);
           }
           const toFeed = (Number(dbRec.morning) || 0) + (Number(dbRec.evening) || 0);
-          if (toFeed > availableKg) {
-            throw new Error(`Insufficient stock for pellet size "${dbRec.size}". Available: ${Math.round(availableKg * 10) / 10} kg, but attempting to feed ${toFeed} kg.`);
+          if (inStockKg > 0 && toFeed > inStockKg) {
+            throw new Error(`Insufficient stock for pellet size "${dbRec.size}". Available: ${Math.round(inStockKg * 10) / 10} kg, but attempting to feed ${toFeed} kg.`);
           }
         }
       }
@@ -2730,35 +2738,36 @@ export const api = {
           const farmId = dbRec.farm_id || dbRec.farmId;
           const { data: invRows } = await supabase
             .from("feed_inventory")
-            .select("size, bags, weight_per_bag, total_kg, farm_id")
+            .select("brand, size, bags, weight_per_bag, total_kg, farm_id")
             .eq("user_id", effectiveUid);
           const farmInvRows = (invRows || []).filter((f: any) => !farmId || !f.farm_id || f.farm_id === farmId);
           const matchingInv = farmInvRows.filter((f: any) => isSamePelletSize(f.size, dbRec.size));
-          const totalPurchasedKg = matchingInv.reduce((s: number, f: any) => s + (Number(f.total_kg) || (Number(f.bags) * (Number(f.weight_per_bag) || 15))), 0);
-          const totalPurchasedBags = matchingInv.reduce((s: number, f: any) => s + (Number(f.bags) || 0), 0);
-          if (matchingInv.length === 0 || (totalPurchasedBags <= 0 && totalPurchasedKg <= 0)) {
-            throw new Error(`Pellet size "${dbRec.size}" is out of stock / empty in Feed Inventory. Please purchase and record feed stock before logging feeding.`);
+          if (matchingInv.length === 0) {
+            throw new Error(`Pellet size "${dbRec.size}" is out of stock in Feed Inventory. Please purchase and record feed stock before logging feeding.`);
           }
-          const { data: fedRows } = await supabase
-            .from("feeding_records")
-            .select("id, morning, evening, total, size, farm_id")
+          const { data: bagLogsRows } = await supabase
+            .from("bag_open_logs")
+            .select("brand, size, bags_opened, farm_id")
             .eq("user_id", effectiveUid);
-          const farmFedRows = (fedRows || []).filter((fr: any) => (!farmId || !fr.farm_id || fr.farm_id === farmId) && isSamePelletSize(fr.size, dbRec.size));
-          const oldFedRow = farmFedRows.find((fr: any) => fr.id === dbRec.id);
-          const oldFeed = oldFedRow ? (Number(oldFedRow.total) || ((Number(oldFedRow.morning) || 0) + (Number(oldFedRow.evening) || 0))) : 0;
-          const toFeed = (Number(dbRec.morning) || 0) + (Number(dbRec.evening) || 0);
-          const diff = toFeed - oldFeed;
+          const farmBagLogs = (bagLogsRows || []).filter((b: any) => !farmId || !b.farm_id || b.farm_id === farmId);
+          let inStockBags = 0;
+          let inStockKg = 0;
+          matchingInv.forEach((inv: any) => {
+            const opened = farmBagLogs
+              .filter((b: any) => (b.brand || "").toLowerCase().trim() === (inv.brand || "").toLowerCase().trim() && isSamePelletSize(b.size, inv.size))
+              .reduce((s: number, b: any) => s + (Number(b.bags_opened) || 0), 0);
+            const wpb = Number(inv.weight_per_bag) || 15;
+            const remaining = Math.max(0, (Number(inv.bags) || 0) - opened);
+            inStockBags += remaining;
+            inStockKg += remaining * wpb;
+          });
 
-          // Only validate stock availability if the user is actually increasing feed consumption
-          if (diff > 0) {
-            const totalFedOthers = farmFedRows.filter((fr: any) => fr.id !== dbRec.id).reduce((s: number, fr: any) => s + (Number(fr.total) || ((Number(fr.morning) || 0) + (Number(fr.evening) || 0))), 0);
-            const availableKg = totalPurchasedKg - totalFedOthers - oldFeed;
-            if (availableKg <= 0) {
-              throw new Error(`Pellet size "${dbRec.size}" is completely empty (0 kg remaining in stock). Please add feed stock before increasing feeding.`);
-            }
-            if (diff > availableKg) {
-              throw new Error(`Insufficient stock for pellet size "${dbRec.size}". Available: ${Math.round(availableKg * 10) / 10} kg, but attempting to add ${diff} kg.`);
-            }
+          if (inStockBags <= 0 && inStockKg <= 0) {
+            throw new Error(`Pellet size "${dbRec.size}" is completely empty (0 bags in stock). Please add feed stock before feeding.`);
+          }
+          const toFeed = (Number(dbRec.morning) || 0) + (Number(dbRec.evening) || 0);
+          if (inStockKg > 0 && toFeed > inStockKg) {
+            throw new Error(`Insufficient stock for pellet size "${dbRec.size}". Available: ${Math.round(inStockKg * 10) / 10} kg, but attempting to add feed exceeding in-stock.`);
           }
         }
       }

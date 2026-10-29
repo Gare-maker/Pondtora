@@ -597,8 +597,10 @@ function PondDetail({
     const pIdNorm = (pond.id || "").trim().toLowerCase();
 
     // Check for prior closed cycles in stockEvents to isolate old historical lifecycles
+    const pNameCompact = (pond.name || "").replace(/\s+/g, "").toLowerCase();
+    const pIdCompact = (pond.id || "").toLowerCase();
     const closedEvents = (stockEvents || []).filter(e => 
-      (e.pondId === pond.id || (e.pondName && e.pondName.trim().toLowerCase() === pNameNorm)) && e.type === "Closed"
+      (e.pondId === pond.id || (e.pondName && e.pondName.replace(/\s+/g, "").toLowerCase() === pNameCompact)) && e.type === "Closed"
     );
     const hasPriorClosedCycle = closedEvents.length > 0;
     const latestClosedDate = hasPriorClosedCycle
@@ -606,11 +608,11 @@ function PondDetail({
       : null;
 
     return feedingRecords.filter(r => {
-      // 1. Match Pond (by name, ID, or pondId property, case/whitespace insensitive)
-      const rPondNorm = (r.pond || "").trim().toLowerCase();
+      // 1. Match Pond (by ID or pond name, case/whitespace insensitive)
+      const rPondCompact = (r.pond || "").replace(/\s+/g, "").toLowerCase();
       const isSamePond = Boolean(
         (r.pondId && r.pondId === pond.id) ||
-        (rPondNorm && (rPondNorm === pNameNorm || rPondNorm === pIdNorm))
+        (rPondCompact && (rPondCompact === pNameCompact || rPondCompact === pIdCompact))
       );
       if (!isSamePond) return false;
 
@@ -618,7 +620,6 @@ function PondDetail({
       if (latestClosedDate && rDate && rDate <= latestClosedDate) return false;
 
       const fsTrimmed = (r.fishStock || "").trim();
-      const fsLower = fsTrimmed.toLowerCase();
 
       // Check if this record explicitly matches a past closed batch for this pond
       const matchesClosedBatch = Boolean(fsTrimmed) && closedEvents.some(ce => {
@@ -632,24 +633,6 @@ function PondDetail({
         return true;
       }
 
-      // Check if this record explicitly matches current active stock
-      const matchesCurrentBatch = fsTrimmed && (
-        (pond.fishStock && (fsTrimmed === pond.fishStock || isStockMatch(fsTrimmed, pond.fishStock, ponds))) ||
-        (pStockIdentity && isStockMatch(fsTrimmed, pStockIdentity, ponds)) ||
-        (activeFishStockLabel && isStockMatch(fsTrimmed, activeFishStockLabel, ponds)) ||
-        (defaultFishStockLabel && isStockMatch(fsTrimmed, defaultFishStockLabel, ponds)) ||
-        isStockMatch(fsTrimmed, getPondFishStock(pond)) ||
-        (pond.stockingDate && (isSameDate(fsTrimmed, pond.stockingDate) || isStockMatch(fsTrimmed, fmtStockingDate(pond.stockingDate))))
-      );
-
-      if (pStockDbDate && rDate && rDate < pStockDbDate) {
-        if (!fsTrimmed || !matchesCurrentBatch || fsLower === (pond.species || "").trim().toLowerCase()) {
-          return false;
-        }
-      }
-
-      if (matchesCurrentBatch) return true;
-      if (!pStockDbDate || (rDate && rDate >= pStockDbDate)) return true;
       return true;
     });
   }, [feedingRecords, pond.id, pond.name, pond.species, pond.status, pond.stockingDate, pond.fishStock, pStockDbDate, pDateLabel, pStockIdentity, activeFishStockLabel, defaultFishStockLabel, stockEvents, ponds]);

@@ -1143,7 +1143,7 @@ function FeedDocumentation({
 
   /* Helper to check current available stock for a Pellet Size across ALL brands in inventory and feedings */
   const getPelletStock = (size: string, excludeRecordId?: string) => {
-    if (!size) return { availableQty: 0, availableKg: 0, inStockBags: 0, totalPurchasedBags: 0, totalPurchasedKg: 0, totalFedKg: 0, exists: false };
+    if (!size) return { availableQty: 0, availableKg: 0, inStockBags: 0, totalPurchasedBags: 0, totalPurchasedKg: 0, totalFedKg: 0, exists: false, weightPerBag: 15 };
 
     // Group all eligible inventory records matching this pellet size
     const matchingInv = (inventory || []).filter(f => f && isSamePelletSize(f.size, size));
@@ -1151,19 +1151,33 @@ function FeedDocumentation({
     const totalPurchasedBags = matchingInv.reduce((s, f) => s + (Number(f.bags) || 0), 0);
     const defaultWpb = totalPurchasedBags > 0 ? (totalPurchasedKg / totalPurchasedBags) : (matchingInv[0]?.weightPerBag || 15);
 
+    // Group inventory by brand + size to calculate exact inStock bags matching FeedInventoryPage
+    const brandMap: Record<string, { brand: string; size: string; bags: number; wpb: number }> = {};
+    matchingInv.forEach(f => {
+      const k = `${(f.brand || "").toLowerCase().trim()}|${(f.size || "").toLowerCase().trim()}`;
+      if (!brandMap[k]) brandMap[k] = { brand: f.brand, size: f.size, bags: 0, wpb: Number(f.weightPerBag) || 15 };
+      brandMap[k].bags += Number(f.bags) || 0;
+    });
+
+    let inStockBags = 0;
+    let inStockKg = 0;
+    Object.values(brandMap).forEach(row => {
+      const opened = (bagLogs || [])
+        .filter(b => b && (b.brand || "").toLowerCase().trim() === (row.brand || "").toLowerCase().trim() && isSamePelletSize(b.size, row.size))
+        .reduce((sb, b) => sb + (Number(b.bagsOpened) || 0), 0);
+      const rowInStock = Math.max(0, row.bags - opened);
+      inStockBags += rowInStock;
+      inStockKg += rowInStock * row.wpb;
+    });
+
     const relevantFeeding = (feedingRecords || []).filter(fr => fr && isSamePelletSize(fr.size, size) && (excludeRecordId ? fr.id !== excludeRecordId : true));
     const totalFedKg = relevantFeeding.reduce((s, fr) => s + (Number(fr.total) || ((Number(fr.morning) || 0) + (Number(fr.evening) || 0))), 0);
 
-    // Remaining usable kg across all eligible stock records
-    const availableKg = Math.max(0, totalPurchasedKg - totalFedKg);
-    // Calculate usable full and partial bags from remaining usable quantity
-    const inStockBags = defaultWpb > 0 ? Math.floor(availableKg / defaultWpb) : 0;
-    const availableQty = defaultWpb > 0 ? Math.round((availableKg / defaultWpb) * 10) / 10 : 0;
     const exists = matchingInv.length > 0 && (totalPurchasedBags > 0 || totalPurchasedKg > 0);
 
     return {
-      availableQty,
-      availableKg,
+      availableQty: inStockBags,
+      availableKg: inStockKg,
       inStockBags,
       totalPurchasedBags,
       totalPurchasedKg,
@@ -2276,17 +2290,16 @@ function FeedDocumentation({
     const list: { pond: Pond; rec: FeedingRecord | null }[] = [];
     activePondsForSelectedStock.forEach(pond => {
       const pNameNorm = (pond.name || "").trim().toLowerCase();
+      const pNameCompact = (pond.name || "").replace(/\s+/g, "").toLowerCase();
       const closedEvents = (stockEvents || []).filter(e =>
-        (e.pondId === pond.id || (e.pondName && e.pondName.trim().toLowerCase() === pNameNorm)) && e.type === "Closed"
+        (e.pondId === pond.id || (e.pondName && e.pondName.replace(/\s+/g, "").toLowerCase() === pNameCompact)) && e.type === "Closed"
       );
       const latestClosedDate = closedEvents.length > 0
         ? closedEvents.map(e => toValidDbDate(e.clearedDate || e.date)).filter(Boolean).sort().reverse()[0]
         : null;
-      const pondStock = getPondFishStock(pond);
-      const pondStockDbDate = toValidDbDate(pond.stockingDate);
 
       const recs = dayRecords.filter(r => {
-        const matchesPond = (r.pondId && r.pondId === pond.id) || (r.pond || "").trim().toLowerCase() === pNameNorm;
+        const matchesPond = (r.pondId && r.pondId === pond.id) || (r.pond && r.pond.replace(/\s+/g, "").toLowerCase() === pNameCompact);
         if (!matchesPond) return false;
 
         const rStock = (r.fishStock || "").trim();
@@ -2305,23 +2318,6 @@ function FeedDocumentation({
         const rDate = toValidDbDate(r.date);
         // If there's a closed date and this record is on or before it, it belongs to closed stock
         if (latestClosedDate && rDate && rDate <= latestClosedDate) return false;
-
-        // If record date is before pond's current stocking date, it cannot belong to this stock
-        if (pondStockDbDate && rDate && rDate < pondStockDbDate) {
-          return false;
-        }
-
-        // If rStock is specified and differs from the current active stock of the pond:
-        if (rStock && rStock !== "—") {
-          const matchesCurrentStock = 
-            isStockMatch(rStock, pondStock) ||
-            isStockMatch(rStock, pond.fishStock) ||
-            (pond.stockingDate && isSameDate(rStock, pond.stockingDate));
-          if (!matchesCurrentStock) {
-            // It belongs to a different stock
-            return false;
-          }
-        }
 
         return true;
       });
@@ -3036,16 +3032,14 @@ function FeedDocumentation({
 
     // Pre-populate all active ponds directly so every active pond shows up
     activePonds.forEach(p => {
-      const pStockDbDate = toValidDbDate(p.stockingDate);
+      const pNameCompact = (p.name || "").replace(/\s+/g, "").toLowerCase();
       const existingList = (feedingRecords || []).filter(r => {
         if (!r) return false;
-        const matchesPond = (r.pondId && r.pondId === p.id) || (r.pond || "").trim().toLowerCase() === p.name.trim().toLowerCase();
+        const matchesPond = (r.pondId && r.pondId === p.id) || (r.pond || "").replace(/\s+/g, "").toLowerCase() === pNameCompact;
         if (!matchesPond) return false;
         const matchesDate = isSameDate(r.date, targetDate) || r.date === dateLabel;
         if (!matchesDate) return false;
         if ((p as any).fishStockId && r.fishStockId && r.fishStockId !== (p as any).fishStockId) return false;
-        const rDate = toValidDbDate(r.date);
-        if (pStockDbDate && rDate && rDate < pStockDbDate) return false;
         return true;
       });
       const fsStock = getPondFishStock(p);
@@ -3137,8 +3131,8 @@ function FeedDocumentation({
     const now = new Date().toLocaleString("en", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
     const recorder = bulkBy.trim() || currentUser?.name || "Admin";
     const cleanPondName = (r.pondName || "").trim();
-    const cleanLower = cleanPondName.toLowerCase();
-    const targetPond = ponds.find(p => p.id === r.pondId || p.name.trim().toLowerCase() === cleanLower);
+    const cleanCompact = cleanPondName.replace(/\s+/g, "").toLowerCase();
+    const targetPond = ponds.find(p => p.id === r.pondId || p.name.replace(/\s+/g, "").toLowerCase() === cleanCompact);
     const pondId = r.pondId || targetPond?.id;
     const fishStockId = targetPond?.fishStockId || pondId;
     const fishStock = r.fishStock || (targetPond ? getPondFishStock(targetPond) : pondToStock(cleanPondName));
@@ -3148,7 +3142,7 @@ function FeedDocumentation({
         ? (feedingRecords || []).find(x => x && x.id === r.existingRecordId)
         : (feedingRecords || []).find(x =>
             x &&
-            ((x.pondId && pondId && x.pondId === pondId) || (x.pond || "").trim().toLowerCase() === cleanLower) &&
+            ((x.pondId && pondId && x.pondId === pondId) || (x.pond || "").replace(/\s+/g, "").toLowerCase() === cleanCompact) &&
             (isSameDate(x.date, bulkDate) || x.date === dateLabel) &&
             isSamePelletSize(x.size, r.size)
           );
@@ -3434,8 +3428,8 @@ function FeedDocumentation({
         const e = Number(r.evening) || 0;
         if (m > 0 || e > 0) {
           const cleanPondName = (r.pondName || "").trim();
-          const cleanLower = cleanPondName.toLowerCase();
-          const targetPond = ponds.find(p => p.id === r.pondId || p.name.trim().toLowerCase() === cleanLower);
+          const cleanCompact = cleanPondName.replace(/\s+/g, "").toLowerCase();
+          const targetPond = ponds.find(p => p.id === r.pondId || p.name.replace(/\s+/g, "").toLowerCase() === cleanCompact);
           const pondId = targetPond?.id || r.pondId;
           const canonicalPondName = targetPond?.name || cleanPondName;
           const fishStockId = targetPond?.fishStockId || pondId;
@@ -3445,7 +3439,7 @@ function FeedDocumentation({
             ? (feedingRecords || []).find(x => x && x.id === r.existingRecordId)
             : (feedingRecords || []).find(x =>
                 x &&
-                ((x.pondId && pondId && x.pondId === pondId) || (x.pond || "").trim().toLowerCase() === cleanLower) &&
+                ((x.pondId && pondId && x.pondId === pondId) || (x.pond || "").replace(/\s+/g, "").toLowerCase() === cleanCompact) &&
                 (isSameDate(x.date, bulkDate) || x.date === dateLabel) &&
                 isSamePelletSize(x.size, r.size)
               );
@@ -3525,6 +3519,26 @@ function FeedDocumentation({
           toast.error(`Failed to save feeding for ${item.pondName}: ${err?.message || "Error saving record"}`);
         }
       }
+
+      setBulkRows(prev => prev.map(r => {
+        const rNameCompact = (r.pondName || "").replace(/\s+/g, "").toLowerCase();
+        const savedItem = recordsToSave.find(item =>
+          item.record.id === r.existingRecordId ||
+          (item.record.pondId && r.pondId && item.record.pondId === r.pondId) ||
+          item.pondName.replace(/\s+/g, "").toLowerCase() === rNameCompact
+        );
+        if (savedItem) {
+          return {
+            ...r,
+            existingRecordId: savedItem.record.id,
+            morning: String(savedItem.record.morning || ""),
+            evening: String(savedItem.record.evening || ""),
+            morningTime: savedItem.record.morningTime || "",
+            eveningTime: savedItem.record.eveningTime || "",
+          };
+        }
+        return r;
+      }));
 
       if (failCount === 0 && successCount > 0) {
         toast.success(`Successfully saved feeding records for ${successCount} pond${successCount > 1 ? "s" : ""}`);
@@ -5037,11 +5051,9 @@ function FeedDocumentation({
                                       {availablePelletSizes.map(s => {
                                         const stock = getPelletStock(s);
                                         const bagCount = stock.inStockBags || 0;
-                                        const label = !stock.exists || stock.availableKg <= 0
+                                        const label = !stock.exists || bagCount <= 0
                                           ? `${s} (0 bags available)`
-                                          : bagCount > 0
-                                            ? `${s} (~${bagCount} bag${bagCount !== 1 ? "s" : ""} / ${Math.round(stock.availableKg * 10) / 10}kg available)`
-                                            : `${s} (${Math.round(stock.availableKg * 10) / 10}kg available)`;
+                                          : `${s} (${bagCount} bag${bagCount !== 1 ? "s" : ""} available)`;
                                         return <option key={s} value={s}>{label}</option>;
                                       })}
                                       {row.size && !availablePelletSizes.includes(row.size) && <option value={row.size}>{row.size}</option>}
@@ -5215,11 +5227,9 @@ function FeedDocumentation({
                           {availablePelletSizes.map(s => {
                             const stock = getPelletStock(s);
                             const bagCount = stock.inStockBags || 0;
-                            const label = !stock.exists || stock.availableKg <= 0
+                            const label = !stock.exists || bagCount <= 0
                               ? `${s} (0 bags available)`
-                              : bagCount > 0
-                                ? `${s} (~${bagCount} bag${bagCount !== 1 ? "s" : ""} / ${Math.round(stock.availableKg * 10) / 10}kg available)`
-                                : `${s} (${Math.round(stock.availableKg * 10) / 10}kg available)`;
+                              : `${s} (${bagCount} bag${bagCount !== 1 ? "s" : ""} available)`;
                             return <option key={s} value={s}>{label}</option>;
                           })}
                           {row.size && !availablePelletSizes.includes(row.size) && <option value={row.size}>{row.size}</option>}
@@ -5750,11 +5760,9 @@ function FeedDocumentation({
                     const bagCount = stock.inStockBags || 0;
                     const label = !stock.exists
                       ? `${s} (Not in stock)`
-                      : stock.availableKg <= 0
-                        ? `${s} (Empty - 0 bags)`
-                        : bagCount > 0
-                          ? `${s} (~${bagCount} bag${bagCount !== 1 ? "s" : ""} / ${Math.round(stock.availableKg * 10) / 10}kg available)`
-                          : `${s} (${Math.round(stock.availableKg * 10) / 10}kg available)`;
+                      : bagCount <= 0
+                        ? `${s} (0 bags available)`
+                        : `${s} (${bagCount} bag${bagCount !== 1 ? "s" : ""} available)`;
                     return <option key={s} value={s}>{label}</option>;
                   })}
                   {editRec.size && !availablePelletSizes.includes(editRec.size) && <option value={editRec.size}>{editRec.size}</option>}
@@ -5764,10 +5772,10 @@ function FeedDocumentation({
                   if (!stock.exists) {
                     return <p className="text-xs font-bold text-amber-600 mt-1">⚠ This pellet size is not in Feed Inventory</p>;
                   }
-                  if (stock.availableKg <= 0) {
-                    return <p className="text-xs font-bold text-red-600 mt-1">⚠ This pellet size is empty (0 kg remaining in stock)</p>;
+                  if (stock.inStockBags <= 0 && stock.availableKg <= 0) {
+                    return <p className="text-xs font-bold text-red-600 mt-1">⚠ This pellet size is empty (0 bags in stock)</p>;
                   }
-                  return <p className="text-xs text-slate-500 mt-1">Stock available: {Math.round(stock.availableKg * 10) / 10}kg{stock.inStockBags > 0 ? ` (~${stock.inStockBags} bag${stock.inStockBags !== 1 ? "s" : ""})` : ""}</p>;
+                  return <p className="text-xs text-slate-500 mt-1">Stock available: {stock.inStockBags} bag{stock.inStockBags !== 1 ? "s" : ""}{stock.availableKg > 0 ? ` (${Math.round(stock.availableKg * 10) / 10}kg)` : ""}</p>;
                 })()}
               </F>
               <div className="grid grid-cols-2 gap-3">
