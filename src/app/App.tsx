@@ -5162,6 +5162,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
         saveLocal(`pondtora_${uid}_expenses`,expenses);
         saveLocal(`pondtora_${uid}_revenues`,revenues);
         saveLocal(`pondtora_${uid}_mortality`,mortality);
+        saveUserLocal(uid, "mortality", "mortalityEntries", mortality);
         saveLocal(`pondtora_${uid}_treatments`,treatments);
         saveLocal(`pondtora_${uid}_staff`,staff);
         saveLocal(`pondtora_${uid}_stock_events`,stockEvents);
@@ -6037,8 +6038,10 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       }
     }
 
-    // Check pellet stock availability
-    if (farmRec.size) {
+    const isManualEntry = farmRec.recordedBy === "Manual Feed Entry" || farmRec.recordedBy === "Manual Pond Log" || (farmRec as any)._isManual || (farmRec as any)._skipInventoryCheck;
+
+    // Check pellet stock availability (bypassed for manual feed entries)
+    if (farmRec.size && !isManualEntry) {
       const invItems = inventory.filter(f => (!f.farmId || f.farmId === fid) && isSamePelletSize(f.size, farmRec.size));
       const totalPurchasedKg = invItems.reduce((s, f) => s + (Number(f.totalKg) || (Number(f.bags) * (Number(f.weightPerBag) || 15))), 0);
       const totalPurchasedBags = invItems.reduce((s, f) => s + (Number(f.bags) || 0), 0);
@@ -6046,7 +6049,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
         toast.error(`Pellet size "${farmRec.size}" is out of stock / empty in Feed Inventory. Please purchase and add feed stock first.`);
         throw new Error(`Pellet size "${farmRec.size}" is out of stock / empty in Feed Inventory.`);
       }
-      const totalFedKg = feeding.filter(fr => (!fr.farmId || fr.farmId === fid) && isSamePelletSize(fr.size, farmRec.size)).reduce((s, fr) => s + (Number(fr.total) || ((Number(fr.morning) || 0) + (Number(fr.evening) || 0))), 0);
+      const totalFedKg = feeding.filter(fr => (!fr.farmId || fr.farmId === fid) && isSamePelletSize(fr.size, farmRec.size) && fr.id !== farmRec.id).reduce((s, fr) => s + (Number(fr.total) || ((Number(fr.morning) || 0) + (Number(fr.evening) || 0))), 0);
       const availableKg = totalPurchasedKg - totalFedKg;
       if (availableKg <= 0) {
         toast.error(`Pellet size "${farmRec.size}" is completely empty (0 kg remaining in stock). Please add feed stock before feeding.`);
@@ -6136,7 +6139,9 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
         throw new Error(`Feed size "${farmRec.size}" has already been logged.`);
       }
     }
-    if (farmRec.size) {
+
+    const isManualEntry = farmRec.recordedBy === "Manual Feed Entry" || farmRec.recordedBy === "Manual Pond Log" || (farmRec as any)._isManual || (farmRec as any)._skipInventoryCheck;
+    if (farmRec.size && !isManualEntry) {
       const invItems = inventory.filter(f => (!f.farmId || f.farmId === farmRec.farmId) && isSamePelletSize(f.size, farmRec.size));
       const totalPurchasedKg = invItems.reduce((s, f) => s + (Number(f.totalKg) || (Number(f.bags) * (Number(f.weightPerBag) || 15))), 0);
       const totalPurchasedBags = invItems.reduce((s, f) => s + (Number(f.bags) || 0), 0);
@@ -6563,7 +6568,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     const fid=m.farmId||activeFarmId||farms[0]?.id||"";
     const updPond=ponds.find(p=>p.id===pondId);
     const fStock=m.fishStock || (updPond ? getPondFishStock(updPond) : undefined);
-    const fStockId = (m as any).fishStockId || updPond?.fishStockId || pondId;
+    const fStockId = (m as any).fishStockId || updPond?.fishStockId || updPond?.id || pondId;
     const farmMort:MortalityEntry={
       ...m,
       id:isUuid(m.id)?m.id:crypto.randomUUID(),
@@ -6573,28 +6578,58 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       fishStock:fStock,
       fishStockId: fStockId,
     };
-    toast.success("Mortality recorded");
-    setMortality(prev => {
-      if (prev.some(x => x.id === farmMort.id)) return prev;
-      return [farmMort, ...prev];
-    });
-    const prevCount = updPond ? Number(updPond.currentCount) || 0 : 0;
-    const newCount = Math.max(0, prevCount - farmMort.count);
-    setPonds(prev=>prev.map(p=>p.id===pondId?{...p,currentCount:newCount}:p));
-    api.mortality.create(farmMort).catch(console.warn);
-    if(updPond) {
-      api.ponds.update({...updPond,currentCount:newCount}).catch(console.warn);
-      recordFishCountHistory({
-        pondId: updPond.id,
-        pondName: updPond.name,
-        farmId: fid,
-        previousCount: prevCount,
-        newCount: newCount,
-        difference: -(prevCount - newCount),
-        changedBy: userProfile?.name || userProfile?.email || "User",
-        actionReason: `Mortality recorded (${farmMort.count} fish: ${farmMort.cause || "unspecified"})`,
-        createdAt: new Date().toISOString(),
+
+    try {
+      const saved = await api.mortality.create(farmMort);
+      const confirmedMort: MortalityEntry = saved || farmMort;
+
+      setMortality(prev => {
+        if (prev.some(x => x.id === confirmedMort.id)) return prev;
+        const next = [confirmedMort, ...prev];
+        if (userProfile?.id) {
+          try {
+            saveUserLocal(userProfile.id, "mortality", "mortalityEntries", next);
+            if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
+              saveUserLocal(userProfile.ownerId, "mortality", "mortalityEntries", next);
+            }
+          } catch {}
+        }
+        return next;
       });
+
+      const prevCount = updPond ? Number(updPond.currentCount) || 0 : 0;
+      const newCount = Math.max(0, prevCount - confirmedMort.count);
+      const nextPonds = ponds.map(p => p.id === pondId ? { ...p, currentCount: newCount } : p);
+      setPonds(nextPonds);
+      if (userProfile?.id) {
+        try {
+          saveUserLocal(userProfile.id, "ponds", "ponds", nextPonds);
+          if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
+            saveUserLocal(userProfile.ownerId, "ponds", "ponds", nextPonds);
+          }
+        } catch {}
+      }
+
+      if(updPond) {
+        api.ponds.update({...updPond,currentCount:newCount}).catch(console.warn);
+        recordFishCountHistory({
+          pondId: updPond.id,
+          pondName: updPond.name,
+          farmId: fid,
+          previousCount: prevCount,
+          newCount: newCount,
+          difference: -(prevCount - newCount),
+          changedBy: userProfile?.name || userProfile?.email || "User",
+          actionReason: `Mortality recorded (${confirmedMort.count} fish: ${confirmedMort.cause || "unspecified"})`,
+          createdAt: new Date().toISOString(),
+        });
+      }
+      toast.success("Mortality recorded");
+      return confirmedMort;
+    } catch (err: any) {
+      console.error("Failed to persist mortality record to database:", err);
+      toast.error(err?.message || "Failed to record mortality. Please try again.");
+      throw err;
     }
   };
 
@@ -6617,41 +6652,56 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       fishStockId: fStockId,
     };
 
-    setMortality(prev => prev.map(m => m.id === updated.id ? farmMort : m));
+    try {
+      const saved = await api.mortality.update(farmMort);
+      const confirmedMort: MortalityEntry = saved || farmMort;
 
-    let nextPonds = ponds;
-    if (updPond && countDiff !== 0) {
-      const prevCount = Number(updPond.currentCount) || 0;
-      const newCount = Math.max(0, prevCount - countDiff);
-      const updatedPond = { ...updPond, currentCount: newCount };
-      nextPonds = ponds.map(p => p.id === pondId ? updatedPond : p);
-      setPonds(nextPonds);
-      api.ponds.update(updatedPond).catch(console.warn);
+      let nextPonds = ponds;
+      if (updPond && countDiff !== 0) {
+        const prevCount = Number(updPond.currentCount) || 0;
+        const newCount = Math.max(0, prevCount - countDiff);
+        const updatedPond = { ...updPond, currentCount: newCount };
+        nextPonds = ponds.map(p => p.id === pondId ? updatedPond : p);
+        setPonds(nextPonds);
+        api.ponds.update(updatedPond).catch(console.warn);
 
-      recordFishCountHistory({
-        pondId: updPond.id,
-        pondName: updPond.name,
-        farmId: fid,
-        previousCount: prevCount,
-        newCount: newCount,
-        difference: -countDiff,
-        changedBy: userProfile?.name || userProfile?.email || "User",
-        actionReason: countDiff > 0
-          ? `Mortality increased by ${countDiff} (${original.count} → ${updated.count} fish)`
-          : `Mortality reduced by ${Math.abs(countDiff)} (${original.count} → ${updated.count} fish restored)`,
-        createdAt: new Date().toISOString(),
+        recordFishCountHistory({
+          pondId: updPond.id,
+          pondName: updPond.name,
+          farmId: fid,
+          previousCount: prevCount,
+          newCount: newCount,
+          difference: -countDiff,
+          changedBy: userProfile?.name || userProfile?.email || "User",
+          actionReason: countDiff > 0
+            ? `Mortality increased by ${countDiff} (${original.count} → ${updated.count} fish)`
+            : `Mortality reduced by ${Math.abs(countDiff)} (${original.count} → ${updated.count} fish restored)`,
+          createdAt: new Date().toISOString(),
+        });
+      }
+
+      setMortality(prev => {
+        const next = prev.map(m => m.id === updated.id ? confirmedMort : m);
+        if (userProfile?.id) {
+          try {
+            saveUserLocal(userProfile.id, "mortality", "mortalityEntries", next);
+            saveUserLocal(userProfile.id, "ponds", "ponds", nextPonds);
+            if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
+              saveUserLocal(userProfile.ownerId, "mortality", "mortalityEntries", next);
+              saveUserLocal(userProfile.ownerId, "ponds", "ponds", nextPonds);
+            }
+          } catch {}
+        }
+        return next;
       });
-    }
 
-    if (userProfile?.id) {
-      try {
-        saveUserLocal(userProfile.id, "mortality", "mortalityEntries", mortality.map(m => m.id === updated.id ? farmMort : m));
-        saveUserLocal(userProfile.id, "ponds", "ponds", nextPonds);
-      } catch {}
+      toast.success("Mortality record updated");
+      return confirmedMort;
+    } catch (err: any) {
+      console.error("Failed to update mortality in database:", err);
+      toast.error(err?.message || "Failed to update mortality record");
+      throw err;
     }
-
-    toast.success("Mortality record updated");
-    api.mortality.update(farmMort).catch(console.warn);
   };
 
   const deleteMort=async(mortId:string)=>{
@@ -6664,39 +6714,52 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     const fid = target.farmId || updPond?.farmId || activeFarmId || farms[0]?.id || "";
     const countRestored = Number(target.count) || 0;
 
-    setMortality(prev => prev.filter(m => m.id !== mortId));
+    try {
+      await api.mortality.remove(mortId);
 
-    let nextPonds = ponds;
-    if (updPond && countRestored > 0) {
-      const prevCount = Number(updPond.currentCount) || 0;
-      const newCount = prevCount + countRestored;
-      const updatedPond = { ...updPond, currentCount: newCount };
-      nextPonds = ponds.map(p => p.id === pondId ? updatedPond : p);
-      setPonds(nextPonds);
-      api.ponds.update(updatedPond).catch(console.warn);
+      let nextPonds = ponds;
+      if (updPond && countRestored > 0) {
+        const prevCount = Number(updPond.currentCount) || 0;
+        const newCount = prevCount + countRestored;
+        const updatedPond = { ...updPond, currentCount: newCount };
+        nextPonds = ponds.map(p => p.id === pondId ? updatedPond : p);
+        setPonds(nextPonds);
+        api.ponds.update(updatedPond).catch(console.warn);
 
-      recordFishCountHistory({
-        pondId: updPond.id,
-        pondName: updPond.name,
-        farmId: fid,
-        previousCount: prevCount,
-        newCount: newCount,
-        difference: countRestored,
-        changedBy: userProfile?.name || userProfile?.email || "User",
-        actionReason: `Mortality record deleted (${countRestored} fish restored to count)`,
-        createdAt: new Date().toISOString(),
+        recordFishCountHistory({
+          pondId: updPond.id,
+          pondName: updPond.name,
+          farmId: fid,
+          previousCount: prevCount,
+          newCount: newCount,
+          difference: countRestored,
+          changedBy: userProfile?.name || userProfile?.email || "User",
+          actionReason: `Mortality record deleted (${countRestored} fish restored to count)`,
+          createdAt: new Date().toISOString(),
+        });
+      }
+
+      setMortality(prev => {
+        const next = prev.filter(m => m.id !== mortId);
+        if (userProfile?.id) {
+          try {
+            saveUserLocal(userProfile.id, "mortality", "mortalityEntries", next);
+            saveUserLocal(userProfile.id, "ponds", "ponds", nextPonds);
+            if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
+              saveUserLocal(userProfile.ownerId, "mortality", "mortalityEntries", next);
+              saveUserLocal(userProfile.ownerId, "ponds", "ponds", nextPonds);
+            }
+          } catch {}
+        }
+        return next;
       });
-    }
 
-    if (userProfile?.id) {
-      try {
-        saveUserLocal(userProfile.id, "mortality", "mortalityEntries", mortality.filter(m => m.id !== mortId));
-        saveUserLocal(userProfile.id, "ponds", "ponds", nextPonds);
-      } catch {}
+      toast.success("Mortality record deleted");
+    } catch (err: any) {
+      console.error("Failed to delete mortality record from database:", err);
+      toast.error(err?.message || "Failed to delete mortality record");
+      throw err;
     }
-
-    toast.success("Mortality record deleted");
-    api.mortality.remove(mortId).catch(console.warn);
   };
   const handleExecuteTransfer = async (
     fromId: string,

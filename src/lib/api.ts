@@ -2611,10 +2611,19 @@ export const api = {
   // ── Feeding records ────────────────────────────────────────────────────────
   feeding: {
     list: () => dbList<FeedingRecord>("feeding_records", "feedingRecords"),
-    create: async (r: Partial<FeedingRecord> & { _skipInventoryCheck?: boolean }) => {
+    create: async (r: Partial<FeedingRecord> & { _skipInventoryCheck?: boolean; _isManual?: boolean }) => {
       const dbRec: any = { ...r };
-      const skipCheck = Boolean(dbRec._skipInventoryCheck);
+      const isManualEntry = Boolean(
+        dbRec._skipInventoryCheck ||
+        dbRec._isManual ||
+        dbRec.recorded_by === "Manual Feed Entry" ||
+        dbRec.recorded_by === "Manual Pond Log" ||
+        dbRec.recordedBy === "Manual Feed Entry" ||
+        dbRec.recordedBy === "Manual Pond Log"
+      );
+      const skipCheck = isManualEntry;
       delete dbRec._skipInventoryCheck;
+      delete dbRec._isManual;
 
       if (r.date) {
         const d = toValidDbDate(r.date);
@@ -2641,18 +2650,21 @@ export const api = {
             ...dbRec,
             id: matchingDup.id,
             _skipInventoryCheck: skipCheck,
+            _isManual: isManualEntry,
           });
         }
       }
 
-      // Check pellet stock availability unless bypassed (e.g. during fish transfer)
+      // Check pellet stock availability unless bypassed (e.g. manual feed entry or batch-verified)
       if (dbRec.size && !skipCheck) {
         if (effectiveUid) {
+          const farmId = dbRec.farm_id || dbRec.farmId;
           const { data: invRows } = await supabase
             .from("feed_inventory")
-            .select("size, bags, weight_per_bag, total_kg")
+            .select("size, bags, weight_per_bag, total_kg, farm_id")
             .eq("user_id", effectiveUid);
-          const matchingInv = (invRows || []).filter((f: any) => isSamePelletSize(f.size, dbRec.size));
+          const farmInvRows = (invRows || []).filter((f: any) => !farmId || !f.farm_id || f.farm_id === farmId);
+          const matchingInv = farmInvRows.filter((f: any) => isSamePelletSize(f.size, dbRec.size));
           const totalPurchasedKg = matchingInv.reduce((s: number, f: any) => s + (Number(f.total_kg) || (Number(f.bags) * (Number(f.weight_per_bag) || 15))), 0);
           const totalPurchasedBags = matchingInv.reduce((s: number, f: any) => s + (Number(f.bags) || 0), 0);
           if (matchingInv.length === 0 || (totalPurchasedBags <= 0 && totalPurchasedKg <= 0)) {
@@ -2660,10 +2672,10 @@ export const api = {
           }
           const { data: fedRows } = await supabase
             .from("feeding_records")
-            .select("morning, evening, total, size")
+            .select("id, morning, evening, total, size, farm_id")
             .eq("user_id", effectiveUid);
-          const matchingFed = (fedRows || []).filter((fr: any) => isSamePelletSize(fr.size, dbRec.size));
-          const totalFedKg = matchingFed.reduce((s: number, fr: any) => s + (Number(fr.total) || ((Number(fr.morning) || 0) + (Number(fr.evening) || 0))), 0);
+          const farmFedRows = (fedRows || []).filter((fr: any) => (!farmId || !fr.farm_id || fr.farm_id === farmId) && isSamePelletSize(fr.size, dbRec.size) && fr.id !== dbRec.id);
+          const totalFedKg = farmFedRows.reduce((s: number, fr: any) => s + (Number(fr.total) || ((Number(fr.morning) || 0) + (Number(fr.evening) || 0))), 0);
           const availableKg = totalPurchasedKg - totalFedKg;
           if (availableKg <= 0) {
             throw new Error(`Pellet size "${dbRec.size}" is completely empty (0 kg remaining in stock). Please add feed stock before feeding.`);
@@ -2676,10 +2688,19 @@ export const api = {
       }
       return dbInsert<FeedingRecord>("feeding_records", dbRec as FeedingRecord, "feedingRecords");
     },
-    update: async (r: FeedingRecord & { _skipInventoryCheck?: boolean }) => {
+    update: async (r: FeedingRecord & { _skipInventoryCheck?: boolean; _isManual?: boolean }) => {
       const dbRec: any = { ...r };
-      const skipCheck = Boolean(dbRec._skipInventoryCheck);
+      const isManualEntry = Boolean(
+        dbRec._skipInventoryCheck ||
+        dbRec._isManual ||
+        dbRec.recorded_by === "Manual Feed Entry" ||
+        dbRec.recorded_by === "Manual Pond Log" ||
+        dbRec.recordedBy === "Manual Feed Entry" ||
+        dbRec.recordedBy === "Manual Pond Log"
+      );
+      const skipCheck = isManualEntry;
       delete dbRec._skipInventoryCheck;
+      delete dbRec._isManual;
 
       if (r.date) {
         const d = toValidDbDate(r.date);
@@ -2706,11 +2727,13 @@ export const api = {
 
       if (dbRec.size && !skipCheck) {
         if (effectiveUid) {
+          const farmId = dbRec.farm_id || dbRec.farmId;
           const { data: invRows } = await supabase
             .from("feed_inventory")
-            .select("size, bags, weight_per_bag, total_kg")
+            .select("size, bags, weight_per_bag, total_kg, farm_id")
             .eq("user_id", effectiveUid);
-          const matchingInv = (invRows || []).filter((f: any) => isSamePelletSize(f.size, dbRec.size));
+          const farmInvRows = (invRows || []).filter((f: any) => !farmId || !f.farm_id || f.farm_id === farmId);
+          const matchingInv = farmInvRows.filter((f: any) => isSamePelletSize(f.size, dbRec.size));
           const totalPurchasedKg = matchingInv.reduce((s: number, f: any) => s + (Number(f.total_kg) || (Number(f.bags) * (Number(f.weight_per_bag) || 15))), 0);
           const totalPurchasedBags = matchingInv.reduce((s: number, f: any) => s + (Number(f.bags) || 0), 0);
           if (matchingInv.length === 0 || (totalPurchasedBags <= 0 && totalPurchasedKg <= 0)) {
@@ -2718,17 +2741,17 @@ export const api = {
           }
           const { data: fedRows } = await supabase
             .from("feeding_records")
-            .select("id, morning, evening, total, size")
+            .select("id, morning, evening, total, size, farm_id")
             .eq("user_id", effectiveUid);
-          const matchingFed = (fedRows || []).filter((fr: any) => isSamePelletSize(fr.size, dbRec.size));
-          const oldFedRow = matchingFed.find((fr: any) => fr.id === dbRec.id);
+          const farmFedRows = (fedRows || []).filter((fr: any) => (!farmId || !fr.farm_id || fr.farm_id === farmId) && isSamePelletSize(fr.size, dbRec.size));
+          const oldFedRow = farmFedRows.find((fr: any) => fr.id === dbRec.id);
           const oldFeed = oldFedRow ? (Number(oldFedRow.total) || ((Number(oldFedRow.morning) || 0) + (Number(oldFedRow.evening) || 0))) : 0;
           const toFeed = (Number(dbRec.morning) || 0) + (Number(dbRec.evening) || 0);
           const diff = toFeed - oldFeed;
 
           // Only validate stock availability if the user is actually increasing feed consumption
           if (diff > 0) {
-            const totalFedOthers = matchingFed.filter((fr: any) => fr.id !== dbRec.id).reduce((s: number, fr: any) => s + (Number(fr.total) || ((Number(fr.morning) || 0) + (Number(fr.evening) || 0))), 0);
+            const totalFedOthers = farmFedRows.filter((fr: any) => fr.id !== dbRec.id).reduce((s: number, fr: any) => s + (Number(fr.total) || ((Number(fr.morning) || 0) + (Number(fr.evening) || 0))), 0);
             const availableKg = totalPurchasedKg - totalFedOthers - oldFeed;
             if (availableKg <= 0) {
               throw new Error(`Pellet size "${dbRec.size}" is completely empty (0 kg remaining in stock). Please add feed stock before increasing feeding.`);

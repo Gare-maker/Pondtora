@@ -1145,58 +1145,21 @@ function FeedDocumentation({
   const getPelletStock = (size: string, excludeRecordId?: string) => {
     if (!size) return { availableQty: 0, availableKg: 0, inStockBags: 0, totalPurchasedBags: 0, totalPurchasedKg: 0, totalFedKg: 0, exists: false };
 
-    // Group inventory by brand for this pellet size to mirror Feed Stock per-brand inventory calculation
-    const brandMap = new Map<string, { brand: string; purchasedBags: number; weightPerBag: number; totalKg: number }>();
-    (inventory || []).filter(f => f && isSamePelletSize(f.size, size)).forEach(f => {
-      const bKey = (f.brand || "").toLowerCase().trim();
-      const existing = brandMap.get(bKey);
-      const wpb = Number(f.weightPerBag) || 15;
-      const bags = Number(f.bags) || 0;
-      const kg = Number(f.totalKg) || (bags * wpb);
-      if (existing) {
-        existing.purchasedBags += bags;
-        existing.totalKg += kg;
-      } else {
-        brandMap.set(bKey, { brand: f.brand, purchasedBags: bags, weightPerBag: wpb, totalKg: kg });
-      }
-    });
-
-    let totalPurchasedBags = 0;
-    let totalPurchasedKg = 0;
-    let inStockBags = 0;
-    let inStockKg = 0;
-    const defaultWpb = brandMap.values().next().value?.weightPerBag || 15;
-
-    brandMap.forEach((grp, bKey) => {
-      totalPurchasedBags += grp.purchasedBags;
-      totalPurchasedKg += grp.totalKg;
-      const brandOpened = (bagLogs || [])
-        .filter(b => b && (b.brand || "").toLowerCase().trim() === bKey && isSamePelletSize(b.size, size))
-        .reduce((s, b) => s + (Number(b.bagsOpened) || 0), 0);
-      const bInStock = Math.max(0, grp.purchasedBags - brandOpened);
-      inStockBags += bInStock;
-      inStockKg += bInStock * (grp.weightPerBag || defaultWpb);
-    });
-
-    const openedLogs = (bagLogs || []).filter(b => b && isSamePelletSize(b.size, size));
-    const totalOpenedBags = openedLogs.reduce((s, b) => s + (Number(b.bagsOpened) || 0), 0);
-    // If brandMap is empty, fallback to simple difference
-    if (brandMap.size === 0) {
-      inStockBags = Math.max(0, totalPurchasedBags - totalOpenedBags);
-      inStockKg = inStockBags * defaultWpb;
-    }
-
-    const exists = brandMap.size > 0 && (totalPurchasedBags > 0 || totalPurchasedKg > 0);
-    const weightPerBag = defaultWpb;
+    // Group all eligible inventory records matching this pellet size
+    const matchingInv = (inventory || []).filter(f => f && isSamePelletSize(f.size, size));
+    const totalPurchasedKg = matchingInv.reduce((s, f) => s + (Number(f.totalKg) || (Number(f.bags) * (Number(f.weightPerBag) || 15))), 0);
+    const totalPurchasedBags = matchingInv.reduce((s, f) => s + (Number(f.bags) || 0), 0);
+    const defaultWpb = totalPurchasedBags > 0 ? (totalPurchasedKg / totalPurchasedBags) : (matchingInv[0]?.weightPerBag || 15);
 
     const relevantFeeding = (feedingRecords || []).filter(fr => fr && isSamePelletSize(fr.size, size) && (excludeRecordId ? fr.id !== excludeRecordId : true));
     const totalFedKg = relevantFeeding.reduce((s, fr) => s + (Number(fr.total) || ((Number(fr.morning) || 0) + (Number(fr.evening) || 0))), 0);
-    const totalOpenedKg = openedLogs.reduce((s, b) => s + (Number(b.totalKg) || (Number(b.bagsOpened) * (Number(b.kgPerBag) || weightPerBag))), 0);
-    const remainingOpenedKg = Math.max(0, totalOpenedKg - totalFedKg);
-    const availableKg = Math.max(0, inStockKg + remainingOpenedKg);
 
-    // Available pallet quantity dynamically reflects total available across all brands
-    const availableQty = inStockBags;
+    // Remaining usable kg across all eligible stock records
+    const availableKg = Math.max(0, totalPurchasedKg - totalFedKg);
+    // Calculate usable full and partial bags from remaining usable quantity
+    const inStockBags = defaultWpb > 0 ? Math.floor(availableKg / defaultWpb) : 0;
+    const availableQty = defaultWpb > 0 ? Math.round((availableKg / defaultWpb) * 10) / 10 : 0;
+    const exists = matchingInv.length > 0 && (totalPurchasedBags > 0 || totalPurchasedKg > 0);
 
     return {
       availableQty,
@@ -1205,7 +1168,8 @@ function FeedDocumentation({
       totalPurchasedBags,
       totalPurchasedKg,
       totalFedKg,
-      exists
+      exists,
+      weightPerBag: defaultWpb
     };
   };
 
@@ -3213,7 +3177,8 @@ function FeedDocumentation({
           morningTime: r.morningTime || existing.morningTime,
           eveningTime: r.eveningTime || existing.eveningTime,
           fishStock: r.fishStock || existing.fishStock || fishStock,
-          editHistory: hasChange ? [...(existing.editHistory || []), entry] : (existing.editHistory || [])
+          editHistory: hasChange ? [...(existing.editHistory || []), entry] : (existing.editHistory || []),
+          _skipInventoryCheck: true
         });
         toast.success(`Feeding record updated for ${cleanPondName} (${r.size})`);
       } else {
@@ -3235,7 +3200,8 @@ function FeedDocumentation({
           total: m + e,
           recordedBy: recorder,
           morningTime: r.morningTime || undefined,
-          eveningTime: r.eveningTime || undefined
+          eveningTime: r.eveningTime || undefined,
+          _skipInventoryCheck: true
         });
         setBulkRows(prev => prev.map(item => item.rowId === r.rowId ? { ...item, existingRecordId: newId } : item));
         toast.success(`Feeding record saved for ${cleanPondName} (${r.size})`);
@@ -3462,7 +3428,7 @@ function FeedDocumentation({
     const recorder = bulkBy.trim() || currentUser?.name || "Admin";
 
     try {
-      const promises: Promise<any>[] = [];
+      const recordsToSave: Array<{ type: "edit" | "add"; record: any; pondName: string }> = [];
       for (const r of bulkRows) {
         const m = Number(r.morning) || 0;
         const e = Number(r.evening) || 0;
@@ -3494,46 +3460,77 @@ function FeedDocumentation({
               editedBy: recorder,
               editedById: ""
             };
-            promises.push(Promise.resolve(onEditFeedRecord({
-              ...existing,
-              pondId: existing.pondId || pondId,
-              fishStockId: existing.fishStockId || fishStockId,
-              pond: canonicalPondName || existing.pond,
-              size: r.size,
-              morning: m,
-              evening: e,
-              total: m + e,
-              recordedBy: recorder,
-              morningTime: r.morningTime || existing.morningTime,
-              eveningTime: r.eveningTime || existing.eveningTime,
-              fishStock: r.fishStock || existing.fishStock || fishStock,
-              editHistory: hasChange ? [...(existing.editHistory || []), entry] : (existing.editHistory || [])
-            })));
+            recordsToSave.push({
+              type: "edit",
+              pondName: canonicalPondName,
+              record: {
+                ...existing,
+                pondId: existing.pondId || pondId,
+                fishStockId: existing.fishStockId || fishStockId,
+                pond: canonicalPondName || existing.pond,
+                size: r.size,
+                morning: m,
+                evening: e,
+                total: m + e,
+                recordedBy: recorder,
+                morningTime: r.morningTime || existing.morningTime,
+                eveningTime: r.eveningTime || existing.eveningTime,
+                fishStock: r.fishStock || existing.fishStock || fishStock,
+                editHistory: hasChange ? [...(existing.editHistory || []), entry] : (existing.editHistory || []),
+                _skipInventoryCheck: true
+              }
+            });
           } else {
             const brandForFeed = (bagLogs || []).find(b => (isSameDate(b.date, bulkDate) || isSameDate(b.date, dateLabel)) && isSamePelletSize(b.size, r.size) && (!b.fishStock || normalizeFishStock(b.fishStock) === pondToStock(cleanPondName)))?.brand || (inventory || []).find(f => f && isSamePelletSize(f.size, r.size))?.brand || "";
-            promises.push(Promise.resolve(onAddRecord({
-              id: uid(),
-              date: dateLabel,
-              month: toMon(bulkDate),
-              year: toYr(bulkDate),
-              pond: canonicalPondName,
-              pondId,
-              fishStockId,
-              fishStock,
-              brand: brandForFeed,
-              size: r.size,
-              morning: m,
-              evening: e,
-              total: m + e,
-              recordedBy: recorder,
-              morningTime: r.morningTime || undefined,
-              eveningTime: r.eveningTime || undefined
-            })));
+            recordsToSave.push({
+              type: "add",
+              pondName: canonicalPondName,
+              record: {
+                id: uid(),
+                date: dateLabel,
+                month: toMon(bulkDate),
+                year: toYr(bulkDate),
+                pond: canonicalPondName,
+                pondId,
+                fishStockId,
+                fishStock,
+                brand: brandForFeed,
+                size: r.size,
+                morning: m,
+                evening: e,
+                total: m + e,
+                recordedBy: recorder,
+                morningTime: r.morningTime || undefined,
+                eveningTime: r.eveningTime || undefined,
+                _skipInventoryCheck: true
+              }
+            });
           }
         }
       }
 
-      await Promise.all(promises);
+      let successCount = 0;
+      let failCount = 0;
+      for (const item of recordsToSave) {
+        try {
+          if (item.type === "edit") {
+            await onEditFeedRecord(item.record);
+          } else {
+            await onAddRecord(item.record);
+          }
+          successCount++;
+        } catch (err: any) {
+          console.error(`Failed to save feeding record for ${item.pondName}:`, err);
+          failCount++;
+          toast.error(`Failed to save feeding for ${item.pondName}: ${err?.message || "Error saving record"}`);
+        }
+      }
+
+      if (failCount === 0 && successCount > 0) {
+        toast.success(`Successfully saved feeding records for ${successCount} pond${successCount > 1 ? "s" : ""}`);
+      } else if (successCount > 0 && failCount > 0) {
+        toast.warning(`Saved feeding for ${successCount} pond${successCount > 1 ? "s" : ""}, but ${failCount} failed.`);
+      }
 
       if (bulkDate) {
         const iso = bulkDate.match(/^(\d{4})-(\d{2})-(\d{2})/);
@@ -5040,9 +5037,11 @@ function FeedDocumentation({
                                       {availablePelletSizes.map(s => {
                                         const stock = getPelletStock(s);
                                         const bagCount = stock.inStockBags || 0;
-                                        const label = !stock.exists || bagCount <= 0
+                                        const label = !stock.exists || stock.availableKg <= 0
                                           ? `${s} (0 bags available)`
-                                          : `${s} (${bagCount} bag${bagCount !== 1 ? "s" : ""} available)`;
+                                          : bagCount > 0
+                                            ? `${s} (~${bagCount} bag${bagCount !== 1 ? "s" : ""} / ${Math.round(stock.availableKg * 10) / 10}kg available)`
+                                            : `${s} (${Math.round(stock.availableKg * 10) / 10}kg available)`;
                                         return <option key={s} value={s}>{label}</option>;
                                       })}
                                       {row.size && !availablePelletSizes.includes(row.size) && <option value={row.size}>{row.size}</option>}
@@ -5216,9 +5215,11 @@ function FeedDocumentation({
                           {availablePelletSizes.map(s => {
                             const stock = getPelletStock(s);
                             const bagCount = stock.inStockBags || 0;
-                            const label = !stock.exists || bagCount <= 0
+                            const label = !stock.exists || stock.availableKg <= 0
                               ? `${s} (0 bags available)`
-                              : `${s} (${bagCount} bag${bagCount !== 1 ? "s" : ""} available)`;
+                              : bagCount > 0
+                                ? `${s} (~${bagCount} bag${bagCount !== 1 ? "s" : ""} / ${Math.round(stock.availableKg * 10) / 10}kg available)`
+                                : `${s} (${Math.round(stock.availableKg * 10) / 10}kg available)`;
                             return <option key={s} value={s}>{label}</option>;
                           })}
                           {row.size && !availablePelletSizes.includes(row.size) && <option value={row.size}>{row.size}</option>}
@@ -5749,23 +5750,24 @@ function FeedDocumentation({
                     const bagCount = stock.inStockBags || 0;
                     const label = !stock.exists
                       ? `${s} (Not in stock)`
-                      : bagCount <= 0
+                      : stock.availableKg <= 0
                         ? `${s} (Empty - 0 bags)`
-                        : `${s} (${bagCount} bag${bagCount !== 1 ? "s" : ""} available)`;
+                        : bagCount > 0
+                          ? `${s} (~${bagCount} bag${bagCount !== 1 ? "s" : ""} / ${Math.round(stock.availableKg * 10) / 10}kg available)`
+                          : `${s} (${Math.round(stock.availableKg * 10) / 10}kg available)`;
                     return <option key={s} value={s}>{label}</option>;
                   })}
                   {editRec.size && !availablePelletSizes.includes(editRec.size) && <option value={editRec.size}>{editRec.size}</option>}
                 </select>
                 {(() => {
                   const stock = getPelletStock(editRec.size, editRec.id);
-                  const bagCount = stock.inStockBags || 0;
                   if (!stock.exists) {
                     return <p className="text-xs font-bold text-amber-600 mt-1">⚠ This pellet size is not in Feed Inventory</p>;
                   }
-                  if (bagCount <= 0) {
-                    return <p className="text-xs font-bold text-red-600 mt-1">⚠ This pellet size is empty (0 bags remaining in stock)</p>;
+                  if (stock.availableKg <= 0) {
+                    return <p className="text-xs font-bold text-red-600 mt-1">⚠ This pellet size is empty (0 kg remaining in stock)</p>;
                   }
-                  return <p className="text-xs text-slate-500 mt-1">Stock available: {bagCount} bag{bagCount !== 1 ? "s" : ""}</p>;
+                  return <p className="text-xs text-slate-500 mt-1">Stock available: {Math.round(stock.availableKg * 10) / 10}kg{stock.inStockBags > 0 ? ` (~${stock.inStockBags} bag${stock.inStockBags !== 1 ? "s" : ""})` : ""}</p>;
                 })()}
               </F>
               <div className="grid grid-cols-2 gap-3">

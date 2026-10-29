@@ -35,13 +35,16 @@ export function getPondActiveMortality(
     if (!m || !m.id || seenIds.has(m.id)) return false;
 
     // 1. Must match this pond
-    if (m.pondId !== pond.id) return false;
+    const matchesPond = m.pondId === pond.id ||
+      Boolean(pond.name && (m as any).pond && (m as any).pond.trim().toLowerCase() === pNameNorm) ||
+      Boolean(pond.name && m.pondName && m.pondName.trim().toLowerCase() === pNameNorm);
+    if (!matchesPond) return false;
 
     let isMatch = false;
     // 2. Direct unique fishStockId match
     if ((pond as any).fishStockId) {
       if ((m as any).fishStockId) {
-        isMatch = (m as any).fishStockId === (pond as any).fishStockId;
+        isMatch = (m as any).fishStockId === (pond as any).fishStockId || (m as any).fishStockId === pond.id;
       } else {
         // Legacy mortality entry without fishStockId
         const mDate = toValidDbDate(m.date);
@@ -180,7 +183,10 @@ function PondDetail({
   const [showAddFeedGiven,setShowAddFeedGiven]=useState(false);
   const [feedGivenF,setFeedGivenF]=useState({
     brand:"",
+    customBrand:"",
     size:pond.defaultPellet||"2.0 mm",
+    customSize:"",
+    pallet:"",
     totalKg:"",
     date:TODAY,
   });
@@ -299,11 +305,7 @@ function PondDetail({
   const [mortErr,setMortErr]=useState<Record<string,string>>({});
   const [costF,setCostF]=useState({category:"Feed",amount:"",date:TODAY,desc:""});
   const [costErr,setCostErr]=useState<Record<string,string>>({});
-  const [showMortHistory,setShowMortHistory]=useState(false);
   const [showCountHistory,setShowCountHistory]=useState(false);
-  const [editMortEntry,setEditMortEntry]=useState<MortalityEntry|null>(null);
-  const [origMortEntry,setOrigMortEntry]=useState<MortalityEntry|null>(null);
-  const [savingMort,setSavingMort]=useState(false);
   const [fhMonth,setFhMonth]=useState("All");
 
   const pStockDbDate = pond.stockingDate && pond.stockingDate !== "—" ? toValidDbDate(pond.stockingDate) : null;
@@ -671,18 +673,24 @@ function PondDetail({
     setMortErr({});
     setIsLoggingMort(true);
     try {
+      const fStockId = (pond as any).fishStockId || pond.id;
       await onAddMortality({
         id: uid(),
         pondId: pond.id,
+        pondName: pond.name,
         farmId: pond.farmId,
         date: mortF.date,
         count: Number(mortF.count),
         cause: mortF.cause,
         notes: mortF.notes,
-        fishStock: defaultFishStockLabel
+        fishStock: defaultFishStockLabel || getPondFishStock(pond),
+        fishStockId: fStockId,
       }, pond.id);
       setShowMort(false);
       setMortF({date:TODAY,count:"",cause:"Unknown",notes:""});
+    } catch (err: any) {
+      console.error("Failed to record mortality:", err);
+      toast.error(err?.message || "Failed to record mortality");
     } finally {
       setIsLoggingMort(false);
     }
@@ -695,7 +703,8 @@ function PondDetail({
     if (!feedGivenF.totalKg || isNaN(numKg) || numKg <= 0) {
       errs.totalKg = "Total feed must be greater than 0 kg";
     }
-    if (!feedGivenF.size) errs.size = "Pellet size is required";
+    const resolvedSize = (feedGivenF.size === "Custom" ? feedGivenF.customSize : feedGivenF.size).trim();
+    if (!resolvedSize) errs.size = "Pellet size is required";
     if (Object.keys(errs).length) {
       setFeedGivenErr(errs);
       return;
@@ -703,9 +712,9 @@ function PondDetail({
     setFeedGivenErr({});
     setIsSavingFeedGiven(true);
     try {
-      const brandLabel = feedGivenF.brand.trim() || "Not specified";
+      const resolvedBrand = (feedGivenF.brand === "Custom" ? feedGivenF.customBrand : feedGivenF.brand).trim() || "Not specified";
       const dateLabel = isFormattedDate(feedGivenF.date) ? feedGivenF.date : toDateLabel(feedGivenF.date);
-      const newRecord: FeedingRecord = {
+      const newRecord: FeedingRecord & { _isManual?: boolean; _skipInventoryCheck?: boolean; pallet?: string } = {
         id: uid(),
         date: dateLabel,
         month: toMon(feedGivenF.date),
@@ -715,21 +724,27 @@ function PondDetail({
         farmId: pond.farmId,
         fishStockId: (pond as any).fishStockId || pond.id,
         fishStock: defaultFishStockLabel || getPondFishStock(pond),
-        brand: brandLabel,
-        size: feedGivenF.size,
+        brand: resolvedBrand,
+        size: resolvedSize,
         morning: numKg,
         evening: 0,
         total: numKg,
-        recordedBy: "Manual Pond Log",
+        recordedBy: "Manual Feed Entry",
+        _isManual: true,
+        _skipInventoryCheck: true,
+        pallet: feedGivenF.pallet?.trim() || undefined,
       };
       if (onAddFeedRecord) {
         await onAddFeedRecord(newRecord);
       }
-      toast.success(`Logged ${numKg}kg of ${feedGivenF.size} for ${pond.name}`);
+      toast.success(`Logged ${numKg}kg of ${resolvedSize} for ${pond.name}`);
       setShowAddFeedGiven(false);
       setFeedGivenF({
         brand: "",
+        customBrand: "",
         size: pond.defaultPellet || "2.0 mm",
+        customSize: "",
+        pallet: "",
         totalKg: "",
         date: TODAY,
       });
@@ -738,43 +753,6 @@ function PondDetail({
       toast.error(err?.message || "Failed to save feed entry");
     } finally {
       setIsSavingFeedGiven(false);
-    }
-  };
-  const handleSaveEditMort = async () => {
-    if (!editMortEntry || !origMortEntry) return;
-    if (Number(editMortEntry.count) <= 0) {
-      toast.error("Dead fish count must be greater than 0");
-      return;
-    }
-    setSavingMort(true);
-    try {
-      if (onEditMortality) {
-        await onEditMortality(origMortEntry, editMortEntry);
-      }
-      setEditMortEntry(null);
-      setOrigMortEntry(null);
-      toast.success("Mortality record updated");
-    } catch (err: any) {
-      toast.error(err?.message || "Failed to update mortality record");
-    } finally {
-      setSavingMort(false);
-    }
-  };
-  const handleDeleteMort = async (m: MortalityEntry) => {
-    if (!window.confirm(`Delete mortality record of ${m.count} dead fish on ${m.date}? This will restore the fish count.`)) {
-      return;
-    }
-    try {
-      if (onDeleteMortality) {
-        await onDeleteMortality(m);
-      }
-      if (editMortEntry?.id === m.id) {
-        setEditMortEntry(null);
-        setOrigMortEntry(null);
-      }
-      toast.success("Mortality record deleted");
-    } catch (err: any) {
-      toast.error(err?.message || "Failed to delete mortality record");
     }
   };
   const handleCost=()=>{
@@ -958,7 +936,7 @@ function PondDetail({
                 {l:"Initial Stock",v:pond.initialStock.toLocaleString()},
                 {l:"Current Count",v:pond.currentCount.toLocaleString(),hi:true,clickable:true},
                 {l:"Stocking Date",v:fmtStockingDate(pond.stockingDate)},
-                {l:"Total Dead",v:String(dead),clickable:true},
+                {l:"Total Dead",v:String(dead)},
                 {l:"Mortality Rate",v:`${mRate}%`},
                 {l:"Treatments",v:String(unifiedTreatments.length),clickable:true,target:"treatments"},
                 {l:"Pond Issues",v:String(otherIssues.length),clickable:true,target:"issues"}
@@ -975,11 +953,9 @@ function PondDetail({
                       document.getElementById("pond-tabs-section")?.scrollIntoView({ behavior: "smooth" });
                     } else if (item.l === "Current Count") {
                       setShowCountHistory(true);
-                    } else if (item.l === "Total Dead") {
-                      setShowMortHistory(true);
                     }
                   }}
-                  title={(item as any).target === "treatments" ? "Click to view treatment records" : (item as any).target === "issues" ? "Click to view pond issues" : item.l === "Current Count" ? "Click to view fish count edit history" : item.l === "Total Dead" ? "Click to view mortality history" : undefined}
+                  title={(item as any).target === "treatments" ? "Click to view treatment records" : (item as any).target === "issues" ? "Click to view pond issues" : item.l === "Current Count" ? "Click to view fish count edit history" : undefined}
                 >
                   <p className="text-[11px] text-blue-200 font-medium uppercase tracking-wider flex items-center justify-between">
                     <span>{item.l}</span>
@@ -1228,33 +1204,59 @@ function PondDetail({
       </Modal>}
       {showAddFeedGiven&&<Modal title={`Add Feed Given — ${pond.name}`} onClose={()=>{setShowAddFeedGiven(false);setFeedGivenErr({});}}>
         <div className="space-y-3">
-          {/* 1. Feed Brand (Optional) - placed FIRST before other fields */}
+          {/* 1. Feed Brand - can select from list or enter custom */}
           <F label="Feed Brand (Optional)">
-            <select
-              value={feedGivenF.brand}
-              onChange={e=>setFeedGivenF(p=>({...p,brand:e.target.value}))}
-              className={SC}
-            >
-              <option value="">Not specified (Optional)</option>
-              {Array.from(new Set([...(inventory||[]).map(i=>i.brand?.trim()).filter(Boolean),...FEED_BRANDS])).map(b=>(
-                <option key={b} value={b}>{b}</option>
-              ))}
-            </select>
+            <div className="space-y-2">
+              <select
+                value={feedGivenF.brand}
+                onChange={e=>setFeedGivenF(p=>({...p,brand:e.target.value}))}
+                className={SC}
+              >
+                <option value="">Not specified (Optional)</option>
+                {Array.from(new Set([...(inventory||[]).map(i=>i.brand?.trim()).filter(Boolean),...FEED_BRANDS])).map(b=>(
+                  <option key={b} value={b}>{b}</option>
+                ))}
+                <option value="Custom">Custom / Other Brand...</option>
+              </select>
+              {feedGivenF.brand === "Custom" && (
+                <input
+                  type="text"
+                  placeholder="Enter custom feed brand"
+                  value={feedGivenF.customBrand}
+                  onChange={e => setFeedGivenF(p => ({ ...p, customBrand: e.target.value }))}
+                  className={IC}
+                  autoFocus
+                />
+              )}
+            </div>
           </F>
 
           <div className="grid grid-cols-2 gap-3">
             {/* 2. Feed Size (Pellet) */}
             <div>
               <F label="Pellet Size">
-                <select
-                  value={feedGivenF.size}
-                  onChange={e=>setFeedGivenF(p=>({...p,size:e.target.value}))}
-                  className={SC}
-                >
-                  {FEED_SIZES.map(s=>(
-                    <option key={s} value={s}>{s}</option>
-                  ))}
-                </select>
+                <div className="space-y-2">
+                  <select
+                    value={feedGivenF.size}
+                    onChange={e=>setFeedGivenF(p=>({...p,size:e.target.value}))}
+                    className={SC}
+                  >
+                    {FEED_SIZES.map(s=>(
+                      <option key={s} value={s}>{s}</option>
+                    ))}
+                    <option value="Custom">Custom / Other Size...</option>
+                  </select>
+                  {feedGivenF.size === "Custom" && (
+                    <input
+                      type="text"
+                      placeholder="e.g. 1.5 mm, 5.0 mm"
+                      value={feedGivenF.customSize}
+                      onChange={e => setFeedGivenF(p => ({ ...p, customSize: e.target.value }))}
+                      className={IC}
+                      autoFocus
+                    />
+                  )}
+                </div>
               </F>
               {feedGivenErr.size&&<p className="text-xs text-red-500 mt-1">{feedGivenErr.size}</p>}
             </div>
@@ -1276,7 +1278,18 @@ function PondDetail({
             </div>
           </div>
 
-          {/* 4. Date */}
+          {/* 4. Pallet Information (Optional) */}
+          <F label="Pallet Information (Optional)">
+            <input
+              type="text"
+              placeholder="e.g. Pallet 1, Lot B, Left corner"
+              value={feedGivenF.pallet}
+              onChange={e => setFeedGivenF(p => ({ ...p, pallet: e.target.value }))}
+              className={IC}
+            />
+          </F>
+
+          {/* 5. Date */}
           <F label="Date">
             <input
               type="date"
@@ -1320,58 +1333,6 @@ function PondDetail({
           </PBtn>
           <button disabled={isLoggingMort} onClick={()=>{setShowMort(false);setMortErr({});}} className="px-4 py-2 text-sm text-slate-400 hover:text-slate-600">Cancel</button>
         </div>
-      </Modal>}
-      {showMortHistory&&<Modal title={`Mortality History — ${pond.name}`} onClose={()=>{setShowMortHistory(false);setEditMortEntry(null);setOrigMortEntry(null);}} wide>
-        {editMortEntry?(
-          <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-3"><F label="Date"><input type="date" value={editMortEntry.date} onChange={e=>setEditMortEntry(p=>p?{...p,date:e.target.value}:p)} className={IC}/></F><F label="Dead Fish"><NumInput value={editMortEntry.count} onChange={v=>setEditMortEntry(p=>p?{...p,count:Number(v)||0}:p)} className={IC} allowDecimal={false}/></F></div>
-            <F label="Cause"><select value={editMortEntry.cause} onChange={e=>setEditMortEntry(p=>p?{...p,cause:e.target.value}:p)} className={SC}>{MORT_CAUSES.map(c=><option key={c}>{c}</option>)}</select></F>
-            <F label="Notes"><textarea value={editMortEntry.notes} onChange={e=>setEditMortEntry(p=>p?{...p,notes:e.target.value}:p)} className={IC} rows={2}/></F>
-            <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-100">
-              <div className="flex gap-2">
-                <PBtn onClick={handleSaveEditMort} disabled={savingMort}><CheckCircle size={14}/> {savingMort ? "Saving…" : "Save"}</PBtn>
-                <button onClick={()=>{setEditMortEntry(null);setOrigMortEntry(null);}} className="px-4 py-2 text-sm text-slate-400">Cancel</button>
-              </div>
-              {canDelete && origMortEntry && (
-                <button
-                  type="button"
-                  onClick={() => handleDeleteMort(origMortEntry)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg font-semibold transition-colors"
-                >
-                  <Trash2 size={13}/> Delete
-                </button>
-              )}
-            </div>
-          </div>
-        ):(
-          <>
-            {logs.length===0?<p className="text-sm text-slate-400 text-center py-6">No mortality records for this pond.</p>:(
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs">
-                  <thead><tr className="border-b border-slate-100">{["Date","Dead Fish","Cause","Notes","Actions"].map(h=><th key={h} className="text-left px-3 py-2 text-[10px] font-bold text-slate-400 uppercase tracking-wider">{h}</th>)}</tr></thead>
-                  <tbody>{[...logs].sort((a,b)=>b.date.localeCompare(a.date)).map(m=>(
-                    <tr key={m.id} className="border-b border-slate-50 hover:bg-slate-50">
-                      <td className="px-3 py-2.5 text-slate-700">{m.date}</td>
-                      <td className="px-3 py-2.5 font-semibold text-red-700">{m.count.toLocaleString()}</td>
-                      <td className="px-3 py-2.5 text-slate-600">{m.cause}</td>
-                      <td className="px-3 py-2.5 text-slate-500 max-w-[200px] truncate">{m.notes||"—"}</td>
-                      <td className="px-3 py-2.5">
-                        <div className="flex items-center gap-2">
-                          {canEdit&&<button onClick={()=>{setOrigMortEntry(m);setEditMortEntry({...m});}} className="flex items-center gap-1 text-xs text-green-600 hover:text-green-800 font-semibold"><Pencil size={11}/> Edit</button>}
-                          {canDelete&&<button onClick={()=>handleDeleteMort(m)} className="flex items-center gap-1 text-xs text-red-500 hover:text-red-700 font-semibold"><Trash2 size={11}/> Delete</button>}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}</tbody>
-                </table>
-              </div>
-            )}
-            <div className="pt-2 border-t border-slate-100 flex items-center justify-between">
-              <span className="text-xs text-slate-500">Total: <strong className="text-red-700">{dead.toLocaleString()} fish</strong></span>
-              <button onClick={()=>{setShowMortHistory(false);setEditMortEntry(null);setOrigMortEntry(null);}} className="px-4 py-2 text-sm text-slate-400">Close</button>
-            </div>
-          </>
-        )}
       </Modal>}
       {showCost&&<Modal title="Add Pond Cost" onClose={()=>{setShowCost(false);setCostErr({});}}>
         {pond.species!=="—"&&<div className="flex items-center gap-2 bg-green-50 border border-green-100 rounded-xl px-4 py-2.5"><div className="w-1.5 h-1.5 rounded-full bg-green-500 shrink-0"/><span className="text-xs text-slate-500">Fish Stock:</span><span className="text-xs font-semibold text-slate-800">{pond.stockingDate && pond.stockingDate !== "—" ? fmtStockingDate(pond.stockingDate) : pond.species}</span></div>}
