@@ -807,3 +807,56 @@ ALTER TABLE public.feed_remaining_logs ADD COLUMN IF NOT EXISTS fish_stock_id TE
 
 ALTER TABLE public.pond_reports ADD COLUMN IF NOT EXISTS pond_name TEXT;
 ALTER TABLE public.pond_reports ADD COLUMN IF NOT EXISTS fish_stock_id TEXT;
+
+-- Sales Calculation Edit History
+CREATE TABLE IF NOT EXISTS public.sales_calculation_edit_history (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID REFERENCES public.user_profiles(id) ON DELETE CASCADE,
+    farm_id UUID REFERENCES public.farms(id) ON DELETE CASCADE,
+    calculation_id TEXT NOT NULL,
+    customer_name TEXT,
+    field_name TEXT,
+    field_changed TEXT,
+    previous_value TEXT,
+    new_value TEXT,
+    previous_total NUMERIC NOT NULL DEFAULT 0,
+    new_total NUMERIC NOT NULL DEFAULT 0,
+    previous_weight_kg NUMERIC NOT NULL DEFAULT 0,
+    new_weight_kg NUMERIC NOT NULL DEFAULT 0,
+    difference NUMERIC NOT NULL DEFAULT 0,
+    items_summary TEXT,
+    action_reason TEXT,
+    changed_by TEXT NOT NULL,
+    changed_by_id UUID,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
+);
+
+ALTER TABLE public.sales_calculation_edit_history ADD COLUMN IF NOT EXISTS field_name TEXT;
+ALTER TABLE public.sales_calculation_edit_history ADD COLUMN IF NOT EXISTS field_changed TEXT;
+ALTER TABLE public.sales_calculation_edit_history ADD COLUMN IF NOT EXISTS previous_value TEXT;
+ALTER TABLE public.sales_calculation_edit_history ADD COLUMN IF NOT EXISTS new_value TEXT;
+ALTER TABLE public.sales_calculations ADD COLUMN IF NOT EXISTS sales_schedule TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_sales_calc_edit_hist_calc_id ON public.sales_calculation_edit_history(calculation_id);
+CREATE INDEX IF NOT EXISTS idx_sales_calc_edit_hist_farm_id ON public.sales_calculation_edit_history(farm_id);
+CREATE INDEX IF NOT EXISTS idx_sales_calc_edit_hist_created_at ON public.sales_calculation_edit_history(created_at DESC);
+
+ALTER TABLE public.sales_calculation_edit_history ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "sales_calc_edit_history_select" ON public.sales_calculation_edit_history;
+CREATE POLICY "sales_calc_edit_history_select" ON public.sales_calculation_edit_history
+    FOR SELECT USING (
+        user_can_access_owner_data(user_id, farm_id)
+    );
+
+DROP POLICY IF EXISTS "sales_calc_edit_history_insert" ON public.sales_calculation_edit_history;
+CREATE POLICY "sales_calc_edit_history_insert" ON public.sales_calculation_edit_history
+    FOR INSERT WITH CHECK (
+        auth.uid() = user_id OR user_can_access_farm(farm_id)
+    );
+
+DROP POLICY IF EXISTS "sales_calc_edit_history_modify" ON public.sales_calculation_edit_history;
+CREATE POLICY "sales_calc_edit_history_modify" ON public.sales_calculation_edit_history
+    FOR ALL USING (
+        user_can_access_owner_data(user_id, farm_id)
+    );

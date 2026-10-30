@@ -144,7 +144,7 @@ function PondDetail({
   onNurseryTransfer:(fromId:string,toId:string,count:number,pct:number,date:string)=>void|Promise<any>;
   treatments:TreatmentRecord[];
   onAddTreatment:(t:TreatmentRecord)=>void;
-  onEditFish?:(pondId:string,u:{species:string;currentCount:number;stockingDate:string;fishStock?:string},reasonOpt?:{reason?:string})=>void;
+  onEditFish?:(pondId:string,u:{species:string;currentCount:number;stockingDate:string;fishStock?:string},reasonOpt?:{reason?:string})=>Promise<any>|void;
   onSetMaxKg:(pondId:string,size:string,maxKg:number)=>void;
   inventory?:FeedItem[];
   onEditThisPond?:(p:Pond)=>void;
@@ -207,21 +207,55 @@ function PondDetail({
   const [showPondMenu,setShowPondMenu]=useState(false);
   const pondMenuRef=useRef<HTMLDivElement>(null);
   useEffect(()=>{const h=(e:MouseEvent)=>{if(pondMenuRef.current&&!pondMenuRef.current.contains(e.target as Node))setShowPondMenu(false);};document.addEventListener("mousedown",h);return()=>document.removeEventListener("mousedown",h);},[]);
-  const handleSaveEditFish=()=>{
+  const [isSavingEditFish,setIsSavingEditFish]=useState(false);
+  const [editFishErr,setEditFishErr]=useState<string|null>(null);
+  const handleSaveEditFish=async()=>{
+    if (isSavingEditFish) return;
     const s = (editFishF.species === "Other" ? editFishF.customSpecies.trim() : editFishF.species.trim()) || pond.species || "Catfish";
     const newStockDate = editFishF.stockingDate || pond.stockingDate;
     const newStockLabel = fmtStockingDate(newStockDate);
-    if(onEditFish)onEditFish(pond.id,{species:s,currentCount:Number(editFishF.count)||pond.currentCount,stockingDate:newStockDate,fishStock:newStockLabel},{reason:"Edited fish stock details"});
-    setShowEditFish(false);
+    setIsSavingEditFish(true);
+    setEditFishErr(null);
+    try {
+      if(onEditFish) await onEditFish(pond.id,{species:s,currentCount:Number(editFishF.count)||pond.currentCount,stockingDate:newStockDate,fishStock:newStockLabel},{reason:"Edited fish stock details"});
+      setShowEditFish(false);
+    } catch(err:any) {
+      console.error("Failed to edit fish:", err);
+      setEditFishErr(err?.message || "Failed to update fish stock. Please try again.");
+    } finally {
+      setIsSavingEditFish(false);
+    }
   };
-  const handleUpdateQty=(mode?: "increase" | "reduce", directAmt?: number)=>{
+
+  const [isUpdatingQty,setIsUpdatingQty]=useState(false);
+  const [updateQtyErr,setUpdateQtyErr]=useState<string|null>(null);
+  const handleUpdateQty=async(mode?: "increase" | "reduce", directAmt?: number)=>{
+    if (isUpdatingQty) return;
     const chosenMode = mode || qtyMode;
     const n = directAmt !== undefined ? directAmt : (Number(qtyAmt) || 0);
-    if(n <= 0) return;
-    const newCount = chosenMode === "increase" ? pond.currentCount + n : Math.max(0, pond.currentCount - n);
-    if(onEditFish) onEditFish(pond.id, { species: pond.species, currentCount: newCount, stockingDate: pond.stockingDate, fishStock: pond.fishStock }, { reason: chosenMode === "increase" ? `Manual count increase (+${n.toLocaleString()} fish)` : `Manual count reduction (-${n.toLocaleString()} fish)` });
-    setShowUpdateQty(false);
-    setQtyAmt("");
+    if(n <= 0) {
+      setUpdateQtyErr("Please enter a valid quantity greater than 0");
+      return;
+    }
+    setUpdateQtyErr(null);
+    setIsUpdatingQty(true);
+    try {
+      const newCount = chosenMode === "increase" ? pond.currentCount + n : Math.max(0, pond.currentCount - n);
+      if(onEditFish) {
+        await onEditFish(
+          pond.id,
+          { species: pond.species, currentCount: newCount, stockingDate: pond.stockingDate, fishStock: pond.fishStock },
+          { reason: chosenMode === "increase" ? `Manual count increase (+${n.toLocaleString()} fish)` : `Manual count reduction (-${n.toLocaleString()} fish)` }
+        );
+      }
+      setShowUpdateQty(false);
+      setQtyAmt("");
+    } catch(err:any) {
+      console.error("Failed to update fish quantity:", err);
+      setUpdateQtyErr(err?.message || "Failed to update quantity. Please try again.");
+    } finally {
+      setIsUpdatingQty(false);
+    }
   };
   const [showMaxKg,setShowMaxKg]=useState(false);
   const [maxKgSize,setMaxKgSize]=useState(allInvSizes[0]||"");
@@ -1708,6 +1742,7 @@ function PondDetail({
             value={editFishF.species}
             onChange={e=>setEditFishF(p=>({...p,species:e.target.value}))}
             className={SC}
+            disabled={isSavingEditFish}
           >
             {supportedSpeciesList.map(s=><option key={s} value={s}>{s}</option>)}
           </select>
@@ -1720,20 +1755,80 @@ function PondDetail({
               onChange={e=>setEditFishF(p=>({...p,customSpecies:e.target.value}))}
               className={IC}
               placeholder="e.g. Clarias gariepinus, Pangasius, Heterobranchus…"
+              disabled={isSavingEditFish}
             />
           </F>
         )}
-        <F label="Current Count"><input type="number" value={editFishF.count} onChange={e=>setEditFishF(p=>({...p,count:e.target.value}))} className={IC}/></F>
-        <F label="Stocking Date"><input type="date" value={editFishF.stockingDate} onChange={e=>setEditFishF(p=>({...p,stockingDate:e.target.value}))} className={IC}/></F>
-        <div className="flex gap-2 pt-1"><PBtn onClick={handleSaveEditFish}><CheckCircle size={14}/> Save Changes</PBtn><button onClick={()=>setShowEditFish(false)} className="px-4 py-2 text-sm text-slate-400">Cancel</button></div>
+        <F label="Current Count">
+          <input
+            type="number"
+            value={editFishF.count}
+            onChange={e=>setEditFishF(p=>({...p,count:e.target.value}))}
+            className={IC}
+            disabled={isSavingEditFish}
+          />
+        </F>
+        <F label="Stocking Date">
+          <input
+            type="date"
+            value={editFishF.stockingDate}
+            onChange={e=>setEditFishF(p=>({...p,stockingDate:e.target.value}))}
+            className={IC}
+            disabled={isSavingEditFish}
+          />
+        </F>
+        {editFishErr && (
+          <div className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-xl p-2.5 mb-2">
+            {editFishErr}
+          </div>
+        )}
+        <div className="flex gap-2 pt-1">
+          <PBtn onClick={handleSaveEditFish} disabled={isSavingEditFish}>
+            {isSavingEditFish ? <><Loader2 className="animate-spin" size={14}/> Saving Changes...</> : <><CheckCircle size={14}/> Save Changes</>}
+          </PBtn>
+          <button
+            type="button"
+            disabled={isSavingEditFish}
+            onClick={()=>{setShowEditFish(false);setEditFishErr(null);}}
+            className="px-4 py-2 text-sm text-slate-400 hover:text-slate-600 disabled:opacity-50"
+          >
+            Cancel
+          </button>
+        </div>
       </Modal>}
-      {showUpdateQty&&<Modal title="Increase / Decrease Fish Quantity" onClose={()=>setShowUpdateQty(false)}>
+      {showUpdateQty&&<Modal title="Increase / Decrease Fish Quantity" onClose={()=>{if(!isUpdatingQty){setShowUpdateQty(false);setUpdateQtyErr(null);}}}>
+        {updateQtyErr && (
+          <div className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-xl p-2.5 mb-2">
+            {updateQtyErr}
+          </div>
+        )}
         <div className="flex gap-2 mb-2">
-          <button onClick={()=>setQtyMode("increase")} className={`flex-1 py-2.5 rounded-xl text-sm font-bold border transition-all ${qtyMode==="increase"?"border-green-500 bg-green-50 text-green-700 shadow-xs":"border-slate-200 text-slate-500 hover:bg-slate-50"}`}>+ Increase Quantity</button>
-          <button onClick={()=>setQtyMode("reduce")} className={`flex-1 py-2.5 rounded-xl text-sm font-bold border transition-all ${qtyMode==="reduce"?"border-red-500 bg-red-50 text-red-700 shadow-xs":"border-slate-200 text-slate-500 hover:bg-slate-50"}`}>- Decrease Quantity</button>
+          <button
+            type="button"
+            disabled={isUpdatingQty}
+            onClick={()=>setQtyMode("increase")}
+            className={`flex-1 py-2.5 rounded-xl text-sm font-bold border transition-all disabled:opacity-50 ${qtyMode==="increase"?"border-green-500 bg-green-50 text-green-700 shadow-xs":"border-slate-200 text-slate-500 hover:bg-slate-50"}`}
+          >
+            + Increase Quantity
+          </button>
+          <button
+            type="button"
+            disabled={isUpdatingQty}
+            onClick={()=>setQtyMode("reduce")}
+            className={`flex-1 py-2.5 rounded-xl text-sm font-bold border transition-all disabled:opacity-50 ${qtyMode==="reduce"?"border-red-500 bg-red-50 text-red-700 shadow-xs":"border-slate-200 text-slate-500 hover:bg-slate-50"}`}
+          >
+            - Decrease Quantity
+          </button>
         </div>
         <F label="Quantity Amount">
-          <NumInput allowDecimal={false} value={qtyAmt} onChange={setQtyAmt} className={IC} placeholder="Enter quantity number"/>
+          <NumInput
+            allowDecimal={false}
+            value={qtyAmt}
+            onChange={val => { setQtyAmt(val); if (updateQtyErr) setUpdateQtyErr(null); }}
+            className={IC}
+            placeholder="Enter quantity number"
+            disabled={isUpdatingQty}
+          />
         </F>
         <div className="flex flex-wrap gap-1.5 mb-3">
           <span className="text-[11px] text-slate-400 self-center mr-1">Quick presets:</span>
@@ -1741,8 +1836,9 @@ function PondDetail({
             <button
               key={val}
               type="button"
-              onClick={() => setQtyAmt(String(val))}
-              className="text-xs px-2.5 py-1 rounded-lg border border-slate-200 bg-white text-slate-600 hover:border-green-400 hover:text-green-700 transition-colors font-medium"
+              disabled={isUpdatingQty}
+              onClick={() => { setQtyAmt(String(val)); if (updateQtyErr) setUpdateQtyErr(null); }}
+              className="text-xs px-2.5 py-1 rounded-lg border border-slate-200 bg-white text-slate-600 hover:border-green-400 hover:text-green-700 transition-colors font-medium disabled:opacity-50"
             >
               +{val}
             </button>
@@ -1758,7 +1854,23 @@ function PondDetail({
             </strong>
           </>}
         </div>
-        <div className="flex gap-2 pt-1"><PBtn onClick={()=>handleUpdateQty()}><CheckCircle size={14}/> Save Quantity</PBtn><button onClick={()=>setShowUpdateQty(false)} className="px-4 py-2 text-sm text-slate-400 hover:text-slate-600">Cancel</button></div>
+        <div className="flex gap-2 pt-1">
+          <PBtn onClick={()=>handleUpdateQty()} disabled={isUpdatingQty}>
+            {isUpdatingQty ? (
+              <><Loader2 className="animate-spin" size={14}/> Saving Quantity...</>
+            ) : (
+              <><CheckCircle size={14}/> Save Quantity</>
+            )}
+          </PBtn>
+          <button
+            type="button"
+            disabled={isUpdatingQty}
+            onClick={()=>{setShowUpdateQty(false);setUpdateQtyErr(null);}}
+            className="px-4 py-2 text-sm text-slate-400 hover:text-slate-600 disabled:opacity-50"
+          >
+            Cancel
+          </button>
+        </div>
       </Modal>}
       {showRestock&&<Modal title={`Add Fish Stock — ${pond.name}`} onClose={()=>{setShowRestock(false);setRestockErr({});}} wide>
         <div className="bg-green-50 border border-green-200 rounded-xl px-4 py-3 text-xs text-green-700">
@@ -1813,7 +1925,7 @@ export function getNextPondFigure(ponds: Pond[]): string {
 }
 
 /* ─── 2. Pond Management ────────────────────────────────────── */
-export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPond,onTransfer,onNurseryTransfer,mortality,onAddMortality,onEditMortality,onDeleteMortality,onAddCost,feedingRecords,onAddFeedRecord,stockEvents,treatments,onAddTreatment,activeFarmId,onDeletePond,onEditFish,onSetMaxKg,onEditPond,onReorderPonds,onScrollTop,currency="₦",inventory=[],farms=[],pondReports=[],onAddPondReport,fishCountHistory=[],onEditFeedRecord,onEditTreatment,canCreate=true,canEdit=true,canDelete=true}:{ponds:Pond[];onAddPond:(p:Pond)=>void;onClosePond:(id:string)=>void;onRestockPond:(id:string,data:{species:string;initialStock:number;stockingDate:string;stockMonth:string;supplier?:string;fishStock?:string})=>void;onTransfer:(fromId:string,toId:string,date:string)=>void|Promise<any>;onNurseryTransfer:(fromId:string,toId:string,count:number,pct:number,date:string)=>void|Promise<any>;mortality:MortalityEntry[];onAddMortality:(m:MortalityEntry,pondId:string)=>void;onEditMortality?:(oldRecord:MortalityEntry,newRecord:MortalityEntry)=>Promise<void>|void;onDeleteMortality?:(record:MortalityEntry)=>Promise<void>|void;onAddCost:(e:Expense)=>void;feedingRecords:FeedingRecord[];onAddFeedRecord?:(r:FeedingRecord)=>Promise<any>|void;stockEvents:StockEvent[];treatments:TreatmentRecord[];onAddTreatment:(t:TreatmentRecord)=>void;activeFarmId:string;onDeletePond?:(id:string)=>void;onEditFish?:(pondId:string,u:{species:string;currentCount:number;stockingDate:string;fishStock?:string},reasonOpt?:{reason?:string})=>void;onSetMaxKg:(pondId:string,size:string,maxKg:number)=>void;onEditPond?:(id:string,u:Partial<Pond>)=>void;onReorderPonds?:(ponds:Pond[])=>void;onScrollTop?:()=>void;currency?:string;inventory?:FeedItem[];farms?:Farm[];pondReports?:PondReport[];onAddPondReport?:(r:PondReport)=>Promise<void>;fishCountHistory?:FishCountHistoryEntry[];onEditFeedRecord?:(r:FeedingRecord)=>void;onEditTreatment?:(t:TreatmentRecord)=>void;canCreate?:boolean;canEdit?:boolean;canDelete?:boolean;}){
+export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPond,onTransfer,onNurseryTransfer,mortality,onAddMortality,onEditMortality,onDeleteMortality,onAddCost,feedingRecords,onAddFeedRecord,stockEvents,treatments,onAddTreatment,activeFarmId,onDeletePond,onEditFish,onSetMaxKg,onEditPond,onReorderPonds,onScrollTop,currency="₦",inventory=[],farms=[],pondReports=[],onAddPondReport,fishCountHistory=[],onEditFeedRecord,onEditTreatment,canCreate=true,canEdit=true,canDelete=true}:{ponds:Pond[];onAddPond:(p:Pond)=>Promise<any>|void;onClosePond:(id:string)=>void;onRestockPond:(id:string,data:{species:string;initialStock:number;stockingDate:string;stockMonth:string;supplier?:string;fishStock?:string})=>void;onTransfer:(fromId:string,toId:string,date:string)=>void|Promise<any>;onNurseryTransfer:(fromId:string,toId:string,count:number,pct:number,date:string)=>void|Promise<any>;mortality:MortalityEntry[];onAddMortality:(m:MortalityEntry,pondId:string)=>void;onEditMortality?:(oldRecord:MortalityEntry,newRecord:MortalityEntry)=>Promise<void>|void;onDeleteMortality?:(record:MortalityEntry)=>Promise<void>|void;onAddCost:(e:Expense)=>void;feedingRecords:FeedingRecord[];onAddFeedRecord?:(r:FeedingRecord)=>Promise<any>|void;stockEvents:StockEvent[];treatments:TreatmentRecord[];onAddTreatment:(t:TreatmentRecord)=>void;activeFarmId:string;onDeletePond?:(id:string)=>void;onEditFish?:(pondId:string,u:{species:string;currentCount:number;stockingDate:string;fishStock?:string},reasonOpt?:{reason?:string})=>Promise<any>|void;onSetMaxKg:(pondId:string,size:string,maxKg:number)=>void;onEditPond?:(id:string,u:Partial<Pond>)=>Promise<any>|void;onReorderPonds?:(ponds:Pond[])=>void;onScrollTop?:()=>void;currency?:string;inventory?:FeedItem[];farms?:Farm[];pondReports?:PondReport[];onAddPondReport?:(r:PondReport)=>Promise<void>;fishCountHistory?:FishCountHistoryEntry[];onEditFeedRecord?:(r:FeedingRecord)=>void;onEditTreatment?:(t:TreatmentRecord)=>void;canCreate?:boolean;canEdit?:boolean;canDelete?:boolean;}){
   const cs=currency;
   const [detailId,setDetailId]=useState<string|null>(null);
   const [showAdd,setShowAdd]=useState(false);
@@ -1967,24 +2079,35 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
     setEditPondErr(null);
   };
 
-  const handleSaveEditPond=()=>{
-    if(!editPondId)return;
+  const [isSavingEditPond,setIsSavingEditPond]=useState(false);
+  const handleSaveEditPond=async()=>{
+    if(!editPondId || isSavingEditPond)return;
     const trimmedName=editPondF.name.trim();
     if(!trimmedName){setEditPondErr("Pond name is required");return;}
     const conflict=ponds.some(p=>p.id!==editPondId&&p.name.trim().toLowerCase()===trimmedName.toLowerCase());
     if(conflict){setEditPondErr(`A pond named "${trimmedName}" already exists in this farm.`);return;}
     setEditPondErr(null);
-    onEditPond?.(editPondId,{
-      id:editPondId,
-      name:trimmedName,
-      type:editPondF.type,
-      lengthFt:editPondF.lengthFt,
-      widthFt:editPondF.widthFt,
-      notes:editPondF.notes,
-      category:editPondF.category as "Production"|"Nursery",
-      sizeM2:String((Number(editPondF.lengthFt)||0)*(Number(editPondF.widthFt)||0)||0)
-    });
-    setEditPondId(null);
+    setIsSavingEditPond(true);
+    try {
+      if (onEditPond) {
+        await onEditPond(editPondId,{
+          id:editPondId,
+          name:trimmedName,
+          type:editPondF.type,
+          lengthFt:editPondF.lengthFt,
+          widthFt:editPondF.widthFt,
+          notes:editPondF.notes,
+          category:editPondF.category as "Production"|"Nursery",
+          sizeM2:String((Number(editPondF.lengthFt)||0)*(Number(editPondF.widthFt)||0)||0)
+        });
+      }
+      setEditPondId(null);
+    } catch (err: any) {
+      console.error("Failed to edit pond:", err);
+      setEditPondErr(err?.message || "Failed to update pond. Please try again.");
+    } finally {
+      setIsSavingEditPond(false);
+    }
   };
   const [fStatus,setFStatus]=useState("All"); const [fMonth,setFMonth]=useState("All"); const [fStock,setFStock]=useState("All");
   const [deletePondId,setDeletePondId]=useState<string|null>(null);
@@ -2177,7 +2300,9 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
     return true;
   });
 
-  const handleAddPond=()=>{
+  const [isAddingPond, setIsAddingPond] = useState(false);
+  const handleAddPond=async()=>{
+    if (isAddingPond) return;
     const errs:Record<string,string>={};
     const trimmedName = addF.name.trim();
     if(!trimmedName){
@@ -2187,41 +2312,63 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
     }
     if(Object.keys(errs).length){setAddErr(errs);return;}
     setAddErr({});
-    const l=Number(addF.lengthFt)||0;const w=Number(addF.widthFt)||0;
-    const sizeM2=l&&w?String(l*w):"";
-    onAddPond({
-      id:crypto.randomUUID(),
-      name:trimmedName,
-      type:addF.type,
-      species:"—",
-      sizeM2,
-      initialStock:0,
-      currentCount:0,
-      stockingDate:"—",
-      stockMonth:"",
-      totalCost:0,
-      status:"Empty",
-      notes:addF.notes,
-      farmId: activeFarmId || farms[0]?.id || "",
-      lengthFt:addF.lengthFt,
-      widthFt:addF.widthFt,
-      category:addF.category as "Production"|"Nursery"
-    });
-    setShowAdd(false);
-    setAddF({name:"",lengthFt:"",widthFt:"",type:"Earthen",notes:"",category:"Production"});
+    setIsAddingPond(true);
+    try {
+      const l=Number(addF.lengthFt)||0;const w=Number(addF.widthFt)||0;
+      const sizeM2=l&&w?String(l*w):"";
+      if (onAddPond) {
+        await onAddPond({
+          id:crypto.randomUUID(),
+          name:trimmedName,
+          type:addF.type,
+          species:"—",
+          sizeM2,
+          initialStock:0,
+          currentCount:0,
+          stockingDate:"—",
+          stockMonth:"",
+          totalCost:0,
+          status:"Empty",
+          notes:addF.notes,
+          farmId: activeFarmId || farms[0]?.id || "",
+          lengthFt:addF.lengthFt,
+          widthFt:addF.widthFt,
+          category:addF.category as "Production"|"Nursery"
+        });
+      }
+      setShowAdd(false);
+      setAddF({name:"",lengthFt:"",widthFt:"",type:"Earthen",notes:"",category:"Production"});
+    } catch(err:any) {
+      console.error("Failed to add pond:", err);
+      setAddErr({ name: err?.message || "Failed to create pond. Please try again." });
+    } finally {
+      setIsAddingPond(false);
+    }
   };
 
   const editPondModal = editPondId ? (
-    <Modal title="Edit Pond" onClose={()=>{setEditPondId(null);setEditPondErr(null);}}>
-      <div><F label="Pond Name"><input value={editPondF.name} onChange={e=>{setEditPondF(p=>({...p,name:e.target.value}));setEditPondErr(null);}} className={`${IC}${editPondErr?" border-red-400":""}`} placeholder="e.g. Pond 1"/></F>{editPondErr&&<p className="text-xs text-red-500 mt-1">{editPondErr}</p>}</div>
+    <Modal title="Edit Pond" onClose={()=>{if(!isSavingEditPond){setEditPondId(null);setEditPondErr(null);}}}>
+      <div><F label="Pond Name"><input value={editPondF.name} onChange={e=>{setEditPondF(p=>({...p,name:e.target.value}));setEditPondErr(null);}} className={`${IC}${editPondErr?" border-red-400":""}`} placeholder="e.g. Pond 1" disabled={isSavingEditPond}/></F>{editPondErr&&<p className="text-xs text-red-500 mt-1">{editPondErr}</p>}</div>
       <div className="grid grid-cols-2 gap-3">
-        <F label="Length (ft)"><input type="number" value={editPondF.lengthFt} onChange={e=>setEditPondF(p=>({...p,lengthFt:e.target.value}))} className={IC}/></F>
-        <F label="Width (ft)"><input type="number" value={editPondF.widthFt} onChange={e=>setEditPondF(p=>({...p,widthFt:e.target.value}))} className={IC}/></F>
+        <F label="Length (ft)"><input type="number" value={editPondF.lengthFt} onChange={e=>setEditPondF(p=>({...p,lengthFt:e.target.value}))} className={IC} disabled={isSavingEditPond}/></F>
+        <F label="Width (ft)"><input type="number" value={editPondF.widthFt} onChange={e=>setEditPondF(p=>({...p,widthFt:e.target.value}))} className={IC} disabled={isSavingEditPond}/></F>
       </div>
-      <F label="Pond Type"><select value={editPondF.type} onChange={e=>setEditPondF(p=>({...p,type:e.target.value}))} className={SC}>{POND_TYPES.map(t=><option key={t}>{t}</option>)}</select></F>
-      <F label="Pond Category"><select value={editPondF.category} onChange={e=>setEditPondF(p=>({...p,category:e.target.value as "Production"|"Nursery"}))} className={SC}><option>Production</option><option>Nursery</option></select></F>
-      <F label="Notes"><textarea value={editPondF.notes} onChange={e=>setEditPondF(p=>({...p,notes:e.target.value}))} className={`${IC} resize-none`} rows={2}/></F>
-      <div className="flex gap-2 pt-1"><PBtn onClick={handleSaveEditPond}><CheckCircle size={14}/> Save Changes</PBtn><button onClick={()=>setEditPondId(null)} className="px-4 py-2 text-sm text-slate-400">Cancel</button></div>
+      <F label="Pond Type"><select value={editPondF.type} onChange={e=>setEditPondF(p=>({...p,type:e.target.value}))} className={SC} disabled={isSavingEditPond}>{POND_TYPES.map(t=><option key={t}>{t}</option>)}</select></F>
+      <F label="Pond Category"><select value={editPondF.category} onChange={e=>setEditPondF(p=>({...p,category:e.target.value as "Production"|"Nursery"}))} className={SC} disabled={isSavingEditPond}><option>Production</option><option>Nursery</option></select></F>
+      <F label="Notes"><textarea value={editPondF.notes} onChange={e=>setEditPondF(p=>({...p,notes:e.target.value}))} className={`${IC} resize-none`} rows={2} disabled={isSavingEditPond}/></F>
+      <div className="flex gap-2 pt-1">
+        <PBtn onClick={handleSaveEditPond} disabled={isSavingEditPond}>
+          {isSavingEditPond ? <><Loader2 className="animate-spin" size={14}/> Saving Changes...</> : <><CheckCircle size={14}/> Save Changes</>}
+        </PBtn>
+        <button
+          type="button"
+          disabled={isSavingEditPond}
+          onClick={()=>{setEditPondId(null);setEditPondErr(null);}}
+          className="px-4 py-2 text-sm text-slate-400 hover:text-slate-600 disabled:opacity-50"
+        >
+          Cancel
+        </button>
+      </div>
     </Modal>
   ) : null;
 
@@ -2672,19 +2819,31 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
       )}
       {deletePondId&&(()=>{const p=ponds.find(x=>x.id===deletePondId);return(<Modal title="Delete Pond" onClose={()=>setDeletePondId(null)}><div className="flex flex-col items-center text-center py-2"><div className="w-12 h-12 rounded-full bg-red-50 border-2 border-red-200 flex items-center justify-center mb-4"><Trash2 size={22} className="text-red-500"/></div><p className="text-sm font-bold text-slate-800 mb-1">Are you sure you want to delete {p?.name}?</p><p className="text-xs text-slate-400 mb-5">This action cannot be undone. The pond and all its records will be permanently removed.</p><div className="flex gap-3 w-full"><button onClick={()=>{onDeletePond&&onDeletePond(deletePondId);setDeletePondId(null);}} className="flex-1 py-2.5 rounded-xl text-sm font-bold bg-red-500 hover:bg-red-600 text-white transition-colors">Delete Pond</button><button onClick={()=>setDeletePondId(null)} className="flex-1 py-2.5 rounded-xl text-sm font-semibold border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors">Cancel</button></div></div></Modal>);})()}
       {editPondModal}
-      {showAdd&&<Modal title="Add Pond" onClose={()=>{setShowAdd(false);setAddErr({});}}>
-        <div><F label="Pond Name"><input value={addF.name} onChange={e=>{setAddF(p=>({...p,name:e.target.value}));if(e.target.value.trim())setAddErr(p=>({...p,name:""}));}} className={`${IC}${addErr.name?" border-red-400":""}`} placeholder="e.g. Pond 5"/></F>{addErr.name&&<p className="text-xs text-red-500 mt-1">{addErr.name}</p>}</div>
+      {showAdd&&<Modal title="Add Pond" onClose={()=>{if(!isAddingPond){setShowAdd(false);setAddErr({});}}}>
+        <div><F label="Pond Name"><input value={addF.name} onChange={e=>{setAddF(p=>({...p,name:e.target.value}));if(e.target.value.trim())setAddErr(p=>({...p,name:""}));}} className={`${IC}${addErr.name?" border-red-400":""}`} placeholder="e.g. Pond 5" disabled={isAddingPond}/></F>{addErr.name&&<p className="text-xs text-red-500 mt-1">{addErr.name}</p>}</div>
         <div className="grid grid-cols-2 gap-3">
-          <F label="Length (ft)"><input type="number" value={addF.lengthFt} onChange={e=>setAddF(p=>({...p,lengthFt:e.target.value}))} className={IC} placeholder="0"/></F>
-          <F label="Width (ft)"><input type="number" value={addF.widthFt} onChange={e=>setAddF(p=>({...p,widthFt:e.target.value}))} className={IC} placeholder="0"/></F>
+          <F label="Length (ft)"><input type="number" value={addF.lengthFt} onChange={e=>setAddF(p=>({...p,lengthFt:e.target.value}))} className={IC} placeholder="0" disabled={isAddingPond}/></F>
+          <F label="Width (ft)"><input type="number" value={addF.widthFt} onChange={e=>setAddF(p=>({...p,widthFt:e.target.value}))} className={IC} placeholder="0" disabled={isAddingPond}/></F>
         </div>
-        <F label="Pond Type"><select value={addF.type} onChange={e=>setAddF(p=>({...p,type:e.target.value}))} className={SC}>{POND_TYPES.map(t=><option key={t}>{t}</option>)}</select></F>
-        <F label="Pond Category"><select value={addF.category} onChange={e=>setAddF(p=>({...p,category:e.target.value as "Production"|"Nursery"}))} className={SC}><option>Production</option><option>Nursery</option></select></F>
-        <F label="Notes (Optional)"><textarea value={addF.notes} onChange={e=>setAddF(p=>({...p,notes:e.target.value}))} className={`${IC} resize-none`} rows={2}/></F>
+        <F label="Pond Type"><select value={addF.type} onChange={e=>setAddF(p=>({...p,type:e.target.value}))} className={SC} disabled={isAddingPond}>{POND_TYPES.map(t=><option key={t}>{t}</option>)}</select></F>
+        <F label="Pond Category"><select value={addF.category} onChange={e=>setAddF(p=>({...p,category:e.target.value as "Production"|"Nursery"}))} className={SC} disabled={isAddingPond}><option>Production</option><option>Nursery</option></select></F>
+        <F label="Notes (Optional)"><textarea value={addF.notes} onChange={e=>setAddF(p=>({...p,notes:e.target.value}))} className={`${IC} resize-none`} rows={2} disabled={isAddingPond}/></F>
         <div className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-xs text-slate-500">
           After creating a pond, open the pond to add Fish Stock and begin recording feeding, transfers, treatments, and other pond activities.
         </div>
-        <div className="flex gap-2 pt-1"><PBtn onClick={handleAddPond}><Plus size={14}/> Create Pond</PBtn><button onClick={()=>{setShowAdd(false);setAddErr({});}} className="px-4 py-2 text-sm text-slate-400">Cancel</button></div>
+        <div className="flex gap-2 pt-1">
+          <PBtn onClick={handleAddPond} disabled={isAddingPond}>
+            {isAddingPond ? <><Loader2 className="animate-spin" size={14}/> Creating Pond...</> : <><Plus size={14}/> Create Pond</>}
+          </PBtn>
+          <button
+            type="button"
+            disabled={isAddingPond}
+            onClick={()=>{setShowAdd(false);setAddErr({});}}
+            className="px-4 py-2 text-sm text-slate-400 hover:text-slate-600 disabled:opacity-50"
+          >
+            Cancel
+          </button>
+        </div>
       </Modal>}
       {showStockHist&&(
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-3 sm:p-6" onClick={e=>e.target===e.currentTarget&&(setShowStockHist(false),setStockDetailId(null))}>

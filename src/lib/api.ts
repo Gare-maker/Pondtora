@@ -309,7 +309,7 @@ const TABLE_ALLOWED_COLUMNS: Record<string, Set<string>> = {
   sales_calculations: new Set([
     "id", "user_id", "farm_id", "customer_name", "customer_phone", "subtotal",
     "general_discount_type", "general_discount_value", "general_discount_amount",
-    "total_amount", "amount_paid", "payment_status", "items", "created_by", "created_by_id",
+    "total_amount", "amount_paid", "payment_status", "sales_schedule", "items", "created_by", "created_by_id",
     "created_at", "updated_at"
   ]),
   sales_calculation_items: new Set([
@@ -319,6 +319,10 @@ const TABLE_ALLOWED_COLUMNS: Record<string, Set<string>> = {
   ]),
   sales_calculation_payments: new Set([
     "id", "calculation_id", "amount", "payment_method", "payment_date", "recorded_by", "created_at"
+  ]),
+  sales_calculation_edit_history: new Set([
+    "id", "user_id", "farm_id", "calculation_id", "field_name", "field_changed",
+    "previous_value", "new_value", "action_reason", "changed_by", "changed_by_id", "created_at"
   ]),
 };
 
@@ -1388,7 +1392,7 @@ export const api = {
         staffRes, farmAssignRes, staffPermRes, repRes, custRes, pgRes, invsRes, setRes,
         kqRes, cqRes, krRes, crRes,
         investorsRes, investmentsRes, invPayRes, pondRepRes, eqRes,
-        fishHistRes, invHistRes, toolHistRes, salesCalcRes
+        fishHistRes, invHistRes, toolHistRes, salesCalcRes, salesCalcHistRes
       ] = await Promise.all([
         canStaffView("Pond Management") ? farmScope("ponds") : Promise.resolve({ data: [] }),
         canStaffView("Pond Management") ? farmScope("stock_events") : Promise.resolve({ data: [] }),
@@ -1421,6 +1425,7 @@ export const api = {
         canStaffView("Investors") ? farmScope("investment_edit_history") : Promise.resolve({ data: [] }),
         canStaffView("Farm Equipment") ? farmScope("farm_tool_quantity_history") : Promise.resolve({ data: [] }),
         canStaffView("Sales Calculator") || canStaffView("Invoices") ? farmScope("sales_calculations") : Promise.resolve({ data: [] }),
+        canStaffView("Sales Calculator") || canStaffView("Invoices") ? farmScope("sales_calculation_edit_history") : Promise.resolve({ data: [] }),
       ]);
 
       const extract = <T,>(res: any, cacheKey: string, mapper: (r: any) => T): T[] => {
@@ -1501,7 +1506,7 @@ export const api = {
           "ponds", "stock_events", "feed_inventory", "feeding_records", "bag_open_logs",
           "feed_remaining_logs", "expenses", "revenues", "mortality_entries", "treatment_records",
           "reports", "customers", "price_groups", "invoices", "investors", "investments", "pond_reports", "farm_equipment",
-          "fish_count_history", "investment_edit_history", "farm_tool_quantity_history"
+          "fish_count_history", "investment_edit_history", "farm_tool_quantity_history", "sales_calculation_edit_history"
         ];
         Promise.all(tablesToHeal.map(tbl =>
           supabase.from(tbl).update({ farm_id: pFid }).eq("user_id", effectiveOwnerId).is("farm_id", null).then()
@@ -1575,6 +1580,7 @@ export const api = {
         investmentHistory: extract<InvestmentEditHistoryEntry>(invHistRes, "investmentHistory", (r: any) => objToCamel<InvestmentEditHistoryEntry>(r)),
         toolQuantityHistory: extract<FarmToolQuantityHistoryEntry>(toolHistRes, "toolQuantityHistory", (r: any) => objToCamel<FarmToolQuantityHistoryEntry>(r)),
         salesCalculations: extract<SalesCalculation>(salesCalcRes, "salesCalculations", (r: any) => objToCamel<SalesCalculation>(r)),
+        salesCalculationHistory: extract<SalesCalculationEditHistoryEntry>(salesCalcHistRes, "salesCalculationHistory", (r: any) => objToCamel<SalesCalculationEditHistoryEntry>(r)),
         staffInfo: staffMember || null,
         isStaff: !!staffMember,
       };
@@ -2696,7 +2702,7 @@ export const api = {
       }
       return dbInsert<FeedingRecord>("feeding_records", dbRec as FeedingRecord, "feedingRecords");
     },
-    update: async (r: FeedingRecord & { _skipInventoryCheck?: boolean; _isManual?: boolean }) => {
+    update: async (r: FeedingRecord & { _skipInventoryCheck?: boolean; _isManual?: boolean; _skipDuplicateCheck?: boolean }) => {
       const dbRec: any = { ...r };
       const isManualEntry = Boolean(
         dbRec._skipInventoryCheck ||
@@ -2707,16 +2713,18 @@ export const api = {
         dbRec.recordedBy === "Manual Pond Log"
       );
       const skipCheck = isManualEntry;
+      const skipDuplicateCheck = Boolean(dbRec._skipDuplicateCheck);
       delete dbRec._skipInventoryCheck;
       delete dbRec._isManual;
+      delete dbRec._skipDuplicateCheck;
 
       if (r.date) {
         const d = toValidDbDate(r.date);
         if (d) dbRec.date = d;
       }
       const effectiveUid = (await getOwnerUserId()) || (await getUserId());
-      // Prevent duplicate feed sizes for the same stock/pond on the same date
-      if (effectiveUid && dbRec.date && dbRec.size && (dbRec.pond || dbRec.fish_stock || dbRec.fishStock)) {
+      // Prevent duplicate feed sizes for the same stock/pond on the same date unless bypassed during rename/sync cascades
+      if (!skipDuplicateCheck && effectiveUid && dbRec.date && dbRec.size && (dbRec.pond || dbRec.fish_stock || dbRec.fishStock)) {
         let q = supabase
           .from("feeding_records")
           .select("id, pond, fish_stock, size, date")
@@ -3035,6 +3043,47 @@ export const api = {
         return data.map((r: any) => objToCamel<SalesCalculationPayment>(r));
       } catch (err) {
         console.warn("Failed to list sales_calculation_payments:", err);
+        return [];
+      }
+    },
+    recordHistory: async (entry: Partial<SalesCalculationEditHistoryEntry>) => {
+      try {
+        const userId = await getUserId();
+        const ownerId = await getOwnerUserId();
+        const effectiveUserId = ownerId || userId;
+        const cid = entry.calculationId ? (isUuid(entry.calculationId) ? entry.calculationId : toUuid(entry.calculationId)) : null;
+        if (!cid) return;
+        const dbEntry: any = {
+          id: entry.id && isUuid(entry.id) ? entry.id : crypto.randomUUID(),
+          user_id: effectiveUserId,
+          farm_id: entry.farmId && isUuid(entry.farmId) ? entry.farmId : null,
+          calculation_id: cid,
+          field_name: entry.fieldName || entry.fieldChanged || null,
+          field_changed: entry.fieldChanged || entry.fieldName || null,
+          previous_value: entry.previousValue != null ? String(entry.previousValue) : null,
+          new_value: entry.newValue != null ? String(entry.newValue) : null,
+          action_reason: entry.actionReason || null,
+          changed_by: entry.changedBy || null,
+          changed_by_id: entry.changedById && isUuid(entry.changedById) ? entry.changedById : (userId && isUuid(userId) ? userId : null),
+          created_at: entry.createdAt || new Date().toISOString(),
+        };
+        await supabase.from("sales_calculation_edit_history").insert(dbEntry);
+      } catch (err) {
+        console.warn("Failed to record sales_calculation_edit_history:", err);
+      }
+    },
+    listHistory: async (calcId: string): Promise<SalesCalculationEditHistoryEntry[]> => {
+      try {
+        const cid = isUuid(calcId) ? calcId : toUuid(calcId);
+        const { data, error } = await supabase
+          .from("sales_calculation_edit_history")
+          .select("*")
+          .eq("calculation_id", cid)
+          .order("created_at", { ascending: false });
+        if (error || !data) return [];
+        return data.map((r: any) => objToCamel<SalesCalculationEditHistoryEntry>(r));
+      } catch (err) {
+        console.warn("Failed to list sales_calculation_edit_history:", err);
         return [];
       }
     },

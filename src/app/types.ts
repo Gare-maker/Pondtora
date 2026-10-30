@@ -62,6 +62,7 @@ export interface SalesCalculation {
   items?: SalesCalculationItem[];
   payments?: SalesCalculationPayment[];
   editHistory?: SalesCalculationEditHistoryEntry[];
+  salesSchedule?: string;
   createdBy?: string;
   createdById?: string;
   createdAt?: string;
@@ -237,6 +238,10 @@ export interface SalesCalculationEditHistoryEntry {
   farmId?: string;
   calculationId: string;
   customerName?: string;
+  fieldName?: string;
+  fieldChanged?: string;
+  previousValue?: string;
+  newValue?: string;
   previousTotal: number;
   newTotal: number;
   previousWeightKg?: number;

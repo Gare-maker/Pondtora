@@ -135,6 +135,10 @@ CREATE TABLE IF NOT EXISTS public.sales_calculation_edit_history (
     farm_id UUID REFERENCES public.farms(id) ON DELETE CASCADE,
     calculation_id TEXT NOT NULL,
     customer_name TEXT,
+    field_name TEXT,
+    field_changed TEXT,
+    previous_value TEXT,
+    new_value TEXT,
     previous_total NUMERIC NOT NULL DEFAULT 0,
     new_total NUMERIC NOT NULL DEFAULT 0,
     previous_weight_kg NUMERIC NOT NULL DEFAULT 0,
@@ -146,6 +150,12 @@ CREATE TABLE IF NOT EXISTS public.sales_calculation_edit_history (
     changed_by_id UUID,
     created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc'::text, now())
 );
+
+ALTER TABLE public.sales_calculation_edit_history ADD COLUMN IF NOT EXISTS field_name TEXT;
+ALTER TABLE public.sales_calculation_edit_history ADD COLUMN IF NOT EXISTS field_changed TEXT;
+ALTER TABLE public.sales_calculation_edit_history ADD COLUMN IF NOT EXISTS previous_value TEXT;
+ALTER TABLE public.sales_calculation_edit_history ADD COLUMN IF NOT EXISTS new_value TEXT;
+ALTER TABLE public.sales_calculations ADD COLUMN IF NOT EXISTS sales_schedule TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_sales_calc_edit_hist_calc_id ON public.sales_calculation_edit_history(calculation_id);
 CREATE INDEX IF NOT EXISTS idx_sales_calc_edit_hist_farm_id ON public.sales_calculation_edit_history(farm_id);
@@ -170,3 +180,4 @@ CREATE POLICY "sales_calc_edit_history_modify" ON public.sales_calculation_edit_
     FOR ALL USING (
         user_can_access_owner_data(user_id, farm_id)
     );
+

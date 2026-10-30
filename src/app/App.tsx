@@ -5537,11 +5537,12 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     if (!checkSubscriptionActive()) return;
     if (!canEdit("Pond Management")) {
       toast.error("You do not have permission to edit ponds.");
-      return;
+      throw new Error("You do not have permission to edit ponds.");
     }
     const oldPond=ponds.find(x=>x.id===id);
     if(!oldPond)return;
 
+    // 1. Strictly preserve the existing pond's unique database ID
     const { id: _ignoreId, ...safeUpdates } = updates;
     const updatedPond:Pond={...oldPond,...safeUpdates,id};
     const nextPonds = ponds.map(p=>p.id===id?updatedPond:p);
@@ -5555,51 +5556,69 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       } catch {}
     }
 
-    // Cascade name updates across feeding, stock events, expenses, revenues, and invoices
-    if(updates.name&&updates.name!==oldPond.name){
+    // Cascade name and ID updates across feeding, stock events, expenses, revenues, and invoices
+    if(updates.name && updates.name !== oldPond.name){
       const oldName=oldPond.name;
       const newName=updates.name;
+      const isMatch = (pondNameVal?: string, pondIdVal?: string) => {
+        if (pondIdVal && pondIdVal === id) return true;
+        if (pondNameVal && pondNameVal.trim().toLowerCase() === oldName.trim().toLowerCase()) return true;
+        return false;
+      };
+
       setFeeding(prev=>{
-        const updated=prev.map(r=>r.pond===oldName?{...r,pond:newName}:r);
-        prev.filter(r=>r.pond===oldName).forEach(r=>api.feeding.update({...r,pond:newName}).catch(console.warn));
+        const updated=prev.map(r=>isMatch(r.pond, r.pondId)?{...r,pond:newName,pondId:id}:r);
+        if (userProfile?.id) {
+          saveUserLocal(userProfile.id, "feeding_records", "feedingRecords", updated);
+          if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
+            saveUserLocal(userProfile.ownerId, "feeding_records", "feedingRecords", updated);
+          }
+        }
+        prev.filter(r=>isMatch(r.pond, r.pondId)).forEach(r=> {
+          api.feeding.update({...r,pond:newName,pondId:id,_skipDuplicateCheck:true,_skipInventoryCheck:true}).catch(console.warn);
+        });
         return updated;
       });
       setStockEvents(prev=>{
-        const updated=prev.map(s=>s.pondName===oldName?{...s,pondName:newName}:s);
-        prev.filter(s=>s.pondName===oldName).forEach(s=>api.stockEvents.update({...s,pondName:newName}).catch(console.warn));
+        const updated=prev.map(s=>isMatch(s.pondName, s.pondId)?{...s,pondName:newName,pondId:id}:s);
+        if (userProfile?.id) {
+          saveUserLocal(userProfile.id, "stock_events", "stockEvents", updated);
+        }
+        prev.filter(s=>isMatch(s.pondName, s.pondId)).forEach(s=>api.stockEvents.update({...s,pondName:newName,pondId:id}).catch(console.warn));
         return updated;
       });
       setExpenses(prev=>{
-        const updated=prev.map(e=>e.pond===oldName?{...e,pond:newName}:e);
-        prev.filter(e=>e.pond===oldName).forEach(e=>api.expenses.update({...e,pond:newName}).catch(console.warn));
+        const updated=prev.map(e=>isMatch(e.pond)?{...e,pond:newName}:e);
+        if (userProfile?.id) saveUserLocal(userProfile.id, "expenses", "expenses", updated);
+        prev.filter(e=>isMatch(e.pond)).forEach(e=>api.expenses.update({...e,pond:newName}).catch(console.warn));
         return updated;
       });
       setRevenues(prev=>{
-        const updated=prev.map(r=>r.pond===oldName?{...r,pond:newName}:r);
-        prev.filter(r=>r.pond===oldName).forEach(r=>api.revenues.update({...r,pond:newName}).catch(console.warn));
+        const updated=prev.map(r=>isMatch(r.pond)?{...r,pond:newName}:r);
+        if (userProfile?.id) saveUserLocal(userProfile.id, "revenues", "revenues", updated);
+        prev.filter(r=>isMatch(r.pond)).forEach(r=>api.revenues.update({...r,pond:newName}).catch(console.warn));
         return updated;
       });
       setInvoices(prev=>{
-        const updated=prev.map(inv=>inv.pond===oldName?{...inv,pond:newName}:inv);
-        prev.filter(inv=>inv.pond===oldName).forEach(inv=>api.invoices.update({...inv,pond:newName}).catch(console.warn));
+        const updated=prev.map(inv=>isMatch(inv.pond)?{...inv,pond:newName}:inv);
+        if (userProfile?.id) saveUserLocal(userProfile.id, "invoices", "invoices", updated);
+        prev.filter(inv=>isMatch(inv.pond)).forEach(inv=>api.invoices.update({...inv,pond:newName}).catch(console.warn));
+        return updated;
+      });
+      setPondReports(prev=>{
+        const updated=prev.map(rep=>(rep.pondId===id)?{...rep,pondId:id}:rep);
+        if (userProfile?.id) saveUserLocal(userProfile.id, "pond_reports", "pondReports", updated);
         return updated;
       });
     }
 
-    // Cascade id updates across mortality, treatments, and stock events
-    if(updates.id&&updates.id!==id){
-      const newId=updates.id;
-      setTreatments(prev=>prev.map(t=>t.pondId===id?{...t,pondId:newId}:t));
-      setMortality(prev=>prev.map(m=>m.pondId===id?{...m,pondId:newId}:m));
-      setStockEvents(prev=>prev.map(s=>s.pondId===id?{...s,pondId:newId}:s));
-    }
-
-    toast.success("Pond updated");
     try {
       await api.ponds.update(updatedPond);
+      toast.success("Pond updated");
     } catch(err:any) {
       console.error("Failed to persist pond updates:", err);
       toast.error(err?.message||"Failed to update pond");
+      throw err;
     }
   };
   const handleReorderPonds=useCallback((reorderedPonds:Pond[])=>{
@@ -6349,11 +6368,11 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     api.inventory.update(fWithFarm).catch(console.warn);
   };
   const pendingFishUpdatesRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
-  const editFish = (id: string, u: { species: string; currentCount: number; stockingDate: string; fishStock?: string }, reasonOpt?: { reason?: string }) => {
+  const editFish = async (id: string, u: { species: string; currentCount: number; stockingDate: string; fishStock?: string }, reasonOpt?: { reason?: string }): Promise<void> => {
     if (!checkSubscriptionActive()) return;
     if (!canEdit("Pond Management")) {
       toast.error("You do not have permission to edit pond fish.");
-      return;
+      throw new Error("You do not have permission to edit pond fish.");
     }
     const targetPond = ponds.find(p => p.id === id);
     if (!targetPond) return;
@@ -6521,23 +6540,20 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       } catch {}
     }
 
-    toast.success("Fish stock updated");
-
-    // 3. Debounce database call per pond to eliminate race conditions and delayed lags
+    // 3. Persist to cloud database and ensure success before notifying
     if (pendingFishUpdatesRef.current.has(id)) {
       clearTimeout(pendingFishUpdatesRef.current.get(id));
+      pendingFishUpdatesRef.current.delete(id);
     }
-    const timer = setTimeout(async () => {
-      try {
-        await api.ponds.update(np);
-      } catch (err: any) {
-        console.error("Failed to persist updated fish quantity:", err);
-        toast.error("Quantity saved locally — sync error");
-      } finally {
-        pendingFishUpdatesRef.current.delete(id);
-      }
-    }, 250);
-    pendingFishUpdatesRef.current.set(id, timer);
+
+    try {
+      await api.ponds.update(np);
+      toast.success("Fish stock updated");
+    } catch (err: any) {
+      console.error("Failed to persist updated fish quantity:", err);
+      toast.error(err?.message || "Quantity saved locally — sync error");
+      throw err;
+    }
   };
   const deletePond=async(id:string)=>{
     if (!checkSubscriptionActive()) return;
@@ -7495,7 +7511,14 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     const localPonds: Pond[] = currentUid ? loadUserLocal(currentUid, "ponds", "ponds", []) : [];
     const localPondMap = new Map(localPonds.map((p: Pond) => [p.id, p]));
     const serverPondIds = new Set(serverPonds.map((p: Pond) => p.id));
-    const pendingLocalPonds = localPonds.filter((lp: Pond) => lp?.id && !serverPondIds.has(lp.id) && !isDeletedId(lp.id));
+    const serverPondFarmNames = new Set(serverPonds.map((p: Pond) => `${(p.farmId || "").toLowerCase()}:::${(p.name || "").trim().toLowerCase()}`));
+    const pendingLocalPonds = localPonds.filter((lp: Pond) => {
+      if (!lp?.id || isDeletedId(lp.id)) return false;
+      if (serverPondIds.has(lp.id)) return false;
+      const fnKey = `${(lp.farmId || "").toLowerCase()}:::${(lp.name || "").trim().toLowerCase()}`;
+      if (serverPondFarmNames.has(fnKey)) return false;
+      return true;
+    });
     const mergedServerPonds = serverPonds.filter((p: Pond) => !isDeletedId(p.id)).map((sp: Pond) => {
       const lp = localPondMap.get(sp.id);
       if (!lp) {
@@ -7537,9 +7560,20 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       }
       return { ...sp, fishStock: fishStock || sp.fishStock, fishStockId: fishStockId || sp.fishStockId };
     });
-    const pondsData: Pond[] = [...mergedServerPonds, ...pendingLocalPonds];
+    const rawPondsData: Pond[] = [...mergedServerPonds, ...pendingLocalPonds];
+    const seenPondIds = new Set<string>();
+    const seenPondFarmNames = new Set<string>();
+    const pondsData: Pond[] = [];
+    for (const p of rawPondsData) {
+      if (!p?.id || seenPondIds.has(p.id)) continue;
+      const fnKey = `${(p.farmId || "").toLowerCase()}:::${(p.name || "").trim().toLowerCase()}`;
+      if (p.name && seenPondFarmNames.has(fnKey)) continue;
+      seenPondIds.add(p.id);
+      if (p.name) seenPondFarmNames.add(fnKey);
+      pondsData.push(p);
+    }
 
-    // Auto-sync any pending local ponds to Supabase in the background
+    // Auto-sync any verified pending local ponds to Supabase in the background
     if (pendingLocalPonds.length > 0) {
       pendingLocalPonds.forEach(p => {
         api.ponds.create(p).catch(err => console.warn("Background pond sync notice:", err));
@@ -7933,16 +7967,38 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     }
 
     const serverSc: SalesCalculation[] = Array.isArray(d.salesCalculations) ? d.salesCalculations : [];
+    const serverScHist: SalesCalculationEditHistoryEntry[] = Array.isArray((d as any).salesCalculationHistory) ? (d as any).salesCalculationHistory : [];
     const localSc: SalesCalculation[] = userProfile?.id ? loadUserLocal(userProfile.id, "sales_calculations", "salesCalculations", []) : [];
     const serverScIds = new Set(serverSc.map(sc => sc.id));
     const pendingLocalSc = localSc.filter(lsc => lsc?.id && !serverScIds.has(lsc.id) && !isDeletedId(lsc.id));
     const combinedSc = [...serverSc.filter((sc: any) => !isDeletedId(sc.id)), ...pendingLocalSc];
     const seenScIds = new Set<string>();
+
+    const historyByCalcId = new Map<string, SalesCalculationEditHistoryEntry[]>();
+    serverScHist.forEach(h => {
+      if (!h.calculationId) return;
+      const list = historyByCalcId.get(h.calculationId) || [];
+      list.push(h);
+      historyByCalcId.set(h.calculationId, list);
+    });
+
     const finalSc = combinedSc.filter(sc => {
       if (!sc?.id || seenScIds.has(sc.id)) return false;
       seenScIds.add(sc.id);
       return true;
-    }).map((sc: any) => ({ ...sc, farmId: normFid(sc.farmId) }));
+    }).map((sc: any) => {
+      const dbHistory = historyByCalcId.get(sc.id) || [];
+      const localHist = sc.editHistory || [];
+      const seenHist = new Set<string>();
+      const mergedHist: SalesCalculationEditHistoryEntry[] = [];
+      for (const h of [...dbHistory, ...localHist]) {
+        if (!h?.id || seenHist.has(h.id)) continue;
+        seenHist.add(h.id);
+        mergedHist.push(h);
+      }
+      mergedHist.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      return { ...sc, farmId: normFid(sc.farmId), editHistory: mergedHist };
+    });
     if (finalSc.length > 0 || Array.isArray(d.salesCalculations)) {
       setSalesCalculations(finalSc);
     }
@@ -9323,51 +9379,57 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     }
   };
 
-  const editSalesCalculation = async (sc: SalesCalculation, items?: SalesCalculationItem[], historyEntry?: SalesCalculationEditHistoryEntry) => {
+  const editSalesCalculation = async (
+    sc: SalesCalculation,
+    items?: SalesCalculationItem[],
+    historyEntry?: SalesCalculationEditHistoryEntry | SalesCalculationEditHistoryEntry[]
+  ) => {
     if (!checkSubscriptionActive()) return;
-    const existingHistory = (sc.editHistory || []).filter(h => !historyEntry || h.id !== historyEntry.id);
+    const historyEntries: SalesCalculationEditHistoryEntry[] = Array.isArray(historyEntry)
+      ? historyEntry
+      : historyEntry ? [historyEntry] : [];
+
+    const newHistoryIds = new Set(historyEntries.map(h => h.id));
+    const existingHistory = (sc.editHistory || []).filter(h => !newHistoryIds.has(h.id));
+    const combinedHistory = [...historyEntries, ...existingHistory];
+
     const updatedWithHistory: SalesCalculation = {
       ...sc,
       items: items || sc.items,
-      editHistory: historyEntry
-        ? [historyEntry, ...existingHistory]
-        : existingHistory
+      editHistory: combinedHistory
     };
+
     setSalesCalculations(prev => {
       const next = prev.map(x => x.id === sc.id ? updatedWithHistory : x);
       if (userProfile?.id) {
         try {
           saveUserLocal(userProfile.id, "sales_calculations", "salesCalculations", next);
+          if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
+            saveUserLocal(userProfile.ownerId, "sales_calculations", "salesCalculations", next);
+          }
         } catch {}
       }
       return next;
     });
+
     try {
       await api.salesCalculations.update(updatedWithHistory, items);
-      if (historyEntry) {
-        try {
-          await supabase.from("sales_calculation_edit_history").insert({
-            id: crypto.randomUUID(),
-            user_id: userProfile?.id,
-            farm_id: activeFarmId,
-            calculation_id: sc.id,
-            customer_name: sc.customerName,
-            previous_total: historyEntry.previousTotal,
-            new_total: historyEntry.newTotal,
-            previous_weight_kg: historyEntry.previousWeightKg || 0,
-            new_weight_kg: historyEntry.newWeightKg || 0,
-            difference: historyEntry.difference || 0,
-            items_summary: historyEntry.itemsSummary || null,
-            action_reason: historyEntry.actionReason || "Edited calculation",
-            changed_by: historyEntry.changedBy || "Staff",
-            created_at: new Date().toISOString()
-          });
-        } catch (e) {
-          console.warn("Audit sales edit history:", e);
-        }
+      if (historyEntries.length > 0) {
+        await Promise.all(
+          historyEntries.map(entry =>
+            api.salesCalculations.recordHistory({
+              ...entry,
+              calculationId: sc.id,
+              farmId: sc.farmId || activeFarmId,
+              changedBy: entry.changedBy || userProfile?.name || userProfile?.email || "Staff",
+              changedById: userProfile?.id,
+            })
+          )
+        );
       }
-    } catch (e) {
-      console.warn("Failed to update sales calculation", e);
+    } catch (e: any) {
+      console.error("Failed to update sales calculation:", e);
+      throw e;
     }
   };
 

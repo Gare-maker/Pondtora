@@ -3,7 +3,7 @@ import {
   Calculator, Plus, Trash2, RotateCcw, Tag, CheckCircle,
   Pencil, Percent, Calendar as CalendarIcon, ChevronLeft, ChevronRight,
   ChevronDown, MoreVertical, Eye, Check, Search, X, Clock,
-  Phone, User, TrendingUp, AlertCircle, History
+  Phone, User, TrendingUp, AlertCircle, History, Loader2
 } from "lucide-react";
 import { toast } from "sonner";
 import type { PriceGroup, InvSettings, SalesCalculation, SalesCalculationItem, SalesCalculationEditHistoryEntry, SalesCalculationPayment } from "../types";
@@ -90,7 +90,7 @@ export default function SalesCalculatorPage({
   priceGroups: PriceGroup[];
   calculations?: SalesCalculation[];
   onAddCalculation?: (c: SalesCalculation, items?: SalesCalculationItem[]) => Promise<void> | void;
-  onEditCalculation?: (c: SalesCalculation, items?: SalesCalculationItem[], historyEntry?: SalesCalculationEditHistoryEntry) => Promise<void> | void;
+  onEditCalculation?: (c: SalesCalculation, items?: SalesCalculationItem[], historyEntry?: SalesCalculationEditHistoryEntry | SalesCalculationEditHistoryEntry[]) => Promise<void> | void;
   onDeleteCalculation?: (id: string) => Promise<void> | void;
   onTogglePayment?: (c: SalesCalculation, reason?: string) => Promise<void> | void;
   onAddPriceGroup: (g: PriceGroup) => void;
@@ -130,6 +130,8 @@ export default function SalesCalculatorPage({
   const [selectedCalc, setSelectedCalc] = useState<SalesCalculation | null>(null);
   const [calcPayments, setCalcPayments] = useState<SalesCalculationPayment[]>([]);
   const [loadingPayments, setLoadingPayments] = useState(false);
+  const [calcHistory, setCalcHistory] = useState<SalesCalculationEditHistoryEntry[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
 
   // ── Date Filtering (Lagos, Nigeria timezone) ──
   const lagosParts = useMemo(() => getLagosDateParts(), []);
@@ -195,6 +197,7 @@ export default function SalesCalculatorPage({
   const [editReasonInput, setEditReasonInput] = useState("");
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
+  const [salesSchedule, setSalesSchedule] = useState("");
   const [discountType, setDiscountType] = useState<"none" | "general" | "individual">("none");
   const [generalDiscPerKg, setGeneralDiscPerKg] = useState("");
   const [isSavingCalc, setIsSavingCalc] = useState(false);
@@ -267,6 +270,7 @@ export default function SalesCalculatorPage({
     setEditingCalcTarget(c);
     setCustomerName(c.customerName || "");
     setCustomerPhone(c.customerPhone || "");
+    setSalesSchedule(c.salesSchedule || "");
     setDiscountType(c.generalDiscountType || (c.generalDiscountAmount ? "general" : "none"));
     setGeneralDiscPerKg(c.generalDiscountValue ? String(c.generalDiscountValue) : "");
     setEditReasonInput("");
@@ -293,6 +297,7 @@ export default function SalesCalculatorPage({
     setEditReasonInput("");
     setCustomerName("");
     setCustomerPhone("");
+    setSalesSchedule("");
     setDiscountType("none");
     setGeneralDiscPerKg("");
     setCalcFormErr({});
@@ -411,37 +416,158 @@ export default function SalesCalculatorPage({
         prevDiscountType !== newDiscountType ||
         (discountType === "general" && Math.abs(prevDiscountValue - newDiscountValue) > 0.001);
 
-      let discountChangeSummary = "";
-      if (discountChanged) {
-        const describeDisc = (dtype: string, dval: number, damt: number) => {
-          if (dtype === "none" || damt <= 0) return "None";
-          if (dtype === "general") return `${cs}${dval}/kg (${cs}${damt.toLocaleString()})`;
-          return `Individual (${cs}${damt.toLocaleString()})`;
-        };
-        const prevDesc = describeDisc(prevDiscountType, prevDiscountValue, prevDiscountAmount);
-        const newDesc = describeDisc(newDiscountType, newDiscountValue, newDiscountAmount);
-        discountChangeSummary = `Discount changed from ${prevDesc} to ${newDesc}`;
-      }
+      const describeDisc = (dtype: string, dval: number, damt: number) => {
+        if (dtype === "none" || damt <= 0) return "None";
+        if (dtype === "general") return `${cs}${dval}/kg (${cs}${damt.toLocaleString()})`;
+        return `Individual (${cs}${damt.toLocaleString()})`;
+      };
+      const prevDesc = describeDisc(prevDiscountType, prevDiscountValue, prevDiscountAmount);
+      const newDesc = describeDisc(newDiscountType, newDiscountValue, newDiscountAmount);
 
       const userReason = editReasonInput.trim();
-      const finalReason = userReason
-        ? (discountChangeSummary ? `${userReason} • ${discountChangeSummary}` : userReason)
-        : (discountChangeSummary || `Calculation edited (${fmt(prevTotal, cs)} → ${fmt(grandTotal, cs)})`);
+      const changedBy = currentUser?.name || currentUser?.email || "Staff";
+      const generatedEntries: SalesCalculationEditHistoryEntry[] = [];
 
-      const historyEntry: SalesCalculationEditHistoryEntry = {
-        id: uid(),
-        calculationId: editingCalcTarget.id,
-        customerName: trimmedName,
-        previousTotal: prevTotal,
-        newTotal: grandTotal,
-        previousWeightKg: prevWeightKg,
-        newWeightKg: totalKg,
-        difference: diff,
-        itemsSummary,
-        actionReason: finalReason,
-        changedBy: currentUser?.name || "Staff",
-        createdAt: nowIso
-      };
+      // 1. Sales Schedule change
+      const prevSchedule = (editingCalcTarget.salesSchedule || "").trim();
+      const newSchedule = salesSchedule.trim();
+      if (prevSchedule !== newSchedule) {
+        generatedEntries.push({
+          id: uid(),
+          calculationId: editingCalcTarget.id,
+          fieldName: "Sales Schedule",
+          fieldChanged: "salesSchedule",
+          previousValue: prevSchedule || "None",
+          newValue: newSchedule || "None",
+          previousTotal: prevTotal,
+          newTotal: grandTotal,
+          previousWeightKg: prevWeightKg,
+          newWeightKg: totalKg,
+          difference: diff,
+          actionReason: userReason || "Sales schedule updated",
+          changedBy,
+          createdAt: nowIso
+        });
+      }
+
+      // 2. Quantity / Total Weight change
+      if (Math.abs(prevWeightKg - totalKg) > 0.001) {
+        generatedEntries.push({
+          id: uid(),
+          calculationId: editingCalcTarget.id,
+          fieldName: "Quantity (Weight)",
+          fieldChanged: "quantityKg",
+          previousValue: `${prevWeightKg.toLocaleString()} kg`,
+          newValue: `${totalKg.toLocaleString()} kg`,
+          previousTotal: prevTotal,
+          newTotal: grandTotal,
+          previousWeightKg: prevWeightKg,
+          newWeightKg: totalKg,
+          difference: diff,
+          itemsSummary,
+          actionReason: userReason || `Quantity changed (${itemsSummary})`,
+          changedBy,
+          createdAt: nowIso
+        });
+      }
+
+      // 3. Customer Name change
+      if (editingCalcTarget.customerName.trim() !== trimmedName) {
+        generatedEntries.push({
+          id: uid(),
+          calculationId: editingCalcTarget.id,
+          fieldName: "Customer Name",
+          fieldChanged: "customerName",
+          previousValue: editingCalcTarget.customerName,
+          newValue: trimmedName,
+          previousTotal: prevTotal,
+          newTotal: grandTotal,
+          previousWeightKg: prevWeightKg,
+          newWeightKg: totalKg,
+          difference: diff,
+          actionReason: userReason || "Customer name updated",
+          changedBy,
+          createdAt: nowIso
+        });
+      }
+
+      // 4. Customer Phone change
+      const prevPhone = (editingCalcTarget.customerPhone || "").trim();
+      if (prevPhone !== trimmedPhone) {
+        generatedEntries.push({
+          id: uid(),
+          calculationId: editingCalcTarget.id,
+          fieldName: "Customer Phone",
+          fieldChanged: "customerPhone",
+          previousValue: prevPhone || "None",
+          newValue: trimmedPhone || "None",
+          previousTotal: prevTotal,
+          newTotal: grandTotal,
+          previousWeightKg: prevWeightKg,
+          newWeightKg: totalKg,
+          difference: diff,
+          actionReason: userReason || "Customer phone updated",
+          changedBy,
+          createdAt: nowIso
+        });
+      }
+
+      // 5. Discount change
+      if (discountChanged) {
+        generatedEntries.push({
+          id: uid(),
+          calculationId: editingCalcTarget.id,
+          fieldName: "Discount",
+          fieldChanged: "discount",
+          previousValue: prevDesc,
+          newValue: newDesc,
+          previousTotal: prevTotal,
+          newTotal: grandTotal,
+          previousWeightKg: prevWeightKg,
+          newWeightKg: totalKg,
+          difference: diff,
+          actionReason: userReason || "Discount updated",
+          changedBy,
+          createdAt: nowIso
+        });
+      }
+
+      // 6. Total Amount change
+      if (Math.abs(prevTotal - grandTotal) > 0.01) {
+        generatedEntries.push({
+          id: uid(),
+          calculationId: editingCalcTarget.id,
+          fieldName: "Total Amount",
+          fieldChanged: "totalAmount",
+          previousValue: fmt(prevTotal, cs),
+          newValue: fmt(grandTotal, cs),
+          previousTotal: prevTotal,
+          newTotal: grandTotal,
+          difference: diff,
+          actionReason: userReason || "Total amount updated",
+          changedBy,
+          createdAt: nowIso
+        });
+      }
+
+      // Fallback if no specific difference was caught
+      if (generatedEntries.length === 0) {
+        generatedEntries.push({
+          id: uid(),
+          calculationId: editingCalcTarget.id,
+          fieldName: "Calculation",
+          fieldChanged: "calculation",
+          previousValue: fmt(prevTotal, cs),
+          newValue: fmt(grandTotal, cs),
+          previousTotal: prevTotal,
+          newTotal: grandTotal,
+          difference: diff,
+          itemsSummary,
+          actionReason: userReason || "Calculation modified",
+          changedBy,
+          createdAt: nowIso
+        });
+      }
 
       const existingPaid = Number(editingCalcTarget.amountPaid) || 0;
       const nextStatus: "Paid" | "Partially Paid" | "Unpaid" =
@@ -451,12 +577,14 @@ export default function SalesCalculatorPage({
           ? "Partially Paid"
           : "Unpaid";
 
-      const cleanExistingHistory = (editingCalcTarget.editHistory || []).filter(h => h && h.id !== historyEntry.id);
+      const newHistoryIds = new Set(generatedEntries.map(g => g.id));
+      const cleanExistingHistory = (editingCalcTarget.editHistory || []).filter(h => h && !newHistoryIds.has(h.id));
 
       const updatedCalculation: SalesCalculation = {
         ...editingCalcTarget,
         customerName: trimmedName,
         customerPhone: trimmedPhone ? trimmedPhone : null,
+        salesSchedule: newSchedule || undefined,
         subtotal: baseSubtotal,
         generalDiscountType: discountType === "none" ? undefined : discountType,
         generalDiscountValue: discountType === "general" ? Number(generalDiscPerKg) || 0 : 0,
@@ -465,24 +593,25 @@ export default function SalesCalculatorPage({
         amountPaid: existingPaid,
         paymentStatus: nextStatus,
         items: snapshotItems,
-        editHistory: [historyEntry, ...cleanExistingHistory],
+        editHistory: [...generatedEntries, ...cleanExistingHistory],
         updatedAt: nowIso
       };
 
-      // Optimistic instant update: close modal & update UI immediately
-      toast.success(`Calculation for ${trimmedName} updated successfully!`);
-      setShowCalculatorModal(false);
-      if (selectedCalc && selectedCalc.id === editingCalcTarget.id) {
-        setSelectedCalc(updatedCalculation);
-      }
-      resetCalculator();
-      setIsSavingCalc(false);
-
-      if (onEditCalculation) {
-        Promise.resolve(onEditCalculation(updatedCalculation, snapshotItems, historyEntry)).catch((err: any) => {
-          console.error("Failed to update sales calculation in cloud:", err);
-          toast.error("Failed to sync updated calculation with cloud database.");
-        });
+      try {
+        if (onEditCalculation) {
+          await onEditCalculation(updatedCalculation, snapshotItems, generatedEntries);
+        }
+        toast.success(`Calculation for ${trimmedName} updated successfully!`);
+        setShowCalculatorModal(false);
+        if (selectedCalc && selectedCalc.id === editingCalcTarget.id) {
+          setSelectedCalc(updatedCalculation);
+        }
+        resetCalculator();
+      } catch (err: any) {
+        console.error("Failed to update sales calculation in cloud:", err);
+        setCalcFormErr({ general: err?.message || "Failed to sync updated calculation with database. Please try again." });
+      } finally {
+        setIsSavingCalc(false);
       }
       return;
     }
@@ -510,6 +639,7 @@ export default function SalesCalculatorPage({
       farmId: activeFarmId,
       customerName: trimmedName,
       customerPhone: trimmedPhone ? trimmedPhone : null,
+      salesSchedule: salesSchedule.trim() || undefined,
       subtotal: baseSubtotal,
       generalDiscountType: discountType === "none" ? undefined : discountType,
       generalDiscountValue: discountType === "general" ? Number(generalDiscPerKg) || 0 : 0,
@@ -523,21 +653,22 @@ export default function SalesCalculatorPage({
       updatedAt: nowIso
     };
 
-    // Optimistic instant update: close modal & update UI immediately
-    toast.success(`Calculation for ${trimmedName} saved successfully!`);
-    setShowCalculatorModal(false);
-    resetCalculator();
-    setIsSavingCalc(false);
-
-    if (onAddCalculation) {
-      Promise.resolve(onAddCalculation(newCalculation, snapshotItems)).catch((err: any) => {
-        console.error("Failed to save sales calculation in cloud:", err);
-        toast.error("Failed to sync new calculation with cloud database.");
-      });
+    try {
+      if (onAddCalculation) {
+        await onAddCalculation(newCalculation, snapshotItems);
+      }
+      toast.success(`Calculation for ${trimmedName} saved successfully!`);
+      setShowCalculatorModal(false);
+      resetCalculator();
+    } catch (err: any) {
+      console.error("Failed to save sales calculation in cloud:", err);
+      setCalcFormErr({ general: err?.message || "Failed to sync new calculation with database. Please try again." });
+    } finally {
+      setIsSavingCalc(false);
     }
   };
 
-  // Load payment records whenever selectedCalc is opened or changed
+  // Load payment records and permanent edit history whenever selectedCalc is opened or changed
   useEffect(() => {
     if (selectedCalc?.id) {
       let active = true;
@@ -552,11 +683,33 @@ export default function SalesCalculatorPage({
         .finally(() => {
           if (active) setLoadingPayments(false);
         });
+
+      setLoadingHistory(true);
+      api.salesCalculations.listHistory(selectedCalc.id)
+        .then(hist => {
+          if (active) {
+            const serverList = Array.isArray(hist) ? hist : [];
+            const localHist = selectedCalc.editHistory || [];
+            const seenIds = new Set(serverList.map(h => h.id));
+            const merged = [...serverList, ...localHist.filter(h => !seenIds.has(h.id))];
+            merged.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+            setCalcHistory(merged);
+          }
+        })
+        .catch(err => {
+          console.warn("Failed to load calculation edit history:", err);
+          if (active) setCalcHistory(selectedCalc.editHistory || []);
+        })
+        .finally(() => {
+          if (active) setLoadingHistory(false);
+        });
+
       return () => { active = false; };
     } else {
       setCalcPayments([]);
+      setCalcHistory([]);
     }
-  }, [selectedCalc?.id, selectedCalc?.amountPaid, selectedCalc?.paymentStatus]);
+  }, [selectedCalc?.id, selectedCalc?.amountPaid, selectedCalc?.paymentStatus, selectedCalc?.updatedAt]);
 
   // ── Open Payment Recording Modal ──
   const openPaymentModal = (c: SalesCalculation, fillFullBalance = false) => {
@@ -1457,10 +1610,11 @@ export default function SalesCalculatorPage({
                   disabled={isSavingCalc}
                   className="px-4 py-2 text-xs font-bold shadow-sm"
                 >
-                  <CheckCircle size={14} />
-                  {isSavingCalc
-                    ? (editingCalcTarget ? "Updating..." : "Saving...")
-                    : (editingCalcTarget ? "Update Calculation" : "Save Calculation")}
+                  {isSavingCalc ? (
+                    <><Loader2 className="animate-spin" size={14} /> {editingCalcTarget ? "Updating Calculation..." : "Saving Calculation..."}</>
+                  ) : (
+                    <><CheckCircle size={14} /> {editingCalcTarget ? "Update Calculation" : "Save Calculation"}</>
+                  )}
                 </PBtn>
               </div>
             </div>
@@ -1468,7 +1622,7 @@ export default function SalesCalculatorPage({
         >
           <div className="space-y-3.5 pb-2">
             {/* Customer Details Form: Side-by-side on all screens */}
-            <div className="grid grid-cols-2 gap-2.5 sm:gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-3">
               <div>
                 <label className="block text-[11px] font-bold text-slate-700 mb-1 uppercase tracking-wide">
                   Customer Name <span className="text-red-500">*</span>
@@ -1479,6 +1633,7 @@ export default function SalesCalculatorPage({
                   onChange={e => setCustomerName(e.target.value)}
                   placeholder="e.g. Alhaji Musa"
                   className={`${IC} text-xs py-2`}
+                  disabled={isSavingCalc}
                 />
                 {calcFormErr.customerName && <p className="text-red-500 text-[10px] mt-0.5">{calcFormErr.customerName}</p>}
               </div>
@@ -1493,10 +1648,31 @@ export default function SalesCalculatorPage({
                   onChange={e => setCustomerPhone(e.target.value)}
                   placeholder="e.g. 08012345678"
                   className={`${IC} text-xs py-2`}
+                  disabled={isSavingCalc}
                 />
                 {calcFormErr.customerPhone && <p className="text-red-500 text-[10px] mt-0.5">{calcFormErr.customerPhone}</p>}
               </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1 uppercase tracking-wide">
+                  Sales Schedule <span className="text-slate-400 font-normal text-[10px]">(Optional)</span>
+                </label>
+                <input
+                  type="text"
+                  value={salesSchedule}
+                  onChange={e => setSalesSchedule(e.target.value)}
+                  placeholder="e.g. 2026-11-05 / Morning"
+                  className={`${IC} text-xs py-2`}
+                  disabled={isSavingCalc}
+                />
+              </div>
             </div>
+
+            {calcFormErr.general && (
+              <div className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-xl p-2.5">
+                {calcFormErr.general}
+              </div>
+            )}
 
             {/* Optional Reason for Edit (Shown only when editing an existing calculation) */}
             {editingCalcTarget && (
@@ -1884,12 +2060,18 @@ export default function SalesCalculatorPage({
                 />
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2 border-t border-emerald-200/60 text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-2 border-t border-emerald-200/60 text-xs">
                 {/* Customer Phone: Only show if provided, completely omitted otherwise */}
                 {selectedCalc.customerPhone && selectedCalc.customerPhone.trim() !== "" && (
                   <div className="flex items-center gap-1.5 text-emerald-900">
                     <Phone size={13} className="text-emerald-700 shrink-0" />
                     <span>Phone: <strong className="text-emerald-950 font-mono">{selectedCalc.customerPhone}</strong></span>
+                  </div>
+                )}
+                {selectedCalc.salesSchedule && selectedCalc.salesSchedule.trim() !== "" && (
+                  <div className="flex items-center gap-1.5 text-emerald-900">
+                    <Clock size={13} className="text-emerald-700 shrink-0" />
+                    <span>Schedule: <strong className="text-emerald-950">{selectedCalc.salesSchedule}</strong></span>
                   </div>
                 )}
                 {selectedCalc.createdBy && (
@@ -2043,10 +2225,10 @@ export default function SalesCalculatorPage({
               )}
             </div>
 
-            {/* Edit History Section (Deduplicated) */}
+            {/* Edit History Section (Deduplicated & Permanently Persisted) */}
             <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 space-y-2.5">
               {(() => {
-                const historyList = selectedCalc.editHistory || [];
+                const historyList = calcHistory && calcHistory.length > 0 ? calcHistory : (selectedCalc.editHistory || []);
                 const seenHist = new Set<string>();
                 const deduplicatedHistory = historyList.filter(h => {
                   if (!h || !h.id) return false;
@@ -2061,48 +2243,77 @@ export default function SalesCalculatorPage({
                       <span className="text-xs font-bold text-slate-800 uppercase tracking-wide flex items-center gap-1.5">
                         <History size={13} className="text-slate-500" /> Edit History
                       </span>
-                      <span className="text-[11px] font-semibold text-slate-400">
-                        {deduplicatedHistory.length} {deduplicatedHistory.length === 1 ? "edit" : "edits"}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        {loadingHistory && <Loader2 size={12} className="animate-spin text-slate-400" />}
+                        <span className="text-[11px] font-semibold text-slate-400">
+                          {deduplicatedHistory.length} {deduplicatedHistory.length === 1 ? "entry" : "entries"}
+                        </span>
+                      </div>
                     </div>
 
                     {deduplicatedHistory.length === 0 ? (
                       <p className="text-[11px] text-slate-400 italic">No edits recorded for this calculation yet.</p>
                     ) : (
-                      <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
-                        {deduplicatedHistory.map(entry => (
-                          <div key={entry.id} className="bg-white border border-slate-200/90 rounded-lg p-2.5 text-xs space-y-1 shadow-2xs">
-                            <div className="flex items-center justify-between text-[11px]">
-                              <span className="font-semibold text-slate-700 flex items-center gap-1">
-                                <User size={11} className="text-slate-400" /> {entry.changedBy || "Staff"}
-                              </span>
-                              <span className="text-slate-400 font-mono text-[10px]">
-                                {formatDateTime(entry.createdAt)}
-                              </span>
-                            </div>
-                            <div className="flex items-center justify-between text-[11px] pt-1 border-t border-slate-100">
-                              <span className="text-slate-500">Calculation Change:</span>
-                              <span className="font-mono font-bold text-slate-800">
-                                {fmt(entry.previousTotal, cs)} → {fmt(entry.newTotal, cs)}
-                                {entry.difference !== undefined && entry.difference !== 0 && (
-                                  <span className={`ml-1 text-[10px] ${entry.difference > 0 ? "text-emerald-600" : "text-rose-500"}`}>
-                                    ({entry.difference > 0 ? "+" : ""}{fmt(entry.difference, cs)})
+                      <div className="space-y-2 max-h-[240px] overflow-y-auto pr-1">
+                        {deduplicatedHistory.map(entry => {
+                          const fieldLabel = entry.fieldName || entry.fieldChanged;
+                          return (
+                            <div key={entry.id} className="bg-white border border-slate-200/90 rounded-lg p-2.5 text-xs space-y-1 shadow-2xs">
+                              <div className="flex items-center justify-between text-[11px]">
+                                <span className="font-semibold text-slate-700 flex items-center gap-1">
+                                  <User size={11} className="text-slate-400" /> {entry.changedBy || "Staff"}
+                                </span>
+                                <span className="text-slate-400 font-mono text-[10px]">
+                                  {formatDateTime(entry.createdAt)}
+                                </span>
+                              </div>
+
+                              {fieldLabel ? (
+                                <div className="space-y-0.5 pt-1 border-t border-slate-100">
+                                  <div className="flex items-center justify-between text-[11px]">
+                                    <span className="text-slate-500 font-medium">Field Edited:</span>
+                                    <span className="font-semibold text-slate-800">{fieldLabel}</span>
+                                  </div>
+                                  <div className="flex items-center justify-between text-[11px]">
+                                    <span className="text-slate-400">Previous:</span>
+                                    <span className="font-mono text-slate-600 line-through text-[10px] max-w-[200px] truncate" title={entry.previousValue || "-"}>
+                                      {entry.previousValue || "-"}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center justify-between text-[11px]">
+                                    <span className="text-slate-400">Updated:</span>
+                                    <span className="font-mono font-bold text-emerald-700 text-[10px] max-w-[200px] truncate" title={entry.newValue || "-"}>
+                                      {entry.newValue || "-"}
+                                    </span>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="flex items-center justify-between text-[11px] pt-1 border-t border-slate-100">
+                                  <span className="text-slate-500">Calculation Change:</span>
+                                  <span className="font-mono font-bold text-slate-800">
+                                    {fmt(entry.previousTotal, cs)} → {fmt(entry.newTotal, cs)}
+                                    {entry.difference !== undefined && entry.difference !== 0 && (
+                                      <span className={`ml-1 text-[10px] ${entry.difference > 0 ? "text-emerald-600" : "text-rose-500"}`}>
+                                        ({entry.difference > 0 ? "+" : ""}{fmt(entry.difference, cs)})
+                                      </span>
+                                    )}
                                   </span>
-                                )}
-                              </span>
+                                </div>
+                              )}
+
+                              {entry.itemsSummary && (
+                                <p className="text-[10px] text-slate-500 truncate" title={entry.itemsSummary}>
+                                  <span className="font-semibold text-slate-600">Items:</span> {entry.itemsSummary}
+                                </p>
+                              )}
+                              {entry.actionReason && (
+                                <p className="text-[10px] text-slate-600 italic bg-slate-50 px-2 py-1 rounded">
+                                  "{entry.actionReason}"
+                                </p>
+                              )}
                             </div>
-                            {entry.itemsSummary && (
-                              <p className="text-[10px] text-slate-500 truncate" title={entry.itemsSummary}>
-                                <span className="font-semibold text-slate-600">Items:</span> {entry.itemsSummary}
-                              </p>
-                            )}
-                            {entry.actionReason && (
-                              <p className="text-[10px] text-slate-600 italic bg-slate-50 px-2 py-1 rounded">
-                                "{entry.actionReason}"
-                              </p>
-                            )}
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     )}
                   </>
@@ -2144,7 +2355,11 @@ export default function SalesCalculatorPage({
                 }
                 className="px-4 py-2 text-xs font-bold shadow-sm"
               >
-                <CheckCircle size={14} /> {isRecordingPayment ? "Recording..." : "Save Payment"}
+                {isRecordingPayment ? (
+                  <><Loader2 className="animate-spin" size={14} /> Recording Payment...</>
+                ) : (
+                  <><CheckCircle size={14} /> Save Payment</>
+                )}
               </PBtn>
             </div>
           }
@@ -2306,8 +2521,8 @@ export default function SalesCalculatorPage({
                 disabled={isCorrectingUnpaid || !unpaidCorrectionReason.trim()}
                 className="px-4 py-2 text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white rounded-xl shadow-xs transition-colors flex items-center gap-1.5 disabled:opacity-50"
               >
-                <RotateCcw size={14} />
-                <span>{isCorrectingUnpaid ? "Correcting..." : "Confirm Correction to Unpaid"}</span>
+                {isCorrectingUnpaid ? <Loader2 size={14} className="animate-spin" /> : <RotateCcw size={14} />}
+                <span>{isCorrectingUnpaid ? "Correcting Payment..." : "Confirm Correction to Unpaid"}</span>
               </button>
             </div>
           }
@@ -2417,10 +2632,14 @@ export default function SalesCalculatorPage({
                   />
                 </F>
                 <div className="flex gap-2 pt-1">
-                  <PBtn onClick={handleSaveGroup} sm>
-                    <CheckCircle size={13} /> {editGroup ? "Save Changes" : "Create Group"}
+                  <PBtn onClick={handleSaveGroup} disabled={isSavingGroup} sm>
+                    {isSavingGroup ? (
+                      <><Loader2 className="animate-spin" size={13} /> {editGroup ? "Saving Changes..." : "Creating Group..."}</>
+                    ) : (
+                      <><CheckCircle size={13} /> {editGroup ? "Save Changes" : "Create Group"}</>
+                    )}
                   </PBtn>
-                  <button onClick={() => { setGroupFormMode(false); setEditGroup(null); }} className="px-3 py-1.5 text-xs text-slate-500 hover:text-slate-800">Cancel</button>
+                  <button onClick={() => { if (!isSavingGroup) { setGroupFormMode(false); setEditGroup(null); } }} disabled={isSavingGroup} className="px-3 py-1.5 text-xs text-slate-500 hover:text-slate-800 disabled:opacity-50">Cancel</button>
                 </div>
               </div>
             ) : null}
