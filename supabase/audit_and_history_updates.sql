@@ -156,6 +156,7 @@ ALTER TABLE public.sales_calculation_edit_history ADD COLUMN IF NOT EXISTS field
 ALTER TABLE public.sales_calculation_edit_history ADD COLUMN IF NOT EXISTS previous_value TEXT;
 ALTER TABLE public.sales_calculation_edit_history ADD COLUMN IF NOT EXISTS new_value TEXT;
 ALTER TABLE public.sales_calculations ADD COLUMN IF NOT EXISTS sales_schedule TEXT;
+ALTER TABLE public.sales_calculations ADD COLUMN IF NOT EXISTS edit_history JSONB DEFAULT '[]'::jsonb;
 
 CREATE INDEX IF NOT EXISTS idx_sales_calc_edit_hist_calc_id ON public.sales_calculation_edit_history(calculation_id);
 CREATE INDEX IF NOT EXISTS idx_sales_calc_edit_hist_farm_id ON public.sales_calculation_edit_history(farm_id);

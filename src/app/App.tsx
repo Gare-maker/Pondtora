@@ -7969,26 +7969,54 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     const serverSc: SalesCalculation[] = Array.isArray(d.salesCalculations) ? d.salesCalculations : [];
     const serverScHist: SalesCalculationEditHistoryEntry[] = Array.isArray((d as any).salesCalculationHistory) ? (d as any).salesCalculationHistory : [];
     const localSc: SalesCalculation[] = userProfile?.id ? loadUserLocal(userProfile.id, "sales_calculations", "salesCalculations", []) : [];
-    const serverScIds = new Set(serverSc.map(sc => sc.id));
-    const pendingLocalSc = localSc.filter(lsc => lsc?.id && !serverScIds.has(lsc.id) && !isDeletedId(lsc.id));
-    const combinedSc = [...serverSc.filter((sc: any) => !isDeletedId(sc.id)), ...pendingLocalSc];
-    const seenScIds = new Set<string>();
+    const localScHist: SalesCalculationEditHistoryEntry[] = userProfile?.id ? loadUserLocal(userProfile.id, "sales_calculation_edit_history", "salesCalculationHistory", []) : [];
+
+    // Combine server history and local history entries, deduplicating by ID
+    const combinedScHist = [...serverScHist];
+    const seenHistIds = new Set(serverScHist.map(h => h.id));
+    localScHist.forEach(h => {
+      if (h?.id && !seenHistIds.has(h.id)) {
+        seenHistIds.add(h.id);
+        combinedScHist.push(h);
+      }
+    });
+
+    // Also collect history embedded in local calculations so none is lost on refresh
+    localSc.forEach(lsc => {
+      if (Array.isArray(lsc?.editHistory)) {
+        lsc.editHistory.forEach(h => {
+          if (h?.id && !seenHistIds.has(h.id)) {
+            seenHistIds.add(h.id);
+            combinedScHist.push(h);
+          }
+        });
+      }
+    });
 
     const historyByCalcId = new Map<string, SalesCalculationEditHistoryEntry[]>();
-    serverScHist.forEach(h => {
+    combinedScHist.forEach(h => {
       if (!h.calculationId) return;
       const list = historyByCalcId.get(h.calculationId) || [];
       list.push(h);
       historyByCalcId.set(h.calculationId, list);
     });
 
+    const localScMap = new Map(localSc.map(sc => [sc.id, sc]));
+    const serverScIds = new Set(serverSc.map(sc => sc.id));
+    const pendingLocalSc = localSc.filter(lsc => lsc?.id && !serverScIds.has(lsc.id) && !isDeletedId(lsc.id));
+    const combinedSc = [...serverSc.filter((sc: any) => !isDeletedId(sc.id)), ...pendingLocalSc];
+    const seenScIds = new Set<string>();
+
     const finalSc = combinedSc.filter(sc => {
       if (!sc?.id || seenScIds.has(sc.id)) return false;
       seenScIds.add(sc.id);
       return true;
     }).map((sc: any) => {
+      const localItem = localScMap.get(sc.id);
       const dbHistory = historyByCalcId.get(sc.id) || [];
-      const localHist = sc.editHistory || [];
+      const localHist = (localItem?.editHistory && localItem.editHistory.length > 0)
+        ? localItem.editHistory
+        : (sc.editHistory || []);
       const seenHist = new Set<string>();
       const mergedHist: SalesCalculationEditHistoryEntry[] = [];
       for (const h of [...dbHistory, ...localHist]) {
@@ -7999,8 +8027,28 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       mergedHist.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       return { ...sc, farmId: normFid(sc.farmId), editHistory: mergedHist };
     });
+
     if (finalSc.length > 0 || Array.isArray(d.salesCalculations)) {
       setSalesCalculations(finalSc);
+      if (userProfile?.id) {
+        try {
+          saveUserLocal(userProfile.id, "sales_calculations", "salesCalculations", finalSc);
+          if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
+            saveUserLocal(userProfile.ownerId, "sales_calculations", "salesCalculations", finalSc);
+          }
+        } catch {}
+      }
+    }
+
+    if (combinedScHist.length > 0 || Array.isArray((d as any).salesCalculationHistory)) {
+      if (userProfile?.id) {
+        try {
+          saveUserLocal(userProfile.id, "sales_calculation_edit_history", "salesCalculationHistory", combinedScHist);
+          if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
+            saveUserLocal(userProfile.ownerId, "sales_calculation_edit_history", "salesCalculationHistory", combinedScHist);
+          }
+        } catch {}
+      }
     }
 
     if (d.knowledgeQuestions?.length > 0) setKQuestions_(d.knowledgeQuestions);
@@ -9412,6 +9460,23 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       return next;
     });
 
+    if (combinedHistory.length > 0 && userProfile?.id) {
+      try {
+        const localHist: SalesCalculationEditHistoryEntry[] = loadUserLocal(
+          userProfile.id,
+          "sales_calculation_edit_history",
+          "salesCalculationHistory",
+          []
+        );
+        const seenHids = new Set(combinedHistory.map(h => h.id));
+        const mergedH = [...combinedHistory, ...localHist.filter(h => !seenHids.has(h.id))];
+        saveUserLocal(userProfile.id, "sales_calculation_edit_history", "salesCalculationHistory", mergedH);
+        if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
+          saveUserLocal(userProfile.ownerId, "sales_calculation_edit_history", "salesCalculationHistory", mergedH);
+        }
+      } catch {}
+    }
+
     try {
       await api.salesCalculations.update(updatedWithHistory, items);
       if (historyEntries.length > 0) {
@@ -9502,8 +9567,30 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       }
       return next;
     });
+
+    if (userProfile?.id) {
+      try {
+        const localHist: SalesCalculationEditHistoryEntry[] = loadUserLocal(
+          userProfile.id,
+          "sales_calculation_edit_history",
+          "salesCalculationHistory",
+          []
+        );
+        const mergedH = [historyEntry, ...localHist.filter(h => h.id !== historyEntry.id)];
+        saveUserLocal(userProfile.id, "sales_calculation_edit_history", "salesCalculationHistory", mergedH);
+        if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
+          saveUserLocal(userProfile.ownerId, "sales_calculation_edit_history", "salesCalculationHistory", mergedH);
+        }
+      } catch {}
+    }
+
     try {
       await api.salesCalculations.update(updated);
+      api.salesCalculations.recordHistory({
+        ...historyEntry,
+        farmId: sc.farmId || activeFarmId,
+      }).catch(console.warn);
+
       if (isNowPaid) {
         await api.salesCalculations.recordPayment(sc.id, sc.totalAmount, "Cash", userLabel, undefined, "Marked as fully paid");
       } else {

@@ -25,6 +25,10 @@ TRUNCATE TABLE feeding_records CASCADE;
 TRUNCATE TABLE feed_inventory CASCADE;
 TRUNCATE TABLE stock_events CASCADE;
 TRUNCATE TABLE ponds CASCADE;
+TRUNCATE TABLE sales_calculation_edit_history CASCADE;
+TRUNCATE TABLE sales_calculation_payments CASCADE;
+TRUNCATE TABLE sales_calculation_items CASCADE;
+TRUNCATE TABLE sales_calculations CASCADE;
 
 -- 2. Wipe all staff permissions, farm assignments, invitations, staff members & farms
 TRUNCATE TABLE staff_permissions CASCADE;

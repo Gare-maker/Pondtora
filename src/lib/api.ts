@@ -309,7 +309,7 @@ const TABLE_ALLOWED_COLUMNS: Record<string, Set<string>> = {
   sales_calculations: new Set([
     "id", "user_id", "farm_id", "customer_name", "customer_phone", "subtotal",
     "general_discount_type", "general_discount_value", "general_discount_amount",
-    "total_amount", "amount_paid", "payment_status", "sales_schedule", "items", "created_by", "created_by_id",
+    "total_amount", "amount_paid", "payment_status", "sales_schedule", "items", "edit_history", "created_by", "created_by_id",
     "created_at", "updated_at"
   ]),
   sales_calculation_items: new Set([
@@ -321,8 +321,9 @@ const TABLE_ALLOWED_COLUMNS: Record<string, Set<string>> = {
     "id", "calculation_id", "amount", "payment_method", "payment_date", "recorded_by", "created_at"
   ]),
   sales_calculation_edit_history: new Set([
-    "id", "user_id", "farm_id", "calculation_id", "field_name", "field_changed",
-    "previous_value", "new_value", "action_reason", "changed_by", "changed_by_id", "created_at"
+    "id", "user_id", "farm_id", "calculation_id", "customer_name", "field_name", "field_changed",
+    "previous_value", "new_value", "previous_total", "new_total", "previous_weight_kg",
+    "new_weight_kg", "difference", "items_summary", "action_reason", "changed_by", "changed_by_id", "created_at"
   ]),
 };
 
@@ -703,6 +704,7 @@ export const TABLE_FEATURE_MAP: Record<string, string> = {
   sales_calculations: "Sales Calculator",
   sales_calculation_items: "Sales Calculator",
   sales_calculation_payments: "Sales Calculator",
+  sales_calculation_edit_history: "Sales Calculator",
 };
 
 export async function verifyStaffActionPermission(table: string, action: "canCreate" | "canEdit" | "canDelete"): Promise<void> {
@@ -730,7 +732,7 @@ export async function verifyStaffActionPermission(table: string, action: "canCre
       .from("staff_permissions")
       .select("can_create, can_edit, can_delete, can_view, feature")
       .eq("staff_id", queryStaffId)
-      .in("feature", (table === "price_groups" || table === "sales_calculations" || table === "sales_calculation_items" || table === "sales_calculation_payments") ? ["Invoices", "Sales Calculator", "Sales Management"] : [feature]);
+      .in("feature", (table === "price_groups" || table === "sales_calculations" || table === "sales_calculation_items" || table === "sales_calculation_payments" || table === "sales_calculation_edit_history") ? ["Invoices", "Sales Calculator", "Sales Management"] : [feature]);
 
     const permRow = permRows && permRows.length > 0 ? (permRows.find((r: any) => r.can_create || r.can_edit || r.can_delete) || permRows[0]) : null;
 
@@ -1424,8 +1426,8 @@ export const api = {
         canStaffView("Pond Management") ? farmScope("fish_count_history") : Promise.resolve({ data: [] }),
         canStaffView("Investors") ? farmScope("investment_edit_history") : Promise.resolve({ data: [] }),
         canStaffView("Farm Equipment") ? farmScope("farm_tool_quantity_history") : Promise.resolve({ data: [] }),
-        canStaffView("Sales Calculator") || canStaffView("Invoices") ? farmScope("sales_calculations") : Promise.resolve({ data: [] }),
-        canStaffView("Sales Calculator") || canStaffView("Invoices") ? farmScope("sales_calculation_edit_history") : Promise.resolve({ data: [] }),
+        canStaffView("Sales Calculator") || canStaffView("Invoices") || canStaffView("Sales Management") ? farmScope("sales_calculations") : Promise.resolve({ data: [] }),
+        canStaffView("Sales Calculator") || canStaffView("Invoices") || canStaffView("Sales Management") ? farmScope("sales_calculation_edit_history") : Promise.resolve({ data: [] }),
       ]);
 
       const extract = <T,>(res: any, cacheKey: string, mapper: (r: any) => T): T[] => {
@@ -3051,41 +3053,158 @@ export const api = {
         const userId = await getUserId();
         const ownerId = await getOwnerUserId();
         const effectiveUserId = ownerId || userId;
-        const cid = entry.calculationId ? (isUuid(entry.calculationId) ? entry.calculationId : toUuid(entry.calculationId)) : null;
+        const cid = entry.calculationId ? String(entry.calculationId) : null;
         if (!cid) return;
+
+        const histId = entry.id && isUuid(entry.id) ? entry.id : crypto.randomUUID();
+        const nowIso = entry.createdAt || new Date().toISOString();
+        const userLabel = entry.changedBy || "Staff";
+
+        const fullEntry: SalesCalculationEditHistoryEntry = {
+          id: histId,
+          calculationId: cid,
+          farmId: entry.farmId && isUuid(entry.farmId) ? entry.farmId : undefined,
+          customerName: entry.customerName,
+          fieldName: entry.fieldName || entry.fieldChanged,
+          fieldChanged: entry.fieldChanged || entry.fieldName,
+          previousValue: entry.previousValue != null ? String(entry.previousValue) : undefined,
+          newValue: entry.newValue != null ? String(entry.newValue) : undefined,
+          previousTotal: Number(entry.previousTotal) || 0,
+          newTotal: Number(entry.newTotal) || 0,
+          previousWeightKg: Number(entry.previousWeightKg) || 0,
+          newWeightKg: Number(entry.newWeightKg) || 0,
+          difference: Number(entry.difference) || 0,
+          itemsSummary: entry.itemsSummary,
+          actionReason: entry.actionReason,
+          changedBy: userLabel,
+          changedById: entry.changedById && isUuid(entry.changedById) ? entry.changedById : (userId && isUuid(userId) ? userId : undefined),
+          createdAt: nowIso
+        };
+
+        // 1. Immediately persist to local cache and localStorage so it is never lost on refresh
+        const saveToLocal = (targetUid: string) => {
+          if (!targetUid) return;
+          try {
+            const cached = getLocalCache(targetUid) || {};
+            const list: SalesCalculationEditHistoryEntry[] = cached.salesCalculationHistory || [];
+            saveLocalCache({ salesCalculationHistory: [fullEntry, ...list.filter(x => x.id !== histId)] }, targetUid);
+          } catch {}
+          try {
+            const rawKey = `pondtora_${targetUid}_sales_calculation_edit_history`;
+            const raw = localStorage.getItem(rawKey);
+            const list: SalesCalculationEditHistoryEntry[] = raw ? JSON.parse(raw) : [];
+            const nextList = [fullEntry, ...list.filter(x => x.id !== histId)];
+            localStorage.setItem(rawKey, JSON.stringify(nextList));
+          } catch {}
+        };
+        if (userId) saveToLocal(userId);
+        if (ownerId && ownerId !== userId) saveToLocal(ownerId);
+
+        // 2. Prepare database record for remote storage
         const dbEntry: any = {
-          id: entry.id && isUuid(entry.id) ? entry.id : crypto.randomUUID(),
-          user_id: effectiveUserId,
+          id: histId,
+          user_id: effectiveUserId && isUuid(effectiveUserId) ? effectiveUserId : null,
           farm_id: entry.farmId && isUuid(entry.farmId) ? entry.farmId : null,
           calculation_id: cid,
+          customer_name: entry.customerName || null,
           field_name: entry.fieldName || entry.fieldChanged || null,
           field_changed: entry.fieldChanged || entry.fieldName || null,
           previous_value: entry.previousValue != null ? String(entry.previousValue) : null,
           new_value: entry.newValue != null ? String(entry.newValue) : null,
+          previous_total: Number(entry.previousTotal) || 0,
+          new_total: Number(entry.newTotal) || 0,
+          previous_weight_kg: Number(entry.previousWeightKg) || 0,
+          new_weight_kg: Number(entry.newWeightKg) || 0,
+          difference: Number(entry.difference) || 0,
+          items_summary: entry.itemsSummary || null,
           action_reason: entry.actionReason || null,
-          changed_by: entry.changedBy || null,
+          changed_by: userLabel,
           changed_by_id: entry.changedById && isUuid(entry.changedById) ? entry.changedById : (userId && isUuid(userId) ? userId : null),
-          created_at: entry.createdAt || new Date().toISOString(),
+          created_at: nowIso,
         };
-        await supabase.from("sales_calculation_edit_history").insert(dbEntry);
+
+        let { error } = await supabase.from("sales_calculation_edit_history").insert(dbEntry).select().maybeSingle();
+        let healAttempts = 0;
+        while (error && error.message && healAttempts < 6) {
+          const missingCol = extractMissingColumn(error.message);
+          if (missingCol && dbEntry[missingCol] !== undefined) {
+            healAttempts++;
+            delete dbEntry[missingCol];
+            const retry = await supabase.from("sales_calculation_edit_history").insert(dbEntry).select().maybeSingle();
+            error = retry.error;
+          } else {
+            break;
+          }
+        }
+        if (error) {
+          console.warn("Notice: sales_calculation_edit_history remote insert note:", error.message);
+        }
       } catch (err) {
         console.warn("Failed to record sales_calculation_edit_history:", err);
       }
     },
     listHistory: async (calcId: string): Promise<SalesCalculationEditHistoryEntry[]> => {
+      const mergedMap = new Map<string, SalesCalculationEditHistoryEntry>();
+
+      // 1. Check local storage and local cache first (instant local resilience)
+      try {
+        const userId = await getUserId();
+        const ownerId = await getOwnerUserId();
+        const uids = [userId, ownerId].filter(Boolean) as string[];
+
+        for (const u of uids) {
+          const raw = localStorage.getItem(`pondtora_${u}_sales_calculation_edit_history`);
+          if (raw) {
+            try {
+              const list: SalesCalculationEditHistoryEntry[] = JSON.parse(raw);
+              list.forEach(h => {
+                if ((h.calculationId === calcId || (isUuid(calcId) && h.calculationId === toUuid(calcId))) && h.id) {
+                  mergedMap.set(h.id, h);
+                }
+              });
+            } catch {}
+          }
+          const cached = getLocalCache(u);
+          const cachedHist: SalesCalculationEditHistoryEntry[] = cached?.salesCalculationHistory || [];
+          cachedHist.forEach(h => {
+            if ((h.calculationId === calcId || (isUuid(calcId) && h.calculationId === toUuid(calcId))) && h.id) {
+              if (!mergedMap.has(h.id)) mergedMap.set(h.id, h);
+            }
+          });
+
+          // Also check calculation's embedded editHistory
+          const cachedCalcs: SalesCalculation[] = cached?.salesCalculations || [];
+          const matchCalc = cachedCalcs.find(c => c.id === calcId);
+          if (matchCalc?.editHistory && Array.isArray(matchCalc.editHistory)) {
+            matchCalc.editHistory.forEach(h => {
+              if (h?.id && !mergedMap.has(h.id)) mergedMap.set(h.id, h);
+            });
+          }
+        }
+      } catch {}
+
+      // 2. Query Supabase
       try {
         const cid = isUuid(calcId) ? calcId : toUuid(calcId);
         const { data, error } = await supabase
           .from("sales_calculation_edit_history")
           .select("*")
-          .eq("calculation_id", cid)
+          .or(`calculation_id.eq.${calcId},calculation_id.eq.${cid}`)
           .order("created_at", { ascending: false });
-        if (error || !data) return [];
-        return data.map((r: any) => objToCamel<SalesCalculationEditHistoryEntry>(r));
+
+        if (!error && Array.isArray(data)) {
+          data.forEach(r => {
+            const entry = objToCamel<SalesCalculationEditHistoryEntry>(r);
+            if (entry?.id) mergedMap.set(entry.id, entry);
+          });
+        }
       } catch (err) {
-        console.warn("Failed to list sales_calculation_edit_history:", err);
-        return [];
+        console.warn("Failed to list sales_calculation_edit_history from database:", err);
       }
+
+      const res = Array.from(mergedMap.values());
+      res.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      return res;
     },
   },
 

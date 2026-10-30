@@ -605,6 +605,7 @@ export default function SalesCalculatorPage({
         setShowCalculatorModal(false);
         if (selectedCalc && selectedCalc.id === editingCalcTarget.id) {
           setSelectedCalc(updatedCalculation);
+          setCalcHistory(updatedCalculation.editHistory || []);
         }
         resetCalculator();
       } catch (err: any) {
@@ -672,6 +673,14 @@ export default function SalesCalculatorPage({
   useEffect(() => {
     if (selectedCalc?.id) {
       let active = true;
+
+      // Seed calcHistory immediately from calculation so user never sees empty flash
+      const match = (calculations || []).find(c => c.id === selectedCalc.id);
+      const immediateHist = (match?.editHistory && match.editHistory.length > 0)
+        ? match.editHistory
+        : (selectedCalc.editHistory || []);
+      setCalcHistory(immediateHist);
+
       setLoadingPayments(true);
       api.salesCalculations.listPayments(selectedCalc.id)
         .then(payments => {
@@ -689,7 +698,10 @@ export default function SalesCalculatorPage({
         .then(hist => {
           if (active) {
             const serverList = Array.isArray(hist) ? hist : [];
-            const localHist = selectedCalc.editHistory || [];
+            const latestMatch = (calculations || []).find(c => c.id === selectedCalc.id);
+            const localHist = (latestMatch?.editHistory && latestMatch.editHistory.length > 0)
+              ? latestMatch.editHistory
+              : (selectedCalc.editHistory || []);
             const seenIds = new Set(serverList.map(h => h.id));
             const merged = [...serverList, ...localHist.filter(h => !seenIds.has(h.id))];
             merged.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
@@ -698,7 +710,12 @@ export default function SalesCalculatorPage({
         })
         .catch(err => {
           console.warn("Failed to load calculation edit history:", err);
-          if (active) setCalcHistory(selectedCalc.editHistory || []);
+          if (active) {
+            const fallback = (match?.editHistory && match.editHistory.length > 0)
+              ? match.editHistory
+              : (selectedCalc.editHistory || []);
+            setCalcHistory(fallback);
+          }
         })
         .finally(() => {
           if (active) setLoadingHistory(false);
@@ -709,7 +726,7 @@ export default function SalesCalculatorPage({
       setCalcPayments([]);
       setCalcHistory([]);
     }
-  }, [selectedCalc?.id, selectedCalc?.amountPaid, selectedCalc?.paymentStatus, selectedCalc?.updatedAt]);
+  }, [selectedCalc?.id, selectedCalc?.amountPaid, selectedCalc?.paymentStatus, selectedCalc?.updatedAt, calculations]);
 
   // ── Open Payment Recording Modal ──
   const openPaymentModal = (c: SalesCalculation, fillFullBalance = false) => {
@@ -2228,7 +2245,11 @@ export default function SalesCalculatorPage({
             {/* Edit History Section (Deduplicated & Permanently Persisted) */}
             <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 space-y-2.5">
               {(() => {
-                const historyList = calcHistory && calcHistory.length > 0 ? calcHistory : (selectedCalc.editHistory || []);
+                const matchCalc = (calculations || []).find(c => c.id === selectedCalc.id);
+                const localPropHist = matchCalc?.editHistory || [];
+                const historyList = calcHistory && calcHistory.length > 0
+                  ? calcHistory
+                  : (selectedCalc.editHistory && selectedCalc.editHistory.length > 0 ? selectedCalc.editHistory : localPropHist);
                 const seenHist = new Set<string>();
                 const deduplicatedHistory = historyList.filter(h => {
                   if (!h || !h.id) return false;
