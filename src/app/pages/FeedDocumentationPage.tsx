@@ -2354,7 +2354,24 @@ function FeedDocumentation({
     return list;
   }, [dayRows, feedStatusFilter]);
 
-  const openEditRec = (rec: FeedingRecord) => setEditRec({ ...rec });
+  const openEditRec = (rec: FeedingRecord) => {
+    const initialDate = getIsoDateForSelDate(rec.date || selDate);
+    setBulkDate(initialDate);
+    setBulkBy(rec.recordedBy || currentUser?.name || "");
+    setBulkRows(getRowsForDate(initialDate));
+    setFeedErr({});
+    setShowLog(true);
+    if (rec.id) {
+      setTimeout(() => {
+        const els = document.querySelectorAll(`[data-bulk-row-id="${rec.id}"]`);
+        els.forEach(el => {
+          if ((el as HTMLElement).offsetParent !== null) {
+            el.scrollIntoView({ behavior: "smooth", block: "center" });
+          }
+        });
+      }, 100);
+    }
+  };
 
   const handleSaveEditAll = () => {
     if (!editRec) return;
@@ -4984,7 +5001,7 @@ function FeedDocumentation({
                       const cumFed = (feedingRecords || []).filter(r => r && (r.pondId ? r.pondId === pondObj?.id : r.pond === row.pondName) && r.size === row.size && ((pondObj as any)?.fishStockId ? r.fishStockId === (pondObj as any).fishStockId : (!pondObj?.stockingDate || toValidDbDate(r.date) >= toValidDbDate(pondObj.stockingDate)))).reduce((s, r) => s + (Number(r.total) || 0), 0);
                       const rowAtMax = !!rowMaxKg && cumFed >= rowMaxKg;
                       return (
-                        <tr key={row.rowId} className={`transition-colors ${hasFeed ? "bg-green-50/40" : "hover:bg-slate-50/80"}`}>
+                        <tr key={row.rowId} data-bulk-row-id={row.rowId} className={`transition-colors ${hasFeed ? "bg-green-50/40" : "hover:bg-slate-50/80"}`}>
                           <td className={`w-12 min-w-[48px] max-w-[48px] px-2 py-3 text-slate-400 text-xs font-mono text-center sticky left-0 z-10 border-b border-slate-100 ${hasFeed ? "bg-[#f2faf4]" : "bg-white"}`}>{i + 1}</td>
                           <td
                             className={`px-3 py-2.5 min-w-[130px] max-w-[170px] sticky left-[48px] z-10 border-b border-r border-slate-200 select-none cursor-pointer group ${hasFeed ? "bg-[#f2faf4]" : "bg-white"}`}
@@ -5153,6 +5170,7 @@ function FeedDocumentation({
                   return (
                     <div
                       key={row.rowId}
+                      data-bulk-row-id={row.rowId}
                       className={`bg-white border rounded-2xl p-3.5 shadow-2xs transition-all ${
                         hasFeed ? "border-green-300 bg-green-50/20 ring-1 ring-green-200/50" : "border-slate-200/80"
                       }`}
