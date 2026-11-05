@@ -9,7 +9,7 @@ import {
   Layers, Calculator, Pencil, Trash2, History, AlertCircle, Smartphone,
   Monitor, Columns, Send, Lock, Power, Award, HelpCircle, Phone,
   Mail, CheckSquare, DollarSign, SlidersHorizontal, Bell, ChevronsLeft,
-  ChevronLeft, Landmark, LogIn
+  ChevronLeft, Landmark, LogIn, Tag
 } from "lucide-react";
 import pondtoraLogo from "../../imports/loo-2.svg";
 import heroFarmImg from "../../assets/images/african_fish_farm_hero.jpg";
@@ -94,6 +94,7 @@ function AppWindowShell({ activeNav, activeFarmName = "Crown Fisheries", onSelec
     { id: "documentation", label: "Feeding Records", icon: BookOpen },
     { id: "reports", label: "Reports", icon: FileText },
     { id: "invoices", label: "Invoices", icon: Receipt },
+    { id: "sales_calculator", label: "Sales Management", icon: Calculator },
     { id: "staff", label: "Staff", icon: Users },
     { id: "investors", label: "Investors", icon: Landmark },
     { id: "assessments", label: "Staff Assessments", icon: ClipboardList },
@@ -1558,7 +1559,322 @@ function renderInvoicesShowcase() {
   return { desktopContent, mobileContent };
 }
 
-/* 9. Investor Tracking & Capital Returns Preview */
+/* 9. Sales Management & Harvest Calculator Preview */
+function renderSalesManagementShowcase() {
+  const priceGroups = [
+    { code: "A", name: "Big Table Size (1kg+)", price: "₦3,200/kg" },
+    { code: "B", name: "Medium Table (700g–900g)", price: "₦2,900/kg" },
+    { code: "C", name: "Standard (500g–700g)", price: "₦2,600/kg" },
+    { code: "D", name: "Melange / Small", price: "₦2,100/kg" },
+  ];
+
+  const calculations = [
+    {
+      id: 1,
+      customer: "Alh. Danladi Fish Depot",
+      phone: "0803 412 8890",
+      date: "24 Oct 2026, 09:15 AM",
+      items: [
+        { label: "Group A: 450 kg", amount: "₦1,440,000" },
+        { label: "Group B: 300 kg", amount: "₦870,000" },
+      ],
+      totalKg: "750",
+      totalAmount: "₦2,310,000",
+      balance: null,
+      status: "Paid" as const,
+    },
+    {
+      id: 2,
+      customer: "Madam Grace Smoked Fish",
+      phone: "0806 554 1209",
+      date: "24 Oct 2026, 11:40 AM",
+      items: [
+        { label: "Group B: 320 kg", amount: "₦928,000" },
+        { label: "Group C: 150 kg", amount: "₦390,000" },
+      ],
+      totalKg: "470",
+      totalAmount: "₦1,318,000",
+      balance: "₦280,000",
+      status: "Partially Paid" as const,
+    },
+    {
+      id: 3,
+      customer: "Mama Nkechi Point & Kill",
+      phone: "0812 908 3341",
+      date: "24 Oct 2026, 02:10 PM",
+      items: [
+        { label: "Group A: 250 kg", amount: "₦800,000" },
+      ],
+      totalKg: "250",
+      totalAmount: "₦800,000",
+      balance: null,
+      status: "Paid" as const,
+    },
+    {
+      id: 4,
+      customer: "Chef Tunde Seafoods",
+      phone: "0708 119 4520",
+      date: "24 Oct 2026, 04:05 PM",
+      items: [
+        { label: "Group C: 120 kg", amount: "₦312,000" },
+        { label: "Group D: 42 kg", amount: "₦88,000" },
+      ],
+      totalKg: "162",
+      totalAmount: "₦400,000",
+      balance: "₦400,000",
+      status: "Unpaid" as const,
+    },
+  ];
+
+  const desktopContent = (
+    <div className="space-y-4 text-slate-800 font-['Barlow',sans-serif]">
+      {/* Top Header Bar matching SalesCalculatorPage.tsx */}
+      <div className="space-y-2.5 bg-[#f5f7fa] pb-1">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h1 className="text-xl font-bold text-slate-900 font-['Barlow_Condensed',sans-serif] tracking-wide">
+              Sales Management
+            </h1>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Calculate purchases, save customer details, track payments, and monitor sales totals.
+            </p>
+          </div>
+          <button className="flex items-center gap-2 px-3 py-1.5 bg-white border border-slate-200 rounded-xl shadow-2xs text-slate-800">
+            <Calendar size={14} className="text-[#00bb58]" />
+            <span className="font-['Barlow_Condensed',sans-serif] text-sm font-bold">Oct 24</span>
+            <ChevronDown size={13} className="text-slate-400" />
+          </button>
+        </div>
+
+        {/* Action Buttons Row */}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <button className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-slate-700 text-xs font-semibold shadow-2xs">
+              <Tag size={13} className="text-slate-500" /> Update Price Groups (4)
+            </button>
+            <button className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#00bb58] text-white text-xs font-bold shadow-xs">
+              <Calculator size={13} /> Calculator
+            </button>
+          </div>
+          <div className="hidden sm:flex items-center gap-1.5 flex-wrap">
+            {priceGroups.map(g => (
+              <span key={g.code} className="text-[10px] bg-white border border-slate-200 rounded-md px-2 py-0.5 text-slate-600 font-medium">
+                <strong className="text-slate-900">Grp {g.code}:</strong> {g.price}
+              </span>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* 2 Stat Cards matching SalesCalculatorPage.tsx */}
+      <div className="grid grid-cols-2 gap-3">
+        <div className="bg-emerald-50/70 border border-emerald-300 rounded-xl p-3.5 shadow-2xs flex items-center justify-between">
+          <div>
+            <p className="text-[11px] font-bold text-emerald-800 uppercase tracking-wider">Received</p>
+            <p className="text-2xl font-bold text-emerald-800 font-['Barlow_Condensed',sans-serif] mt-0.5">₦4,148,000</p>
+            <p className="text-[10px] text-emerald-700 font-medium">2 paid in full · 1 part payment</p>
+          </div>
+          <div className="w-9 h-9 rounded-xl bg-emerald-100 flex items-center justify-center text-emerald-700">
+            <CheckCircle size={18} />
+          </div>
+        </div>
+        <div className="bg-amber-50/70 border border-amber-300 rounded-xl p-3.5 shadow-2xs flex items-center justify-between">
+          <div>
+            <p className="text-[11px] font-bold text-amber-800 uppercase tracking-wider">Outstanding</p>
+            <p className="text-2xl font-bold text-amber-800 font-['Barlow_Condensed',sans-serif] mt-0.5">₦680,000</p>
+            <p className="text-[10px] text-amber-700 font-medium">2 unpaid / partial balances</p>
+          </div>
+          <div className="w-9 h-9 rounded-xl bg-amber-100 flex items-center justify-center text-amber-700">
+            <Clock size={18} />
+          </div>
+        </div>
+      </div>
+
+      {/* Saved Customer Calculations Header & Search/Filter */}
+      <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+        <div>
+          <p className="text-sm font-bold text-slate-800 font-['Barlow_Condensed',sans-serif] tracking-wide">
+            Saved Customer Calculations
+          </p>
+          <p className="text-[11px] text-slate-400">Showing 4 calculations</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="relative">
+            <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              readOnly
+              value=""
+              placeholder="Search customer..."
+              className="w-40 pl-7 pr-3 py-1.5 text-xs bg-white border border-slate-200 rounded-lg text-slate-600"
+            />
+          </div>
+          <div className="flex items-center gap-1.5 text-xs text-slate-700 bg-white px-2.5 py-1.5 rounded-lg border border-slate-200 font-medium">
+            <span>All Statuses</span>
+            <ChevronDown size={12} className="text-slate-400" />
+          </div>
+        </div>
+      </div>
+
+      {/* Saved Calculations Table matching SalesCalculatorPage.tsx */}
+      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-2xs">
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs text-left min-w-[760px] whitespace-nowrap">
+            <thead className="bg-slate-50 text-slate-500 font-bold border-b border-slate-200 uppercase text-[10px] tracking-wider">
+              <tr>
+                <th className="py-3 px-3.5">Customer</th>
+                <th className="py-3 px-3.5">Date &amp; Time</th>
+                <th className="py-3 px-3.5">Price Groups</th>
+                <th className="py-3 px-3.5 text-right">Quantity (kg)</th>
+                <th className="py-3 px-3.5 text-right">Total Amount</th>
+                <th className="py-3 px-3.5 text-center">Status</th>
+                <th className="py-3 px-3.5 text-center w-16">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {calculations.map(c => (
+                <tr key={c.id} className="hover:bg-slate-50/80 transition-colors">
+                  <td className="py-3 px-3.5">
+                    <div className="flex items-center gap-2">
+                      <div className="w-7 h-7 rounded-lg bg-emerald-50 text-emerald-700 flex items-center justify-center font-bold text-xs shrink-0 font-['Barlow_Condensed',sans-serif]">
+                        {c.customer.charAt(0)}
+                      </div>
+                      <div>
+                        <p className="font-bold text-slate-900">{c.customer}</p>
+                        <p className="text-[10px] text-slate-400 font-mono">{c.phone}</p>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="py-3 px-3.5 text-slate-500">
+                    <div className="flex items-center gap-1.5">
+                      <Clock size={12} className="text-slate-400" />
+                      <span>{c.date}</span>
+                    </div>
+                  </td>
+                  <td className="py-3 px-3.5">
+                    <div className="space-y-1">
+                      {c.items.map((it, idx) => (
+                        <div key={idx} className="flex items-center justify-between gap-3 text-xs">
+                          <span className="font-bold text-slate-800 font-mono text-[11px] bg-slate-100 px-1.5 py-0.5 rounded">
+                            {it.label}
+                          </span>
+                          <span className="font-mono text-slate-900 font-semibold">{it.amount}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </td>
+                  <td className="py-3 px-3.5 text-right font-mono font-semibold text-slate-700">
+                    {c.totalKg} <span className="text-[10px] text-slate-400 font-sans">kg</span>
+                  </td>
+                  <td className="py-3 px-3.5 text-right">
+                    <span className="font-mono font-bold text-slate-900 text-xs block">{c.totalAmount}</span>
+                    {c.balance && (
+                      <span className="text-[10px] text-amber-700 font-mono font-medium block">
+                        Bal: {c.balance}
+                      </span>
+                    )}
+                  </td>
+                  <td className="py-3 px-3.5 text-center">
+                    <span
+                      className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full ${
+                        c.status === "Paid"
+                          ? "bg-emerald-100 text-emerald-800"
+                          : c.status === "Partially Paid"
+                          ? "bg-blue-100 text-blue-800"
+                          : "bg-amber-100 text-amber-800"
+                      }`}
+                    >
+                      {c.status}
+                    </span>
+                  </td>
+                  <td className="py-3 px-3.5 text-center">
+                    <button className="p-1 rounded-lg text-slate-400 hover:text-slate-700">
+                      <MoreVertical size={14} />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+
+  const mobileContent = (
+    <div className="space-y-3 text-slate-800 text-xs font-['Barlow',sans-serif]">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-base font-bold font-['Barlow_Condensed',sans-serif] text-slate-900">Sales Management</h2>
+          <p className="text-[10px] text-slate-500">Oct 24 · 4 Saved Calculations</p>
+        </div>
+        <button className="px-2.5 py-1 rounded-lg bg-[#00bb58] text-white font-bold text-[11px] flex items-center gap-1">
+          <Calculator size={11} /> Calculator
+        </button>
+      </div>
+
+      <div className="flex items-center gap-1.5">
+        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-slate-200 bg-white text-slate-700 text-[10px] font-semibold">
+          <Tag size={10} className="text-emerald-600" /> Price Groups (4)
+        </span>
+        <span className="text-[10px] text-slate-500 bg-slate-100 px-2 py-1 rounded-lg font-mono">
+          Grp A: ₦3,200/kg
+        </span>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        <div className="bg-emerald-50 p-2.5 rounded-xl border border-emerald-200 shadow-2xs">
+          <p className="text-[9px] text-emerald-800 uppercase font-bold">Received</p>
+          <p className="text-base font-bold text-emerald-800 font-['Barlow_Condensed',sans-serif]">₦4.15M</p>
+          <p className="text-[9px] text-emerald-700 font-semibold">2 Paid in full</p>
+        </div>
+        <div className="bg-amber-50/80 p-2.5 rounded-xl border border-amber-200 shadow-2xs">
+          <p className="text-[9px] text-amber-800 uppercase font-bold">Outstanding</p>
+          <p className="text-base font-bold text-amber-800 font-['Barlow_Condensed',sans-serif]">₦680k</p>
+          <p className="text-[9px] text-amber-700 font-semibold">2 Unpaid / partial</p>
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        {calculations.slice(0, 3).map(c => (
+          <div key={c.id} className="bg-white p-3 rounded-xl border border-slate-200 space-y-1.5 shadow-2xs">
+            <div className="flex items-center justify-between gap-1">
+              <span className="font-bold text-slate-900 truncate">{c.customer}</span>
+              <span
+                className={`text-[9px] font-bold px-2 py-0.5 rounded-full shrink-0 ${
+                  c.status === "Paid"
+                    ? "bg-emerald-100 text-emerald-800"
+                    : c.status === "Partially Paid"
+                    ? "bg-blue-100 text-blue-800"
+                    : "bg-amber-100 text-amber-800"
+                }`}
+              >
+                {c.status}
+              </span>
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {c.items.map((it, idx) => (
+                <span key={idx} className="text-[10px] font-mono bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded">
+                  {it.label}
+                </span>
+              ))}
+            </div>
+            <div className="flex items-center justify-between text-[11px] text-slate-500 border-t border-slate-100 pt-1">
+              <span>Total: <strong className="text-slate-700">{c.totalKg} kg</strong></span>
+              <div className="text-right">
+                <strong className="text-slate-900 font-['Barlow_Condensed',sans-serif] text-xs">{c.totalAmount}</strong>
+                {c.balance && <span className="text-[9px] text-amber-700 font-mono block">Bal: {c.balance}</span>}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  return { desktopContent, mobileContent };
+}
+
+/* 10. Investor Tracking & Capital Returns Preview */
 function renderInvestorsShowcase() {
   const investorsList = [
     { id: 1, name: "Chief Adeleke Adele", phone: "+234 803 456 7890", capital: "₦10,000,000", roi: "25%", returnsDue: "₦12,500,000", paid: "₦6,250,000", dueDate: "28 Nov 2026", status: "Active" },
@@ -1714,7 +2030,7 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [activeSolutionTab, setActiveSolutionTab] = useState<
-    "ponds" | "feeding" | "inventory" | "staff" | "reports" | "assessments" | "financial" | "invoices" | "investors"
+    "ponds" | "feeding" | "inventory" | "staff" | "reports" | "assessments" | "financial" | "invoices" | "sales" | "investors"
   >("ponds");
   const [deviceMode, setDeviceMode] = useState<"dual" | "desktop" | "mobile">(() => {
     if (typeof window !== "undefined" && window.innerWidth < 768) {
@@ -1949,6 +2265,30 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
         ]
       },
       renderer: renderInvoicesShowcase,
+    },
+    {
+      id: "sales" as const,
+      navId: "sales_calculator",
+      title: "Sales Management & Calculator",
+      subtitle: "Configure fish price groups, calculate customer purchases by weight (kg), apply discounts, and track paid, partial, and unpaid balances.",
+      farmBenefit: {
+        headline: "How This Helps Your Fish Farm:",
+        points: [
+          {
+            title: "Eliminate harvest-day calculation errors",
+            desc: "Set your price per kg for each fish size group (Group A, B, C, Melange). Enter the weight in kg and Pondtora calculates the exact customer total instantly."
+          },
+          {
+            title: "Track partial payments & unpaid balances",
+            desc: "Record part payments or full settlements and see at a glance how much money was received and how much is still outstanding."
+          },
+          {
+            title: "Full edit history & payment audit trail",
+            desc: "Every saved calculation and payment change logs the staff member's name, date, and reason so your harvest sales remain 100% transparent."
+          }
+        ]
+      },
+      renderer: renderSalesManagementShowcase,
     },
     {
       id: "investors" as const,
@@ -2212,7 +2552,7 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
                   </p>
                 </div>
                 <div className="mt-6 pt-4 border-t border-slate-100 flex items-center gap-2 text-xs font-bold text-emerald-700">
-                  <CheckCircle size={15} /> Fixed by Group Weighing & Invoices
+                  <CheckCircle size={15} /> Fixed by Sales Management & Invoices
                 </div>
               </div>
             </FadeIn>
@@ -2237,8 +2577,8 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
             </div>
           </FadeIn>
 
-          {/* Solution Tabs Grid (9 Complete Features) */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 sm:gap-2.5 mb-6 sm:mb-8">
+          {/* Solution Tabs Grid (10 Complete Features) */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 sm:gap-2.5 mb-6 sm:mb-8">
             {solutions.map((sol, idx) => {
               const isSelected = activeSolutionTab === sol.id;
               return (
@@ -2736,7 +3076,7 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
                 Simple Pricing for Farms of Any Size
               </h2>
               <p className="text-slate-500 text-sm mt-3">
-                All plans include full platform access, staff accounts, opened bags reconciliation, and automated invoice receipts.
+                All plans include full platform access, staff accounts, sales management & harvest calculator, opened bags reconciliation, and automated invoice receipts.
               </p>
 
               {/* Single / Multi Farm Toggle & Billing Toggle (Stacked vertically: Monthly/Yearly under first tab) */}
@@ -2840,6 +3180,17 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
                             <span className={isPopular ? "text-slate-200" : "text-slate-700"}>{feat}</span>
                           </div>
                         ))}
+                        {!EVERY_PLAN_INCLUDES.some(f => f.toLowerCase().includes("sales")) && (
+                          <div className="flex items-start gap-2.5 text-xs">
+                            <Check
+                              size={15}
+                              className={`shrink-0 mt-0.5 ${isPopular ? "text-emerald-400" : "text-emerald-600"}`}
+                            />
+                            <span className={isPopular ? "text-slate-200" : "text-slate-700"}>
+                              Sales Management & Price Group Calculator
+                            </span>
+                          </div>
+                        )}
                       </div>
                     </div>
 
@@ -2897,6 +3248,10 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
                 a: "No. Pondtora gives you strict role-based access control. You can assign attendants permission to only log feeding or only view specific nursery ponds. They will never see financial dashboard numbers, expenses, or buyer invoice totals."
               },
               {
+                q: "How does Sales Management & Price Group calculation work on harvest day?",
+                a: "Before harvest, you configure your fish price groups (e.g. Group A Big Size, Group B Medium, Group C Standard) with their price per kg. As fish are weighed for each customer, you enter the weight in kg per group, apply any general or group discount, and Pondtora calculates the exact payable amount, tracks partial or full payments, and maintains a permanent edit audit trail."
+              },
+              {
                 q: "How does the candidate assessment test work?",
                 a: "From the Staff Assessment tab, you generate a 6-hour expiring link and send it via WhatsApp or SMS to job candidates. Candidates answer 20 practical aquaculture and compatibility questions. You receive an automatic score breakdown and hiring recommendation before interviewing them."
               },
@@ -2950,7 +3305,7 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
                   Learn How to Use Pondtora Step-by-Step
                 </h3>
                 <p className="text-xs sm:text-sm text-slate-300 mt-1 max-w-xl leading-relaxed">
-                  Watch beginner-to-advanced video guides showing how to set up ponds, log daily feeding, track feed inventory, invoice buyers, and manage staff with confidence.
+                  Watch beginner-to-advanced video guides showing how to set up ponds, log daily feeding, track feed inventory, calculate harvest sales, invoice buyers, and manage staff with confidence.
                 </p>
               </div>
             </div>
@@ -3028,6 +3383,7 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
                 <li><button onClick={() => { setActiveSolutionTab("ponds"); scrollTo("solutions"); }} className="hover:text-white">Pond Management</button></li>
                 <li><button onClick={() => { setActiveSolutionTab("feeding"); scrollTo("solutions"); }} className="hover:text-white">Feeding Documentation</button></li>
                 <li><button onClick={() => { setActiveSolutionTab("financial"); scrollTo("solutions"); }} className="hover:text-white">Financial Dashboard</button></li>
+                <li><button onClick={() => { setActiveSolutionTab("sales"); scrollTo("solutions"); }} className="hover:text-white">Sales Management</button></li>
                 <li><button onClick={() => { setActiveSolutionTab("invoices"); scrollTo("solutions"); }} className="hover:text-white">Harvest Invoicing</button></li>
               </ul>
             </div>
