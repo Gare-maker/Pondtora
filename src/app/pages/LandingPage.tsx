@@ -2081,15 +2081,15 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
 
           <FadeIn delay={100}>
             <h1 className="text-4xl sm:text-6xl md:text-7xl font-bold font-['Barlow_Condensed',sans-serif] tracking-tight uppercase max-w-5xl mx-auto leading-[1.08] text-white">
-              Stop Managing Your Farm on WhatsApp & Exercise Books. <br />
-              <span className="text-[#00bb58]">Cut Feed Waste.</span> <br />
-              Grow More Profit.
+              Stop managing your farm with WhatsApp and exercise books. <br />
+              <span className="text-[#00bb58]">Cut losses, reduce waste,</span> <br />
+              and grow more profits.
             </h1>
           </FadeIn>
 
           <FadeIn delay={200}>
             <p className="mt-6 text-base sm:text-xl text-slate-300 max-w-3xl mx-auto leading-relaxed font-light">
-              Replace lost WhatsApp chats and paper exercise books with Pondtora. Prevent feed theft and overfeeding, keep workers accountable with daily checklists, and maximize your farm's take-home profit.
+              Replace lost WhatsApp chats and paper exercise books with Pondtora. Prevent feed theft and overfeeding, eliminate sales and calculation errors, keep workers accountable with daily check-ins, and maximize your farm’s take-home profit.
             </p>
           </FadeIn>
 
