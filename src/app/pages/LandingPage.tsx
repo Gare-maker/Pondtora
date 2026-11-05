@@ -3038,7 +3038,7 @@ export default function LandingPage({ onLogin, onSignup, onAdmin }: Props) {
                     ))}
                   </div>
                   <p className="text-slate-700 text-sm italic leading-relaxed">
-                    "The employee knowledge assessment saved us from hiring two attendants who claimed 5 years experience but didn't even know normal mortality thresholds. The candidate test filtered them out instantly."
+                    "On harvest days, writing fish weights and prices on paper caused costly calculation mistakes, and we constantly lost money to forgotten buyer balances. We struggled to track our sales properly until Pondtora's Sales Management automated our price groups and payment tracking."
                   </p>
                 </div>
                 <div className="mt-6 pt-4 border-t border-slate-200/60 flex items-center gap-3">
