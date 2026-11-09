@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import {
   Users, TrendingUp, AlertCircle, Ban, Clock, CreditCard, DollarSign,
   ArrowUpRight, Activity, Package, UserCheck, Shield, RotateCw, Droplets,
@@ -10,6 +10,7 @@ import type { AdminUser, AdminPlan, AdminActivityLog } from "../types";
 import { fmtDate, trialDaysLeft, subscriptionDaysLeft, fmtMoney, effectivePrice } from "../types";
 import { isStaffUser } from "../../lib/userSync";
 import type { PlatformOperationalStats } from "../../lib/userSync";
+import { supabase } from "../../lib/supabase";
 import { toast } from "sonner";
 
 interface Props {
@@ -18,6 +19,7 @@ interface Props {
   logs?: AdminActivityLog[];
   platformStats?: PlatformOperationalStats;
   onNavigate?: (page: string) => void;
+  onInspectUser?: (user: AdminUser) => void;
   onRefresh?: () => void;
   isRefreshing?: boolean;
   isLiveDb?: boolean;
@@ -104,6 +106,7 @@ export default function DashboardPage({
   logs = [],
   platformStats,
   onNavigate,
+  onInspectUser,
   onRefresh,
   isRefreshing,
   isLiveDb,
@@ -123,6 +126,127 @@ export default function DashboardPage({
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("All");
   const [selectedUserDossier, setSelectedUserDossier] = useState<AdminUser | null>(null);
+  const [dossierExtra, setDossierExtra] = useState<{
+    loading: boolean;
+    farms: any[];
+    ponds: any[];
+    revenues: any[];
+    expenses: any[];
+    invoices: any[];
+    sales: any[];
+    feedInventory: any[];
+    feedingRecords: any[];
+    staff: any[];
+  }>({
+    loading: false,
+    farms: [],
+    ponds: [],
+    revenues: [],
+    expenses: [],
+    invoices: [],
+    sales: [],
+    feedInventory: [],
+    feedingRecords: [],
+    staff: [],
+  });
+
+  useEffect(() => {
+    if (!selectedUserDossier?.id) return;
+    let active = true;
+    const uid = selectedUserDossier.id;
+
+    // Seed from local cache if available
+    let localCache: any = null;
+    try {
+      const raw = localStorage.getItem(`pondtora_${uid}_cache`);
+      if (raw) localCache = JSON.parse(raw);
+    } catch {}
+
+    setDossierExtra({
+      loading: true,
+      farms: Array.isArray(localCache?.farms) ? localCache.farms : [],
+      ponds: Array.isArray(localCache?.ponds) ? localCache.ponds : [],
+      revenues: Array.isArray(localCache?.revenues) ? localCache.revenues : [],
+      expenses: Array.isArray(localCache?.expenses) ? localCache.expenses : [],
+      invoices: Array.isArray(localCache?.invoices) ? localCache.invoices : [],
+      sales: Array.isArray(localCache?.salesCalculations) ? localCache.salesCalculations : [],
+      feedInventory: Array.isArray(localCache?.feedInventory) ? localCache.feedInventory : [],
+      feedingRecords: Array.isArray(localCache?.feedingRecords) ? localCache.feedingRecords : [],
+      staff: Array.isArray(localCache?.staffMembers) ? localCache.staffMembers : [],
+    });
+
+    (async () => {
+      try {
+        // First try RPC with p_user_id
+        const { data: rpcData, error: rpcErr } = await (supabase.rpc as any)("get_user_full_records_for_admin", {
+          p_user_id: uid,
+        });
+        if (!rpcErr && rpcData && typeof rpcData === "object" && active) {
+          setDossierExtra(prev => ({
+            loading: false,
+            farms: Array.isArray(rpcData.farms) && rpcData.farms.length > 0 ? rpcData.farms : prev.farms,
+            ponds: Array.isArray(rpcData.ponds) && rpcData.ponds.length > 0 ? rpcData.ponds : prev.ponds,
+            revenues: Array.isArray(rpcData.revenues) && rpcData.revenues.length > 0 ? rpcData.revenues : prev.revenues,
+            expenses: Array.isArray(rpcData.expenses) && rpcData.expenses.length > 0 ? rpcData.expenses : prev.expenses,
+            invoices: Array.isArray(rpcData.invoices) && rpcData.invoices.length > 0 ? rpcData.invoices : prev.invoices,
+            sales: Array.isArray(rpcData.sales_calculations || rpcData.salesCalculations)
+              ? (rpcData.sales_calculations || rpcData.salesCalculations)
+              : prev.sales,
+            feedInventory: Array.isArray(rpcData.feed_inventory || rpcData.feedInventory)
+              ? (rpcData.feed_inventory || rpcData.feedInventory)
+              : prev.feedInventory,
+            feedingRecords: Array.isArray(rpcData.feeding_records || rpcData.feedingRecords)
+              ? (rpcData.feeding_records || rpcData.feedingRecords)
+              : prev.feedingRecords,
+            staff: Array.isArray(rpcData.staff_members || rpcData.staff)
+              ? (rpcData.staff_members || rpcData.staff)
+              : prev.staff,
+          }));
+          return;
+        }
+      } catch {}
+
+      try {
+        const farmsRes = await supabase.from("farms").select("*").eq("user_id", uid);
+        const farmsList = farmsRes.data || [];
+        const farmIds = farmsList.map((f: any) => f.id).filter(Boolean);
+        const filterStr = farmIds.length > 0
+          ? `user_id.eq.${uid},farm_id.in.(${farmIds.join(",")})`
+          : `user_id.eq.${uid}`;
+
+        const [pondsRes, revRes, expRes, invRes, salesRes, feedRes, feedingRes, staffRes] = await Promise.all([
+          supabase.from("ponds").select("*").or(filterStr),
+          supabase.from("revenues").select("*").or(filterStr),
+          supabase.from("expenses").select("*").or(filterStr),
+          supabase.from("invoices").select("*").or(filterStr),
+          supabase.from("sales_calculations").select("*").or(filterStr),
+          supabase.from("feed_inventory").select("*").or(filterStr),
+          supabase.from("feeding_records").select("*").or(filterStr),
+          supabase.from("staff_members").select("*").eq("user_id", uid),
+        ]);
+
+        if (!active) return;
+        setDossierExtra(prev => ({
+          loading: false,
+          farms: farmsList.length > 0 ? farmsList : prev.farms,
+          ponds: (pondsRes.data && pondsRes.data.length > 0) ? pondsRes.data : prev.ponds,
+          revenues: (revRes.data && revRes.data.length > 0) ? revRes.data : prev.revenues,
+          expenses: (expRes.data && expRes.data.length > 0) ? expRes.data : prev.expenses,
+          invoices: (invRes.data && invRes.data.length > 0) ? invRes.data : prev.invoices,
+          sales: (salesRes.data && salesRes.data.length > 0) ? salesRes.data : prev.sales,
+          feedInventory: (feedRes.data && feedRes.data.length > 0) ? feedRes.data : prev.feedInventory,
+          feedingRecords: (feedingRes.data && feedingRes.data.length > 0) ? feedingRes.data : prev.feedingRecords,
+          staff: (staffRes.data && staffRes.data.length > 0) ? staffRes.data : prev.staff,
+        }));
+      } catch {
+        if (active) setDossierExtra(prev => ({ ...prev, loading: false }));
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [selectedUserDossier?.id]);
 
   const ownerUsers = useMemo(() => (users || []).filter(u => !isStaffUser(u)), [users]);
 
@@ -404,65 +528,92 @@ export default function DashboardPage({
                 </div>
               ) : (
                 <div className="overflow-x-auto">
-                  <table className="w-full text-xs min-w-[500px]">
+                  <table className="w-full text-xs min-w-[560px]">
                     <thead>
                       <tr className="border-b border-slate-100 text-[10px] uppercase tracking-wider text-slate-400 font-bold">
                         <th className="pb-2.5 text-left pr-3">Farmer & Farm</th>
                         <th className="pb-2.5 text-left pr-3">Location</th>
                         <th className="pb-2.5 text-left pr-3">Plan / Status</th>
-                        <th className="pb-2.5 text-left pr-3">Ponds</th>
+                        <th className="pb-2.5 text-left pr-3">Ponds & Fish</th>
+                        <th className="pb-2.5 text-left pr-3">Financials</th>
                         <th className="pb-2.5 text-right">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-50">
-                      {users.slice(0, 6).map(u => (
-                        <tr key={u.id} className="hover:bg-slate-50/80 transition-colors">
-                          <td className="py-2.5 pr-3">
-                            <p className="font-bold text-slate-900 truncate max-w-[170px]">{u.name || "Farmer"}</p>
-                            <p className="text-slate-400 text-[11px] truncate max-w-[170px]">{u.email}</p>
-                            <span className="inline-block mt-0.5 text-[10px] text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded font-semibold">
-                              {u.farmName || "Primary Farm"}
-                            </span>
-                          </td>
-                          <td className="py-2.5 pr-3 text-slate-600 whitespace-nowrap">
-                            {[u.city, u.state].filter(Boolean).join(", ") || u.country || "Nigeria"}
-                          </td>
-                          <td className="py-2.5 pr-3">
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              <span className="font-semibold text-slate-800">{u.activePlan || "Starter"}</span>
-                              <Bdg label={u.subscriptionStatus} color={SC[u.subscriptionStatus] || "gray"} />
-                              {u.freeAccess && (
-                                <span className="text-[10px] text-emerald-700 bg-emerald-100 font-bold px-1 py-0.2 rounded">
-                                  VIP ✦
-                                </span>
-                              )}
-                            </div>
-                          </td>
-                          <td className="py-2.5 pr-3 text-slate-700 font-bold">
-                            {u.pondCount || 0} pond{u.pondCount === 1 ? "" : "s"}
-                          </td>
-                          <td className="py-2.5 text-right space-x-1 whitespace-nowrap">
-                            <button
-                              onClick={() => setSelectedUserDossier(u)}
-                              title="Inspect Farm Dossier"
-                              className="px-2 py-1 bg-slate-100 hover:bg-emerald-50 hover:text-emerald-700 text-slate-700 rounded-lg text-[11px] font-bold transition-colors"
-                            >
-                              Inspect
-                            </button>
-                            {u.phone && (
-                              <a
-                                href={getWhatsAppUrl(u.phone, u.name) || "#"}
-                                target="_blank"
-                                rel="noreferrer"
-                                title="Chat on WhatsApp"
-                                className="inline-flex items-center justify-center w-6 h-6 bg-emerald-100 hover:bg-emerald-200 text-emerald-700 rounded-lg transition-colors align-middle"
+                      {users.slice(0, 6).map(u => {
+                        const rev = Number(u.totalRevenue) || 0;
+                        const exp = Number(u.totalExpenses) || 0;
+                        const net = rev - exp;
+                        return (
+                          <tr key={u.id} className="hover:bg-slate-50/80 transition-colors">
+                            <td className="py-2.5 pr-3">
+                              <p className="font-bold text-slate-900 truncate max-w-[170px]">{u.name || "Farmer"}</p>
+                              <p className="text-slate-400 text-[11px] truncate max-w-[170px]">{u.email}</p>
+                              <span className="inline-block mt-0.5 text-[10px] text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded font-semibold">
+                                {u.farmName || "Primary Farm"} ({u.farmCount || 1} farm{(u.farmCount || 1) === 1 ? "" : "s"})
+                              </span>
+                            </td>
+                            <td className="py-2.5 pr-3 text-slate-600 whitespace-nowrap">
+                              {[u.city, u.state].filter(Boolean).join(", ") || u.country || "Nigeria"}
+                            </td>
+                            <td className="py-2.5 pr-3">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="font-semibold text-slate-800">{u.activePlan || "Starter"}</span>
+                                <Bdg label={u.subscriptionStatus} color={SC[u.subscriptionStatus] || "gray"} />
+                                {u.freeAccess && (
+                                  <span className="text-[10px] text-emerald-700 bg-emerald-100 font-bold px-1 py-0.2 rounded">
+                                    VIP ✦
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="py-2.5 pr-3">
+                              <p className="text-slate-700 font-bold">
+                                {u.pondCount || 0} pond{u.pondCount === 1 ? "" : "s"}
+                              </p>
+                              <p className="text-[10px] text-cyan-700 font-semibold">
+                                {(u.totalFishStocked || 0).toLocaleString()} fish
+                              </p>
+                            </td>
+                            <td className="py-2.5 pr-3 whitespace-nowrap">
+                              <p className="text-[10.5px] font-bold text-emerald-700">Rev: {fmtMoney(rev)}</p>
+                              <p className="text-[10px] text-rose-600">Exp: {fmtMoney(exp)}</p>
+                              <p className={`text-[10px] font-bold ${net >= 0 ? "text-blue-700" : "text-amber-700"}`}>
+                                Net: {net >= 0 ? fmtMoney(net) : `-${fmtMoney(Math.abs(net))}`}
+                              </p>
+                            </td>
+                            <td className="py-2.5 text-right space-x-1 whitespace-nowrap">
+                              <button
+                                onClick={() => setSelectedUserDossier(u)}
+                                title="Inspect Farm, Pond & Financial Details"
+                                className="px-2 py-1 bg-slate-100 hover:bg-emerald-50 hover:text-emerald-700 text-slate-700 rounded-lg text-[11px] font-bold transition-colors"
                               >
-                                <MessageCircle size={12} />
-                              </a>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
+                                Inspect
+                              </button>
+                              {onInspectUser && (
+                                <button
+                                  onClick={() => onInspectUser(u)}
+                                  title="Open Full Profile & All Records"
+                                  className="px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[11px] font-bold transition-colors"
+                                >
+                                  Full Profile
+                                </button>
+                              )}
+                              {u.phone && (
+                                <a
+                                  href={getWhatsAppUrl(u.phone, u.name) || "#"}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  title="Chat on WhatsApp"
+                                  className="inline-flex items-center justify-center w-6 h-6 bg-emerald-100 hover:bg-emerald-200 text-emerald-700 rounded-lg transition-colors align-middle"
+                                >
+                                  <MessageCircle size={12} />
+                                </a>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -730,11 +881,12 @@ export default function DashboardPage({
                           <p className="text-slate-700 font-medium">
                             <span className="font-bold">{u.farmCount || 1}</span> farm{u.farmCount === 1 ? "" : "s"} · <span className="font-bold">{u.pondCount || 0}</span> pond{u.pondCount === 1 ? "" : "s"}
                           </p>
-                          {u.totalFishStocked !== undefined && u.totalFishStocked > 0 && (
-                            <p className="text-cyan-700 text-[10px]">
-                              {u.totalFishStocked.toLocaleString()} fish stocked
-                            </p>
-                          )}
+                          <p className="text-cyan-700 text-[10px] font-semibold">
+                            {(u.totalFishStocked || 0).toLocaleString()} fish stocked
+                          </p>
+                          <p className="text-emerald-700 text-[10px] font-semibold">
+                            Rev: {fmtMoney(u.totalRevenue || 0)} · Exp: {fmtMoney(u.totalExpenses || 0)}
+                          </p>
                           {u.staffCount !== undefined && u.staffCount > 0 && (
                             <p className="text-purple-700 text-[10px]">
                               {u.staffCount} staff member{u.staffCount === 1 ? "" : "s"}
@@ -753,6 +905,14 @@ export default function DashboardPage({
                           >
                             Inspect Farm
                           </button>
+                          {onInspectUser && (
+                            <button
+                              onClick={() => onInspectUser(u)}
+                              className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[11px] font-bold transition-colors"
+                            >
+                              Full Profile
+                            </button>
+                          )}
                           <button
                             onClick={() => copyUserDossier(u)}
                             title="Copy User Dossier"
@@ -783,91 +943,229 @@ export default function DashboardPage({
       )}
 
       {/* User Farm Dossier Inspection Modal */}
-      {selectedUserDossier && (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl max-w-xl w-full p-6 shadow-2xl border border-slate-200 space-y-4 animate-in fade-in zoom-in-95">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <div className="flex items-center gap-2.5">
-                <div className="w-10 h-10 rounded-2xl bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold text-base">
-                  {selectedUserDossier.name ? selectedUserDossier.name.slice(0, 2).toUpperCase() : "F"}
+      {selectedUserDossier && (() => {
+        const dFarms = dossierExtra.farms.length > 0
+          ? dossierExtra.farms
+          : [{ id: "f1", name: selectedUserDossier.farmName || "Primary Farm", city: selectedUserDossier.city, state: selectedUserDossier.state, country: selectedUserDossier.country }];
+        const dPonds = dossierExtra.ponds;
+        const dTotalFish = dPonds.length > 0
+          ? dPonds.reduce((s: number, p: any) => s + (Number(p.current_count ?? p.currentCount ?? p.initial_stock ?? p.initialStock) || 0), 0)
+          : (selectedUserDossier.totalFishStocked || 0);
+        const dRev = dossierExtra.revenues.length > 0
+          ? dossierExtra.revenues.reduce((s: number, r: any) => s + (Number(r.amount) || 0), 0)
+          : (selectedUserDossier.totalRevenue || 0);
+        const dExp = dossierExtra.expenses.length > 0
+          ? dossierExtra.expenses.reduce((s: number, e: any) => s + (Number(e.amount) || 0), 0)
+          : (selectedUserDossier.totalExpenses || 0);
+        const dNet = dRev - dExp;
+        const dSalesVal = dossierExtra.sales.reduce((s: number, sc: any) => s + (Number(sc.total_amount ?? sc.totalAmount) || 0), 0);
+        const dFeedBags = dossierExtra.feedInventory.reduce((s: number, f: any) => s + (Number(f.bags ?? f.bags_in_stock) || 0), 0);
+        const dFeedKg = dossierExtra.feedingRecords.reduce((s: number, r: any) => s + (Number(r.total ?? ((Number(r.morning) || 0) + (Number(r.evening) || 0))) || 0), 0);
+
+        return (
+          <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+            <div className="bg-white rounded-3xl max-w-2xl w-full max-h-[90vh] flex flex-col p-5 sm:p-6 shadow-2xl border border-slate-200 space-y-4 animate-in fade-in zoom-in-95 overflow-hidden">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-3 shrink-0">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-10 h-10 rounded-2xl bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold text-base shrink-0">
+                    {selectedUserDossier.name ? selectedUserDossier.name.slice(0, 2).toUpperCase() : "F"}
+                  </div>
+                  <div className="min-w-0">
+                    <h3 className="font-bold text-slate-900 text-base truncate">{selectedUserDossier.name}</h3>
+                    <p className="text-xs text-slate-500 truncate">{selectedUserDossier.email} {selectedUserDossier.phone ? `• ${selectedUserDossier.phone}` : ""}</p>
+                  </div>
                 </div>
+                <div className="flex items-center gap-2">
+                  {dossierExtra.loading && (
+                    <span className="text-[11px] text-emerald-600 font-semibold animate-pulse">Syncing live records…</span>
+                  )}
+                  <button
+                    onClick={() => setSelectedUserDossier(null)}
+                    className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 flex items-center justify-center text-sm font-bold"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-4 overflow-y-auto pr-1 flex-1 text-xs">
+                {/* Identity & Subscription */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                    <p className="text-[10px] text-slate-400 font-bold uppercase">Primary Farm & Location</p>
+                    <p className="font-bold text-slate-800 text-sm mt-0.5">{selectedUserDossier.farmName || "Primary Farm"}</p>
+                    <p className="text-slate-500 text-[11px]">{[selectedUserDossier.city, selectedUserDossier.state, selectedUserDossier.country].filter(Boolean).join(", ") || "Nigeria"}</p>
+                  </div>
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-100">
+                    <p className="text-[10px] text-slate-400 font-bold uppercase">Subscription Status</p>
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                      <span className="font-bold text-slate-800 text-sm">{selectedUserDossier.activePlan || "Starter"}</span>
+                      <Bdg label={selectedUserDossier.subscriptionStatus} color={SC[selectedUserDossier.subscriptionStatus] || "gray"} />
+                    </div>
+                    <p className="text-slate-500 text-[11px]">
+                      {selectedUserDossier.subscriptionStatus === "Trial" && !selectedUserDossier.hasPaid && !selectedUserDossier.subscriptionExpiry
+                        ? `${trialDaysLeft(selectedUserDossier.trialStartDate)} days trial left`
+                        : selectedUserDossier.subscriptionExpiry
+                        ? `${subscriptionDaysLeft(selectedUserDossier.subscriptionExpiry)} days remaining (expires ${fmtDate(selectedUserDossier.subscriptionExpiry)})`
+                        : "Active Plan"}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Operational & Financial Summary Grid */}
                 <div>
-                  <h3 className="font-bold text-slate-900 text-base">{selectedUserDossier.name}</h3>
-                  <p className="text-xs text-slate-500">{selectedUserDossier.email}</p>
+                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-2">Farm, Pond & Financial Summary</p>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-center">
+                    <div className="p-2.5 bg-emerald-50 rounded-xl border border-emerald-100">
+                      <p className="text-[10px] text-emerald-800 font-bold uppercase">Farms</p>
+                      <p className="text-lg font-bold font-['Barlow_Condensed',sans-serif] text-emerald-900 mt-0.5">
+                        {Math.max(selectedUserDossier.farmCount || 1, dFarms.length)}
+                      </p>
+                    </div>
+                    <div className="p-2.5 bg-cyan-50 rounded-xl border border-cyan-100">
+                      <p className="text-[10px] text-cyan-800 font-bold uppercase">Ponds & Fish</p>
+                      <p className="text-lg font-bold font-['Barlow_Condensed',sans-serif] text-cyan-900 mt-0.5">
+                        {Math.max(selectedUserDossier.pondCount || 0, dPonds.length)} Ponds
+                      </p>
+                      <p className="text-[10px] text-cyan-700 font-semibold">{dTotalFish.toLocaleString()} fish</p>
+                    </div>
+                    <div className="p-2.5 bg-emerald-50/70 rounded-xl border border-emerald-200">
+                      <p className="text-[10px] text-emerald-800 font-bold uppercase">Total Revenue</p>
+                      <p className="text-lg font-bold font-['Barlow_Condensed',sans-serif] text-emerald-900 mt-0.5">
+                        {fmtMoney(dRev)}
+                      </p>
+                      <p className="text-[10px] text-emerald-700">{dossierExtra.revenues.length} records</p>
+                    </div>
+                    <div className="p-2.5 bg-rose-50/70 rounded-xl border border-rose-200">
+                      <p className="text-[10px] text-rose-800 font-bold uppercase">Total Expenses</p>
+                      <p className="text-lg font-bold font-['Barlow_Condensed',sans-serif] text-rose-900 mt-0.5">
+                        {fmtMoney(dExp)}
+                      </p>
+                      <p className="text-[10px] text-rose-700">{dossierExtra.expenses.length} records</p>
+                    </div>
+                    <div className="p-2.5 bg-blue-50/70 rounded-xl border border-blue-200">
+                      <p className="text-[10px] text-blue-800 font-bold uppercase">Net Profit</p>
+                      <p className={`text-lg font-bold font-['Barlow_Condensed',sans-serif] mt-0.5 ${dNet >= 0 ? "text-blue-900" : "text-rose-700"}`}>
+                        {dNet >= 0 ? fmtMoney(dNet) : `-${fmtMoney(Math.abs(dNet))}`}
+                      </p>
+                      <p className="text-[10px] text-blue-700">{dossierExtra.invoices.length} invoices</p>
+                    </div>
+                    <div className="p-2.5 bg-teal-50/70 rounded-xl border border-teal-200">
+                      <p className="text-[10px] text-teal-800 font-bold uppercase">Sales Logged</p>
+                      <p className="text-lg font-bold font-['Barlow_Condensed',sans-serif] text-teal-900 mt-0.5">
+                        {fmtMoney(dSalesVal)}
+                      </p>
+                      <p className="text-[10px] text-teal-700">{dossierExtra.sales.length} sales</p>
+                    </div>
+                    <div className="p-2.5 bg-amber-50/70 rounded-xl border border-amber-200">
+                      <p className="text-[10px] text-amber-800 font-bold uppercase">Feed Inventory</p>
+                      <p className="text-lg font-bold font-['Barlow_Condensed',sans-serif] text-amber-900 mt-0.5">
+                        {dFeedBags} Bags
+                      </p>
+                      <p className="text-[10px] text-amber-700">{dFeedKg.toLocaleString()} kg fed</p>
+                    </div>
+                    <div className="p-2.5 bg-purple-50 rounded-xl border border-purple-100">
+                      <p className="text-[10px] text-purple-800 font-bold uppercase">Staff Team</p>
+                      <p className="text-lg font-bold font-['Barlow_Condensed',sans-serif] text-purple-900 mt-0.5">
+                        {Math.max(selectedUserDossier.staffCount || 0, dossierExtra.staff.length)}
+                      </p>
+                      <p className="text-[10px] text-purple-700">Members</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Configured Farms Breakdown */}
+                <div>
+                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1.5">
+                    Configured Farms ({dFarms.length})
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {dFarms.map((f: any, idx: number) => (
+                      <div key={f.id || idx} className="p-2.5 bg-slate-50 border border-slate-200/80 rounded-xl flex items-center justify-between">
+                        <div className="min-w-0">
+                          <p className="font-bold text-slate-900 truncate">{f.name || `Farm #${idx + 1}`}</p>
+                          <p className="text-[10px] text-slate-500 truncate">
+                            {[f.city, f.state, f.country].filter(Boolean).join(", ") || "Nigeria"}
+                          </p>
+                        </div>
+                        <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-full shrink-0">
+                          Active Farm
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Ponds Details Breakdown */}
+                <div>
+                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1.5">
+                    Ponds & Fish Stock ({dPonds.length})
+                  </p>
+                  {dPonds.length === 0 ? (
+                    <div className="p-3 bg-slate-50 border border-slate-200/70 rounded-xl text-slate-400 text-center">
+                      No ponds created yet for this account.
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-44 overflow-y-auto">
+                      {dPonds.map((p: any, idx: number) => {
+                        const count = Number(p.current_count ?? p.currentCount ?? p.initial_stock ?? p.initialStock) || 0;
+                        const init = Number(p.initial_stock ?? p.initialStock) || 0;
+                        return (
+                          <div key={p.id || idx} className="p-2.5 bg-white border border-slate-200 rounded-xl">
+                            <div className="flex items-center justify-between">
+                              <span className="font-bold text-slate-900 truncate">{p.name || `Pond #${idx + 1}`}</span>
+                              <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-1.5 py-0.2 rounded">
+                                {count.toLocaleString()} fish
+                              </span>
+                            </div>
+                            <p className="text-[10px] text-slate-500 mt-0.5">
+                              {p.species || "Catfish"} • Init: {init.toLocaleString()} {p.size_m2 || p.sizeM2 ? `• ${p.size_m2 || p.sizeM2}m²` : ""}
+                            </p>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               </div>
-              <button
-                onClick={() => setSelectedUserDossier(null)}
-                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 flex items-center justify-center text-sm font-bold"
-              >
-                ✕
-              </button>
-            </div>
 
-            <div className="grid grid-cols-2 gap-3 text-xs">
-              <div className="p-3 bg-slate-50 rounded-xl">
-                <p className="text-[10px] text-slate-400 font-bold uppercase">Farm Name</p>
-                <p className="font-bold text-slate-800 text-sm mt-0.5">{selectedUserDossier.farmName || "Primary Farm"}</p>
-                <p className="text-slate-500 text-[11px]">{[selectedUserDossier.city, selectedUserDossier.state, selectedUserDossier.country].filter(Boolean).join(", ")}</p>
-              </div>
-              <div className="p-3 bg-slate-50 rounded-xl">
-                <p className="text-[10px] text-slate-400 font-bold uppercase">Subscription Status</p>
-                <div className="flex items-center gap-1.5 mt-0.5">
-                  <span className="font-bold text-slate-800 text-sm">{selectedUserDossier.activePlan || "Starter"}</span>
-                  <Bdg label={selectedUserDossier.subscriptionStatus} color={SC[selectedUserDossier.subscriptionStatus] || "gray"} />
+              <div className="pt-3 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2 shrink-0">
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => copyUserDossier(selectedUserDossier)}
+                    className="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5"
+                  >
+                    <Copy size={13} /> Copy Details
+                  </button>
+                  {selectedUserDossier.phone && (
+                    <a
+                      href={getWhatsAppUrl(selectedUserDossier.phone, selectedUserDossier.name) || "#"}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="px-3.5 py-2 bg-emerald-100 hover:bg-emerald-200 text-emerald-800 rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5"
+                    >
+                      <MessageCircle size={14} /> WhatsApp
+                    </a>
+                  )}
                 </div>
-                <p className="text-slate-500 text-[11px]">
-                  {selectedUserDossier.subscriptionStatus === "Trial" && !selectedUserDossier.hasPaid && !selectedUserDossier.subscriptionExpiry
-                    ? `${trialDaysLeft(selectedUserDossier.trialStartDate)} days trial left`
-                    : selectedUserDossier.subscriptionExpiry
-                    ? `${subscriptionDaysLeft(selectedUserDossier.subscriptionExpiry)} days remaining (expires ${fmtDate(selectedUserDossier.subscriptionExpiry)})`
-                    : "Active Plan"}
-                </p>
-              </div>
-            </div>
 
-            <div className="grid grid-cols-3 gap-3 text-center">
-              <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-100">
-                <p className="text-[10px] text-emerald-800 font-bold uppercase">Farms</p>
-                <p className="text-xl font-bold font-['Barlow_Condensed',sans-serif] text-emerald-900 mt-0.5">
-                  {selectedUserDossier.farmCount || 1}
-                </p>
+                {onInspectUser && (
+                  <button
+                    onClick={() => {
+                      const target = selectedUserDossier;
+                      setSelectedUserDossier(null);
+                      onInspectUser(target);
+                    }}
+                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5 shadow-sm"
+                  >
+                    <Eye size={14} /> Open Full Profile & All Records →
+                  </button>
+                )}
               </div>
-              <div className="p-3 bg-cyan-50 rounded-xl border border-cyan-100">
-                <p className="text-[10px] text-cyan-800 font-bold uppercase">Ponds</p>
-                <p className="text-xl font-bold font-['Barlow_Condensed',sans-serif] text-cyan-900 mt-0.5">
-                  {selectedUserDossier.pondCount || 0}
-                </p>
-              </div>
-              <div className="p-3 bg-purple-50 rounded-xl border border-purple-100">
-                <p className="text-[10px] text-purple-800 font-bold uppercase">Staff</p>
-                <p className="text-xl font-bold font-['Barlow_Condensed',sans-serif] text-purple-900 mt-0.5">
-                  {selectedUserDossier.staffCount || 0}
-                </p>
-              </div>
-            </div>
-
-            <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
-              <button
-                onClick={() => copyUserDossier(selectedUserDossier)}
-                className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5"
-              >
-                <Copy size={13} /> Copy Details
-              </button>
-              {selectedUserDossier.phone && (
-                <a
-                  href={getWhatsAppUrl(selectedUserDossier.phone, selectedUserDossier.name) || "#"}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5"
-                >
-                  <MessageCircle size={14} /> WhatsApp Farmer
-                </a>
-              )}
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }

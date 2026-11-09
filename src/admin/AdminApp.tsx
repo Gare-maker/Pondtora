@@ -197,6 +197,7 @@ export default function AdminApp({ onExit }: { onExit?: () => void } = {}) {
   const [isSyncing, setIsSyncing] = useState(false);
   const [isLiveDb, setIsLiveDb] = useState(false);
   const [lastSynced, setLastSynced] = useState<Date | null>(null);
+  const [inspectUser, setInspectUser] = useState<AdminUser | null>(null);
 
   // Persistent Admin State (Live Supabase users, platform stats, and managed accounts)
   const [users, setUsers] = useState<AdminUser[]>(() => {
@@ -659,6 +660,10 @@ export default function AdminApp({ onExit }: { onExit?: () => void } = {}) {
                 logs={logs}
                 platformStats={platformStats}
                 onNavigate={p => setPage(p as Page)}
+                onInspectUser={u => {
+                  setInspectUser(u);
+                  setPage("users");
+                }}
                 onRefresh={() => handleSyncLiveUsers(true)}
                 isRefreshing={isSyncing}
                 isLiveDb={isLiveDb}
@@ -674,6 +679,8 @@ export default function AdminApp({ onExit }: { onExit?: () => void } = {}) {
                 onDelete={handleDeleteUser}
                 onRefresh={() => handleSyncLiveUsers(true)}
                 isRefreshing={isSyncing}
+                initialViewUser={inspectUser}
+                onClearInitialViewUser={() => setInspectUser(null)}
               />
             )}
             {page === "subscriptions" && (

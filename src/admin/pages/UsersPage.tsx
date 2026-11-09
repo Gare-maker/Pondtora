@@ -46,8 +46,19 @@ function copyToClipboard(text: string, label: string) {
   }
 }
 
-function copyUserDossier(u: AdminUser, extra?: { farms: any[]; ponds: any[]; staff: any[] }) {
+function copyUserDossier(u: AdminUser, extra?: { farms: any[]; ponds: any[]; staff: any[]; revenues?: any[]; expenses?: any[] }) {
   if (!u) return;
+  const totalFish = extra?.ponds && extra.ponds.length > 0
+    ? extra.ponds.reduce((s, p) => s + (Number(p?.current_count ?? p?.currentCount ?? p?.initial_stock ?? p?.initialStock) || 0), 0)
+    : (u.totalFishStocked || 0);
+  const totalRev = extra?.revenues && extra.revenues.length > 0
+    ? extra.revenues.reduce((s, r) => s + (Number(r?.amount) || 0), 0)
+    : (u.totalRevenue || 0);
+  const totalExp = extra?.expenses && extra.expenses.length > 0
+    ? extra.expenses.reduce((s, e) => s + (Number(e?.amount) || 0), 0)
+    : (u.totalExpenses || 0);
+  const netProfit = totalRev - totalExp;
+
   const lines = [
     `*Pondtora Farmer Dossier*`,
     `----------------------------------------`,
@@ -70,10 +81,14 @@ function copyUserDossier(u: AdminUser, extra?: { farms: any[]; ponds: any[]; sta
     `Paystack Reference: ${u.paystackReference || "None"}`,
     `Last Payment Date: ${fmtDate(u.lastPaymentDate)}`,
     ``,
-    `*Farm Operations*`,
+    `*Farm Operations & Financials*`,
     `Total Farms: ${extra?.farms?.length ?? u.farmCount ?? 1}`,
     `Total Ponds: ${extra?.ponds?.length ?? u.pondCount ?? 0}`,
+    `Total Fish Stocked: ${totalFish.toLocaleString()}`,
     `Staff Members Added: ${extra?.staff?.length ?? u.staffCount ?? 0}`,
+    `Total Revenue: ${fmtMoney(totalRev)}`,
+    `Total Expenses: ${fmtMoney(totalExp)}`,
+    `Net Profit: ${netProfit >= 0 ? fmtMoney(netProfit) : `-${fmtMoney(Math.abs(netProfit))}`}`,
   ];
 
   if (extra?.staff && extra.staff.length > 0) {
@@ -93,7 +108,8 @@ function copyUserDossier(u: AdminUser, extra?: { farms: any[]; ponds: any[]; sta
   if (extra?.ponds && extra.ponds.length > 0) {
     lines.push(``, `*Ponds Configured:*`);
     extra.ponds.forEach((p, idx) => {
-      lines.push(`  ${idx + 1}. ${p?.name || `Pond #${idx + 1}`}${p?.size_m2 ? ` (${p.size_m2} m²)` : ""}`);
+      const cnt = Number(p?.current_count ?? p?.currentCount ?? p?.initial_stock ?? p?.initialStock) || 0;
+      lines.push(`  ${idx + 1}. ${p?.name || `Pond #${idx + 1}`} — ${cnt.toLocaleString()} fish (${p?.species || "Catfish"})${p?.size_m2 || p?.sizeM2 ? ` [${p.size_m2 || p.sizeM2} m²]` : ""}`);
     });
   }
 
@@ -110,6 +126,8 @@ interface Props {
   onExportCSV?: () => void;
   onRefresh?: () => void;
   isRefreshing?: boolean;
+  initialViewUser?: AdminUser | null;
+  onClearInitialViewUser?: () => void;
 }
 
 type SortKey = "name" | "email" | "activePlan" | "subscriptionStatus" | "createdAt" | "subscriptionExpiry";
@@ -477,7 +495,7 @@ function ClearanceHistorySection({
   );
 }
 
-export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onExportCSV, onRefresh, isRefreshing }: Props) {
+export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onExportCSV, onRefresh, isRefreshing, initialViewUser, onClearInitialViewUser }: Props) {
   const [q, setQ] = useState("");
   const [filterStatus, setFilterStatus] = useState("All");
   const [filterRole, setFilterRole] = useState("All");
@@ -499,6 +517,15 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
   const [farmCustomEnd, setFarmCustomEnd] = useState("");
   const [selectedFarmFilterId, setSelectedFarmFilterId] = useState<string>("all");
   const [referralRefreshNonce, setReferralRefreshNonce] = useState(0);
+
+  useEffect(() => {
+    if (initialViewUser) {
+      setViewUser(initialViewUser);
+      setFarmerDataTab("summary");
+      setSelectedFarmFilterId("all");
+      onClearInitialViewUser?.();
+    }
+  }, [initialViewUser, onClearInitialViewUser]);
 
   useEffect(() => {
     const onRefUpdated = () => setReferralRefreshNonce(n => n + 1);
@@ -537,6 +564,7 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
     farms: any[];
     ponds: any[];
     stockEvents: any[];
+    mortalityEntries: any[];
     feedInventory: any[];
     feedingRecords: any[];
     bagOpenLogs: any[];
@@ -548,6 +576,7 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
     invoices: any[];
     treatments: any[];
     pondReports: any[];
+    generalReports: any[];
     equipment: any[];
     staff: any[];
     investors: any[];
@@ -557,6 +586,7 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
     farms: [],
     ponds: [],
     stockEvents: [],
+    mortalityEntries: [],
     feedInventory: [],
     feedingRecords: [],
     bagOpenLogs: [],
@@ -568,6 +598,7 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
     invoices: [],
     treatments: [],
     pondReports: [],
+    generalReports: [],
     equipment: [],
     staff: [],
     investors: [],
@@ -585,6 +616,7 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
         farms: [],
         ponds: [],
         stockEvents: [],
+        mortalityEntries: [],
         feedInventory: [],
         feedingRecords: [],
         bagOpenLogs: [],
@@ -596,6 +628,7 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
         invoices: [],
         treatments: [],
         pondReports: [],
+        generalReports: [],
         equipment: [],
         staff: [],
         investors: [],
@@ -610,24 +643,33 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
       return { ...userExtraCacheRef.current.get(u.email), loading: false };
     }
 
-    let localFarms: any[] = [];
-    let localPonds: any[] = [];
-    let localStockEvents: any[] = [];
-    let localStaff: any[] = [];
-    let localFeed: any[] = [];
-    let localFeeding: any[] = [];
-    let localBagOpenLogs: any[] = [];
-    let localFeedRemainingLogs: any[] = [];
-    let localSalesCalculations: any[] = [];
+    // 1. Check unified localStorage cache written by api.loadAll() (`pondtora_${uid}_cache`)
+    let cachedBundle: any = null;
+    try {
+      const rawCache = localStorage.getItem(`pondtora_${u.id}_cache`);
+      if (rawCache) cachedBundle = JSON.parse(rawCache);
+    } catch {}
+
+    let localFarms: any[] = Array.isArray(cachedBundle?.farms) ? [...cachedBundle.farms] : [];
+    let localPonds: any[] = Array.isArray(cachedBundle?.ponds) ? [...cachedBundle.ponds] : [];
+    let localStockEvents: any[] = Array.isArray(cachedBundle?.stockEvents) ? [...cachedBundle.stockEvents] : [];
+    let localMortalityEntries: any[] = Array.isArray(cachedBundle?.mortalityEntries) ? [...cachedBundle.mortalityEntries] : [];
+    let localStaff: any[] = Array.isArray(cachedBundle?.staffMembers) ? [...cachedBundle.staffMembers] : [];
+    let localFeed: any[] = Array.isArray(cachedBundle?.feedInventory) ? [...cachedBundle.feedInventory] : [];
+    let localFeeding: any[] = Array.isArray(cachedBundle?.feedingRecords) ? [...cachedBundle.feedingRecords] : [];
+    let localBagOpenLogs: any[] = Array.isArray(cachedBundle?.bagOpenLogs) ? [...cachedBundle.bagOpenLogs] : [];
+    let localFeedRemainingLogs: any[] = Array.isArray(cachedBundle?.feedRemainingLogs) ? [...cachedBundle.feedRemainingLogs] : [];
+    let localSalesCalculations: any[] = Array.isArray(cachedBundle?.salesCalculations) ? [...cachedBundle.salesCalculations] : [];
     let localSalesPayments: any[] = [];
-    let localRevenues: any[] = [];
-    let localExpenses: any[] = [];
-    let localInvoices: any[] = [];
-    let localTreatments: any[] = [];
-    let localPondReports: any[] = [];
-    let localEquipment: any[] = [];
-    let localInvestors: any[] = [];
-    let localInvestments: any[] = [];
+    let localRevenues: any[] = Array.isArray(cachedBundle?.revenues) ? [...cachedBundle.revenues] : [];
+    let localExpenses: any[] = Array.isArray(cachedBundle?.expenses) ? [...cachedBundle.expenses] : [];
+    let localInvoices: any[] = Array.isArray(cachedBundle?.invoices) ? [...cachedBundle.invoices] : [];
+    let localTreatments: any[] = Array.isArray(cachedBundle?.treatmentRecords) ? [...cachedBundle.treatmentRecords] : [];
+    let localPondReports: any[] = Array.isArray(cachedBundle?.pondReports) ? [...cachedBundle.pondReports] : [];
+    let localGeneralReports: any[] = Array.isArray(cachedBundle?.reports) ? [...cachedBundle.reports] : [];
+    let localEquipment: any[] = Array.isArray(cachedBundle?.farmEquipment) ? [...cachedBundle.farmEquipment] : [];
+    let localInvestors: any[] = Array.isArray(cachedBundle?.investors) ? [...cachedBundle.investors] : [];
+    let localInvestments: any[] = Array.isArray(cachedBundle?.investments) ? [...cachedBundle.investments] : [];
 
     const matchesUser = (item: any) => {
       if (!item) return false;
@@ -635,9 +677,9 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
              (u.email && (item.user_email === u.email || item.email === u.email));
     };
 
-    const getItemsFromKeys = (keys: string[]) => {
+    const getItemsFromScopedAndSharedKeys = (sharedKeys: string[], scopedKeys: string[]) => {
       let combined: any[] = [];
-      for (const k of keys) {
+      for (const k of scopedKeys) {
         try {
           const raw = localStorage.getItem(k);
           if (raw) {
@@ -646,53 +688,45 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
           }
         } catch {}
       }
+      for (const k of sharedKeys) {
+        try {
+          const raw = localStorage.getItem(k);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (Array.isArray(parsed)) combined.push(...parsed.filter(matchesUser));
+          }
+        } catch {}
+      }
       return combined;
     };
 
-    try {
-      const farms = getItemsFromKeys(["pondtora_farms", `pondtora_${u.id}_farms`, ...(u.email ? [`pondtora_${u.email}_farms`] : [])]);
-      localFarms = farms.filter(matchesUser);
-    } catch {}
-
-    try {
-      const ponds = getItemsFromKeys(["pondtora_ponds", `pondtora_${u.id}_ponds`, ...(u.email ? [`pondtora_${u.email}_ponds`] : [])]);
-      localPonds = ponds.filter(matchesUser);
-    } catch {}
-
-    try {
-      const staff = getItemsFromKeys(["pondtora_staff", `pondtora_${u.id}_staff`, ...(u.email ? [`pondtora_${u.email}_staff`] : [])]);
-      localStaff = staff.filter(matchesUser);
-    } catch {}
-
-    try {
-      const feed = getItemsFromKeys(["pondtora_feed_inventory", "pondtora_feeds", `pondtora_${u.id}_feed_inventory`, ...(u.email ? [`pondtora_${u.email}_feed_inventory`] : [])]);
-      localFeed = feed.filter(matchesUser);
-    } catch {}
-
-    try {
-      const feeding = getItemsFromKeys(["pondtora_feeding_records", `pondtora_${u.id}_feeding_records`, ...(u.email ? [`pondtora_${u.email}_feeding_records`] : [])]);
-      localFeeding = feeding.filter(matchesUser);
-    } catch {}
-
-    try {
-      const sales = getItemsFromKeys(["pondtora_sales_calculations", `pondtora_${u.id}_sales_calculations`, ...(u.email ? [`pondtora_${u.email}_sales_calculations`] : [])]);
-      localSalesCalculations = sales.filter(matchesUser);
-    } catch {}
-
-    try {
-      const invoices = getItemsFromKeys(["pondtora_invoices", `pondtora_${u.id}_invoices`, ...(u.email ? [`pondtora_${u.email}_invoices`] : [])]);
-      localInvoices = invoices.filter(matchesUser);
-    } catch {}
-
-    try {
-      const revenues = getItemsFromKeys(["pondtora_revenues", `pondtora_${u.id}_revenues`, ...(u.email ? [`pondtora_${u.email}_revenues`] : [])]);
-      localRevenues = revenues.filter(matchesUser);
-    } catch {}
-
-    try {
-      const expenses = getItemsFromKeys(["pondtora_expenses", `pondtora_${u.id}_expenses`, ...(u.email ? [`pondtora_${u.email}_expenses`] : [])]);
-      localExpenses = expenses.filter(matchesUser);
-    } catch {}
+    if (localFarms.length === 0) {
+      localFarms = getItemsFromScopedAndSharedKeys(["pondtora_farms"], [`pondtora_${u.id}_farms`, ...(u.email ? [`pondtora_${u.email}_farms`] : [])]);
+    }
+    if (localPonds.length === 0) {
+      localPonds = getItemsFromScopedAndSharedKeys(["pondtora_ponds"], [`pondtora_${u.id}_ponds`, ...(u.email ? [`pondtora_${u.email}_ponds`] : [])]);
+    }
+    if (localStaff.length === 0) {
+      localStaff = getItemsFromScopedAndSharedKeys(["pondtora_staff"], [`pondtora_${u.id}_staff`, ...(u.email ? [`pondtora_${u.email}_staff`] : [])]);
+    }
+    if (localFeed.length === 0) {
+      localFeed = getItemsFromScopedAndSharedKeys(["pondtora_feed_inventory", "pondtora_feeds"], [`pondtora_${u.id}_feed_inventory`, ...(u.email ? [`pondtora_${u.email}_feed_inventory`] : [])]);
+    }
+    if (localFeeding.length === 0) {
+      localFeeding = getItemsFromScopedAndSharedKeys(["pondtora_feeding_records"], [`pondtora_${u.id}_feeding_records`, ...(u.email ? [`pondtora_${u.email}_feeding_records`] : [])]);
+    }
+    if (localSalesCalculations.length === 0) {
+      localSalesCalculations = getItemsFromScopedAndSharedKeys(["pondtora_sales_calculations"], [`pondtora_${u.id}_sales_calculations`, ...(u.email ? [`pondtora_${u.email}_sales_calculations`] : [])]);
+    }
+    if (localInvoices.length === 0) {
+      localInvoices = getItemsFromScopedAndSharedKeys(["pondtora_invoices"], [`pondtora_${u.id}_invoices`, ...(u.email ? [`pondtora_${u.email}_invoices`] : [])]);
+    }
+    if (localRevenues.length === 0) {
+      localRevenues = getItemsFromScopedAndSharedKeys(["pondtora_revenues"], [`pondtora_${u.id}_revenues`, ...(u.email ? [`pondtora_${u.email}_revenues`] : [])]);
+    }
+    if (localExpenses.length === 0) {
+      localExpenses = getItemsFromScopedAndSharedKeys(["pondtora_expenses"], [`pondtora_${u.id}_expenses`, ...(u.email ? [`pondtora_${u.email}_expenses`] : [])]);
+    }
 
     if (localFarms.length === 0 && (u.farmCount || u.farmName)) {
       const resolvedName = (u.farmName && u.farmName.trim().toLowerCase() !== "primary farm")
@@ -706,6 +740,7 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
       farms: localFarms,
       ponds: localPonds,
       stockEvents: localStockEvents,
+      mortalityEntries: localMortalityEntries,
       feedInventory: localFeed,
       feedingRecords: localFeeding,
       bagOpenLogs: localBagOpenLogs,
@@ -717,6 +752,7 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
       invoices: localInvoices,
       treatments: localTreatments,
       pondReports: localPondReports,
+      generalReports: localGeneralReports,
       equipment: localEquipment,
       staff: localStaff,
       investors: localInvestors,
@@ -736,75 +772,122 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
 
     let isSubscribed = true;
 
-    // 2. Fetch live data in background with RPC priority and direct query fallback
+    const pickArray = (...candidates: any[][]) => {
+      for (const c of candidates) {
+        if (Array.isArray(c) && c.length > 0) return c;
+      }
+      return [];
+    };
+
+    const mergeById = (arrA: any[], arrB: any[]) => {
+      const a = Array.isArray(arrA) ? arrA : [];
+      const b = Array.isArray(arrB) ? arrB : [];
+      if (a.length === 0) return b;
+      if (b.length === 0) return a;
+      const map = new Map<string, any>();
+      b.forEach((item, idx) => map.set(String(item?.id || `b-${idx}`), item));
+      a.forEach((item, idx) => map.set(String(item?.id || `a-${idx}`), item));
+      return Array.from(map.values());
+    };
+
+    // 2. Fetch live data in background combining RPC + direct farm-aware table queries
     const fetchLiveData = async () => {
-      // First try the security definer RPC function which bypasses user RLS restrictions for admins
+      let rpcBundle: any = null;
+
+      // Try security-definer RPC first (using correct p_user_id parameter, with fallback to target_user_id)
       try {
-        const { data: rpcData, error: rpcErr } = await (supabase.rpc as any)("get_user_full_records_for_admin", {
-          target_user_id: viewUser.id,
-          target_email: viewUser.email || null,
+        const res1 = await (supabase.rpc as any)("get_user_full_records_for_admin", {
+          p_user_id: viewUser.id,
         });
-
-        if (!rpcErr && rpcData && typeof rpcData === "object" && isSubscribed) {
-          const updated = {
-            loading: false,
-            farms: Array.isArray(rpcData.farms) && rpcData.farms.length > 0 ? rpcData.farms : initialSync.farms,
-            ponds: Array.isArray(rpcData.ponds) && rpcData.ponds.length > 0 ? rpcData.ponds : initialSync.ponds,
-            stockEvents: Array.isArray(rpcData.stockEvents) ? rpcData.stockEvents : initialSync.stockEvents,
-            feedInventory: Array.isArray(rpcData.feedInventory) && rpcData.feedInventory.length > 0 ? rpcData.feedInventory : initialSync.feedInventory,
-            feedingRecords: Array.isArray(rpcData.feedingRecords) && rpcData.feedingRecords.length > 0 ? rpcData.feedingRecords : initialSync.feedingRecords,
-            bagOpenLogs: Array.isArray(rpcData.bagOpenLogs) ? rpcData.bagOpenLogs : initialSync.bagOpenLogs,
-            feedRemainingLogs: Array.isArray(rpcData.feedRemainingLogs) ? rpcData.feedRemainingLogs : initialSync.feedRemainingLogs,
-            salesCalculations: Array.isArray(rpcData.salesCalculations) ? rpcData.salesCalculations : initialSync.salesCalculations,
-            salesPayments: Array.isArray(rpcData.salesPayments) ? rpcData.salesPayments : initialSync.salesPayments,
-            revenues: Array.isArray(rpcData.revenues) && rpcData.revenues.length > 0 ? rpcData.revenues : initialSync.revenues,
-            expenses: Array.isArray(rpcData.expenses) && rpcData.expenses.length > 0 ? rpcData.expenses : initialSync.expenses,
-            invoices: Array.isArray(rpcData.invoices) && rpcData.invoices.length > 0 ? rpcData.invoices : initialSync.invoices,
-            treatments: Array.isArray(rpcData.treatments) ? rpcData.treatments : initialSync.treatments,
-            pondReports: Array.isArray(rpcData.pondReports) ? rpcData.pondReports : initialSync.pondReports,
-            equipment: Array.isArray(rpcData.equipment) ? rpcData.equipment : initialSync.equipment,
-            staff: Array.isArray(rpcData.staff) && rpcData.staff.length > 0 ? rpcData.staff : initialSync.staff,
-            investors: Array.isArray(rpcData.investors) && rpcData.investors.length > 0 ? rpcData.investors : initialSync.investors,
-            investments: Array.isArray(rpcData.investments) ? rpcData.investments : initialSync.investments,
-          };
-
-          userExtraCacheRef.current.set(viewUser.id, updated);
-          if (viewUser.email) userExtraCacheRef.current.set(viewUser.email, updated);
-
-          setUserExtra(updated);
-          return;
+        if (!res1.error && res1.data && typeof res1.data === "object") {
+          rpcBundle = res1.data;
+        } else {
+          const res2 = await (supabase.rpc as any)("get_user_full_records_for_admin", {
+            target_user_id: viewUser.id,
+            target_email: viewUser.email || null,
+          });
+          if (!res2.error && res2.data && typeof res2.data === "object") {
+            rpcBundle = res2.data;
+          }
         }
       } catch (e) {
-        console.warn("RPC fetch fallback to direct queries:", e);
+        console.warn("RPC get_user_full_records_for_admin note:", e);
       }
 
-      // Fallback: direct table queries without limit restrictions (Lifetime Records)
+      if (rpcBundle && isSubscribed) {
+        const fastFromRpc = {
+          loading: true,
+          farms: pickArray(rpcBundle.farms, initialSync.farms),
+          ponds: pickArray(rpcBundle.ponds, initialSync.ponds),
+          stockEvents: pickArray(rpcBundle.stock_events, rpcBundle.stockEvents, initialSync.stockEvents),
+          mortalityEntries: pickArray(rpcBundle.mortality_entries, rpcBundle.mortalityEntries, initialSync.mortalityEntries),
+          feedInventory: pickArray(rpcBundle.feed_inventory, rpcBundle.feedInventory, initialSync.feedInventory),
+          feedingRecords: pickArray(rpcBundle.feeding_records, rpcBundle.feedingRecords, initialSync.feedingRecords),
+          bagOpenLogs: pickArray(rpcBundle.bag_open_logs, rpcBundle.bagOpenLogs, initialSync.bagOpenLogs),
+          feedRemainingLogs: pickArray(rpcBundle.feed_remaining_logs, rpcBundle.feedRemainingLogs, initialSync.feedRemainingLogs),
+          salesCalculations: pickArray(rpcBundle.sales_calculations, rpcBundle.salesCalculations, initialSync.salesCalculations),
+          salesPayments: pickArray(rpcBundle.sales_payments, rpcBundle.salesPayments, initialSync.salesPayments),
+          revenues: pickArray(rpcBundle.revenues, initialSync.revenues),
+          expenses: pickArray(rpcBundle.expenses, initialSync.expenses),
+          invoices: pickArray(rpcBundle.invoices, initialSync.invoices),
+          treatments: pickArray(rpcBundle.treatment_records, rpcBundle.treatments, initialSync.treatments),
+          pondReports: pickArray(rpcBundle.pond_reports, rpcBundle.pondReports, initialSync.pondReports),
+          generalReports: pickArray(rpcBundle.reports, rpcBundle.generalReports, initialSync.generalReports),
+          equipment: pickArray(rpcBundle.farm_equipment, rpcBundle.equipment, initialSync.equipment),
+          staff: pickArray(rpcBundle.staff_members, rpcBundle.staff, initialSync.staff),
+          investors: pickArray(rpcBundle.investors, initialSync.investors),
+          investments: pickArray(rpcBundle.investments, initialSync.investments),
+        };
+        setUserExtra(fastFromRpc);
+      }
+
+      // Also run direct table queries (scoped to both user_id AND all of the user's farm_ids so staff-logged records are included)
       const timeoutPromise = new Promise<{ isTimeout: true }>(resolve =>
-        setTimeout(() => resolve({ isTimeout: true }), 4000)
+        setTimeout(() => resolve({ isTimeout: true }), 12000)
       );
 
-      const queriesPromise = Promise.allSettled([
-        supabase.from("farms").select("*").eq("user_id", viewUser.id).order("created_at", { ascending: true }),
-        supabase.from("ponds").select("*").eq("user_id", viewUser.id).order("created_at", { ascending: false }),
-        supabase.from("stock_events").select("*").eq("user_id", viewUser.id).order("event_date", { ascending: false }),
-        supabase.from("feed_inventory").select("*").eq("user_id", viewUser.id).order("created_at", { ascending: false }),
-        supabase.from("feeding_records").select("*").eq("user_id", viewUser.id).order("date", { ascending: false }),
-        supabase.from("bag_open_logs").select("*").eq("user_id", viewUser.id).order("date", { ascending: false }),
-        supabase.from("feed_remaining_logs").select("*").eq("user_id", viewUser.id).order("date", { ascending: false }),
-        supabase.from("sales_calculations").select("*").eq("user_id", viewUser.id).order("created_at", { ascending: false }),
-        supabase.from("sales_calculation_payments").select("*").order("created_at", { ascending: false }),
-        supabase.from("revenues").select("*").eq("user_id", viewUser.id).order("date", { ascending: false }),
-        supabase.from("expenses").select("*").eq("user_id", viewUser.id).order("date", { ascending: false }),
-        supabase.from("invoices").select("*").eq("user_id", viewUser.id).order("created_at", { ascending: false }),
-        supabase.from("treatment_records").select("*").eq("user_id", viewUser.id).order("date", { ascending: false }),
-        supabase.from("pond_reports").select("*").eq("user_id", viewUser.id).order("report_date", { ascending: false }),
-        supabase.from("farm_equipment").select("*").eq("user_id", viewUser.id).order("created_at", { ascending: false }),
-        supabase.from("staff_members").select("*").eq("user_id", viewUser.id).order("created_at", { ascending: false }),
-        supabase.from("investors").select("*").eq("user_id", viewUser.id).order("created_at", { ascending: false }),
-        supabase.from("investments").select("*").eq("user_id", viewUser.id).order("created_at", { ascending: false }),
-      ]);
+      const directWorkPromise = (async () => {
+        const farmsRes = await supabase
+          .from("farms")
+          .select("*")
+          .eq("user_id", viewUser.id)
+          .order("created_at", { ascending: true });
 
-      const result = await Promise.race([queriesPromise, timeoutPromise]);
+        const knownFarms = mergeById(farmsRes.data || [], rpcBundle?.farms || []);
+        const farmIds = knownFarms
+          .map((f: any) => f?.id)
+          .filter((id: any) => typeof id === "string" && id.length > 0 && !id.startsWith("farm-"));
+
+        const userOrFarmFilter = farmIds.length > 0
+          ? `user_id.eq.${viewUser.id},farm_id.in.(${farmIds.join(",")})`
+          : `user_id.eq.${viewUser.id}`;
+
+        const settled = await Promise.allSettled([
+          supabase.from("ponds").select("*").or(userOrFarmFilter).order("created_at", { ascending: false }),
+          supabase.from("stock_events").select("*").or(userOrFarmFilter).order("date", { ascending: false }),
+          supabase.from("mortality_entries").select("*").or(userOrFarmFilter).order("date", { ascending: false }),
+          supabase.from("feed_inventory").select("*").or(userOrFarmFilter).order("created_at", { ascending: false }),
+          supabase.from("feeding_records").select("*").or(userOrFarmFilter).order("date", { ascending: false }),
+          supabase.from("bag_open_logs").select("*").or(userOrFarmFilter).order("date", { ascending: false }),
+          supabase.from("feed_remaining_logs").select("*").or(userOrFarmFilter).order("date", { ascending: false }),
+          supabase.from("sales_calculations").select("*").or(userOrFarmFilter).order("created_at", { ascending: false }),
+          supabase.from("sales_calculation_payments").select("*").order("created_at", { ascending: false }),
+          supabase.from("revenues").select("*").or(userOrFarmFilter).order("date", { ascending: false }),
+          supabase.from("expenses").select("*").or(userOrFarmFilter).order("date", { ascending: false }),
+          supabase.from("invoices").select("*").or(userOrFarmFilter).order("created_at", { ascending: false }),
+          supabase.from("treatment_records").select("*").or(userOrFarmFilter).order("date", { ascending: false }),
+          supabase.from("pond_reports").select("*").or(userOrFarmFilter).order("report_date", { ascending: false }),
+          supabase.from("reports").select("*").or(userOrFarmFilter).order("date", { ascending: false }),
+          supabase.from("farm_equipment").select("*").or(userOrFarmFilter).order("created_at", { ascending: false }),
+          supabase.from("staff_members").select("*").eq("user_id", viewUser.id).order("created_at", { ascending: false }),
+          supabase.from("investors").select("*").or(userOrFarmFilter).order("created_at", { ascending: false }),
+          supabase.from("investments").select("*").or(userOrFarmFilter).order("created_at", { ascending: false }),
+        ]);
+
+        return { farmsRes, settled };
+      })();
+
+      const result = await Promise.race([directWorkPromise, timeoutPromise]);
       if (!isSubscribed) return;
 
       if ("isTimeout" in result) {
@@ -812,38 +895,49 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
         return;
       }
 
+      const { farmsRes, settled } = result;
       const [
-        farmsRes, pondsRes, stockRes, feedRes, feedingRes, bagRes, remRes,
-        salesRes, paymentsRes, revRes, expRes, invRes, treatRes, repRes, equipRes, staffRes, investRes, investmentRes
-      ] = result;
+        pondsRes, stockRes, mortRes, feedRes, feedingRes, bagRes, remRes,
+        salesRes, paymentsRes, revRes, expRes, invRes, treatRes, repRes, genRepRes, equipRes, staffRes, investRes, investmentRes
+      ] = settled;
 
-      const extract = (res: PromiseSettledResult<any>, fallback: any[]) => {
-        if (res.status === "fulfilled" && res.value?.data && Array.isArray(res.value.data) && res.value.data.length > 0) {
-          return res.value.data;
-        }
-        return fallback;
+      const extract = (res: PromiseSettledResult<any>, rpcArr: any[], fallback: any[]) => {
+        const directRows = (res.status === "fulfilled" && Array.isArray(res.value?.data)) ? res.value.data : [];
+        const merged = mergeById(directRows, rpcArr || []);
+        return merged.length > 0 ? merged : fallback;
       };
+
+      const mergedSales = extract(salesRes, rpcBundle?.sales_calculations || rpcBundle?.salesCalculations, initialSync.salesCalculations);
+      const userCalcIds = new Set(mergedSales.map((s: any) => s?.id).filter(Boolean));
+      const rawPayments = extract(paymentsRes, rpcBundle?.sales_payments || rpcBundle?.salesPayments, initialSync.salesPayments);
+      const filteredPayments = rawPayments.filter(
+        (p: any) => p?.user_id === viewUser.id || (p?.calculation_id && userCalcIds.has(p.calculation_id))
+      );
 
       const updated = {
         loading: false,
-        farms: extract(farmsRes, initialSync.farms),
-        ponds: extract(pondsRes, initialSync.ponds),
-        stockEvents: extract(stockRes, initialSync.stockEvents),
-        feedInventory: extract(feedRes, initialSync.feedInventory),
-        feedingRecords: extract(feedingRes, initialSync.feedingRecords),
-        bagOpenLogs: extract(bagRes, initialSync.bagOpenLogs),
-        feedRemainingLogs: extract(remRes, initialSync.feedRemainingLogs),
-        salesCalculations: extract(salesRes, initialSync.salesCalculations),
-        salesPayments: extract(paymentsRes, initialSync.salesPayments),
-        revenues: extract(revRes, initialSync.revenues),
-        expenses: extract(expRes, initialSync.expenses),
-        invoices: extract(invRes, initialSync.invoices),
-        treatments: extract(treatRes, initialSync.treatments),
-        pondReports: extract(repRes, initialSync.pondReports),
-        equipment: extract(equipRes, initialSync.equipment),
-        staff: extract(staffRes, initialSync.staff),
-        investors: extract(investRes, initialSync.investors),
-        investments: extract(investmentRes, initialSync.investments),
+        farms: mergeById(farmsRes.data || [], rpcBundle?.farms || []).length > 0
+          ? mergeById(farmsRes.data || [], rpcBundle?.farms || [])
+          : initialSync.farms,
+        ponds: extract(pondsRes, rpcBundle?.ponds, initialSync.ponds),
+        stockEvents: extract(stockRes, rpcBundle?.stock_events || rpcBundle?.stockEvents, initialSync.stockEvents),
+        mortalityEntries: extract(mortRes, rpcBundle?.mortality_entries || rpcBundle?.mortalityEntries, initialSync.mortalityEntries),
+        feedInventory: extract(feedRes, rpcBundle?.feed_inventory || rpcBundle?.feedInventory, initialSync.feedInventory),
+        feedingRecords: extract(feedingRes, rpcBundle?.feeding_records || rpcBundle?.feedingRecords, initialSync.feedingRecords),
+        bagOpenLogs: extract(bagRes, rpcBundle?.bag_open_logs || rpcBundle?.bagOpenLogs, initialSync.bagOpenLogs),
+        feedRemainingLogs: extract(remRes, rpcBundle?.feed_remaining_logs || rpcBundle?.feedRemainingLogs, initialSync.feedRemainingLogs),
+        salesCalculations: mergedSales,
+        salesPayments: filteredPayments,
+        revenues: extract(revRes, rpcBundle?.revenues, initialSync.revenues),
+        expenses: extract(expRes, rpcBundle?.expenses, initialSync.expenses),
+        invoices: extract(invRes, rpcBundle?.invoices, initialSync.invoices),
+        treatments: extract(treatRes, rpcBundle?.treatment_records || rpcBundle?.treatments, initialSync.treatments),
+        pondReports: extract(repRes, rpcBundle?.pond_reports || rpcBundle?.pondReports, initialSync.pondReports),
+        generalReports: extract(genRepRes, rpcBundle?.reports || rpcBundle?.generalReports, initialSync.generalReports),
+        equipment: extract(equipRes, rpcBundle?.farm_equipment || rpcBundle?.equipment, initialSync.equipment),
+        staff: extract(staffRes, rpcBundle?.staff_members || rpcBundle?.staff, initialSync.staff),
+        investors: extract(investRes, rpcBundle?.investors, initialSync.investors),
+        investments: extract(investmentRes, rpcBundle?.investments, initialSync.investments),
       };
 
       userExtraCacheRef.current.set(viewUser.id, updated);
@@ -1336,12 +1430,17 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                             🏡 {u.farmCount ?? 1} Farm{((u.farmCount ?? 1) !== 1) ? "s" : ""}
                           </span>
                           <span className="text-[10px] bg-blue-50 text-blue-700 font-semibold px-1.5 py-0.5 rounded flex items-center gap-0.5" title="Ponds count">
-                            <Droplets size={10} className="text-blue-500" /> {u.pondCount ?? 0} Ponds
+                            <Droplets size={10} className="text-blue-500" /> {u.pondCount ?? 0} Ponds ({(u.totalFishStocked || 0).toLocaleString()} fish)
                           </span>
                         </div>
-                        <span className="text-[10px] bg-emerald-50 text-emerald-800 font-semibold px-1.5 py-0.5 rounded w-fit flex items-center gap-0.5" title="Staff added">
-                          <UsersIcon size={10} className="text-emerald-600" /> {u.staffCount ?? 0} Staff Member{(u.staffCount !== 1) ? "s" : ""}
-                        </span>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-[10px] bg-emerald-50 text-emerald-800 font-semibold px-1.5 py-0.5 rounded w-fit flex items-center gap-0.5" title="Staff added">
+                            <UsersIcon size={10} className="text-emerald-600" /> {u.staffCount ?? 0} Staff
+                          </span>
+                          <span className="text-[10px] bg-teal-50 text-teal-800 font-bold px-1.5 py-0.5 rounded" title="Recorded Revenue & Expenses">
+                            Rev: ₦{(u.totalRevenue || 0).toLocaleString()} · Exp: ₦{(u.totalExpenses || 0).toLocaleString()}
+                          </span>
+                        </div>
                       </div>
                     </td>
 
@@ -1554,8 +1653,21 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                     </div>
                     <div className="flex items-center gap-2 text-slate-500">
                       <span>🏡 {u.farmCount ?? 1} Farm{((u.farmCount ?? 1) !== 1) ? "s" : ""}</span>
-                      <span>💧 {u.pondCount ?? 0} Ponds</span>
+                      <span>💧 {u.pondCount ?? 0} Ponds ({(u.totalFishStocked || 0).toLocaleString()} fish)</span>
                     </div>
+                  </div>
+
+                  {/* Financial summary row on mobile */}
+                  <div className="flex items-center justify-between text-[11px] bg-emerald-50/60 px-2.5 py-1.5 rounded-lg border border-emerald-200/60">
+                    <span className="font-semibold text-emerald-800">
+                      Rev: ₦{(u.totalRevenue || 0).toLocaleString()}
+                    </span>
+                    <span className="font-semibold text-rose-700">
+                      Exp: ₦{(u.totalExpenses || 0).toLocaleString()}
+                    </span>
+                    <span className="font-bold text-slate-800">
+                      Net: ₦{((u.totalRevenue || 0) - (u.totalExpenses || 0)).toLocaleString()}
+                    </span>
                   </div>
 
                   {/* Referral summary row on mobile */}
@@ -1753,37 +1865,50 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
 
               // Filtered datasets for active tab views & totals
               const allFarms = userExtra?.farms || [];
+              const farmNameById = new Map<string, string>();
+              allFarms.forEach((f: any) => {
+                if (f?.id) farmNameById.set(String(f.id), f.name || "Farm");
+              });
+
               const allPonds = (userExtra?.ponds || []).filter((p: any) => passesFarmFilter(p.farm_id || p.farmId));
-              const allStockEvents = (userExtra?.stockEvents || []).filter((s: any) => passesFarmFilter(s.farm_id) && passesDateFilter(s.event_date || s.created_at));
+              const allStockEvents = (userExtra?.stockEvents || []).filter((s: any) => passesFarmFilter(s.farm_id || s.farmId) && passesDateFilter(s.date || s.event_date || s.created_at || s.createdAt));
+              const allMortalityEntries = (userExtra?.mortalityEntries || []).filter((m: any) => passesFarmFilter(m.farm_id || m.farmId) && passesDateFilter(m.date || m.created_at || m.createdAt));
               const allFeed = (userExtra?.feedInventory || []).filter((f: any) => passesFarmFilter(f.farm_id || f.farmId));
-              const allFeeding = (userExtra?.feedingRecords || []).filter((r: any) => passesFarmFilter(r.farm_id) && passesDateFilter(r.date || r.created_at));
-              const allBagLogs = (userExtra?.bagOpenLogs || []).filter((b: any) => passesFarmFilter(b.farm_id) && passesDateFilter(b.date || b.created_at));
-              const allFeedRem = (userExtra?.feedRemainingLogs || []).filter((b: any) => passesFarmFilter(b.farm_id) && passesDateFilter(b.date || b.created_at));
-              const allSales = (userExtra?.salesCalculations || []).filter((s: any) => passesFarmFilter(s.farm_id) && passesDateFilter(s.calc_date || s.created_at));
-              const allPayments = (userExtra?.salesPayments || []).filter((p: any) => passesDateFilter(p.payment_date || p.created_at));
-              const allRev = (userExtra?.revenues || []).filter((r: any) => passesFarmFilter(r.farm_id) && passesDateFilter(r.date || r.created_at));
-              const allExp = (userExtra?.expenses || []).filter((e: any) => passesFarmFilter(e.farm_id) && passesDateFilter(e.date || e.created_at));
-              const allInvoices = (userExtra?.invoices || []).filter((i: any) => passesFarmFilter(i.farm_id) && passesDateFilter(i.invoice_date || i.created_at));
-              const allTreatments = (userExtra?.treatments || []).filter((t: any) => passesFarmFilter(t.farm_id) && passesDateFilter(t.date || t.created_at));
-              const allPondReports = (userExtra?.pondReports || []).filter((p: any) => passesFarmFilter(p.farm_id) && passesDateFilter(p.report_date || p.date || p.created_at));
-              const allEquipment = userExtra?.equipment || [];
+              const allFeeding = (userExtra?.feedingRecords || []).filter((r: any) => passesFarmFilter(r.farm_id || r.farmId) && passesDateFilter(r.date || r.created_at || r.createdAt));
+              const allBagLogs = (userExtra?.bagOpenLogs || []).filter((b: any) => passesFarmFilter(b.farm_id || b.farmId) && passesDateFilter(b.date || b.created_at || b.createdAt));
+              const allFeedRem = (userExtra?.feedRemainingLogs || []).filter((b: any) => passesFarmFilter(b.farm_id || b.farmId) && passesDateFilter(b.date || b.created_at || b.createdAt));
+              const allSales = (userExtra?.salesCalculations || []).filter((s: any) => passesFarmFilter(s.farm_id || s.farmId) && passesDateFilter(s.calc_date || s.created_at || s.createdAt));
+              const allPayments = (userExtra?.salesPayments || []).filter((p: any) => passesDateFilter(p.payment_date || p.created_at || p.createdAt));
+              const allRev = (userExtra?.revenues || []).filter((r: any) => passesFarmFilter(r.farm_id || r.farmId) && passesDateFilter(r.date || r.created_at || r.createdAt));
+              const allExp = (userExtra?.expenses || []).filter((e: any) => passesFarmFilter(e.farm_id || e.farmId) && passesDateFilter(e.date || e.created_at || e.createdAt));
+              const allInvoices = (userExtra?.invoices || []).filter((i: any) => passesFarmFilter(i.farm_id || i.farmId) && passesDateFilter(i.invoice_date || i.invoiceDate || i.created_at || i.createdAt));
+              const allTreatments = (userExtra?.treatments || []).filter((t: any) => passesFarmFilter(t.farm_id || t.farmId) && passesDateFilter(t.date || t.created_at || t.createdAt));
+              const allPondReports = (userExtra?.pondReports || []).filter((p: any) => passesFarmFilter(p.farm_id || p.farmId) && passesDateFilter(p.report_date || p.reportDate || p.date || p.created_at || p.createdAt));
+              const allGeneralReports = (userExtra?.generalReports || []).filter((r: any) => passesFarmFilter(r.farm_id || r.farmId) && passesDateFilter(r.date || r.created_at || r.createdAt));
+              const allEquipment = (userExtra?.equipment || []).filter((eq: any) => passesFarmFilter(eq.farm_id || eq.farmId));
               const allStaff = userExtra?.staff || [];
-              const allInvestors = userExtra?.investors || [];
+              const allInvestors = (userExtra?.investors || []).filter((inv: any) => passesFarmFilter(inv.farm_id || inv.farmId));
+              const allInvestments = (userExtra?.investments || []).filter((inv: any) => passesFarmFilter(inv.farm_id || inv.farmId));
 
               // Financial & operational aggregations
               const periodRevenue = allRev.reduce((s: number, r: any) => s + (Number(r?.amount) || 0), 0);
               const periodExpenses = allExp.reduce((s: number, e: any) => s + (Number(e?.amount) || 0), 0);
               const periodNetProfit = periodRevenue - periodExpenses;
-              const periodFeedKg = allFeeding.reduce((s: number, r: any) => s + (Number(r?.total ?? ((r?.morning || 0) + (r?.evening || 0))) || 0), 0);
-              const totalSalesAmount = allSales.reduce((s: number, sc: any) => s + (Number(sc?.total_amount) || 0), 0);
-              const totalSalesPaid = allSales.reduce((s: number, sc: any) => s + (Number(sc?.amount_paid) || 0), 0);
+              const periodFeedKg = allFeeding.reduce((s: number, r: any) => s + (Number(r?.total ?? ((Number(r?.morning) || 0) + (Number(r?.evening) || 0))) || 0), 0);
+              const totalSalesAmount = allSales.reduce((s: number, sc: any) => s + (Number(sc?.total_amount ?? sc?.totalAmount) || 0), 0);
+              const totalSalesPaid = allSales.reduce((s: number, sc: any) => s + (Number(sc?.amount_paid ?? sc?.amountPaid) || 0), 0);
               const totalSalesOutstanding = Math.max(0, totalSalesAmount - totalSalesPaid);
 
-              // Lifetime totals
-              const lifetimeRev = (userExtra?.revenues || []).reduce((s: number, r: any) => s + (Number(r?.amount) || 0), 0);
-              const lifetimeExp = (userExtra?.expenses || []).reduce((s: number, e: any) => s + (Number(e?.amount) || 0), 0);
-              const lifetimeFish = allPonds.reduce((s: number, p: any) => s + (Number(p?.current_count ?? p?.initial_stock) || 0), 0);
-              const lifetimeFeedBags = allFeed.reduce((s: number, f: any) => s + (Number(f?.bags_in_stock) || 0), 0);
+              // Lifetime / current stock totals
+              const lifetimeFish = allPonds.reduce(
+                (s: number, p: any) => s + (Number(p?.current_count ?? p?.currentCount ?? p?.initial_stock ?? p?.initialStock) || 0),
+                0
+              );
+              const totalPurchasedBags = allFeed.reduce((s: number, f: any) => s + (Number(f?.bags ?? f?.bags_in_stock) || 0), 0);
+              const totalOpenedBags = (userExtra?.bagOpenLogs || [])
+                .filter((b: any) => passesFarmFilter(b.farm_id || b.farmId))
+                .reduce((s: number, b: any) => s + (Number(b?.bags_opened ?? b?.bagsOpened ?? b?.bags) || 0), 0);
+              const lifetimeFeedBags = Math.max(0, totalPurchasedBags - totalOpenedBags);
 
               const tabsList = [
                 { id: "summary", label: "📊 Farm Overview", count: null },
@@ -1792,8 +1917,8 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                 { id: "feeding", label: "🍽️ Feeding Records", count: allFeeding.length },
                 { id: "sales", label: "🏷️ Sales Management", count: allSales.length },
                 { id: "finance", label: "💰 Financials & Invoices", count: allRev.length + allExp.length + allInvoices.length },
-                { id: "health_equipment", label: "🩺 Health & Equipment", count: allTreatments.length + allPondReports.length + allEquipment.length },
-                { id: "staff_investors", label: "👥 Staff & Investors", count: allStaff.length + allInvestors.length },
+                { id: "health_equipment", label: "🩺 Health & Equipment", count: allTreatments.length + allPondReports.length + allGeneralReports.length + allEquipment.length },
+                { id: "staff_investors", label: "👥 Staff & Investors", count: allStaff.length + allInvestors.length + allInvestments.length },
               ];
 
               return (
@@ -1802,7 +1927,7 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                   <div className="px-5 py-2.5 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs shrink-0">
                     <div className="flex flex-wrap items-center gap-2">
                       {/* Farm Selector */}
-                      {allFarms.length > 1 && (
+                      {allFarms.length > 0 && (
                         <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-lg px-2.5 py-1">
                           <Building size={13} className="text-emerald-600 shrink-0" />
                           <span className="text-[11px] font-bold text-slate-500">Farm:</span>
@@ -1947,7 +2072,7 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                           </h3>
                           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
                             <div className="bg-slate-50/80 border border-slate-200/70 p-2.5 rounded-xl">
-                              <p className="text-[10px] uppercase font-bold text-slate-400">Farm Name</p>
+                              <p className="text-[10px] uppercase font-bold text-slate-400">Primary Farm Name</p>
                               <p className="font-bold text-slate-800 text-xs mt-0.5 truncate">{viewUser.farmName || "Primary Farm"}</p>
                             </div>
                             <div className="bg-slate-50/80 border border-slate-200/70 p-2.5 rounded-xl">
@@ -1983,11 +2108,61 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                           </div>
                         </div>
 
+                        {/* Configured Farms Breakdown */}
+                        <div>
+                          <div className="flex items-center justify-between mb-2">
+                            <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                              <Building size={13} className="text-emerald-600" /> Configured Farms ({allFarms.length})
+                            </h3>
+                          </div>
+                          {allFarms.length === 0 ? (
+                            <div className="p-3 bg-slate-50 border border-slate-200/70 rounded-xl text-slate-400 text-center">
+                              No separate farm rows configured yet.
+                            </div>
+                          ) : (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                              {allFarms.map((f: any, idx: number) => {
+                                const fPonds = (userExtra?.ponds || []).filter((p: any) => String(p.farm_id || p.farmId) === String(f.id) || allFarms.length === 1);
+                                const fFish = fPonds.reduce((s: number, p: any) => s + (Number(p?.current_count ?? p?.currentCount ?? p?.initial_stock ?? p?.initialStock) || 0), 0);
+                                const fRev = (userExtra?.revenues || []).filter((r: any) => String(r.farm_id || r.farmId) === String(f.id) || allFarms.length === 1).reduce((s: number, r: any) => s + (Number(r?.amount) || 0), 0);
+                                const fExp = (userExtra?.expenses || []).filter((e: any) => String(e.farm_id || e.farmId) === String(f.id) || allFarms.length === 1).reduce((s: number, e: any) => s + (Number(e?.amount) || 0), 0);
+                                return (
+                                  <div key={f.id || idx} className="p-3 bg-white border border-slate-200 rounded-xl shadow-2xs">
+                                    <div className="flex items-center justify-between">
+                                      <p className="font-bold text-slate-900 text-xs truncate">{f.name || `Farm #${idx + 1}`}</p>
+                                      <span className="text-[10px] font-bold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full">
+                                        {fPonds.length} Pond{fPonds.length === 1 ? "" : "s"}
+                                      </span>
+                                    </div>
+                                    <p className="text-[10.5px] text-slate-500 mt-0.5">
+                                      {[f.city || viewUser.city, f.state || viewUser.state, f.country || viewUser.country].filter(Boolean).join(", ") || "Nigeria"}
+                                    </p>
+                                    <div className="grid grid-cols-3 gap-2 mt-2 pt-2 border-t border-slate-100 text-[10.5px]">
+                                      <div>
+                                        <span className="text-slate-400 block text-[9.5px]">Fish Stocked</span>
+                                        <span className="font-bold text-blue-700">{fFish.toLocaleString()}</span>
+                                      </div>
+                                      <div>
+                                        <span className="text-slate-400 block text-[9.5px]">Revenue</span>
+                                        <span className="font-bold text-emerald-700">₦{fRev.toLocaleString()}</span>
+                                      </div>
+                                      <div>
+                                        <span className="text-slate-400 block text-[9.5px]">Expenses</span>
+                                        <span className="font-bold text-rose-700">₦{fExp.toLocaleString()}</span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+
                         {/* Filtered Period Operations Snapshot */}
                         <div>
                           <div className="flex items-center justify-between mb-2">
                             <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
-                              <Layers size={13} className="text-emerald-600" /> Operational Snapshot ({farmDateFilter === "all" ? "Lifetime Total" : "Selected Period"})
+                              <Layers size={13} className="text-emerald-600" /> Operational & Financial Snapshot ({farmDateFilter === "all" ? "Lifetime Total" : "Selected Period"})
                             </h3>
                             {farmDateFilter !== "all" && (
                               <button
@@ -1999,61 +2174,85 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                             )}
                           </div>
                           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                            <div className="bg-blue-50/60 border border-blue-200/70 p-2.5 rounded-xl text-center">
+                            <div
+                              onClick={() => setFarmerDataTab("ponds")}
+                              className="bg-blue-50/60 border border-blue-200/70 p-2.5 rounded-xl text-center cursor-pointer hover:border-blue-400 transition-colors"
+                            >
                               <p className="text-[10px] uppercase font-bold text-blue-500">Ponds Active</p>
                               <p className="text-lg font-extrabold text-blue-700 font-['Barlow_Condensed',sans-serif] mt-0.5">
                                 {allPonds.length}
                               </p>
                               <p className="text-[10px] text-blue-600">{lifetimeFish.toLocaleString()} fish stocked</p>
                             </div>
-                            <div className="bg-amber-50/60 border border-amber-200/70 p-2.5 rounded-xl text-center">
+                            <div
+                              onClick={() => setFarmerDataTab("feeding")}
+                              className="bg-amber-50/60 border border-amber-200/70 p-2.5 rounded-xl text-center cursor-pointer hover:border-amber-400 transition-colors"
+                            >
                               <p className="text-[10px] uppercase font-bold text-amber-700">Feed Consumed</p>
                               <p className="text-lg font-extrabold text-amber-800 font-['Barlow_Condensed',sans-serif] mt-0.5">
                                 {periodFeedKg.toLocaleString()} kg
                               </p>
                               <p className="text-[10px] text-amber-600">{allFeeding.length} feeding entries</p>
                             </div>
-                            <div className="bg-emerald-50/60 border border-emerald-200/70 p-2.5 rounded-xl text-center">
+                            <div
+                              onClick={() => setFarmerDataTab("finance")}
+                              className="bg-emerald-50/60 border border-emerald-200/70 p-2.5 rounded-xl text-center cursor-pointer hover:border-emerald-400 transition-colors"
+                            >
                               <p className="text-[10px] uppercase font-bold text-emerald-700">Recorded Revenue</p>
                               <p className="text-lg font-extrabold text-emerald-900 font-['Barlow_Condensed',sans-serif] mt-0.5">
                                 ₦{periodRevenue.toLocaleString()}
                               </p>
                               <p className="text-[10px] text-emerald-600">{allRev.length} revenue records</p>
                             </div>
-                            <div className="bg-rose-50/60 border border-rose-200/70 p-2.5 rounded-xl text-center">
+                            <div
+                              onClick={() => setFarmerDataTab("finance")}
+                              className="bg-rose-50/60 border border-rose-200/70 p-2.5 rounded-xl text-center cursor-pointer hover:border-rose-400 transition-colors"
+                            >
                               <p className="text-[10px] uppercase font-bold text-rose-700">Recorded Expenses</p>
                               <p className="text-lg font-extrabold text-rose-900 font-['Barlow_Condensed',sans-serif] mt-0.5">
                                 ₦{periodExpenses.toLocaleString()}
                               </p>
                               <p className="text-[10px] text-rose-600">{allExp.length} expense records</p>
                             </div>
-                            <div className="bg-purple-50/60 border border-purple-200/70 p-2.5 rounded-xl text-center">
+                            <div
+                              onClick={() => setFarmerDataTab("finance")}
+                              className="bg-purple-50/60 border border-purple-200/70 p-2.5 rounded-xl text-center cursor-pointer hover:border-purple-400 transition-colors"
+                            >
                               <p className="text-[10px] uppercase font-bold text-purple-700">Net Profit (Period)</p>
                               <p className={`text-lg font-extrabold font-['Barlow_Condensed',sans-serif] mt-0.5 ${periodNetProfit >= 0 ? "text-purple-900" : "text-rose-700"}`}>
                                 {periodNetProfit >= 0 ? `₦${periodNetProfit.toLocaleString()}` : `-₦${Math.abs(periodNetProfit).toLocaleString()}`}
                               </p>
                               <p className="text-[10px] text-purple-600">{allInvoices.length} invoices</p>
                             </div>
-                            <div className="bg-teal-50/60 border border-teal-200/70 p-2.5 rounded-xl text-center">
+                            <div
+                              onClick={() => setFarmerDataTab("sales")}
+                              className="bg-teal-50/60 border border-teal-200/70 p-2.5 rounded-xl text-center cursor-pointer hover:border-teal-400 transition-colors"
+                            >
                               <p className="text-[10px] uppercase font-bold text-teal-700">Sales Calculations</p>
                               <p className="text-lg font-extrabold text-teal-900 font-['Barlow_Condensed',sans-serif] mt-0.5">
                                 ₦{totalSalesAmount.toLocaleString()}
                               </p>
                               <p className="text-[10px] text-teal-600">₦{totalSalesPaid.toLocaleString()} paid • ₦{totalSalesOutstanding.toLocaleString()} balance</p>
                             </div>
-                            <div className="bg-slate-50 border border-slate-200 p-2.5 rounded-xl text-center">
+                            <div
+                              onClick={() => setFarmerDataTab("feed")}
+                              className="bg-slate-50 border border-slate-200 p-2.5 rounded-xl text-center cursor-pointer hover:border-slate-400 transition-colors"
+                            >
                               <p className="text-[10px] uppercase font-bold text-slate-500">Feed in Stock</p>
                               <p className="text-lg font-extrabold text-slate-800 font-['Barlow_Condensed',sans-serif] mt-0.5">
                                 {lifetimeFeedBags} Bags
                               </p>
-                              <p className="text-[10px] text-slate-500">{allFeed.length} feed brands</p>
+                              <p className="text-[10px] text-slate-500">{totalPurchasedBags} purchased • {totalOpenedBags} opened</p>
                             </div>
-                            <div className="bg-slate-50 border border-slate-200 p-2.5 rounded-xl text-center">
+                            <div
+                              onClick={() => setFarmerDataTab("staff_investors")}
+                              className="bg-slate-50 border border-slate-200 p-2.5 rounded-xl text-center cursor-pointer hover:border-slate-400 transition-colors"
+                            >
                               <p className="text-[10px] uppercase font-bold text-slate-500">Farm Team</p>
                               <p className="text-lg font-extrabold text-slate-800 font-['Barlow_Condensed',sans-serif] mt-0.5">
                                 {allStaff.length} Staff
                               </p>
-                              <p className="text-[10px] text-slate-500">{allInvestors.length} Investors</p>
+                              <p className="text-[10px] text-slate-500">{allInvestors.length} Investors ({allInvestments.length} deals)</p>
                             </div>
                           </div>
                         </div>
@@ -2132,35 +2331,55 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                           ) : (
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                               {allPonds.map((p: any, idx: number) => {
-                                const fishCount = Number(p.current_count ?? p.initial_stock) || 0;
-                                const initCount = Number(p.initial_stock) || 0;
+                                const fishCount = Number(p.current_count ?? p.currentCount ?? p.initial_stock ?? p.initialStock) || 0;
+                                const initCount = Number(p.initial_stock ?? p.initialStock ?? fishCount) || 0;
+                                const mortCount = Math.max(0, initCount - fishCount);
+                                const pondSize = p.size_m2 ?? p.sizeM2;
+                                const avgWeight = p.avg_weight ?? p.avgWeight;
+                                const stockingDate = p.stocking_date || p.stockingDate;
+                                const totalCost = Number(p.total_cost ?? p.totalCost) || 0;
+                                const fId = p.farm_id || p.farmId;
+                                const pondFarmName = (fId && farmNameById.get(String(fId))) || viewUser.farmName || "Primary Farm";
                                 return (
                                   <div key={p.id || idx} className="p-3 bg-white border border-slate-200 rounded-xl shadow-2xs hover:border-slate-300 transition-colors">
-                                    <div className="flex items-center justify-between">
-                                      <p className="font-bold text-slate-900 text-xs truncate">{p.name || `Pond #${idx + 1}`}</p>
-                                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                                    <div className="flex items-center justify-between gap-2">
+                                      <div className="min-w-0">
+                                        <p className="font-bold text-slate-900 text-xs truncate">{p.name || `Pond #${idx + 1}`}</p>
+                                        <p className="text-[10px] text-emerald-700 font-medium truncate">
+                                          {pondFarmName} {p.type ? `• ${p.type}` : ""} {p.category ? `• ${p.category}` : ""}
+                                        </p>
+                                      </div>
+                                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${
                                         (p.status || "active").toLowerCase() === "active" ? "bg-emerald-100 text-emerald-800" : "bg-slate-100 text-slate-600"
                                       }`}>
                                         {p.status || "Active"}
                                       </span>
                                     </div>
-                                    <div className="grid grid-cols-3 gap-2 mt-2 pt-2 border-t border-slate-100 text-[11px]">
+                                    <div className="grid grid-cols-4 gap-2 mt-2 pt-2 border-t border-slate-100 text-[11px]">
                                       <div>
                                         <p className="text-[10px] text-slate-400">Current Fish</p>
                                         <p className="font-extrabold text-blue-700 font-['Barlow_Condensed',sans-serif] text-base">{fishCount.toLocaleString()}</p>
+                                      </div>
+                                      <div>
+                                        <p className="text-[10px] text-slate-400">Initial Stock</p>
+                                        <p className="font-bold text-slate-700 font-['Barlow_Condensed',sans-serif] text-base">{initCount.toLocaleString()}</p>
                                       </div>
                                       <div>
                                         <p className="text-[10px] text-slate-400">Species</p>
                                         <p className="font-semibold text-slate-700 truncate">{p.species || "Catfish"}</p>
                                       </div>
                                       <div>
-                                        <p className="text-[10px] text-slate-400">Size / Depth</p>
-                                        <p className="font-semibold text-slate-700">{p.size_m2 ? `${p.size_m2}m²` : "—"}</p>
+                                        <p className="text-[10px] text-slate-400">Size / Avg Wt</p>
+                                        <p className="font-semibold text-slate-700">
+                                          {pondSize ? `${pondSize}m²` : ""}{pondSize && avgWeight ? " • " : ""}{avgWeight ? `${avgWeight}g` : (!pondSize ? "—" : "")}
+                                        </p>
                                       </div>
                                     </div>
-                                    <div className="mt-2 text-[10px] text-slate-400 flex items-center justify-between">
-                                      <span>Stocked: {fmtDate(p.stocking_date)} ({initCount.toLocaleString()} init)</span>
-                                      {p.water_source && <span>Water: {p.water_source}</span>}
+                                    <div className="mt-2 pt-1.5 border-t border-slate-50 text-[10px] text-slate-500 flex flex-wrap items-center justify-between gap-1">
+                                      <span>Stocked: {fmtDate(stockingDate)}</span>
+                                      {mortCount > 0 && <span className="text-rose-600 font-semibold">Mortality/Removed: {mortCount.toLocaleString()}</span>}
+                                      {totalCost > 0 && <span className="text-emerald-700 font-semibold">Stock Cost: ₦{totalCost.toLocaleString()}</span>}
+                                      {(p.fish_stock || p.fishStock) && <span className="bg-slate-100 px-1.5 py-0.2 rounded">Batch: {p.fish_stock || p.fishStock}</span>}
                                     </div>
                                   </div>
                                 );
@@ -2169,32 +2388,74 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                           )}
                         </div>
 
-                        {/* Fish Stock Events, Transfers & Mortalities */}
+                        {/* Fish Stock Events & Transfers */}
                         <div>
                           <h3 className="text-xs font-bold text-slate-700 mb-2 flex items-center gap-1.5">
                             <Layers size={13} className="text-slate-600" />
-                            Fish Stock Events, Transfers & Mortalities ({allStockEvents.length})
+                            Fish Stock Events & Movements ({allStockEvents.length})
                           </h3>
                           {allStockEvents.length === 0 ? (
                             <div className="p-4 text-center border border-slate-200 rounded-xl bg-slate-50 text-slate-400">
-                              No stock movement or mortality events recorded in this period.
+                              No stock movement events recorded in this period.
                             </div>
                           ) : (
                             <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100 max-h-56 overflow-y-auto">
-                              {allStockEvents.map((evt: any, i: number) => (
-                                <div key={evt.id || i} className="p-2.5 flex items-center justify-between gap-2 text-xs hover:bg-slate-50">
+                              {allStockEvents.map((evt: any, i: number) => {
+                                const evtType = evt.type || evt.event_type || "Stock Event";
+                                const evtQty = Number(evt.count ?? evt.quantity) || 0;
+                                const evtCost = Number(evt.total_cost ?? evt.totalCost) || 0;
+                                return (
+                                  <div key={evt.id || i} className="p-2.5 flex items-center justify-between gap-2 text-xs hover:bg-slate-50">
+                                    <div>
+                                      <span className="font-bold text-slate-800 capitalize">{evtType}</span>
+                                      <span className="text-slate-400 text-[11px] ml-1.5">
+                                        Pond: {evt.pond_name || evt.pondName || evt.pond_id || "—"} • {fmtDate(evt.date || evt.event_date || evt.created_at)}
+                                      </span>
+                                      {(evt.notes || evt.reason || evt.supplier) && (
+                                        <p className="text-[10px] text-slate-500 mt-0.5">
+                                          {[evt.species, evt.supplier ? `Supplier: ${evt.supplier}` : "", evt.reason, evt.notes].filter(Boolean).join(" • ")}
+                                        </p>
+                                      )}
+                                    </div>
+                                    <div className="text-right shrink-0">
+                                      <span className={`font-bold font-['Barlow_Condensed',sans-serif] text-sm ${
+                                        evtType.toLowerCase().includes("mortality") ? "text-rose-600" : "text-blue-700"
+                                      }`}>
+                                        {evtQty > 0 ? evtQty.toLocaleString() : "—"} fish
+                                      </span>
+                                      {evtCost > 0 && <p className="text-[10px] text-emerald-700 font-semibold">₦{evtCost.toLocaleString()}</p>}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Mortality Records */}
+                        <div>
+                          <h3 className="text-xs font-bold text-slate-700 mb-2 flex items-center gap-1.5">
+                            <AlertCircle size={13} className="text-rose-600" />
+                            Mortality Records ({allMortalityEntries.length})
+                          </h3>
+                          {allMortalityEntries.length === 0 ? (
+                            <div className="p-4 text-center border border-slate-200 rounded-xl bg-slate-50 text-slate-400">
+                              No mortality records logged in this period.
+                            </div>
+                          ) : (
+                            <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100 max-h-48 overflow-y-auto">
+                              {allMortalityEntries.map((m: any, i: number) => (
+                                <div key={m.id || i} className="p-2.5 flex items-center justify-between gap-2 text-xs hover:bg-slate-50">
                                   <div>
-                                    <span className="font-bold text-slate-800 capitalize">{evt.event_type || evt.type || "Stock Event"}</span>
-                                    <span className="text-slate-400 text-[11px] ml-1.5">Pond: {evt.pond_name || evt.pond_id || "—"} • {fmtDate(evt.event_date || evt.created_at)}</span>
-                                    {evt.notes && <p className="text-[10px] text-slate-500 mt-0.5">{evt.notes}</p>}
+                                    <span className="font-bold text-slate-800">{m.pond || "Pond"}</span>
+                                    <span className="text-slate-400 text-[11px] ml-1.5">{fmtDate(m.date || m.created_at)}</span>
+                                    <p className="text-[10px] text-slate-500 mt-0.5">
+                                      Cause: {m.cause || "Unspecified"} {m.action ? `• Action: ${m.action}` : ""} {m.notes ? `• ${m.notes}` : ""}
+                                    </p>
                                   </div>
-                                  <div className="text-right shrink-0">
-                                    <span className={`font-bold font-['Barlow_Condensed',sans-serif] text-sm ${
-                                      (evt.event_type || "").toLowerCase().includes("mortality") ? "text-rose-600" : "text-blue-700"
-                                    }`}>
-                                      {evt.quantity ? Number(evt.quantity).toLocaleString() : "—"} fish
-                                    </span>
-                                  </div>
+                                  <span className="font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded font-['Barlow_Condensed',sans-serif] text-sm shrink-0">
+                                    -{Number(m.count || 0).toLocaleString()} fish
+                                  </span>
                                 </div>
                               ))}
                             </div>
@@ -2210,10 +2471,10 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                           <div className="flex items-center justify-between mb-2">
                             <h3 className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
                               <Package size={14} className="text-emerald-600" />
-                              Feed Inventory in Stock ({allFeed.length})
+                              Feed Inventory Purchased & In Stock ({allFeed.length})
                             </h3>
                             <span className="text-[11px] text-slate-500 font-medium">
-                              Total Stock: <strong className="text-emerald-700">{lifetimeFeedBags} bags</strong>
+                              Available Stock: <strong className="text-emerald-700">{lifetimeFeedBags} bags</strong> ({totalPurchasedBags} purchased, {totalOpenedBags} opened)
                             </span>
                           </div>
 
@@ -2223,21 +2484,32 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                             </div>
                           ) : (
                             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                              {allFeed.map((f: any, i: number) => (
-                                <div key={f.id || i} className="bg-slate-50 border border-slate-200 p-2.5 rounded-xl">
-                                  <div className="flex items-center justify-between">
-                                    <p className="font-bold text-slate-900 text-xs truncate">{f.brand || "Feed"}</p>
-                                    <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.2 rounded">
-                                      {f.size || "Standard"}
-                                    </span>
+                              {allFeed.map((f: any, i: number) => {
+                                const bagsCount = Number(f.bags ?? f.bags_in_stock) || 0;
+                                const wtPerBag = Number(f.weight_per_bag ?? f.weightPerBag) || 15;
+                                const costPerBag = Number(f.cost_per_bag ?? f.costPerBag) || 0;
+                                const totalKg = Number(f.total_kg ?? f.totalKg) || (bagsCount * wtPerBag);
+                                return (
+                                  <div key={f.id || i} className="bg-slate-50 border border-slate-200 p-2.5 rounded-xl">
+                                    <div className="flex items-center justify-between">
+                                      <p className="font-bold text-slate-900 text-xs truncate">{f.brand || "Feed"}</p>
+                                      <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-1.5 py-0.2 rounded">
+                                        {f.size || "Standard"}
+                                      </span>
+                                    </div>
+                                    <p className="text-[11px] text-slate-600 mt-0.5">{wtPerBag}kg/bag • Cost: ₦{costPerBag.toLocaleString()}/bag</p>
+                                    {(f.supplier || f.purchase_date || f.purchaseDate) && (
+                                      <p className="text-[10px] text-slate-400 mt-0.5 truncate">
+                                        {f.supplier ? `${f.supplier} • ` : ""}{fmtDate(f.purchase_date || f.purchaseDate)}
+                                      </p>
+                                    )}
+                                    <div className="flex items-center justify-between mt-1 pt-1 border-t border-slate-200/60">
+                                      <span className="text-[10px] text-slate-400">Batch:</span>
+                                      <span className="text-emerald-700 font-bold text-xs">{bagsCount} bags ({totalKg} kg)</span>
+                                    </div>
                                   </div>
-                                  <p className="text-[11px] text-slate-600 mt-0.5">{f.weight_per_bag || 15}kg/bag • Cost: ₦{Number(f.cost_per_bag || 0).toLocaleString()}</p>
-                                  <div className="flex items-center justify-between mt-1 pt-1 border-t border-slate-200/60">
-                                    <span className="text-[10px] text-slate-400">Available:</span>
-                                    <span className="text-emerald-700 font-bold text-xs">{f.bags_in_stock ?? 0} bags ({f.total_kg ?? (Number(f.bags_in_stock || 0) * Number(f.weight_per_bag || 15))} kg)</span>
-                                  </div>
-                                </div>
-                              ))}
+                                );
+                              })}
                             </div>
                           )}
                         </div>
@@ -2262,7 +2534,7 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                                     {log.notes && <p className="text-[10px] text-slate-500 mt-0.5">{log.notes}</p>}
                                   </div>
                                   <span className="font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded">
-                                    {log.bags_opened || log.bags || 1} bags opened
+                                    {log.bags_opened ?? log.bagsOpened ?? log.bags ?? 1} bags opened
                                   </span>
                                 </div>
                               ))}
@@ -2285,11 +2557,11 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                               {allFeedRem.map((log: any, i: number) => (
                                 <div key={log.id || i} className="p-2.5 flex items-center justify-between gap-2 text-xs hover:bg-slate-50">
                                   <div>
-                                    <span className="font-bold text-slate-800">{log.feed_brand || log.brand || "Feed"}</span>
+                                    <span className="font-bold text-slate-800">{log.feed_brand || log.brand || "Feed"} ({log.size || "—"})</span>
                                     <span className="text-slate-400 text-[11px] ml-1.5">{fmtDate(log.date || log.created_at)}</span>
                                   </div>
                                   <span className="font-bold text-teal-800 bg-teal-50 px-2 py-0.5 rounded">
-                                    {log.remaining_kg ?? 0} kg remaining ({log.remaining_bags ?? 0} bags)
+                                    {log.remaining_kg ?? log.remainingKg ?? 0} kg remaining
                                   </span>
                                 </div>
                               ))}
@@ -2322,16 +2594,21 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                               const morning = Number(r.morning) || 0;
                               const evening = Number(r.evening) || 0;
                               const totalKg = Number(r.total ?? (morning + evening)) || 0;
+                              const mTime = r.morning_time || r.morningTime;
+                              const eTime = r.evening_time || r.eveningTime;
+                              const recBy = r.recorded_by || r.recordedBy;
                               return (
                                 <div key={r.id || i} className="p-3 flex items-center justify-between gap-2 text-xs hover:bg-slate-50">
                                   <div className="min-w-0">
-                                    <div className="flex items-center gap-2">
+                                    <div className="flex items-center gap-2 flex-wrap">
                                       <span className="font-bold text-slate-800">{r.pond || "Pond"}</span>
-                                      <span className="text-slate-400 text-[11px]">{r.date || fmtDate(r.created_at)}</span>
+                                      <span className="text-slate-400 text-[11px]">{r.date || fmtDate(r.created_at || r.createdAt)}</span>
+                                      {r.brand && <span className="bg-emerald-50 text-emerald-700 text-[10px] px-1.5 py-0.2 rounded font-semibold">{r.brand}</span>}
                                       {r.size && <span className="bg-slate-100 text-slate-600 text-[10px] px-1.5 py-0.2 rounded font-semibold">{r.size}</span>}
+                                      {recBy && <span className="text-[10px] text-slate-400">By: {recBy}</span>}
                                     </div>
                                     <p className="text-[10px] text-slate-500 mt-0.5">
-                                      Morning: <strong className="text-slate-700">{morning} kg</strong> • Evening: <strong className="text-slate-700">{evening} kg</strong>
+                                      Morning: <strong className="text-slate-700">{morning} kg</strong>{mTime ? ` (${mTime})` : ""} • Evening: <strong className="text-slate-700">{evening} kg</strong>{eTime ? ` (${eTime})` : ""}
                                       {r.notes && ` • Notes: ${r.notes}`}
                                     </p>
                                   </div>
@@ -2387,16 +2664,24 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                           ) : (
                             <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100 max-h-56 overflow-y-auto">
                               {allSales.map((sc: any, idx: number) => {
-                                const totalAmt = Number(sc.total_amount) || 0;
-                                const amtPaid = Number(sc.amount_paid) || 0;
+                                const totalAmt = Number(sc.total_amount ?? sc.totalAmount) || 0;
+                                const amtPaid = Number(sc.amount_paid ?? sc.amountPaid) || 0;
                                 const balance = Math.max(0, totalAmt - amtPaid);
-                                const status = sc.payment_status || (amtPaid >= totalAmt && totalAmt > 0 ? "Paid" : amtPaid > 0 ? "Partially Paid" : "Unpaid");
+                                const rawStatus = sc.payment_status || sc.paymentStatus;
+                                const status = rawStatus
+                                  ? (String(rawStatus).toLowerCase() === "paid" ? "Paid" : String(rawStatus).toLowerCase().includes("part") ? "Partially Paid" : "Unpaid")
+                                  : (amtPaid >= totalAmt && totalAmt > 0 ? "Paid" : amtPaid > 0 ? "Partially Paid" : "Unpaid");
+                                const itemsArr = Array.isArray(sc.items) ? sc.items : [];
+                                const computedWeight = Number(sc.total_weight_kg ?? sc.weight) || itemsArr.reduce((s: number, it: any) => s + (Number(it.quantityKg ?? it.quantity_kg) || 0), 0);
+                                const custName = sc.customer_name || sc.customerName || "Direct Customer";
+                                const custPhone = sc.customer_phone || sc.customerPhone;
 
                                 return (
                                   <div key={sc.id || idx} className="p-3 flex items-center justify-between gap-2 text-xs hover:bg-slate-50">
                                     <div className="min-w-0">
-                                      <div className="flex items-center gap-2">
-                                        <p className="font-bold text-slate-900 truncate">{sc.customer_name || "Direct Customer"}</p>
+                                      <div className="flex items-center gap-2 flex-wrap">
+                                        <p className="font-bold text-slate-900 truncate">{custName}</p>
+                                        {custPhone && <span className="text-[10px] text-slate-500 font-mono">{custPhone}</span>}
                                         <span className={`text-[10px] font-bold px-1.5 py-0.2 rounded-full ${
                                           status === "Paid"
                                             ? "bg-emerald-100 text-emerald-800"
@@ -2408,8 +2693,8 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                                         </span>
                                       </div>
                                       <p className="text-[10px] text-slate-500 mt-0.5 truncate">
-                                        {fmtDate(sc.calc_date || sc.created_at)} • Weight: {sc.total_weight_kg || sc.weight || 0}kg @ ₦{(Number(sc.price_per_kg) || 0).toLocaleString()}/kg
-                                        {sc.pond_id && ` • Pond: ${sc.pond_id}`}
+                                        {fmtDate(sc.calc_date || sc.created_at || sc.createdAt)} • Total Weight: {computedWeight}kg
+                                        {itemsArr.length > 0 && ` • ${itemsArr.map((it: any) => `${it.priceGroupName || "Fish"}: ${it.quantityKg ?? it.quantity_kg ?? 0}kg @ ₦${Number(it.unitPrice ?? it.unit_price ?? 0).toLocaleString()}`).join(", ")}`}
                                       </p>
                                     </div>
                                     <div className="text-right shrink-0">
@@ -2505,6 +2790,7 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                                   <div className="min-w-0">
                                     <p className="font-bold text-slate-800 truncate">
                                       {rev.source || rev.category || "Fish Sales"} {rev.pond ? `• Pond: ${rev.pond}` : (rev.customer ? `• ${rev.customer}` : "")}
+                                      {(rev.fish_stock || rev.fishStock || rev.stock_batch || rev.stockBatch) ? ` • Batch: ${rev.fish_stock || rev.fishStock || rev.stock_batch || rev.stockBatch}` : ""}
                                     </p>
                                     <p className="text-[10px] text-slate-400 truncate">
                                       {fmtDate(rev.date || rev.created_at)} {rev.notes || rev.description ? `• ${rev.notes || rev.description}` : ""}
@@ -2540,6 +2826,7 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                                   <div className="min-w-0">
                                     <p className="font-bold text-slate-800 truncate">
                                       {exp.category || "Operational"} {exp.pond ? `• Pond: ${exp.pond}` : (exp.vendor ? `• ${exp.vendor}` : "")}
+                                      {(exp.fish_stock || exp.fishStock) ? ` • Batch: ${exp.fish_stock || exp.fishStock}` : ""}
                                     </p>
                                     <p className="text-[10px] text-slate-400 truncate">
                                       {fmtDate(exp.date || exp.created_at)} {exp.desc || exp.description || exp.notes ? `• ${exp.desc || exp.description || exp.notes}` : ""}
@@ -2570,14 +2857,19 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                             <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100 max-h-48 overflow-y-auto">
                               {allInvoices.map((inv: any, i: number) => {
                                 const custName = (typeof inv.customer === "object" ? inv.customer?.name : inv.customer) || inv.customer_name || "Customer";
+                                const invTotal = Number(inv.grand_total ?? inv.grandTotal ?? inv.subtotal) || 0;
+                                const invPaid = Number(inv.amount_paid ?? inv.amountPaid) || 0;
                                 return (
                                   <div key={inv.id || i} className="p-2.5 flex items-center justify-between gap-2 text-xs hover:bg-slate-50 transition-colors">
                                     <div>
-                                      <p className="font-bold text-slate-800">{inv.inv_number || inv.invoice_number || `Invoice #${i + 1}`} • {custName}</p>
-                                      <p className="text-[10px] text-slate-400">{fmtDate(inv.created_at || inv.invoice_date || inv.due_date)}</p>
+                                      <p className="font-bold text-slate-800">{inv.inv_number || inv.invNumber || inv.invoice_number || `Invoice #${i + 1}`} • {custName}</p>
+                                      <p className="text-[10px] text-slate-400">
+                                        {fmtDate(inv.invoice_date || inv.invoiceDate || inv.created_at || inv.due_date)}
+                                        {invPaid > 0 && ` • Paid: ₦${invPaid.toLocaleString()}`}
+                                      </p>
                                     </div>
                                     <div className="text-right shrink-0">
-                                      <p className="font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">₦{(Number(inv.grand_total || inv.subtotal) || 0).toLocaleString()}</p>
+                                      <p className="font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">₦{invTotal.toLocaleString()}</p>
                                       <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded ${inv.status === "Paid" ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"}`}>
                                         {inv.status || "Pending"}
                                       </span>
@@ -2609,15 +2901,17 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                               {allTreatments.map((tr: any, i: number) => (
                                 <div key={tr.id || i} className="p-2.5 flex items-center justify-between gap-2 text-xs hover:bg-slate-50">
                                   <div>
-                                    <p className="font-bold text-slate-800">{tr.disease || tr.diagnosis || "Treatment"} • Pond: {tr.pond || tr.pond_id || "—"}</p>
+                                    <p className="font-bold text-slate-800">
+                                      {tr.cause || tr.disease || tr.diagnosis || "Treatment"} • Pond: {tr.pond_name || tr.pondName || tr.pond || tr.pond_id || "—"}
+                                    </p>
                                     <p className="text-[10px] text-slate-500 mt-0.5">
-                                      Medication: {tr.medication || tr.drug || "—"} • Dosage: {tr.dosage || "—"} • {fmtDate(tr.date || tr.created_at)}
+                                      Medication: {tr.medicine || tr.medication || tr.drug || "—"} {tr.dosage ? `• Dosage: ${tr.dosage}` : ""} {tr.remarks ? `• ${tr.remarks}` : ""} • {fmtDate(tr.date || tr.created_at)}
                                     </p>
                                   </div>
                                   <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${
                                     (tr.status || "").toLowerCase() === "completed" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"
                                   }`}>
-                                    {tr.status || "Active"}
+                                    {tr.status || "Recorded"}
                                   </span>
                                 </div>
                               ))}
@@ -2625,28 +2919,54 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                           )}
                         </div>
 
-                        {/* Water Quality Reports */}
+                        {/* Pond Reports & Water / Issue Reports */}
                         <div>
                           <h3 className="text-xs font-bold text-slate-700 mb-2 flex items-center gap-1.5">
                             <Droplets size={13} className="text-blue-600" />
-                            Pond Water Quality & Lab Reports ({allPondReports.length})
+                            Pond Reports & Water Quality Logs ({allPondReports.length + allGeneralReports.length})
                           </h3>
-                          {allPondReports.length === 0 ? (
+                          {allPondReports.length === 0 && allGeneralReports.length === 0 ? (
                             <div className="p-4 text-center border border-slate-200 rounded-xl bg-slate-50 text-slate-400 text-xs">
-                              No water quality reports logged.
+                              No pond or farm reports logged.
                             </div>
                           ) : (
-                            <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100 max-h-44 overflow-y-auto">
+                            <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100 max-h-48 overflow-y-auto">
                               {allPondReports.map((rep: any, i: number) => (
-                                <div key={rep.id || i} className="p-2.5 flex items-center justify-between gap-2 text-xs hover:bg-slate-50">
+                                <div key={rep.id || `pr-${i}`} className="p-2.5 flex items-center justify-between gap-2 text-xs hover:bg-slate-50">
                                   <div>
-                                    <p className="font-bold text-slate-800">{rep.pond_name || rep.pond_id || "Pond"} Report • {fmtDate(rep.report_date || rep.date || rep.created_at)}</p>
+                                    <p className="font-bold text-slate-800">
+                                      {rep.pond_name || rep.pondName || rep.pond_id || "Pond"} — {rep.report_type || rep.reportType || rep.issue || "Report"} • {fmtDate(rep.report_date || rep.reportDate || rep.date || rep.created_at)}
+                                    </p>
                                     <p className="text-[10px] text-slate-500 mt-0.5">
-                                      pH: {rep.ph ?? "—"} • Temp: {rep.temp ? `${rep.temp}°C` : "—"} • DO: {rep.dissolved_oxygen ?? "—"} mg/L • Ammonia: {rep.ammonia ?? "—"}
+                                      {[
+                                        rep.description || rep.issue,
+                                        rep.cause ? `Cause: ${rep.cause}` : "",
+                                        rep.medicine ? `Medicine: ${rep.medicine}` : "",
+                                        rep.action_taken || rep.actionTaken ? `Action: ${rep.action_taken || rep.actionTaken}` : "",
+                                        rep.remarks,
+                                        rep.ph !== undefined ? `pH: ${rep.ph}` : "",
+                                        rep.temp !== undefined ? `Temp: ${rep.temp}°C` : "",
+                                        rep.recorded_by || rep.recordedBy ? `By: ${rep.recorded_by || rep.recordedBy}` : "",
+                                      ].filter(Boolean).join(" • ") || "Logged report"}
                                     </p>
                                   </div>
-                                  <span className="text-[10px] font-bold bg-blue-100 text-blue-800 px-2 py-0.5 rounded">
-                                    Tested
+                                  <span className="text-[10px] font-bold bg-blue-100 text-blue-800 px-2 py-0.5 rounded shrink-0">
+                                    {rep.report_type || rep.reportType || "Logged"}
+                                  </span>
+                                </div>
+                              ))}
+                              {allGeneralReports.map((rep: any, i: number) => (
+                                <div key={rep.id || `gr-${i}`} className="p-2.5 flex items-center justify-between gap-2 text-xs hover:bg-slate-50">
+                                  <div>
+                                    <p className="font-bold text-slate-800">
+                                      {rep.title || "Farm Report"} • {fmtDate(rep.date || rep.created_at)}
+                                    </p>
+                                    <p className="text-[10px] text-slate-500 mt-0.5">
+                                      {rep.content || "—"} {rep.author ? `• Author: ${rep.author}` : ""}
+                                    </p>
+                                  </div>
+                                  <span className="text-[10px] font-bold bg-slate-100 text-slate-700 px-2 py-0.5 rounded shrink-0">
+                                    {rep.type || rep.status || "Report"}
                                   </span>
                                 </div>
                               ))}
@@ -2666,16 +2986,21 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                             </div>
                           ) : (
                             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                              {allEquipment.map((eq: any, i: number) => (
-                                <div key={eq.id || i} className="bg-slate-50 border border-slate-200 p-2.5 rounded-xl">
-                                  <p className="font-bold text-slate-900 text-xs truncate">{eq.name || "Equipment"}</p>
-                                  <p className="text-[11px] text-slate-500 mt-0.5">{eq.category || "General"} • Qty: {eq.quantity || 1}</p>
-                                  <div className="flex items-center justify-between mt-1 text-[10px]">
-                                    <span className="text-slate-400">Condition:</span>
-                                    <span className="font-semibold text-slate-700">{eq.condition || eq.status || "Good"}</span>
+                              {allEquipment.map((eq: any, i: number) => {
+                                const eqCost = Number(eq.total_cost ?? eq.totalCost ?? eq.cost_per_unit ?? eq.costPerUnit) || 0;
+                                return (
+                                  <div key={eq.id || i} className="bg-slate-50 border border-slate-200 p-2.5 rounded-xl">
+                                    <p className="font-bold text-slate-900 text-xs truncate">{eq.name || "Equipment"}</p>
+                                    <p className="text-[11px] text-slate-500 mt-0.5">
+                                      {eq.category || "General"} • Qty: {eq.quantity || 1} {eqCost > 0 ? `• ₦${eqCost.toLocaleString()}` : ""}
+                                    </p>
+                                    <div className="flex items-center justify-between mt-1 text-[10px]">
+                                      <span className="text-slate-400">Condition:</span>
+                                      <span className="font-semibold text-slate-700">{eq.condition || eq.status || "Good"}</span>
+                                    </div>
                                   </div>
-                                </div>
-                              ))}
+                                );
+                              })}
                             </div>
                           )}
                         </div>
@@ -2697,24 +3022,33 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                             </div>
                           ) : (
                             <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100">
-                              {allStaff.map((st: any) => (
-                                <div key={st.id} className="p-3 flex items-center justify-between gap-2 hover:bg-slate-50 transition-colors">
+                              {allStaff.map((st: any, idx: number) => (
+                                <div key={st.id || idx} className="p-3 flex items-center justify-between gap-2 hover:bg-slate-50 transition-colors">
                                   <div className="min-w-0">
                                     <p className="font-bold text-slate-800 text-xs truncate">{st.name || "Staff Member"}</p>
-                                    <p className="text-[11px] text-slate-500 font-mono truncate">{st.email}</p>
+                                    <p className="text-[11px] text-slate-500 font-mono truncate">
+                                      {st.email} {st.phone ? `• ${st.phone}` : ""} {(st.assigned_pond || st.assignedPond) ? `• Pond: ${st.assigned_pond || st.assignedPond}` : ""}
+                                    </p>
                                   </div>
                                   <div className="flex items-center gap-1.5 shrink-0">
+                                    {Number(st.salary) > 0 && (
+                                      <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded">
+                                        ₦{Number(st.salary).toLocaleString()}/mo
+                                      </span>
+                                    )}
                                     <span className="text-[10px] bg-slate-100 text-slate-700 px-2 py-0.5 rounded font-medium">
                                       {st.role || "Staff"}
                                     </span>
                                     <Bdg label={st.status || "Active"} color={st.status === "Pending" ? "amber" : "green"} />
-                                    <button
-                                      onClick={() => copyToClipboard(st.email, `Staff email (${st.email})`)}
-                                      className="p-1 text-slate-400 hover:text-slate-700 rounded"
-                                      title="Copy email"
-                                    >
-                                      <Copy size={11} />
-                                    </button>
+                                    {st.email && (
+                                      <button
+                                        onClick={() => copyToClipboard(st.email, `Staff email (${st.email})`)}
+                                        className="p-1 text-slate-400 hover:text-slate-700 rounded"
+                                        title="Copy email"
+                                      >
+                                        <Copy size={11} />
+                                      </button>
+                                    )}
                                   </div>
                                 </div>
                               ))}
@@ -2734,25 +3068,72 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                             </div>
                           ) : (
                             <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100">
-                              {allInvestors.map((inv: any) => (
-                                <div key={inv.id} className="p-3 flex items-center justify-between gap-2 hover:bg-slate-50 transition-colors">
-                                  <div className="min-w-0">
-                                    <p className="font-bold text-slate-800 text-xs truncate">{inv.name || "Investor"}</p>
-                                    <p className="text-[11px] text-slate-500 truncate">{inv.email || inv.phone || "Partner"}</p>
+                              {allInvestors.map((inv: any, idx: number) => {
+                                const invName = inv.full_name || inv.fullName || inv.name || "Investor";
+                                const linkedDeals = allInvestments.filter(
+                                  (d: any) => String(d.investor_id || d.investorId) === String(inv.id)
+                                );
+                                const totalInvested = linkedDeals.reduce(
+                                  (s: number, d: any) => s + (Number(d.amount_invested ?? d.amountInvested) || 0),
+                                  Number(inv.amount) || 0
+                                );
+                                return (
+                                  <div key={inv.id || idx} className="p-3 flex items-center justify-between gap-2 hover:bg-slate-50 transition-colors">
+                                    <div className="min-w-0">
+                                      <p className="font-bold text-slate-800 text-xs truncate">{invName}</p>
+                                      <p className="text-[11px] text-slate-500 truncate">{[inv.email, inv.phone, inv.notes].filter(Boolean).join(" • ") || "Partner"}</p>
+                                    </div>
+                                    <div className="text-right shrink-0">
+                                      <p className="font-bold text-purple-800 font-['Barlow_Condensed',sans-serif] text-sm">
+                                        {totalInvested > 0 ? `₦${totalInvested.toLocaleString()}` : (inv.share ? `${inv.share}%` : "Partner")}
+                                      </p>
+                                      <span className="text-[9px] bg-purple-50 text-purple-700 px-1.5 py-0.2 rounded font-semibold">
+                                        {inv.status || "Active"} {linkedDeals.length > 0 ? `(${linkedDeals.length} deal${linkedDeals.length === 1 ? "" : "s"})` : ""}
+                                      </span>
+                                    </div>
                                   </div>
-                                  <div className="text-right shrink-0">
-                                    <p className="font-bold text-purple-800 font-['Barlow_Condensed',sans-serif] text-sm">
-                                      {inv.amount ? `₦${Number(inv.amount).toLocaleString()}` : (inv.share ? `${inv.share}%` : "Partner")}
-                                    </p>
-                                    <span className="text-[9px] bg-purple-50 text-purple-700 px-1.5 py-0.2 rounded font-semibold">
-                                      {inv.status || "Active"}
-                                    </span>
-                                  </div>
-                                </div>
-                              ))}
+                                );
+                              })}
                             </div>
                           )}
                         </div>
+
+                        {/* Investment Deals */}
+                        {allInvestments.length > 0 && (
+                          <div>
+                            <h3 className="text-xs font-bold text-slate-700 mb-2 flex items-center gap-1.5">
+                              <DollarSign size={14} className="text-emerald-600" />
+                              Active & Past Investment Deals ({allInvestments.length})
+                            </h3>
+                            <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-100">
+                              {allInvestments.map((deal: any, idx: number) => {
+                                const amtInv = Number(deal.amount_invested ?? deal.amountInvested) || 0;
+                                const totalDue = Number(deal.total_amount_due ?? deal.totalAmountDue) || 0;
+                                const pct = Number(deal.investor_percentage ?? deal.investorPercentage) || 0;
+                                return (
+                                  <div key={deal.id || idx} className="p-3 flex items-center justify-between gap-2 hover:bg-slate-50 transition-colors">
+                                    <div className="min-w-0">
+                                      <p className="font-bold text-slate-800 text-xs truncate">
+                                        {deal.investment_name || deal.investmentName || `Investment Deal #${idx + 1}`}
+                                      </p>
+                                      <p className="text-[10px] text-slate-500 truncate">
+                                        ROI: {pct}% • Start: {fmtDate(deal.start_date || deal.startDate)} • Maturity: {fmtDate(deal.maturity_date || deal.maturityDate)}
+                                      </p>
+                                    </div>
+                                    <div className="text-right shrink-0">
+                                      <p className="font-bold text-emerald-800 font-['Barlow_Condensed',sans-serif] text-sm">
+                                        ₦{amtInv.toLocaleString()}
+                                      </p>
+                                      {totalDue > 0 && (
+                                        <p className="text-[10px] text-purple-700 font-semibold">Due: ₦{totalDue.toLocaleString()}</p>
+                                      )}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>

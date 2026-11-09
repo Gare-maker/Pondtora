@@ -849,9 +849,153 @@ export async function fetchLiveAdminUsers(): Promise<{
     });
 
     const finalUsers = Array.from(userMap.values()).filter(u => !isStaffUser(u) && !isDeleted(u.id, u.email));
+
+    // Enrich all users with live operational & financial totals (farms, ponds, fish, revenues, expenses, invoices, feed)
+    let enrichedInvoicesValue = 0;
+    let enrichedPaidInvoicesValue = 0;
+    let enrichedInvoicesCount = 0;
+    let enrichedFeedConsumedKg = 0;
+    let enrichedBagsInStock = 0;
+    let enrichedDirectStaffCount = 0;
+
+    try {
+      const [
+        farmsRes,
+        pondsRes,
+        staffRes,
+        revRes,
+        expRes,
+        invRes,
+        feedingRes,
+        feedInvRes,
+        bagOpenRes,
+      ] = await Promise.all([
+        supabase.from("farms").select("id, user_id, name, city, state, country"),
+        supabase.from("ponds").select("id, user_id, farm_id, current_count, initial_stock"),
+        supabase.from("staff_members").select("id, user_id"),
+        supabase.from("revenues").select("id, user_id, farm_id, amount"),
+        supabase.from("expenses").select("id, user_id, farm_id, amount"),
+        supabase.from("invoices").select("id, user_id, farm_id, grand_total, subtotal, amount_paid, status"),
+        supabase.from("feeding_records").select("id, user_id, farm_id, total, morning, evening"),
+        supabase.from("feed_inventory").select("id, user_id, farm_id, bags"),
+        supabase.from("bag_open_logs").select("id, user_id, farm_id, bags_opened"),
+      ]);
+
+      const allFarms = farmsRes.data || [];
+      const allPonds = pondsRes.data || [];
+      const allStaff = staffRes.data || [];
+      const allRev = revRes.data || [];
+      const allExp = expRes.data || [];
+      const allInv = invRes.data || [];
+      const allFeeding = feedingRes.data || [];
+      const allFeedInv = feedInvRes.data || [];
+      const allBagOpen = bagOpenRes.data || [];
+
+      enrichedDirectStaffCount = allStaff.length;
+      enrichedInvoicesCount = allInv.length;
+      enrichedInvoicesValue = allInv.reduce((s: number, i: any) => s + (Number(i.grand_total ?? i.subtotal) || 0), 0);
+      enrichedPaidInvoicesValue = allInv.reduce(
+        (s: number, i: any) =>
+          s + (i.status === "Paid" ? (Number(i.grand_total ?? i.subtotal) || 0) : (Number(i.amount_paid) || 0)),
+        0
+      );
+      enrichedFeedConsumedKg = allFeeding.reduce(
+        (s: number, r: any) => s + (Number(r.total ?? ((Number(r.morning) || 0) + (Number(r.evening) || 0))) || 0),
+        0
+      );
+      const totalPurchasedBags = allFeedInv.reduce((s: number, f: any) => s + (Number(f.bags ?? f.bags_in_stock) || 0), 0);
+      const totalOpenedBags = allBagOpen.reduce((s: number, b: any) => s + (Number(b.bags_opened ?? b.bags) || 0), 0);
+      enrichedBagsInStock = Math.max(0, totalPurchasedBags - totalOpenedBags);
+
+      finalUsers.forEach(u => {
+        // Also check local cache for this user in case any records are stored locally
+        let localCache: any = null;
+        try {
+          const rawCache = localStorage.getItem(`pondtora_${u.id}_cache`);
+          if (rawCache) localCache = JSON.parse(rawCache);
+        } catch {}
+
+        const uFarms = allFarms.filter((f: any) => f.user_id === u.id);
+        const farmList = uFarms.length > 0 ? uFarms : (Array.isArray(localCache?.farms) ? localCache.farms : []);
+        const uFarmIds = new Set(farmList.map((f: any) => f.id).filter(Boolean));
+
+        // Deduplicate farm names
+        const seenFarmNames = new Set<string>();
+        const dedupFarms = farmList.filter((f: any) => {
+          const nm = (f.name || "").toLowerCase().trim();
+          if (!nm || nm === "primary farm") return false;
+          if (seenFarmNames.has(nm)) return false;
+          seenFarmNames.add(nm);
+          return true;
+        });
+
+        if (dedupFarms.length > 0) {
+          u.farmCount = Math.max(u.farmCount || 1, dedupFarms.length);
+          if (!u.farmName || u.farmName.toLowerCase().includes("primary farm") || u.farmName.endsWith("'s Farm")) {
+            u.farmName = dedupFarms[0].name;
+          }
+          if ((!u.city || u.city === "Lagos") && dedupFarms[0].city) u.city = dedupFarms[0].city;
+          if ((!u.state || u.state === "Lagos") && dedupFarms[0].state) u.state = dedupFarms[0].state;
+          if ((!u.country || u.country === "Nigeria") && dedupFarms[0].country) u.country = dedupFarms[0].country;
+        } else if (farmList.length > 0) {
+          u.farmCount = Math.max(u.farmCount || 1, farmList.length);
+        }
+
+        const matchesUserOrFarm = (row: any) =>
+          row && (row.user_id === u.id || row.userId === u.id || (row.farm_id && uFarmIds.has(row.farm_id)) || (row.farmId && uFarmIds.has(row.farmId)));
+
+        const uPonds = allPonds.filter(matchesUserOrFarm);
+        const pondList = uPonds.length > 0 ? uPonds : (Array.isArray(localCache?.ponds) ? localCache.ponds : []);
+        if (pondList.length > 0) {
+          u.pondCount = Math.max(u.pondCount || 0, pondList.length);
+          const fishSum = pondList.reduce(
+            (s: number, p: any) => s + (Number(p.current_count ?? p.currentCount ?? p.initial_stock ?? p.initialStock) || 0),
+            0
+          );
+          u.totalFishStocked = Math.max(u.totalFishStocked || 0, fishSum);
+        }
+
+        const uStaff = allStaff.filter((s: any) => s.user_id === u.id);
+        const staffList = uStaff.length > 0 ? uStaff : (Array.isArray(localCache?.staffMembers) ? localCache.staffMembers : []);
+        if (staffList.length > 0) {
+          u.staffCount = Math.max(u.staffCount || 0, staffList.length);
+        }
+
+        const uRev = allRev.filter(matchesUserOrFarm);
+        const revList = uRev.length > 0 ? uRev : (Array.isArray(localCache?.revenues) ? localCache.revenues : []);
+        if (revList.length > 0) {
+          const revSum = revList.reduce((s: number, r: any) => s + (Number(r.amount) || 0), 0);
+          u.totalRevenue = Math.max(u.totalRevenue || 0, revSum);
+        }
+
+        const uExp = allExp.filter(matchesUserOrFarm);
+        const expList = uExp.length > 0 ? uExp : (Array.isArray(localCache?.expenses) ? localCache.expenses : []);
+        if (expList.length > 0) {
+          const expSum = expList.reduce((s: number, e: any) => s + (Number(e.amount) || 0), 0);
+          u.totalExpenses = Math.max(u.totalExpenses || 0, expSum);
+        }
+
+        const uInv = allInv.filter(matchesUserOrFarm);
+        const invList = uInv.length > 0 ? uInv : (Array.isArray(localCache?.invoices) ? localCache.invoices : []);
+        if (invList.length > 0) {
+          u.invoicesCount = Math.max(u.invoicesCount || 0, invList.length);
+        }
+      });
+    } catch (enrichErr) {
+      console.warn("Admin operational enrichment note:", enrichErr);
+    }
+
     saveAllAdminUsers(finalUsers);
 
-    const finalStats = fetchedStats || calculateAggregatedStats(finalUsers);
+    const baseStats = fetchedStats || calculateAggregatedStats(finalUsers, enrichedDirectStaffCount || undefined);
+    const finalStats: PlatformOperationalStats = {
+      ...baseStats,
+      totalInvoicesCount: enrichedInvoicesCount || baseStats.totalInvoicesCount,
+      totalInvoicesValue: enrichedInvoicesValue || baseStats.totalInvoicesValue,
+      paidInvoicesValue: enrichedPaidInvoicesValue || baseStats.paidInvoicesValue,
+      totalFeedConsumedKg: enrichedFeedConsumedKg || baseStats.totalFeedConsumedKg,
+      totalBagsInStock: enrichedBagsInStock || baseStats.totalBagsInStock,
+    };
     savePlatformStats(finalStats);
 
     return {
