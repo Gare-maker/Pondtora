@@ -40,7 +40,7 @@ import OnboardingPlanOverlay from "./components/OnboardingPlanOverlay";
 import PullToRefresh from "./components/PullToRefresh";
 import { Toaster, toast } from "sonner";
 import { useDynamicPlans } from "../lib/plansStore";
-import { syncUserProfileToAdmin, getUserAdminOverride, logActivity, recordSuccessfulPayment, loadAllAdminUsers, getFarmSubscriptionDetails, FarmSubscriptionDetails } from "../lib/userSync";
+import { syncUserProfileToAdmin, syncUserFullSnapshotToAdmin, getUserAdminOverride, logActivity, recordSuccessfulPayment, loadAllAdminUsers, getFarmSubscriptionDetails, FarmSubscriptionDetails } from "../lib/userSync";
 import { initializePaystackCheckout, getActivePaystackPublicKey, loadPaystackConfig, getPendingPaystackTransaction, clearPendingPaystackTransaction, verifyPaystackPayment } from "../lib/paystack";
 import { getUserReferralStats, fetchLiveUserReferralStats, captureReferralParam, getReferralLink, getUserReferralCode, processReferralCommission } from "../lib/referralStore";
 
@@ -5176,9 +5176,40 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
         saveLocal(`pondtora_${uid}_investments`,investments);
         saveLocal(`pondtora_${uid}_investment_payments`,investmentPayments);
         saveLocal(`pondtora_${uid}_pond_reports`,pondReports);
+        saveLocal(`pondtora_${uid}_farm_equipment`,farmEquipment);
+        saveLocal(`pondtora_${uid}_sales_calculations`,salesCalculations);
+        saveLocal(`pondtora_${uid}_fish_count_history`,fishCountHistory);
+        syncUserFullSnapshotToAdmin(uid, {
+          userEmail: userProfile.email,
+          activeFarmId,
+          farms,
+          ponds,
+          feedInventory: inventory,
+          feedingRecords: feeding,
+          bagOpenLogs: bagLogs,
+          feedRemainingLogs: remainLogs,
+          expenses,
+          revenues,
+          mortalityEntries: mortality,
+          treatmentRecords: treatments,
+          staffMembers: staff,
+          stockEvents,
+          reports,
+          pondReports,
+          customers,
+          priceGroups,
+          invoices,
+          investors,
+          investments,
+          investmentPayments,
+          farmEquipment,
+          salesCalculations,
+          fishCountHistory,
+          deletedIds: Array.from(deletedRecordIdsRef.current),
+        });
       });
     }
-  },[userProfile,isAuth,farms,activeFarmId,ponds,inventory,feeding,bagLogs,remainLogs,expenses,revenues,mortality,treatments,staff,stockEvents,reports,customers,priceGroups,invoices,invSettings,investors,investments,investmentPayments,pondReports]);
+  },[userProfile,isAuth,farms,activeFarmId,ponds,inventory,feeding,bagLogs,remainLogs,expenses,revenues,mortality,treatments,staff,stockEvents,reports,customers,priceGroups,invoices,invSettings,investors,investments,investmentPayments,pondReports,farmEquipment,salesCalculations,fishCountHistory]);
 
   useEffect(()=>{
     if(farms.length>0){

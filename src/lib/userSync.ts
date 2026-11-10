@@ -578,35 +578,39 @@ export async function fetchLiveAdminUsers(): Promise<{
           const override = globalOverrides[pEmail] || (p.id ? globalOverrides[p.id] : null);
 
           const userFarms = rawFarms.filter((f: any) => f.user_id === p.id);
-          // De-duplicate duplicate farm rows by name
-          const uniqueFarmNames = new Set<string>();
+          // De-duplicate farm rows by id
+          const seenFarmIds = new Set<string>();
           const deduplicatedFarms = userFarms.filter((f: any) => {
-            const normName = (f.name || "").toLowerCase().trim();
-            if (!normName || normName === "primary farm") return false;
-            if (uniqueFarmNames.has(normName)) return false;
-            uniqueFarmNames.add(normName);
-            return true;
+            if (!f || !f.id || seenFarmIds.has(f.id)) return false;
+            seenFarmIds.add(f.id);
+            return Boolean((f.name || "").trim());
           });
-          const farmCount = deduplicatedFarms.length > 0 ? deduplicatedFarms.length : (userFarms.length > 0 ? userFarms.length : (p.farm_name ? 1 : (local?.farmCount || 1)));
+          const farmCount = deduplicatedFarms.length > 0 ? deduplicatedFarms.length : (userFarms.length > 0 ? userFarms.length : 1);
           const rawFarmName = (deduplicatedFarms[0]?.name) ||
-            (p.farm_name && p.farm_name.toLowerCase() !== "primary farm" ? p.farm_name : null) ||
-            (override?.farmName && override.farmName.toLowerCase() !== "primary farm" ? override.farmName : null) ||
-            (local?.farmName && local.farmName.toLowerCase() !== "primary farm" ? local.farmName : null) ||
+            (p.farm_name ? p.farm_name : null) ||
+            (override?.farmName ? override.farmName : null) ||
+            (local?.farmName ? local.farmName : null) ||
             userFarms[0]?.name;
-          const farmName = (!rawFarmName || rawFarmName.trim().toLowerCase() === "primary farm")
-            ? (p.name ? `${p.name}'s Farm` : (local?.name ? `${local.name}'s Farm` : "Fish Farm"))
-            : rawFarmName.trim();
+          const farmName = rawFarmName && rawFarmName.trim()
+            ? rawFarmName.trim()
+            : (p.name ? `${p.name}'s Farm` : (local?.name ? `${local.name}'s Farm` : "My Fish Farm"));
 
-          const userFarmIds = new Set(userFarms.map((f: any) => f.id));
-          const userPonds = rawPonds.filter((pd: any) => pd.user_id === p.id || (pd.farm_id && userFarmIds.has(pd.farm_id)));
-          const pondCount = userPonds.length || local?.pondCount || 0;
+          const userFarmIds = new Set(deduplicatedFarms.map((f: any) => f.id));
+          const userPonds = rawPonds.filter((pd: any) => {
+            if (pd.farm_id && userFarmIds.size > 0) return userFarmIds.has(pd.farm_id);
+            return pd.user_id === p.id;
+          });
+          const pondCount = userPonds.length;
 
           // Count only staff belonging to this farm owner
           const userStaff = rawStaff.filter((s: any) => s.user_id === p.id);
-          const staffCount = userStaff.length || local?.staffCount || 0;
+          const staffCount = userStaff.length;
 
-          const userInvoices = rawInvoices.filter((inv: any) => inv.user_id === p.id);
-          const invoicesCount = userInvoices.length || local?.invoicesCount || 0;
+          const userInvoices = rawInvoices.filter((inv: any) => {
+            if (inv.farm_id && userFarmIds.size > 0) return userFarmIds.has(inv.farm_id);
+            return inv.user_id === p.id;
+          });
+          const invoicesCount = userInvoices.length;
 
           const hasValidRef = isValidPaystackRef(p.paystack_reference) || isValidPaystackRef(override?.paystackReference) || isValidPaystackRef(local?.paystackReference);
           const isFree = Boolean(p.free_access || p.raw_data?.free_access || override?.freeAccess || local?.freeAccess);
@@ -679,7 +683,11 @@ export async function fetchLiveAdminUsers(): Promise<{
             pondCount: pondCount,
             staffCount: staffCount,
             invoicesCount: invoicesCount,
-            totalFishStocked: userPonds.reduce((s: number, pd: any) => s + (Number(pd.current_count ?? pd.initial_stock) || 0), 0),
+            totalFishStocked: userPonds.reduce(
+              (s: number, pd: any) =>
+                s + (String(pd.status || "").toLowerCase() === "empty" ? 0 : (Number(pd.current_count ?? pd.currentCount ?? 0) || 0)),
+              0
+            ),
             paystackReference: local?.paystackReference || p.paystack_reference || override?.paystackReference,
             lastPaymentDate: local?.lastPaymentDate || p.last_payment_date || override?.lastPaymentDate,
             referralCode: p.referral_code || p.referralCode || local?.referralCode,
@@ -834,13 +842,13 @@ export async function fetchLiveAdminUsers(): Promise<{
           if (override.subscriptionStatus) merged.subscriptionStatus = override.subscriptionStatus;
           if (override.paystackReference) merged.paystackReference = override.paystackReference;
           if (override.lastPaymentDate) merged.lastPaymentDate = override.lastPaymentDate;
-          if (override.farmName && override.farmName.trim().toLowerCase() !== "primary farm") {
+          if (override.farmName && override.farmName.trim()) {
             merged.farmName = override.farmName.trim();
           }
         }
 
-        if (!merged.farmName || merged.farmName.trim().toLowerCase() === "primary farm") {
-          merged.farmName = merged.name ? `${merged.name}'s Farm` : "Fish Farm";
+        if (!merged.farmName || !merged.farmName.trim()) {
+          merged.farmName = merged.name ? `${merged.name}'s Farm` : "My Fish Farm";
         }
 
         merged.subscriptionStatus = computeSubscriptionStatus(merged);
@@ -869,16 +877,18 @@ export async function fetchLiveAdminUsers(): Promise<{
         feedingRes,
         feedInvRes,
         bagOpenRes,
+        snapshotsRes,
       ] = await Promise.all([
         supabase.from("farms").select("id, user_id, name, city, state, country"),
-        supabase.from("ponds").select("id, user_id, farm_id, current_count, initial_stock"),
-        supabase.from("staff_members").select("id, user_id"),
-        supabase.from("revenues").select("id, user_id, farm_id, amount"),
-        supabase.from("expenses").select("id, user_id, farm_id, amount"),
-        supabase.from("invoices").select("id, user_id, farm_id, grand_total, subtotal, amount_paid, status"),
-        supabase.from("feeding_records").select("id, user_id, farm_id, total, morning, evening"),
-        supabase.from("feed_inventory").select("id, user_id, farm_id, bags"),
-        supabase.from("bag_open_logs").select("id, user_id, farm_id, bags_opened"),
+        supabase.from("ponds").select("id, user_id, farm_id, name, status, current_count, initial_stock"),
+        supabase.from("staff_members").select("id, user_id, email, name, role"),
+        supabase.from("revenues").select("id, user_id, farm_id, amount, notes, pond"),
+        supabase.from("expenses").select("id, user_id, farm_id, amount, category, pond"),
+        supabase.from("invoices").select("id, user_id, farm_id, grand_total, subtotal, amount_paid, status, pond"),
+        supabase.from("feeding_records").select("id, user_id, farm_id, total, morning, evening, pond"),
+        supabase.from("feed_inventory").select("id, user_id, farm_id, brand, size, bags, weight_per_bag, cost_per_bag"),
+        supabase.from("bag_open_logs").select("id, user_id, farm_id, brand, size, bags_opened"),
+        supabase.from("platform_settings").select("key, value").like("key", "user_snapshot_%"),
       ]);
 
       const allFarms = farmsRes.data || [];
@@ -891,95 +901,195 @@ export async function fetchLiveAdminUsers(): Promise<{
       const allFeedInv = feedInvRes.data || [];
       const allBagOpen = bagOpenRes.data || [];
 
-      enrichedDirectStaffCount = allStaff.length;
-      enrichedInvoicesCount = allInv.length;
-      enrichedInvoicesValue = allInv.reduce((s: number, i: any) => s + (Number(i.grand_total ?? i.subtotal) || 0), 0);
-      enrichedPaidInvoicesValue = allInv.reduce(
-        (s: number, i: any) =>
-          s + (i.status === "Paid" ? (Number(i.grand_total ?? i.subtotal) || 0) : (Number(i.amount_paid) || 0)),
-        0
-      );
-      enrichedFeedConsumedKg = allFeeding.reduce(
-        (s: number, r: any) => s + (Number(r.total ?? ((Number(r.morning) || 0) + (Number(r.evening) || 0))) || 0),
-        0
-      );
-      const totalPurchasedBags = allFeedInv.reduce((s: number, f: any) => s + (Number(f.bags ?? f.bags_in_stock) || 0), 0);
-      const totalOpenedBags = allBagOpen.reduce((s: number, b: any) => s + (Number(b.bags_opened ?? b.bags) || 0), 0);
-      enrichedBagsInStock = Math.max(0, totalPurchasedBags - totalOpenedBags);
+      const snapshotByUserId = new Map<string, any>();
+      if (Array.isArray(snapshotsRes.data)) {
+        snapshotsRes.data.forEach((row: any) => {
+          if (row?.key && typeof row.key === "string" && row.key.startsWith("user_snapshot_") && row.value) {
+            const uid = row.key.replace("user_snapshot_", "");
+            snapshotByUserId.set(uid, row.value);
+            try {
+              localStorage.setItem(`pondtora_admin_snapshot_${uid}`, JSON.stringify(row.value));
+            } catch {}
+          }
+        });
+      }
 
       finalUsers.forEach(u => {
-        // Also check local cache for this user in case any records are stored locally
-        let localCache: any = null;
-        try {
-          const rawCache = localStorage.getItem(`pondtora_${u.id}_cache`);
-          if (rawCache) localCache = JSON.parse(rawCache);
-        } catch {}
+        const remoteSnap = snapshotByUserId.get(u.id) || (() => {
+          try {
+            const raw = localStorage.getItem(`pondtora_admin_snapshot_${u.id}`);
+            return raw ? JSON.parse(raw) : null;
+          } catch {
+            return null;
+          }
+        })();
 
-        const uFarms = allFarms.filter((f: any) => f.user_id === u.id);
-        const farmList = uFarms.length > 0 ? uFarms : (Array.isArray(localCache?.farms) ? localCache.farms : []);
-        const uFarmIds = new Set(farmList.map((f: any) => f.id).filter(Boolean));
+        const deletedIds = getDeletedIdsForUser(u.id, remoteSnap?.deletedIds);
+        const notDeleted = (item: any) => item && (!item.id || !deletedIds.has(String(item.id)));
 
-        // Deduplicate farm names
-        const seenFarmNames = new Set<string>();
-        const dedupFarms = farmList.filter((f: any) => {
-          const nm = (f.name || "").toLowerCase().trim();
-          if (!nm || nm === "primary farm") return false;
-          if (seenFarmNames.has(nm)) return false;
-          seenFarmNames.add(nm);
+        const pickUserList = (directKey: string, cacheProp: string, snapArr: any[] | undefined, dbArr: any[]) => {
+          const localDirect = readLocalUserCollection(u.id, u.email, directKey, cacheProp, deletedIds);
+          if (localDirect.length > 0) return localDirect;
+          const snapClean = Array.isArray(snapArr) ? snapArr.filter(notDeleted) : [];
+          const dbClean = Array.isArray(dbArr) ? dbArr.filter(notDeleted) : [];
+          if (snapClean.length === 0) return dbClean;
+          if (dbClean.length === 0) return snapClean;
+          const map = new Map<string, any>();
+          dbClean.forEach((item, idx) => map.set(String(item?.id || `db-${idx}`), item));
+          snapClean.forEach((item, idx) => {
+            const id = String(item?.id || `sn-${idx}`);
+            map.set(id, { ...(map.get(id) || {}), ...item });
+          });
+          return Array.from(map.values());
+        };
+
+        const dbUserFarms = allFarms.filter((f: any) => f.user_id === u.id && notDeleted(f));
+        const rawFarmList = pickUserList("farms", "farms", remoteSnap?.farms, dbUserFarms);
+        const hasRealFarm = rawFarmList.some((f: any) => f?.id && !String(f.id).startsWith("farm-"));
+        const seenFarmIds = new Set<string>();
+        const dedupFarms = rawFarmList.filter((f: any) => {
+          if (!f || !f.id) return false;
+          if (hasRealFarm && String(f.id).startsWith("farm-")) return false;
+          const fid = String(f.id);
+          if (seenFarmIds.has(fid)) return false;
+          seenFarmIds.add(fid);
           return true;
         });
 
-        if (dedupFarms.length > 0) {
-          u.farmCount = Math.max(u.farmCount || 1, dedupFarms.length);
-          if (!u.farmName || u.farmName.toLowerCase().includes("primary farm") || u.farmName.endsWith("'s Farm")) {
-            u.farmName = dedupFarms[0].name;
+        const uFarmIds = new Set(dedupFarms.map((f: any) => String(f.id)).filter(Boolean));
+        const matchesUserOrFarm = (row: any) => {
+          if (!row || !notDeleted(row)) return false;
+          const fid = row.farm_id || row.farmId;
+          if (fid && fid !== "default" && fid !== "—" && uFarmIds.size > 0) {
+            return uFarmIds.has(String(fid));
           }
-          if ((!u.city || u.city === "Lagos") && dedupFarms[0].city) u.city = dedupFarms[0].city;
-          if ((!u.state || u.state === "Lagos") && dedupFarms[0].state) u.state = dedupFarms[0].state;
-          if ((!u.country || u.country === "Nigeria") && dedupFarms[0].country) u.country = dedupFarms[0].country;
-        } else if (farmList.length > 0) {
-          u.farmCount = Math.max(u.farmCount || 1, farmList.length);
+          return row.user_id === u.id || row.userId === u.id || (fid && uFarmIds.has(String(fid)));
+        };
+
+        const rawPondList = pickUserList("ponds", "ponds", remoteSnap?.ponds, allPonds.filter(matchesUserOrFarm));
+        // Deduplicate ponds by id and by farmId:::name just like App.tsx
+        const seenPondIds = new Set<string>();
+        const seenPondKeys = new Set<string>();
+        const validPonds = rawPondList.filter((p: any) => {
+          if (!p || !notDeleted(p)) return false;
+          const pid = String(p.id || "");
+          if (pid && seenPondIds.has(pid)) return false;
+          const fid = String(p.farm_id || p.farmId || dedupFarms[0]?.id || "");
+          if (uFarmIds.size > 0 && fid && fid !== "default" && fid !== "—" && !uFarmIds.has(fid)) return false;
+          const fnKey = `${fid.toLowerCase()}:::${String(p.name || "").trim().toLowerCase()}`;
+          if (p.name && seenPondKeys.has(fnKey)) return false;
+          if (pid) seenPondIds.add(pid);
+          if (p.name) seenPondKeys.add(fnKey);
+          return true;
+        });
+
+        // Determine active farm ID exactly like App.tsx (stored activeFarmId -> remoteSnap -> farm with most ponds -> farms[0])
+        const storedActiveFid = (() => {
+          try {
+            return localStorage.getItem(`pondtora_${u.id}_active_farm_id`) || remoteSnap?.activeFarmId || "";
+          } catch {
+            return remoteSnap?.activeFarmId || "";
+          }
+        })();
+        let activeFarmId = dedupFarms[0]?.id || "";
+        if (storedActiveFid && dedupFarms.some((f: any) => String(f.id) === String(storedActiveFid))) {
+          activeFarmId = String(storedActiveFid);
+        } else if (dedupFarms.length > 1) {
+          let maxP = -1;
+          dedupFarms.forEach((f: any) => {
+            const c = validPonds.filter((p: any) => String(p.farm_id || p.farmId || dedupFarms[0]?.id) === String(f.id)).length;
+            if (c > maxP) {
+              maxP = c;
+              activeFarmId = String(f.id);
+            }
+          });
         }
 
-        const matchesUserOrFarm = (row: any) =>
-          row && (row.user_id === u.id || row.userId === u.id || (row.farm_id && uFarmIds.has(row.farm_id)) || (row.farmId && uFarmIds.has(row.farmId)));
-
-        const uPonds = allPonds.filter(matchesUserOrFarm);
-        const pondList = uPonds.length > 0 ? uPonds : (Array.isArray(localCache?.ponds) ? localCache.ponds : []);
-        if (pondList.length > 0) {
-          u.pondCount = Math.max(u.pondCount || 0, pondList.length);
-          const fishSum = pondList.reduce(
-            (s: number, p: any) => s + (Number(p.current_count ?? p.currentCount ?? p.initial_stock ?? p.initialStock) || 0),
-            0
-          );
-          u.totalFishStocked = Math.max(u.totalFishStocked || 0, fishSum);
+        if (dedupFarms.length > 0) {
+          u.farmCount = dedupFarms.length;
+          const primaryFarmObj = dedupFarms.find((f: any) => String(f.id) === String(activeFarmId)) || dedupFarms[0];
+          if (primaryFarmObj?.name && primaryFarmObj.name.trim()) {
+            u.farmName = primaryFarmObj.name.trim();
+          }
+          if ((!u.city || u.city === "Lagos") && primaryFarmObj?.city) u.city = primaryFarmObj.city;
+          if ((!u.state || u.state === "Lagos") && primaryFarmObj?.state) u.state = primaryFarmObj.state;
+          if ((!u.country || u.country === "Nigeria") && primaryFarmObj?.country) u.country = primaryFarmObj.country;
         }
 
-        const uStaff = allStaff.filter((s: any) => s.user_id === u.id);
-        const staffList = uStaff.length > 0 ? uStaff : (Array.isArray(localCache?.staffMembers) ? localCache.staffMembers : []);
-        if (staffList.length > 0) {
-          u.staffCount = Math.max(u.staffCount || 0, staffList.length);
-        }
+        const isRecordInValidFarms = (row: any) => {
+          if (!row || !notDeleted(row)) return false;
+          if (uFarmIds.size === 0) return true;
+          const fid = String(row.farm_id || row.farmId || "");
+          if (fid && fid !== "default" && fid !== "—") {
+            return uFarmIds.has(fid);
+          }
+          const pName = String(row.pond || row.pond_name || row.pondName || "").trim().toLowerCase();
+          if (pName) {
+            const mp = validPonds.find((x: any) => String(x.name || "").trim().toLowerCase() === pName || String(x.id) === pName);
+            if (mp) return true;
+          }
+          return true;
+        };
 
-        const uRev = allRev.filter(matchesUserOrFarm);
-        const revList = uRev.length > 0 ? uRev : (Array.isArray(localCache?.revenues) ? localCache.revenues : []);
-        if (revList.length > 0) {
-          const revSum = revList.reduce((s: number, r: any) => s + (Number(r.amount) || 0), 0);
-          u.totalRevenue = Math.max(u.totalRevenue || 0, revSum);
-        }
+        u.pondCount = validPonds.length;
+        u.totalFishStocked = validPonds.reduce((s: number, p: any) => {
+          const isEmpty = String(p.status || "").toLowerCase() === "empty" || String(p.status || "").toLowerCase() === "inactive";
+          if (isEmpty) return s;
+          return s + (Number(p.currentCount ?? p.current_count ?? 0) || 0);
+        }, 0);
 
-        const uExp = allExp.filter(matchesUserOrFarm);
-        const expList = uExp.length > 0 ? uExp : (Array.isArray(localCache?.expenses) ? localCache.expenses : []);
-        if (expList.length > 0) {
-          const expSum = expList.reduce((s: number, e: any) => s + (Number(e.amount) || 0), 0);
-          u.totalExpenses = Math.max(u.totalExpenses || 0, expSum);
-        }
+        const staffList = pickUserList("staff", "staffMembers", remoteSnap?.staffMembers, allStaff.filter((s: any) => s.user_id === u.id));
+        u.staffCount = staffList.length;
+        enrichedDirectStaffCount += staffList.length;
 
-        const uInv = allInv.filter(matchesUserOrFarm);
-        const invList = uInv.length > 0 ? uInv : (Array.isArray(localCache?.invoices) ? localCache.invoices : []);
-        if (invList.length > 0) {
-          u.invoicesCount = Math.max(u.invoicesCount || 0, invList.length);
-        }
+        const revList = pickUserList("revenues", "revenues", remoteSnap?.revenues, allRev.filter(matchesUserOrFarm))
+          .filter(isRecordInValidFarms)
+          .filter((r: any) => !String(r.notes || "").startsWith("Payment for Invoice"));
+        u.totalRevenue = revList.reduce((s: number, r: any) => s + (Number(r.amount) || 0), 0);
+
+        const expList = pickUserList("expenses", "expenses", remoteSnap?.expenses, allExp.filter(matchesUserOrFarm))
+          .filter(isRecordInValidFarms);
+        u.totalExpenses = expList.reduce((s: number, e: any) => s + (Number(e.amount) || 0), 0);
+
+        const invList = pickUserList("invoices", "invoices", remoteSnap?.invoices, allInv.filter(matchesUserOrFarm))
+          .filter(isRecordInValidFarms);
+        u.invoicesCount = invList.length;
+        enrichedInvoicesCount += invList.length;
+        enrichedInvoicesValue += invList.reduce((s: number, i: any) => s + (Number(i.grand_total ?? i.grandTotal ?? i.subtotal) || 0), 0);
+        enrichedPaidInvoicesValue += invList.reduce(
+          (s: number, i: any) =>
+            s + (i.status === "Paid" ? (Number(i.grand_total ?? i.grandTotal ?? i.subtotal) || 0) : (Number(i.amount_paid ?? i.amountPaid) || 0)),
+          0
+        );
+
+        const feedingList = pickUserList("feeding", "feedingRecords", remoteSnap?.feedingRecords, allFeeding.filter(matchesUserOrFarm))
+          .filter(isRecordInValidFarms);
+        enrichedFeedConsumedKg += feedingList.reduce(
+          (s: number, r: any) => s + (Number(r.total ?? ((Number(r.morning) || 0) + (Number(r.evening) || 0))) || 0),
+          0
+        );
+
+        const feedInvList = pickUserList("inventory", "feedInventory", remoteSnap?.feedInventory, allFeedInv.filter(matchesUserOrFarm))
+          .filter(isRecordInValidFarms);
+        const bagLogList = pickUserList("bag_logs", "bagOpenLogs", remoteSnap?.bagOpenLogs, allBagOpen.filter(matchesUserOrFarm))
+          .filter(isRecordInValidFarms);
+        const feedGroups = Object.values(
+          feedInvList.reduce<Record<string, { brand: string; size: string; bags: number }>>((acc, f: any) => {
+            const bName = String(f.brand || "").toLowerCase().trim();
+            const sName = String(f.size || "").toLowerCase().trim();
+            const k = `${bName}|${sName}`;
+            if (!acc[k]) acc[k] = { brand: bName, size: sName, bags: 0 };
+            acc[k].bags += Number(f.bags ?? f.bags_in_stock) || 0;
+            return acc;
+          }, {})
+        );
+        const userBagsInStock = feedGroups.reduce((s, row) => {
+          const opened = bagLogList
+            .filter((b: any) => String(b.brand || "").toLowerCase().trim() === row.brand && String(b.size || "").toLowerCase().trim() === row.size)
+            .reduce((sb: number, b: any) => sb + (Number(b.bagsOpened ?? b.bags_opened ?? b.bags) || 0), 0);
+          return s + Math.max(0, row.bags - opened);
+        }, 0);
+        enrichedBagsInStock += userBagsInStock;
       });
     } catch (enrichErr) {
       console.warn("Admin operational enrichment note:", enrichErr);
@@ -987,14 +1097,14 @@ export async function fetchLiveAdminUsers(): Promise<{
 
     saveAllAdminUsers(finalUsers);
 
-    const baseStats = fetchedStats || calculateAggregatedStats(finalUsers, enrichedDirectStaffCount || undefined);
+    const baseStats = calculateAggregatedStats(finalUsers, enrichedDirectStaffCount || undefined);
     const finalStats: PlatformOperationalStats = {
       ...baseStats,
-      totalInvoicesCount: enrichedInvoicesCount || baseStats.totalInvoicesCount,
-      totalInvoicesValue: enrichedInvoicesValue || baseStats.totalInvoicesValue,
-      paidInvoicesValue: enrichedPaidInvoicesValue || baseStats.paidInvoicesValue,
-      totalFeedConsumedKg: enrichedFeedConsumedKg || baseStats.totalFeedConsumedKg,
-      totalBagsInStock: enrichedBagsInStock || baseStats.totalBagsInStock,
+      totalInvoicesCount: enrichedInvoicesCount,
+      totalInvoicesValue: enrichedInvoicesValue,
+      paidInvoicesValue: enrichedPaidInvoicesValue,
+      totalFeedConsumedKg: enrichedFeedConsumedKg,
+      totalBagsInStock: enrichedBagsInStock,
     };
     savePlatformStats(finalStats);
 
@@ -2639,4 +2749,195 @@ export async function clearAllPaymentDataInDbAndStorage(): Promise<boolean> {
     return false;
   }
 }
+
+/* ─── Live User Snapshot Sync for 100% Admin Consistency ────────────────── */
+
+export function getDeletedIdsForUser(userId?: string | null, remoteDeletedIds?: string[]): Set<string> {
+  const set = new Set<string>();
+  if (Array.isArray(remoteDeletedIds)) {
+    remoteDeletedIds.forEach(id => {
+      if (id) set.add(String(id));
+    });
+  }
+  if (typeof window === "undefined") return set;
+  const keys = [
+    userId ? `pondtora_${userId}_deleted_ids` : null,
+    "pondtora_global_deleted_ids",
+  ].filter(Boolean) as string[];
+  for (const k of keys) {
+    try {
+      const raw = localStorage.getItem(k);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          parsed.forEach(id => {
+            if (id) set.add(String(id));
+          });
+        }
+      }
+    } catch {}
+  }
+  return set;
+}
+
+export function readLocalUserCollection(
+  userId: string | undefined | null,
+  email: string | undefined | null,
+  directKey: string,
+  cacheProp: string,
+  deletedIds?: Set<string>
+): any[] {
+  if (typeof window === "undefined") return [];
+  const del = deletedIds || getDeletedIdsForUser(userId);
+  const notDel = (item: any) => item && (!item.id || !del.has(String(item.id)));
+
+  // 1. Prefer the direct scoped key (`pondtora_${uid}_${directKey}`) written by App.tsx on every change
+  const directCandidates = [
+    userId ? `pondtora_${userId}_${directKey}` : null,
+    email ? `pondtora_${email}_${directKey}` : null,
+  ].filter(Boolean) as string[];
+
+  for (const k of directCandidates) {
+    try {
+      const raw = localStorage.getItem(k);
+      if (raw !== null) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          return parsed.filter(notDel);
+        }
+      }
+    } catch {}
+  }
+
+  // 2. Check synced admin snapshot cache
+  if (userId) {
+    try {
+      const rawSnap = localStorage.getItem(`pondtora_admin_snapshot_${userId}`);
+      if (rawSnap) {
+        const parsed = JSON.parse(rawSnap);
+        if (parsed && Array.isArray(parsed[cacheProp])) {
+          return parsed[cacheProp].filter(notDel);
+        }
+      }
+    } catch {}
+  }
+
+  // 3. Fallback to `pondtora_${uid}_cache[cacheProp]`
+  if (userId) {
+    try {
+      const rawCache = localStorage.getItem(`pondtora_${userId}_cache`);
+      if (rawCache) {
+        const parsed = JSON.parse(rawCache);
+        if (parsed && Array.isArray(parsed[cacheProp])) {
+          return parsed[cacheProp].filter(notDel);
+        }
+      }
+    } catch {}
+  }
+
+  return [];
+}
+
+const snapshotSyncTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+export function syncUserFullSnapshotToAdmin(userId: string, snapshot: Record<string, any>): void {
+  if (!userId || !snapshot) return;
+
+  const deletedIds = Array.from(getDeletedIdsForUser(userId, snapshot.deletedIds));
+  const payload = {
+    ...snapshot,
+    userId,
+    deletedIds,
+    updatedAt: new Date().toISOString(),
+  };
+
+  if (typeof window !== "undefined") {
+    try {
+      const rawCache = localStorage.getItem(`pondtora_${userId}_cache`);
+      const existingCache = rawCache ? JSON.parse(rawCache) : {};
+      localStorage.setItem(`pondtora_${userId}_cache`, JSON.stringify({ ...existingCache, ...payload }));
+      localStorage.setItem(`pondtora_admin_snapshot_${userId}`, JSON.stringify(payload));
+    } catch {}
+
+    // Immediately update the matching user row in pondtora_admin_users so table & KPIs match 100%
+    try {
+      const users = loadAllAdminUsers();
+      const idx = users.findIndex(u => u.id === userId || (snapshot.userEmail && u.email?.toLowerCase() === String(snapshot.userEmail).toLowerCase()));
+      if (idx >= 0) {
+        const farms = Array.isArray(payload.farms) ? payload.farms : [];
+        const validFarmIds = new Set(farms.map((f: any) => String(f?.id)).filter(Boolean));
+        const inFarms = (r: any) => {
+          if (!r) return false;
+          if (validFarmIds.size === 0) return true;
+          const fid = String(r.farmId || r.farm_id || "");
+          if (fid && fid !== "default" && fid !== "—") return validFarmIds.has(fid);
+          return true;
+        };
+        const ponds = (Array.isArray(payload.ponds) ? payload.ponds : []).filter(inFarms);
+        const revenues = (Array.isArray(payload.revenues) ? payload.revenues : [])
+          .filter(inFarms)
+          .filter((r: any) => !String(r?.notes || "").startsWith("Payment for Invoice"));
+        const expenses = (Array.isArray(payload.expenses) ? payload.expenses : []).filter(inFarms);
+        const invoices = (Array.isArray(payload.invoices) ? payload.invoices : []).filter(inFarms);
+        const staff = Array.isArray(payload.staffMembers) ? payload.staffMembers : [];
+
+        const activeFarmObj = farms.find((f: any) => String(f?.id) === String(payload.activeFarmId)) || farms[0];
+        if (farms.length > 0) users[idx].farmCount = farms.length;
+        if (activeFarmObj?.name) users[idx].farmName = activeFarmObj.name;
+        users[idx].pondCount = ponds.length;
+        users[idx].totalFishStocked = ponds.reduce((s: number, p: any) => {
+          const isEmpty = String(p?.status || "").toLowerCase() === "empty" || String(p?.status || "").toLowerCase() === "inactive";
+          return s + (isEmpty ? 0 : (Number(p?.currentCount ?? p?.current_count ?? 0) || 0));
+        }, 0);
+        users[idx].totalRevenue = revenues.reduce((s: number, r: any) => s + (Number(r?.amount) || 0), 0);
+        users[idx].totalExpenses = expenses.reduce((s: number, e: any) => s + (Number(e?.amount) || 0), 0);
+        users[idx].invoicesCount = invoices.length;
+        users[idx].staffCount = staff.length;
+        saveAllAdminUsers(users);
+      }
+    } catch {}
+  }
+
+  // Debounced sync to Supabase platform_settings so cross-device / cross-session Admin sees exact state
+  const prevTimer = snapshotSyncTimers.get(userId);
+  if (prevTimer) clearTimeout(prevTimer);
+  const timer = setTimeout(() => {
+    snapshotSyncTimers.delete(userId);
+    supabase
+      .from("platform_settings")
+      .upsert(
+        {
+          key: `user_snapshot_${userId}`,
+          value: payload,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "key" }
+      )
+      .then(undefined, () => {});
+  }, 800);
+  snapshotSyncTimers.set(userId, timer);
+}
+
+export async function fetchUserSnapshotFromSettings(userId: string): Promise<any | null> {
+  if (!userId) return null;
+  try {
+    const { data } = await supabase
+      .from("platform_settings")
+      .select("value")
+      .eq("key", `user_snapshot_${userId}`)
+      .maybeSingle();
+    if (data?.value && typeof data.value === "object") {
+      try {
+        localStorage.setItem(`pondtora_admin_snapshot_${userId}`, JSON.stringify(data.value));
+      } catch {}
+      return data.value;
+    }
+  } catch {}
+  try {
+    const raw = localStorage.getItem(`pondtora_admin_snapshot_${userId}`);
+    if (raw) return JSON.parse(raw);
+  } catch {}
+  return null;
+}
+
 

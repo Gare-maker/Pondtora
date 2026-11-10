@@ -12,7 +12,7 @@ import type { AdminUser, AdminPlan, AccountStatus } from "../types";
 import { fmtDate, trialDaysLeft, subscriptionDaysLeft, fmtMoney, computeSubscriptionStatus, effectivePrice } from "../types";
 import { getLagosTodayStr, getLagosDateParts } from "../../app/data";
 import { supabase } from "../../lib/supabase";
-import { isStaffUser } from "../../lib/userSync";
+import { isStaffUser, getDeletedIdsForUser, readLocalUserCollection, fetchUserSnapshotFromSettings } from "../../lib/userSync";
 import { getUserReferralStats, markReferralRewardsPaid, clearUserReferralBalance, syncReferralOnUserPayment, deleteReferralPayout, type ReferralPayoutRecord, type ReferralStats } from "../../lib/referralStore";
 import { toast } from "sonner";
 
@@ -49,10 +49,15 @@ function copyToClipboard(text: string, label: string) {
 function copyUserDossier(u: AdminUser, extra?: { farms: any[]; ponds: any[]; staff: any[]; revenues?: any[]; expenses?: any[] }) {
   if (!u) return;
   const totalFish = extra?.ponds && extra.ponds.length > 0
-    ? extra.ponds.reduce((s, p) => s + (Number(p?.current_count ?? p?.currentCount ?? p?.initial_stock ?? p?.initialStock) || 0), 0)
+    ? extra.ponds.reduce((s, p) => {
+        const isEmpty = String(p?.status || "").toLowerCase() === "empty" || String(p?.status || "").toLowerCase() === "inactive";
+        return s + (isEmpty ? 0 : (Number(p?.currentCount ?? p?.current_count ?? 0) || 0));
+      }, 0)
     : (u.totalFishStocked || 0);
   const totalRev = extra?.revenues && extra.revenues.length > 0
-    ? extra.revenues.reduce((s, r) => s + (Number(r?.amount) || 0), 0)
+    ? extra.revenues
+        .filter((r: any) => !String(r?.notes || "").startsWith("Payment for Invoice"))
+        .reduce((s, r) => s + (Number(r?.amount) || 0), 0)
     : (u.totalRevenue || 0);
   const totalExp = extra?.expenses && extra.expenses.length > 0
     ? extra.expenses.reduce((s, e) => s + (Number(e?.amount) || 0), 0)
@@ -561,6 +566,7 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
 
   const [userExtra, setUserExtra] = useState<{
     loading: boolean;
+    activeFarmId?: string;
     farms: any[];
     ponds: any[];
     stockEvents: any[];
@@ -581,8 +587,12 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
     staff: any[];
     investors: any[];
     investments: any[];
+    investmentPayments: any[];
+    priceGroups: any[];
+    customers: any[];
   }>({
     loading: false,
+    activeFarmId: "",
     farms: [],
     ponds: [],
     stockEvents: [],
@@ -603,16 +613,213 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
     staff: [],
     investors: [],
     investments: [],
+    investmentPayments: [],
+    priceGroups: [],
+    customers: [],
   });
 
   // Fast in-memory cache to make re-opening or switching users instant
   const userExtraCacheRef = useRef<Map<string, any>>(new Map());
+
+  // Normalize any raw/cached bundle using the exact same rules as App.tsx (`applyBackendData`)
+  const normalizeUserBundle = (raw: any, u: AdminUser, deletedIds: Set<string>) => {
+    const notDeleted = (item: any) => item && (!item.id || !deletedIds.has(String(item.id)));
+
+    // 1. Farms deduplication by ID (remove synthetic "farm-..." placeholder if any real farm or real farm_id exists)
+    const rawFarms: any[] = Array.isArray(raw?.farms) ? raw.farms.filter(notDeleted) : [];
+    const hasRealFarm = rawFarms.some((f: any) => f?.id && !String(f.id).startsWith("farm-"));
+    const seenFarmIds = new Set<string>();
+    let resolvedFarms = rawFarms.filter((f: any) => {
+      if (!f || !f.id) return false;
+      if (hasRealFarm && String(f.id).startsWith("farm-")) return false;
+      const fid = String(f.id);
+      if (seenFarmIds.has(fid)) return false;
+      seenFarmIds.add(fid);
+      return true;
+    });
+
+    // If farms table was empty for this user, infer real farm IDs from ponds/records or create single fallback
+    if (resolvedFarms.length === 0) {
+      const samplePondFid = (Array.isArray(raw?.ponds) ? raw.ponds : [])
+        .map((p: any) => p?.farmId || p?.farm_id)
+        .find((fid: any) => fid && fid !== "default" && fid !== "—" && !String(fid).startsWith("farm-"));
+      const fallbackName = u.farmName && u.farmName.trim() ? u.farmName.trim() : `${u.name || "Farmer"}'s Farm`;
+      resolvedFarms = [
+        {
+          id: samplePondFid || `farm-${u.id}`,
+          name: fallbackName,
+          city: u.city,
+          state: u.state,
+          country: u.country,
+        },
+      ];
+    }
+
+    const defaultFarmId = String(resolvedFarms[0]?.id || "");
+    const normFid = (fid?: any) => {
+      if (!fid || fid === "default" || fid === "—" || String(fid).startsWith("farm-")) {
+        return defaultFarmId;
+      }
+      return String(fid);
+    };
+
+    // 2. Ponds normalization & deduplication (exact match with App.tsx lines 7522-7574 & 7680-7708)
+    const rawPonds: any[] = Array.isArray(raw?.ponds) ? raw.ponds.filter(notDeleted) : [];
+    const seenPondIds = new Set<string>();
+    const seenPondFarmNames = new Set<string>();
+    const dedupPonds: any[] = [];
+    for (const p of rawPonds) {
+      if (!p) continue;
+      const pid = String(p.id || "");
+      if (pid && seenPondIds.has(pid)) continue;
+      const fid = normFid(p.farmId || p.farm_id);
+      const pName = String(p.name || "").trim();
+      const fnKey = `${fid.toLowerCase()}:::${pName.toLowerCase()}`;
+      if (pName && seenPondFarmNames.has(fnKey)) continue;
+      if (pid) seenPondIds.add(pid);
+      if (pName) seenPondFarmNames.add(fnKey);
+
+      const isEmpty = String(p.status || "").toLowerCase() === "empty" || String(p.status || "").toLowerCase() === "inactive";
+      if (isEmpty) {
+        dedupPonds.push({
+          ...p,
+          farmId: fid,
+          farm_id: fid,
+          status: "Empty",
+          currentCount: 0,
+          current_count: 0,
+          initialStock: 0,
+          initial_stock: 0,
+          totalCost: 0,
+          total_cost: 0,
+          species: "—",
+          stockingDate: "—",
+          stocking_date: "—",
+          fishStock: undefined,
+          fish_stock: undefined,
+        });
+      } else {
+        const curCount = Number(p.currentCount ?? p.current_count ?? 0) || 0;
+        const initStock = Number(p.initialStock ?? p.initial_stock ?? 0) || 0;
+        dedupPonds.push({
+          ...p,
+          farmId: fid,
+          farm_id: fid,
+          status: "Active",
+          currentCount: curCount,
+          current_count: curCount,
+          initialStock: initStock,
+          initial_stock: initStock,
+        });
+      }
+    }
+
+    // Apply custom drag-order per farm if stored in localStorage
+    const sortedPonds: any[] = [];
+    const pondFarmIds = Array.from(new Set(dedupPonds.map(p => String(p.farmId || ""))));
+    pondFarmIds.forEach(fid => {
+      const list = dedupPonds.filter(p => String(p.farmId || "") === fid);
+      try {
+        const rawOrder = localStorage.getItem(`pondtora_${u.id}_pond_order_${fid}`);
+        if (rawOrder) {
+          const orderIds: string[] = JSON.parse(rawOrder);
+          if (Array.isArray(orderIds) && orderIds.length > 0) {
+            list.sort((a, b) => {
+              const ia = orderIds.indexOf(String(a.id));
+              const ib = orderIds.indexOf(String(b.id));
+              if (ia === -1 && ib === -1) return 0;
+              if (ia === -1) return 1;
+              if (ib === -1) return -1;
+              return ia - ib;
+            });
+          }
+        }
+      } catch {}
+      sortedPonds.push(...list);
+    });
+    const finalPonds = sortedPonds.length > 0 ? sortedPonds : dedupPonds;
+
+    // 3. Resolve activeFarmId (exact match with App.tsx lines 7586-7609)
+    let storedActiveFid = raw?.activeFarmId || "";
+    try {
+      const locActive = localStorage.getItem(`pondtora_${u.id}_active_farm_id`);
+      if (locActive) storedActiveFid = locActive;
+    } catch {}
+    let activeFarmId = defaultFarmId;
+    if (storedActiveFid && resolvedFarms.some((f: any) => String(f.id) === String(storedActiveFid))) {
+      activeFarmId = String(storedActiveFid);
+    } else if (resolvedFarms.length > 1) {
+      let maxPonds = -1;
+      for (const f of resolvedFarms) {
+        const count = finalPonds.filter(p => String(p.farmId) === String(f.id)).length;
+        if (count > maxPonds) {
+          maxPonds = count;
+          activeFarmId = String(f.id);
+        }
+      }
+    }
+
+    const normalizeList = (arr: any[]) =>
+      (Array.isArray(arr) ? arr : []).filter(notDeleted).map(item => ({
+        ...item,
+        farmId: normFid(item.farmId || item.farm_id),
+        farm_id: normFid(item.farmId || item.farm_id),
+      }));
+
+    // 4. Revenues: strictly exclude "Payment for Invoice" just like App.tsx line 7791 & 9389
+    const cleanRevenues = normalizeList(raw?.revenues).filter(
+      (r: any) => !String(r?.notes || "").startsWith("Payment for Invoice")
+    );
+
+    // 5. Investors, Investments, InvestmentPayments: filter orphaned items just like App.tsx lines 7888-7910
+    const cleanInvestors = normalizeList(raw?.investors);
+    const validInvestorIds = new Set(cleanInvestors.map((i: any) => String(i.id)));
+    const cleanInvestments = normalizeList(raw?.investments).filter((inv: any) => {
+      if (validInvestorIds.size === 0) return true;
+      const invId = String(inv.investorId || inv.investor_id || "");
+      return validInvestorIds.has(invId) || validInvestorIds.has(String(inv.id));
+    });
+    const validInvestmentIds = new Set(cleanInvestments.map((i: any) => String(i.id)));
+    const cleanInvestmentPayments = normalizeList(raw?.investmentPayments).filter((p: any) => {
+      if (validInvestmentIds.size === 0) return true;
+      return validInvestmentIds.has(String(p.investmentId || p.investment_id || ""));
+    });
+
+    return {
+      loading: Boolean(raw?.loading),
+      activeFarmId,
+      farms: resolvedFarms,
+      ponds: finalPonds,
+      stockEvents: normalizeList(raw?.stockEvents),
+      mortalityEntries: normalizeList(raw?.mortalityEntries),
+      feedInventory: normalizeList(raw?.feedInventory),
+      feedingRecords: normalizeList(raw?.feedingRecords),
+      bagOpenLogs: normalizeList(raw?.bagOpenLogs),
+      feedRemainingLogs: normalizeList(raw?.feedRemainingLogs),
+      salesCalculations: normalizeList(raw?.salesCalculations),
+      salesPayments: (Array.isArray(raw?.salesPayments) ? raw.salesPayments : []).filter(notDeleted),
+      revenues: cleanRevenues,
+      expenses: normalizeList(raw?.expenses),
+      invoices: normalizeList(raw?.invoices),
+      treatments: normalizeList(raw?.treatments),
+      pondReports: normalizeList(raw?.pondReports),
+      generalReports: normalizeList(raw?.generalReports),
+      equipment: normalizeList(raw?.equipment),
+      staff: (Array.isArray(raw?.staff) ? raw.staff : []).filter(notDeleted),
+      investors: cleanInvestors,
+      investments: cleanInvestments,
+      investmentPayments: cleanInvestmentPayments,
+      priceGroups: normalizeList(raw?.priceGroups),
+      customers: normalizeList(raw?.customers),
+    };
+  };
 
   // Synchronous extractor for instant data display
   const getSynchronousUserExtra = (u: AdminUser | null) => {
     if (!u) {
       return {
         loading: false,
+        activeFarmId: "",
         farms: [],
         ponds: [],
         stockEvents: [],
@@ -633,6 +840,9 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
         staff: [],
         investors: [],
         investments: [],
+        investmentPayments: [],
+        priceGroups: [],
+        customers: [],
       };
     }
 
@@ -643,121 +853,38 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
       return { ...userExtraCacheRef.current.get(u.email), loading: false };
     }
 
-    // 1. Check unified localStorage cache written by api.loadAll() (`pondtora_${uid}_cache`)
-    let cachedBundle: any = null;
-    try {
-      const rawCache = localStorage.getItem(`pondtora_${u.id}_cache`);
-      if (rawCache) cachedBundle = JSON.parse(rawCache);
-    } catch {}
+    const deletedIds = getDeletedIdsForUser(u.id);
+    const readCol = (directKey: string, cacheProp: string) =>
+      readLocalUserCollection(u.id, u.email, directKey, cacheProp, deletedIds);
 
-    let localFarms: any[] = Array.isArray(cachedBundle?.farms) ? [...cachedBundle.farms] : [];
-    let localPonds: any[] = Array.isArray(cachedBundle?.ponds) ? [...cachedBundle.ponds] : [];
-    let localStockEvents: any[] = Array.isArray(cachedBundle?.stockEvents) ? [...cachedBundle.stockEvents] : [];
-    let localMortalityEntries: any[] = Array.isArray(cachedBundle?.mortalityEntries) ? [...cachedBundle.mortalityEntries] : [];
-    let localStaff: any[] = Array.isArray(cachedBundle?.staffMembers) ? [...cachedBundle.staffMembers] : [];
-    let localFeed: any[] = Array.isArray(cachedBundle?.feedInventory) ? [...cachedBundle.feedInventory] : [];
-    let localFeeding: any[] = Array.isArray(cachedBundle?.feedingRecords) ? [...cachedBundle.feedingRecords] : [];
-    let localBagOpenLogs: any[] = Array.isArray(cachedBundle?.bagOpenLogs) ? [...cachedBundle.bagOpenLogs] : [];
-    let localFeedRemainingLogs: any[] = Array.isArray(cachedBundle?.feedRemainingLogs) ? [...cachedBundle.feedRemainingLogs] : [];
-    let localSalesCalculations: any[] = Array.isArray(cachedBundle?.salesCalculations) ? [...cachedBundle.salesCalculations] : [];
-    let localSalesPayments: any[] = [];
-    let localRevenues: any[] = Array.isArray(cachedBundle?.revenues) ? [...cachedBundle.revenues] : [];
-    let localExpenses: any[] = Array.isArray(cachedBundle?.expenses) ? [...cachedBundle.expenses] : [];
-    let localInvoices: any[] = Array.isArray(cachedBundle?.invoices) ? [...cachedBundle.invoices] : [];
-    let localTreatments: any[] = Array.isArray(cachedBundle?.treatmentRecords) ? [...cachedBundle.treatmentRecords] : [];
-    let localPondReports: any[] = Array.isArray(cachedBundle?.pondReports) ? [...cachedBundle.pondReports] : [];
-    let localGeneralReports: any[] = Array.isArray(cachedBundle?.reports) ? [...cachedBundle.reports] : [];
-    let localEquipment: any[] = Array.isArray(cachedBundle?.farmEquipment) ? [...cachedBundle.farmEquipment] : [];
-    let localInvestors: any[] = Array.isArray(cachedBundle?.investors) ? [...cachedBundle.investors] : [];
-    let localInvestments: any[] = Array.isArray(cachedBundle?.investments) ? [...cachedBundle.investments] : [];
-
-    const matchesUser = (item: any) => {
-      if (!item) return false;
-      return item.user_id === u.id || item.userId === u.id || item.owner_id === u.id ||
-             (u.email && (item.user_email === u.email || item.email === u.email));
-    };
-
-    const getItemsFromScopedAndSharedKeys = (sharedKeys: string[], scopedKeys: string[]) => {
-      let combined: any[] = [];
-      for (const k of scopedKeys) {
-        try {
-          const raw = localStorage.getItem(k);
-          if (raw) {
-            const parsed = JSON.parse(raw);
-            if (Array.isArray(parsed)) combined.push(...parsed);
-          }
-        } catch {}
-      }
-      for (const k of sharedKeys) {
-        try {
-          const raw = localStorage.getItem(k);
-          if (raw) {
-            const parsed = JSON.parse(raw);
-            if (Array.isArray(parsed)) combined.push(...parsed.filter(matchesUser));
-          }
-        } catch {}
-      }
-      return combined;
-    };
-
-    if (localFarms.length === 0) {
-      localFarms = getItemsFromScopedAndSharedKeys(["pondtora_farms"], [`pondtora_${u.id}_farms`, ...(u.email ? [`pondtora_${u.email}_farms`] : [])]);
-    }
-    if (localPonds.length === 0) {
-      localPonds = getItemsFromScopedAndSharedKeys(["pondtora_ponds"], [`pondtora_${u.id}_ponds`, ...(u.email ? [`pondtora_${u.email}_ponds`] : [])]);
-    }
-    if (localStaff.length === 0) {
-      localStaff = getItemsFromScopedAndSharedKeys(["pondtora_staff"], [`pondtora_${u.id}_staff`, ...(u.email ? [`pondtora_${u.email}_staff`] : [])]);
-    }
-    if (localFeed.length === 0) {
-      localFeed = getItemsFromScopedAndSharedKeys(["pondtora_feed_inventory", "pondtora_feeds"], [`pondtora_${u.id}_feed_inventory`, ...(u.email ? [`pondtora_${u.email}_feed_inventory`] : [])]);
-    }
-    if (localFeeding.length === 0) {
-      localFeeding = getItemsFromScopedAndSharedKeys(["pondtora_feeding_records"], [`pondtora_${u.id}_feeding_records`, ...(u.email ? [`pondtora_${u.email}_feeding_records`] : [])]);
-    }
-    if (localSalesCalculations.length === 0) {
-      localSalesCalculations = getItemsFromScopedAndSharedKeys(["pondtora_sales_calculations"], [`pondtora_${u.id}_sales_calculations`, ...(u.email ? [`pondtora_${u.email}_sales_calculations`] : [])]);
-    }
-    if (localInvoices.length === 0) {
-      localInvoices = getItemsFromScopedAndSharedKeys(["pondtora_invoices"], [`pondtora_${u.id}_invoices`, ...(u.email ? [`pondtora_${u.email}_invoices`] : [])]);
-    }
-    if (localRevenues.length === 0) {
-      localRevenues = getItemsFromScopedAndSharedKeys(["pondtora_revenues"], [`pondtora_${u.id}_revenues`, ...(u.email ? [`pondtora_${u.email}_revenues`] : [])]);
-    }
-    if (localExpenses.length === 0) {
-      localExpenses = getItemsFromScopedAndSharedKeys(["pondtora_expenses"], [`pondtora_${u.id}_expenses`, ...(u.email ? [`pondtora_${u.email}_expenses`] : [])]);
-    }
-
-    if (localFarms.length === 0 && (u.farmCount || u.farmName)) {
-      const resolvedName = (u.farmName && u.farmName.trim().toLowerCase() !== "primary farm")
-        ? u.farmName.trim()
-        : (u.name ? `${u.name}'s Farm` : "Fish Farm");
-      localFarms = [{ id: `farm-${u.id}`, name: resolvedName, city: u.city, state: u.state, country: u.country }];
-    }
-
-    return {
+    const rawBundle = {
       loading: false,
-      farms: localFarms,
-      ponds: localPonds,
-      stockEvents: localStockEvents,
-      mortalityEntries: localMortalityEntries,
-      feedInventory: localFeed,
-      feedingRecords: localFeeding,
-      bagOpenLogs: localBagOpenLogs,
-      feedRemainingLogs: localFeedRemainingLogs,
-      salesCalculations: localSalesCalculations,
-      salesPayments: localSalesPayments,
-      revenues: localRevenues,
-      expenses: localExpenses,
-      invoices: localInvoices,
-      treatments: localTreatments,
-      pondReports: localPondReports,
-      generalReports: localGeneralReports,
-      equipment: localEquipment,
-      staff: localStaff,
-      investors: localInvestors,
-      investments: localInvestments,
+      farms: readCol("farms", "farms"),
+      ponds: readCol("ponds", "ponds"),
+      stockEvents: readCol("stock_events", "stockEvents"),
+      mortalityEntries: readCol("mortality", "mortalityEntries"),
+      feedInventory: readCol("inventory", "feedInventory"),
+      feedingRecords: readCol("feeding", "feedingRecords"),
+      bagOpenLogs: readCol("bag_logs", "bagOpenLogs"),
+      feedRemainingLogs: readCol("remain_logs", "feedRemainingLogs"),
+      salesCalculations: readCol("sales_calculations", "salesCalculations"),
+      salesPayments: [],
+      revenues: readCol("revenues", "revenues"),
+      expenses: readCol("expenses", "expenses"),
+      invoices: readCol("invoices", "invoices"),
+      treatments: readCol("treatments", "treatmentRecords"),
+      pondReports: readCol("pond_reports", "pondReports"),
+      generalReports: readCol("reports", "reports"),
+      equipment: readCol("farm_equipment", "farmEquipment"),
+      staff: readCol("staff", "staffMembers"),
+      investors: readCol("investors", "investors"),
+      investments: readCol("investments", "investments"),
+      investmentPayments: readCol("investment_payments", "investmentPayments"),
+      priceGroups: readCol("price_groups", "priceGroups"),
+      customers: readCol("customers", "customers"),
     };
+
+    return normalizeUserBundle(rawBundle, u, deletedIds);
   };
 
   useEffect(() => {
@@ -766,79 +893,126 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
       return;
     }
 
-    // 1. Immediately provide cached/seeded data so modal opens in 0ms with non-zero counts
+    // 1. Immediately provide cached/seeded data so modal opens in 0ms
     const initialSync = getSynchronousUserExtra(viewUser);
     setUserExtra({ ...initialSync, loading: true });
 
     let isSubscribed = true;
 
-    const pickArray = (...candidates: any[][]) => {
-      for (const c of candidates) {
-        if (Array.isArray(c) && c.length > 0) return c;
-      }
-      return [];
-    };
+    const mergeCollections = (
+      dbArr: any[] | undefined,
+      rpcArr: any[] | undefined,
+      snapArr: any[] | undefined,
+      localArr: any[] | undefined,
+      deletedIds: Set<string>,
+      hasLocalDirectKey: boolean
+    ) => {
+      const notDel = (item: any) => item && (!item.id || !deletedIds.has(String(item.id)));
+      const cleanLocal = (Array.isArray(localArr) ? localArr : []).filter(notDel);
+      const cleanSnap = (Array.isArray(snapArr) ? snapArr : []).filter(notDel);
+      const cleanRpc = (Array.isArray(rpcArr) ? rpcArr : []).filter(notDel);
+      const cleanDb = (Array.isArray(dbArr) ? dbArr : []).filter(notDel);
 
-    const mergeById = (arrA: any[], arrB: any[]) => {
-      const a = Array.isArray(arrA) ? arrA : [];
-      const b = Array.isArray(arrB) ? arrB : [];
-      if (a.length === 0) return b;
-      if (b.length === 0) return a;
+      // If the user is actively on this browser and has a direct localStorage key (`pondtora_${uid}_${key}`),
+      // that array is the exact, authoritative in-app state (with any deleted items already removed).
+      // We still enrich any matching items with DB/RPC fields if needed, plus include any brand-new DB items.
       const map = new Map<string, any>();
-      b.forEach((item, idx) => map.set(String(item?.id || `b-${idx}`), item));
-      a.forEach((item, idx) => map.set(String(item?.id || `a-${idx}`), item));
+      for (const list of [cleanRpc, cleanDb, cleanSnap, cleanLocal]) {
+        for (let idx = 0; idx < list.length; idx++) {
+          const item = list[idx];
+          if (!item) continue;
+          const id = String(item.id || `item-${idx}`);
+          map.set(id, { ...(map.get(id) || {}), ...item });
+        }
+      }
+      if (hasLocalDirectKey && cleanLocal.length >= 0) {
+        // When direct local key exists on this device, do not resurrect items that the user removed locally
+        const localIds = new Set(cleanLocal.map((x: any) => String(x?.id)));
+        const snapIds = new Set(cleanSnap.map((x: any) => String(x?.id)));
+        if (localIds.size > 0 || snapIds.size === 0) {
+          return cleanLocal.map((locItem: any) => {
+            const id = String(locItem?.id || "");
+            return id && map.has(id) ? { ...map.get(id), ...locItem } : locItem;
+          });
+        }
+      }
       return Array.from(map.values());
     };
 
-    // 2. Fetch live data in background combining RPC + direct farm-aware table queries
+    // 2. Fetch live data in background combining platform_settings snapshot + RPC + direct farm-aware table queries
     const fetchLiveData = async () => {
       let rpcBundle: any = null;
+      let remoteSnap: any = null;
 
-      // Try security-definer RPC first (using correct p_user_id parameter, with fallback to target_user_id)
-      try {
-        const res1 = await (supabase.rpc as any)("get_user_full_records_for_admin", {
-          p_user_id: viewUser.id,
-        });
-        if (!res1.error && res1.data && typeof res1.data === "object") {
-          rpcBundle = res1.data;
-        } else {
-          const res2 = await (supabase.rpc as any)("get_user_full_records_for_admin", {
-            target_user_id: viewUser.id,
-            target_email: viewUser.email || null,
-          });
-          if (!res2.error && res2.data && typeof res2.data === "object") {
-            rpcBundle = res2.data;
+      const [rpcAttempt, snapAttempt] = await Promise.allSettled([
+        (async () => {
+          try {
+            const res1 = await (supabase.rpc as any)("get_user_full_records_for_admin", {
+              p_user_id: viewUser.id,
+            });
+            if (!res1.error && res1.data && typeof res1.data === "object") {
+              return res1.data;
+            }
+            const res2 = await (supabase.rpc as any)("get_user_full_records_for_admin", {
+              target_user_id: viewUser.id,
+              target_email: viewUser.email || null,
+            });
+            if (!res2.error && res2.data && typeof res2.data === "object") {
+              return res2.data;
+            }
+          } catch (e) {
+            console.warn("RPC get_user_full_records_for_admin note:", e);
           }
-        }
-      } catch (e) {
-        console.warn("RPC get_user_full_records_for_admin note:", e);
-      }
+          return null;
+        })(),
+        fetchUserSnapshotFromSettings(viewUser.id),
+      ]);
 
-      if (rpcBundle && isSubscribed) {
-        const fastFromRpc = {
-          loading: true,
-          farms: pickArray(rpcBundle.farms, initialSync.farms),
-          ponds: pickArray(rpcBundle.ponds, initialSync.ponds),
-          stockEvents: pickArray(rpcBundle.stock_events, rpcBundle.stockEvents, initialSync.stockEvents),
-          mortalityEntries: pickArray(rpcBundle.mortality_entries, rpcBundle.mortalityEntries, initialSync.mortalityEntries),
-          feedInventory: pickArray(rpcBundle.feed_inventory, rpcBundle.feedInventory, initialSync.feedInventory),
-          feedingRecords: pickArray(rpcBundle.feeding_records, rpcBundle.feedingRecords, initialSync.feedingRecords),
-          bagOpenLogs: pickArray(rpcBundle.bag_open_logs, rpcBundle.bagOpenLogs, initialSync.bagOpenLogs),
-          feedRemainingLogs: pickArray(rpcBundle.feed_remaining_logs, rpcBundle.feedRemainingLogs, initialSync.feedRemainingLogs),
-          salesCalculations: pickArray(rpcBundle.sales_calculations, rpcBundle.salesCalculations, initialSync.salesCalculations),
-          salesPayments: pickArray(rpcBundle.sales_payments, rpcBundle.salesPayments, initialSync.salesPayments),
-          revenues: pickArray(rpcBundle.revenues, initialSync.revenues),
-          expenses: pickArray(rpcBundle.expenses, initialSync.expenses),
-          invoices: pickArray(rpcBundle.invoices, initialSync.invoices),
-          treatments: pickArray(rpcBundle.treatment_records, rpcBundle.treatments, initialSync.treatments),
-          pondReports: pickArray(rpcBundle.pond_reports, rpcBundle.pondReports, initialSync.pondReports),
-          generalReports: pickArray(rpcBundle.reports, rpcBundle.generalReports, initialSync.generalReports),
-          equipment: pickArray(rpcBundle.farm_equipment, rpcBundle.equipment, initialSync.equipment),
-          staff: pickArray(rpcBundle.staff_members, rpcBundle.staff, initialSync.staff),
-          investors: pickArray(rpcBundle.investors, initialSync.investors),
-          investments: pickArray(rpcBundle.investments, initialSync.investments),
-        };
-        setUserExtra(fastFromRpc);
+      if (rpcAttempt.status === "fulfilled") rpcBundle = rpcAttempt.value;
+      if (snapAttempt.status === "fulfilled") remoteSnap = snapAttempt.value;
+
+      const deletedIds = getDeletedIdsForUser(viewUser.id, remoteSnap?.deletedIds);
+      const hasDirect = (directKey: string) => {
+        try {
+          return localStorage.getItem(`pondtora_${viewUser.id}_${directKey}`) !== null;
+        } catch {
+          return false;
+        }
+      };
+
+      if ((rpcBundle || remoteSnap) && isSubscribed) {
+        const fastMerged = normalizeUserBundle(
+          {
+            loading: true,
+            activeFarmId: remoteSnap?.activeFarmId || initialSync.activeFarmId,
+            farms: mergeCollections([], rpcBundle?.farms, remoteSnap?.farms, initialSync.farms, deletedIds, hasDirect("farms")),
+            ponds: mergeCollections([], rpcBundle?.ponds, remoteSnap?.ponds, initialSync.ponds, deletedIds, hasDirect("ponds")),
+            stockEvents: mergeCollections([], rpcBundle?.stock_events || rpcBundle?.stockEvents, remoteSnap?.stockEvents, initialSync.stockEvents, deletedIds, hasDirect("stock_events")),
+            mortalityEntries: mergeCollections([], rpcBundle?.mortality_entries || rpcBundle?.mortalityEntries, remoteSnap?.mortalityEntries, initialSync.mortalityEntries, deletedIds, hasDirect("mortality")),
+            feedInventory: mergeCollections([], rpcBundle?.feed_inventory || rpcBundle?.feedInventory, remoteSnap?.feedInventory, initialSync.feedInventory, deletedIds, hasDirect("inventory")),
+            feedingRecords: mergeCollections([], rpcBundle?.feeding_records || rpcBundle?.feedingRecords, remoteSnap?.feedingRecords, initialSync.feedingRecords, deletedIds, hasDirect("feeding")),
+            bagOpenLogs: mergeCollections([], rpcBundle?.bag_open_logs || rpcBundle?.bagOpenLogs, remoteSnap?.bagOpenLogs, initialSync.bagOpenLogs, deletedIds, hasDirect("bag_logs")),
+            feedRemainingLogs: mergeCollections([], rpcBundle?.feed_remaining_logs || rpcBundle?.feedRemainingLogs, remoteSnap?.feedRemainingLogs, initialSync.feedRemainingLogs, deletedIds, hasDirect("remain_logs")),
+            salesCalculations: mergeCollections([], rpcBundle?.sales_calculations || rpcBundle?.salesCalculations, remoteSnap?.salesCalculations, initialSync.salesCalculations, deletedIds, hasDirect("sales_calculations")),
+            salesPayments: mergeCollections([], rpcBundle?.sales_payments || rpcBundle?.salesPayments, remoteSnap?.salesPayments, initialSync.salesPayments, deletedIds, false),
+            revenues: mergeCollections([], rpcBundle?.revenues, remoteSnap?.revenues, initialSync.revenues, deletedIds, hasDirect("revenues")),
+            expenses: mergeCollections([], rpcBundle?.expenses, remoteSnap?.expenses, initialSync.expenses, deletedIds, hasDirect("expenses")),
+            invoices: mergeCollections([], rpcBundle?.invoices, remoteSnap?.invoices, initialSync.invoices, deletedIds, hasDirect("invoices")),
+            treatments: mergeCollections([], rpcBundle?.treatment_records || rpcBundle?.treatments, remoteSnap?.treatmentRecords, initialSync.treatments, deletedIds, hasDirect("treatments")),
+            pondReports: mergeCollections([], rpcBundle?.pond_reports || rpcBundle?.pondReports, remoteSnap?.pondReports, initialSync.pondReports, deletedIds, hasDirect("pond_reports")),
+            generalReports: mergeCollections([], rpcBundle?.reports || rpcBundle?.generalReports, remoteSnap?.reports, initialSync.generalReports, deletedIds, hasDirect("reports")),
+            equipment: mergeCollections([], rpcBundle?.farm_equipment || rpcBundle?.equipment, remoteSnap?.farmEquipment, initialSync.equipment, deletedIds, hasDirect("farm_equipment")),
+            staff: mergeCollections([], rpcBundle?.staff_members || rpcBundle?.staff, remoteSnap?.staffMembers, initialSync.staff, deletedIds, hasDirect("staff")),
+            investors: mergeCollections([], rpcBundle?.investors, remoteSnap?.investors, initialSync.investors, deletedIds, hasDirect("investors")),
+            investments: mergeCollections([], rpcBundle?.investments, remoteSnap?.investments, initialSync.investments, deletedIds, hasDirect("investments")),
+            investmentPayments: mergeCollections([], rpcBundle?.investment_payments || rpcBundle?.investmentPayments, remoteSnap?.investmentPayments, initialSync.investmentPayments, deletedIds, hasDirect("investment_payments")),
+            priceGroups: mergeCollections([], rpcBundle?.price_groups || rpcBundle?.priceGroups, remoteSnap?.priceGroups, initialSync.priceGroups, deletedIds, hasDirect("price_groups")),
+            customers: mergeCollections([], rpcBundle?.customers, remoteSnap?.customers, initialSync.customers, deletedIds, hasDirect("customers")),
+          },
+          viewUser,
+          deletedIds
+        );
+        setUserExtra(fastMerged);
       }
 
       // Also run direct table queries (scoped to both user_id AND all of the user's farm_ids so staff-logged records are included)
@@ -853,8 +1027,15 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
           .eq("user_id", viewUser.id)
           .order("created_at", { ascending: true });
 
-        const knownFarms = mergeById(farmsRes.data || [], rpcBundle?.farms || []);
-        const farmIds = knownFarms
+        const preliminaryFarms = mergeCollections(
+          farmsRes.data || [],
+          rpcBundle?.farms,
+          remoteSnap?.farms,
+          initialSync.farms,
+          deletedIds,
+          hasDirect("farms")
+        );
+        const farmIds = preliminaryFarms
           .map((f: any) => f?.id)
           .filter((id: any) => typeof id === "string" && id.length > 0 && !id.startsWith("farm-"));
 
@@ -871,6 +1052,7 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
           supabase.from("bag_open_logs").select("*").or(userOrFarmFilter).order("date", { ascending: false }),
           supabase.from("feed_remaining_logs").select("*").or(userOrFarmFilter).order("date", { ascending: false }),
           supabase.from("sales_calculations").select("*").or(userOrFarmFilter).order("created_at", { ascending: false }),
+          supabase.from("sales_calculation_items").select("*").order("created_at", { ascending: true }),
           supabase.from("sales_calculation_payments").select("*").order("created_at", { ascending: false }),
           supabase.from("revenues").select("*").or(userOrFarmFilter).order("date", { ascending: false }),
           supabase.from("expenses").select("*").or(userOrFarmFilter).order("date", { ascending: false }),
@@ -882,6 +1064,9 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
           supabase.from("staff_members").select("*").eq("user_id", viewUser.id).order("created_at", { ascending: false }),
           supabase.from("investors").select("*").or(userOrFarmFilter).order("created_at", { ascending: false }),
           supabase.from("investments").select("*").or(userOrFarmFilter).order("created_at", { ascending: false }),
+          supabase.from("investment_payments").select("*").or(userOrFarmFilter).order("created_at", { ascending: false }),
+          supabase.from("price_groups").select("*").or(userOrFarmFilter).order("created_at", { ascending: true }),
+          supabase.from("customers").select("*").or(userOrFarmFilter).order("created_at", { ascending: false }),
         ]);
 
         return { farmsRes, settled };
@@ -898,47 +1083,79 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
       const { farmsRes, settled } = result;
       const [
         pondsRes, stockRes, mortRes, feedRes, feedingRes, bagRes, remRes,
-        salesRes, paymentsRes, revRes, expRes, invRes, treatRes, repRes, genRepRes, equipRes, staffRes, investRes, investmentRes
+        salesRes, salesItemsRes, paymentsRes, revRes, expRes, invRes, treatRes, repRes, genRepRes, equipRes, staffRes, investRes, investmentRes, invPaymentsRes, priceGroupsRes, customersRes
       ] = settled;
 
-      const extract = (res: PromiseSettledResult<any>, rpcArr: any[], fallback: any[]) => {
-        const directRows = (res.status === "fulfilled" && Array.isArray(res.value?.data)) ? res.value.data : [];
-        const merged = mergeById(directRows, rpcArr || []);
-        return merged.length > 0 ? merged : fallback;
-      };
+      const getRows = (res: PromiseSettledResult<any>) =>
+        res.status === "fulfilled" && Array.isArray(res.value?.data) ? res.value.data : [];
 
-      const mergedSales = extract(salesRes, rpcBundle?.sales_calculations || rpcBundle?.salesCalculations, initialSync.salesCalculations);
-      const userCalcIds = new Set(mergedSales.map((s: any) => s?.id).filter(Boolean));
-      const rawPayments = extract(paymentsRes, rpcBundle?.sales_payments || rpcBundle?.salesPayments, initialSync.salesPayments);
+      const rawSales = mergeCollections(
+        getRows(salesRes),
+        rpcBundle?.sales_calculations || rpcBundle?.salesCalculations,
+        remoteSnap?.salesCalculations,
+        initialSync.salesCalculations,
+        deletedIds,
+        hasDirect("sales_calculations")
+      );
+      const salesItemsRows = getRows(salesItemsRes);
+      const itemsByCalcId = new Map<string, any[]>();
+      salesItemsRows.forEach((it: any) => {
+        const cid = String(it?.calculation_id || it?.calculationId || "");
+        if (!cid) return;
+        const arr = itemsByCalcId.get(cid) || [];
+        arr.push(it);
+        itemsByCalcId.set(cid, arr);
+      });
+      const enrichedSales = rawSales.map((sc: any) => {
+        if (Array.isArray(sc.items) && sc.items.length > 0) return sc;
+        const dbItems = itemsByCalcId.get(String(sc.id || "")) || [];
+        return dbItems.length > 0 ? { ...sc, items: dbItems } : sc;
+      });
+
+      const userCalcIds = new Set(enrichedSales.map((s: any) => String(s?.id)).filter(Boolean));
+      const rawPayments = mergeCollections(
+        getRows(paymentsRes),
+        rpcBundle?.sales_payments || rpcBundle?.salesPayments,
+        remoteSnap?.salesPayments,
+        initialSync.salesPayments,
+        deletedIds,
+        false
+      );
       const filteredPayments = rawPayments.filter(
-        (p: any) => p?.user_id === viewUser.id || (p?.calculation_id && userCalcIds.has(p.calculation_id))
+        (p: any) => p?.user_id === viewUser.id || (p?.calculation_id && userCalcIds.has(String(p.calculation_id)))
       );
 
-      const updated = {
-        loading: false,
-        farms: mergeById(farmsRes.data || [], rpcBundle?.farms || []).length > 0
-          ? mergeById(farmsRes.data || [], rpcBundle?.farms || [])
-          : initialSync.farms,
-        ponds: extract(pondsRes, rpcBundle?.ponds, initialSync.ponds),
-        stockEvents: extract(stockRes, rpcBundle?.stock_events || rpcBundle?.stockEvents, initialSync.stockEvents),
-        mortalityEntries: extract(mortRes, rpcBundle?.mortality_entries || rpcBundle?.mortalityEntries, initialSync.mortalityEntries),
-        feedInventory: extract(feedRes, rpcBundle?.feed_inventory || rpcBundle?.feedInventory, initialSync.feedInventory),
-        feedingRecords: extract(feedingRes, rpcBundle?.feeding_records || rpcBundle?.feedingRecords, initialSync.feedingRecords),
-        bagOpenLogs: extract(bagRes, rpcBundle?.bag_open_logs || rpcBundle?.bagOpenLogs, initialSync.bagOpenLogs),
-        feedRemainingLogs: extract(remRes, rpcBundle?.feed_remaining_logs || rpcBundle?.feedRemainingLogs, initialSync.feedRemainingLogs),
-        salesCalculations: mergedSales,
-        salesPayments: filteredPayments,
-        revenues: extract(revRes, rpcBundle?.revenues, initialSync.revenues),
-        expenses: extract(expRes, rpcBundle?.expenses, initialSync.expenses),
-        invoices: extract(invRes, rpcBundle?.invoices, initialSync.invoices),
-        treatments: extract(treatRes, rpcBundle?.treatment_records || rpcBundle?.treatments, initialSync.treatments),
-        pondReports: extract(repRes, rpcBundle?.pond_reports || rpcBundle?.pondReports, initialSync.pondReports),
-        generalReports: extract(genRepRes, rpcBundle?.reports || rpcBundle?.generalReports, initialSync.generalReports),
-        equipment: extract(equipRes, rpcBundle?.farm_equipment || rpcBundle?.equipment, initialSync.equipment),
-        staff: extract(staffRes, rpcBundle?.staff_members || rpcBundle?.staff, initialSync.staff),
-        investors: extract(investRes, rpcBundle?.investors, initialSync.investors),
-        investments: extract(investmentRes, rpcBundle?.investments, initialSync.investments),
-      };
+      const updated = normalizeUserBundle(
+        {
+          loading: false,
+          activeFarmId: remoteSnap?.activeFarmId || initialSync.activeFarmId,
+          farms: mergeCollections(farmsRes.data || [], rpcBundle?.farms, remoteSnap?.farms, initialSync.farms, deletedIds, hasDirect("farms")),
+          ponds: mergeCollections(getRows(pondsRes), rpcBundle?.ponds, remoteSnap?.ponds, initialSync.ponds, deletedIds, hasDirect("ponds")),
+          stockEvents: mergeCollections(getRows(stockRes), rpcBundle?.stock_events || rpcBundle?.stockEvents, remoteSnap?.stockEvents, initialSync.stockEvents, deletedIds, hasDirect("stock_events")),
+          mortalityEntries: mergeCollections(getRows(mortRes), rpcBundle?.mortality_entries || rpcBundle?.mortalityEntries, remoteSnap?.mortalityEntries, initialSync.mortalityEntries, deletedIds, hasDirect("mortality")),
+          feedInventory: mergeCollections(getRows(feedRes), rpcBundle?.feed_inventory || rpcBundle?.feedInventory, remoteSnap?.feedInventory, initialSync.feedInventory, deletedIds, hasDirect("inventory")),
+          feedingRecords: mergeCollections(getRows(feedingRes), rpcBundle?.feeding_records || rpcBundle?.feedingRecords, remoteSnap?.feedingRecords, initialSync.feedingRecords, deletedIds, hasDirect("feeding")),
+          bagOpenLogs: mergeCollections(getRows(bagRes), rpcBundle?.bag_open_logs || rpcBundle?.bagOpenLogs, remoteSnap?.bagOpenLogs, initialSync.bagOpenLogs, deletedIds, hasDirect("bag_logs")),
+          feedRemainingLogs: mergeCollections(getRows(remRes), rpcBundle?.feed_remaining_logs || rpcBundle?.feedRemainingLogs, remoteSnap?.feedRemainingLogs, initialSync.feedRemainingLogs, deletedIds, hasDirect("remain_logs")),
+          salesCalculations: enrichedSales,
+          salesPayments: filteredPayments,
+          revenues: mergeCollections(getRows(revRes), rpcBundle?.revenues, remoteSnap?.revenues, initialSync.revenues, deletedIds, hasDirect("revenues")),
+          expenses: mergeCollections(getRows(expRes), rpcBundle?.expenses, remoteSnap?.expenses, initialSync.expenses, deletedIds, hasDirect("expenses")),
+          invoices: mergeCollections(getRows(invRes), rpcBundle?.invoices, remoteSnap?.invoices, initialSync.invoices, deletedIds, hasDirect("invoices")),
+          treatments: mergeCollections(getRows(treatRes), rpcBundle?.treatment_records || rpcBundle?.treatments, remoteSnap?.treatmentRecords, initialSync.treatments, deletedIds, hasDirect("treatments")),
+          pondReports: mergeCollections(getRows(repRes), rpcBundle?.pond_reports || rpcBundle?.pondReports, remoteSnap?.pondReports, initialSync.pondReports, deletedIds, hasDirect("pond_reports")),
+          generalReports: mergeCollections(getRows(genRepRes), rpcBundle?.reports || rpcBundle?.generalReports, remoteSnap?.reports, initialSync.generalReports, deletedIds, hasDirect("reports")),
+          equipment: mergeCollections(getRows(equipRes), rpcBundle?.farm_equipment || rpcBundle?.equipment, remoteSnap?.farmEquipment, initialSync.equipment, deletedIds, hasDirect("farm_equipment")),
+          staff: mergeCollections(getRows(staffRes), rpcBundle?.staff_members || rpcBundle?.staff, remoteSnap?.staffMembers, initialSync.staff, deletedIds, hasDirect("staff")),
+          investors: mergeCollections(getRows(investRes), rpcBundle?.investors, remoteSnap?.investors, initialSync.investors, deletedIds, hasDirect("investors")),
+          investments: mergeCollections(getRows(investmentRes), rpcBundle?.investments, remoteSnap?.investments, initialSync.investments, deletedIds, hasDirect("investments")),
+          investmentPayments: mergeCollections(getRows(invPaymentsRes), rpcBundle?.investment_payments || rpcBundle?.investmentPayments, remoteSnap?.investmentPayments, initialSync.investmentPayments, deletedIds, hasDirect("investment_payments")),
+          priceGroups: mergeCollections(getRows(priceGroupsRes), rpcBundle?.price_groups || rpcBundle?.priceGroups, remoteSnap?.priceGroups, initialSync.priceGroups, deletedIds, hasDirect("price_groups")),
+          customers: mergeCollections(getRows(customersRes), rpcBundle?.customers, remoteSnap?.customers, initialSync.customers, deletedIds, hasDirect("customers")),
+        },
+        viewUser,
+        deletedIds
+      );
 
       userExtraCacheRef.current.set(viewUser.id, updated);
       if (viewUser.email) userExtraCacheRef.current.set(viewUser.email, updated);
@@ -1857,58 +2074,155 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                 return true;
               };
 
-              const passesFarmFilter = (rawFarmId: any) => {
-                if (selectedFarmFilterId === "all") return true;
-                if (!rawFarmId) return true;
-                return String(rawFarmId) === String(selectedFarmFilterId);
-              };
-
               // Filtered datasets for active tab views & totals
               const allFarms = userExtra?.farms || [];
               const farmNameById = new Map<string, string>();
+              const validFarmIds = new Set<string>();
               allFarms.forEach((f: any) => {
-                if (f?.id) farmNameById.set(String(f.id), f.name || "Farm");
+                if (f?.id) {
+                  const sid = String(f.id);
+                  farmNameById.set(sid, f.name || "Farm");
+                  validFarmIds.add(sid);
+                }
               });
+              const defaultFid = allFarms[0]?.id ? String(allFarms[0].id) : "";
 
-              const allPonds = (userExtra?.ponds || []).filter((p: any) => passesFarmFilter(p.farm_id || p.farmId));
-              const allStockEvents = (userExtra?.stockEvents || []).filter((s: any) => passesFarmFilter(s.farm_id || s.farmId) && passesDateFilter(s.date || s.event_date || s.created_at || s.createdAt));
-              const allMortalityEntries = (userExtra?.mortalityEntries || []).filter((m: any) => passesFarmFilter(m.farm_id || m.farmId) && passesDateFilter(m.date || m.created_at || m.createdAt));
+              // Exact replica of App.tsx's matchesFarm helper
+              const matchesSpecificFarm = (rawFarmId: any, pondName: any, targetFid: string) => {
+                const fid = rawFarmId ? String(rawFarmId) : "";
+                if (fid === targetFid) return true;
+                if (pondName) {
+                  const pNameLower = String(pondName).trim().toLowerCase();
+                  const belongsToTargetPond = (userExtra?.ponds || []).some(
+                    (p: any) =>
+                      String(p.name || "").trim().toLowerCase() === pNameLower &&
+                      (String(p.farm_id || p.farmId || "") === targetFid ||
+                        ((!p.farm_id && !p.farmId) && (allFarms.length <= 1 || defaultFid === targetFid)))
+                  );
+                  if (belongsToTargetPond) return true;
+                }
+                if (!fid || fid === "default" || fid === "—") {
+                  return allFarms.length <= 1 || defaultFid === targetFid;
+                }
+                return false;
+              };
+
+              const passesFarmFilter = (rawFarmId: any, pondName?: any) => {
+                if (selectedFarmFilterId === "all") {
+                  const fid = rawFarmId ? String(rawFarmId) : "";
+                  if (fid && fid !== "default" && fid !== "—" && validFarmIds.size > 0 && !validFarmIds.has(fid)) {
+                    return false;
+                  }
+                  return true;
+                }
+                return matchesSpecificFarm(rawFarmId, pondName, String(selectedFarmFilterId));
+              };
+
+              const allPonds = (userExtra?.ponds || []).filter((p: any) => passesFarmFilter(p.farm_id || p.farmId, p.name));
+              const allStockEvents = (userExtra?.stockEvents || []).filter((s: any) => passesFarmFilter(s.farm_id || s.farmId, s.pond_name || s.pondName) && passesDateFilter(s.date || s.event_date || s.created_at || s.createdAt));
+              const allMortalityEntries = (userExtra?.mortalityEntries || []).filter((m: any) => passesFarmFilter(m.farm_id || m.farmId, m.pond) && passesDateFilter(m.date || m.created_at || m.createdAt));
               const allFeed = (userExtra?.feedInventory || []).filter((f: any) => passesFarmFilter(f.farm_id || f.farmId));
-              const allFeeding = (userExtra?.feedingRecords || []).filter((r: any) => passesFarmFilter(r.farm_id || r.farmId) && passesDateFilter(r.date || r.created_at || r.createdAt));
-              const allBagLogs = (userExtra?.bagOpenLogs || []).filter((b: any) => passesFarmFilter(b.farm_id || b.farmId) && passesDateFilter(b.date || b.created_at || b.createdAt));
+              const allFeeding = (userExtra?.feedingRecords || []).filter((r: any) => passesFarmFilter(r.farm_id || r.farmId, r.pond) && passesDateFilter(r.date || r.created_at || r.createdAt));
+              const allBagLogsUnfilteredDate = (userExtra?.bagOpenLogs || []).filter((b: any) => passesFarmFilter(b.farm_id || b.farmId, b.pond));
+              const allBagLogs = allBagLogsUnfilteredDate.filter((b: any) => passesDateFilter(b.date || b.created_at || b.createdAt));
               const allFeedRem = (userExtra?.feedRemainingLogs || []).filter((b: any) => passesFarmFilter(b.farm_id || b.farmId) && passesDateFilter(b.date || b.created_at || b.createdAt));
               const allSales = (userExtra?.salesCalculations || []).filter((s: any) => passesFarmFilter(s.farm_id || s.farmId) && passesDateFilter(s.calc_date || s.created_at || s.createdAt));
               const allPayments = (userExtra?.salesPayments || []).filter((p: any) => passesDateFilter(p.payment_date || p.created_at || p.createdAt));
-              const allRev = (userExtra?.revenues || []).filter((r: any) => passesFarmFilter(r.farm_id || r.farmId) && passesDateFilter(r.date || r.created_at || r.createdAt));
-              const allExp = (userExtra?.expenses || []).filter((e: any) => passesFarmFilter(e.farm_id || e.farmId) && passesDateFilter(e.date || e.created_at || e.createdAt));
-              const allInvoices = (userExtra?.invoices || []).filter((i: any) => passesFarmFilter(i.farm_id || i.farmId) && passesDateFilter(i.invoice_date || i.invoiceDate || i.created_at || i.createdAt));
-              const allTreatments = (userExtra?.treatments || []).filter((t: any) => passesFarmFilter(t.farm_id || t.farmId) && passesDateFilter(t.date || t.created_at || t.createdAt));
-              const allPondReports = (userExtra?.pondReports || []).filter((p: any) => passesFarmFilter(p.farm_id || p.farmId) && passesDateFilter(p.report_date || p.reportDate || p.date || p.created_at || p.createdAt));
+              const allRev = (userExtra?.revenues || []).filter((r: any) => !String(r.notes || "").startsWith("Payment for Invoice") && passesFarmFilter(r.farm_id || r.farmId, r.pond) && passesDateFilter(r.date || r.created_at || r.createdAt));
+              const allExp = (userExtra?.expenses || []).filter((e: any) => passesFarmFilter(e.farm_id || e.farmId, e.pond) && passesDateFilter(e.date || e.created_at || e.createdAt));
+              const allInvoices = (userExtra?.invoices || []).filter((i: any) => passesFarmFilter(i.farm_id || i.farmId, i.pond) && passesDateFilter(i.invoice_date || i.invoiceDate || i.created_at || i.createdAt));
+              const allTreatments = (userExtra?.treatments || []).filter((t: any) => passesFarmFilter(t.farm_id || t.farmId, t.pond) && passesDateFilter(t.date || t.created_at || t.createdAt));
+              const allPondReports = (userExtra?.pondReports || []).filter((p: any) => passesFarmFilter(p.farm_id || p.farmId, p.pond_name || p.pondName) && passesDateFilter(p.report_date || p.reportDate || p.date || p.created_at || p.createdAt));
               const allGeneralReports = (userExtra?.generalReports || []).filter((r: any) => passesFarmFilter(r.farm_id || r.farmId) && passesDateFilter(r.date || r.created_at || r.createdAt));
               const allEquipment = (userExtra?.equipment || []).filter((eq: any) => passesFarmFilter(eq.farm_id || eq.farmId));
               const allStaff = userExtra?.staff || [];
               const allInvestors = (userExtra?.investors || []).filter((inv: any) => passesFarmFilter(inv.farm_id || inv.farmId));
               const allInvestments = (userExtra?.investments || []).filter((inv: any) => passesFarmFilter(inv.farm_id || inv.farmId));
 
-              // Financial & operational aggregations
+              // Financial & operational aggregations (matching FinancialDashboard in App.tsx)
               const periodRevenue = allRev.reduce((s: number, r: any) => s + (Number(r?.amount) || 0), 0);
               const periodExpenses = allExp.reduce((s: number, e: any) => s + (Number(e?.amount) || 0), 0);
               const periodNetProfit = periodRevenue - periodExpenses;
+              const profitMarginPct = periodRevenue > 0 ? Math.round((periodNetProfit / periodRevenue) * 100) : 0;
+
+              const feedExp = allExp.filter((e: any) => e.category === "Feed").reduce((s: number, e: any) => s + (Number(e?.amount) || 0), 0);
+              const stockExp = allExp.filter((e: any) => e.category === "Fish Stock").reduce((s: number, e: any) => s + (Number(e?.amount) || 0), 0);
+              const maintExp = allExp.filter((e: any) => e.category === "Maintenance").reduce((s: number, e: any) => s + (Number(e?.amount) || 0), 0);
+              const laborExp = allExp.filter((e: any) => ["Labor", "Utilities", "General Overhead", "Overhead"].includes(e.category)).reduce((s: number, e: any) => s + (Number(e?.amount) || 0), 0);
+
               const periodFeedKg = allFeeding.reduce((s: number, r: any) => s + (Number(r?.total ?? ((Number(r?.morning) || 0) + (Number(r?.evening) || 0))) || 0), 0);
               const totalSalesAmount = allSales.reduce((s: number, sc: any) => s + (Number(sc?.total_amount ?? sc?.totalAmount) || 0), 0);
               const totalSalesPaid = allSales.reduce((s: number, sc: any) => s + (Number(sc?.amount_paid ?? sc?.amountPaid) || 0), 0);
               const totalSalesOutstanding = Math.max(0, totalSalesAmount - totalSalesPaid);
 
-              // Lifetime / current stock totals
-              const lifetimeFish = allPonds.reduce(
-                (s: number, p: any) => s + (Number(p?.current_count ?? p?.currentCount ?? p?.initial_stock ?? p?.initialStock) || 0),
-                0
-              );
+              // Exact fish count calculation matching PondManagementPage.tsx & App.tsx
+              const getPondActiveFish = (p: any) => {
+                if (String(p?.status || "").toLowerCase() === "empty") return 0;
+                return Number(p?.currentCount ?? p?.current_count ?? 0) || 0;
+              };
+              const lifetimeFish = allPonds.reduce((s: number, p: any) => s + getPondActiveFish(p), 0);
+
+              // Exact Feed Stock by Brand & Size calculation matching FeedInventoryPage.tsx & FinancialDashboard in App.tsx
+              const feedGroupMap = new Map<string, { brand: string; size: string; bags: number; totalKg: number; totalCost: number; weightPerBag: number; latestCostPerBag: number; latestDate: string }>();
+              allFeed.forEach((f: any) => {
+                const brand = String(f.brand || "Feed").trim();
+                const size = String(f.size || "Standard").trim();
+                const key = `${brand.toLowerCase()}|${size.toLowerCase()}`;
+                const bags = Number(f.bags ?? f.bags_in_stock) || 0;
+                const wt = Number(f.weightPerBag ?? f.weight_per_bag) || 15;
+                const cost = Number(f.costPerBag ?? f.cost_per_bag) || 0;
+                const pDate = String(f.purchaseDate || f.purchase_date || "");
+                const existing = feedGroupMap.get(key);
+                if (existing) {
+                  existing.bags += bags;
+                  existing.totalKg += bags * wt;
+                  existing.totalCost += bags * cost;
+                  if (pDate >= existing.latestDate) {
+                    existing.latestCostPerBag = cost;
+                    existing.latestDate = pDate;
+                    existing.weightPerBag = wt;
+                  }
+                } else {
+                  feedGroupMap.set(key, {
+                    brand,
+                    size,
+                    bags,
+                    totalKg: bags * wt,
+                    totalCost: bags * cost,
+                    weightPerBag: wt,
+                    latestCostPerBag: cost,
+                    latestDate: pDate,
+                  });
+                }
+              });
+
+              const activeStockByBrandSize = Array.from(feedGroupMap.entries()).map(([, g]) => {
+                const opened = allBagLogsUnfilteredDate
+                  .filter(
+                    (l: any) =>
+                      String(l.feedBrand || l.feed_brand || l.brand || "").trim().toLowerCase() === g.brand.toLowerCase() &&
+                      String(l.feedSize || l.feed_size || l.size || "").trim().toLowerCase() === g.size.toLowerCase()
+                  )
+                  .reduce((s: number, l: any) => s + (Number(l.bagsOpened ?? l.bags_opened ?? l.bags) || 0), 0);
+                const remainingBags = Math.max(0, g.bags - opened);
+                const remainingKg = remainingBags * g.weightPerBag;
+                const avgCost = g.bags > 0 ? g.totalCost / g.bags : g.latestCostPerBag;
+                const stockValue = remainingBags * avgCost;
+                return {
+                  ...g,
+                  openedBags: opened,
+                  remainingBags,
+                  remainingKg,
+                  avgCost,
+                  stockValue,
+                };
+              });
+
               const totalPurchasedBags = allFeed.reduce((s: number, f: any) => s + (Number(f?.bags ?? f?.bags_in_stock) || 0), 0);
-              const totalOpenedBags = (userExtra?.bagOpenLogs || [])
-                .filter((b: any) => passesFarmFilter(b.farm_id || b.farmId))
-                .reduce((s: number, b: any) => s + (Number(b?.bags_opened ?? b?.bagsOpened ?? b?.bags) || 0), 0);
-              const lifetimeFeedBags = Math.max(0, totalPurchasedBags - totalOpenedBags);
+              const totalOpenedBags = allBagLogsUnfilteredDate.reduce((s: number, b: any) => s + (Number(b?.bagsOpened ?? b?.bags_opened ?? b?.bags) || 0), 0);
+              const lifetimeFeedBags = activeStockByBrandSize.reduce((s, g) => s + g.remainingBags, 0);
+              const lifetimeFeedKg = activeStockByBrandSize.reduce((s, g) => s + g.remainingKg, 0);
+              const feedInventoryValue = activeStockByBrandSize.reduce((s, g) => s + g.stockValue, 0);
 
               const tabsList = [
                 { id: "summary", label: "📊 Farm Overview", count: null },
@@ -2122,10 +2436,15 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                           ) : (
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                               {allFarms.map((f: any, idx: number) => {
-                                const fPonds = (userExtra?.ponds || []).filter((p: any) => String(p.farm_id || p.farmId) === String(f.id) || allFarms.length === 1);
-                                const fFish = fPonds.reduce((s: number, p: any) => s + (Number(p?.current_count ?? p?.currentCount ?? p?.initial_stock ?? p?.initialStock) || 0), 0);
-                                const fRev = (userExtra?.revenues || []).filter((r: any) => String(r.farm_id || r.farmId) === String(f.id) || allFarms.length === 1).reduce((s: number, r: any) => s + (Number(r?.amount) || 0), 0);
-                                const fExp = (userExtra?.expenses || []).filter((e: any) => String(e.farm_id || e.farmId) === String(f.id) || allFarms.length === 1).reduce((s: number, e: any) => s + (Number(e?.amount) || 0), 0);
+                                const fid = String(f.id);
+                                const fPonds = (userExtra?.ponds || []).filter((p: any) => matchesSpecificFarm(p.farm_id || p.farmId, p.name, fid));
+                                const fFish = fPonds.reduce((s: number, p: any) => s + getPondActiveFish(p), 0);
+                                const fRev = (userExtra?.revenues || [])
+                                  .filter((r: any) => !String(r.notes || "").startsWith("Payment for Invoice") && matchesSpecificFarm(r.farm_id || r.farmId, r.pond, fid))
+                                  .reduce((s: number, r: any) => s + (Number(r?.amount) || 0), 0);
+                                const fExp = (userExtra?.expenses || [])
+                                  .filter((e: any) => matchesSpecificFarm(e.farm_id || e.farmId, e.pond, fid))
+                                  .reduce((s: number, e: any) => s + (Number(e?.amount) || 0), 0);
                                 return (
                                   <div key={f.id || idx} className="p-3 bg-white border border-slate-200 rounded-xl shadow-2xs">
                                     <div className="flex items-center justify-between">
@@ -2198,7 +2517,7 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                               onClick={() => setFarmerDataTab("finance")}
                               className="bg-emerald-50/60 border border-emerald-200/70 p-2.5 rounded-xl text-center cursor-pointer hover:border-emerald-400 transition-colors"
                             >
-                              <p className="text-[10px] uppercase font-bold text-emerald-700">Recorded Revenue</p>
+                              <p className="text-[10px] uppercase font-bold text-emerald-700">Total Revenue</p>
                               <p className="text-lg font-extrabold text-emerald-900 font-['Barlow_Condensed',sans-serif] mt-0.5">
                                 ₦{periodRevenue.toLocaleString()}
                               </p>
@@ -2208,7 +2527,7 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                               onClick={() => setFarmerDataTab("finance")}
                               className="bg-rose-50/60 border border-rose-200/70 p-2.5 rounded-xl text-center cursor-pointer hover:border-rose-400 transition-colors"
                             >
-                              <p className="text-[10px] uppercase font-bold text-rose-700">Recorded Expenses</p>
+                              <p className="text-[10px] uppercase font-bold text-rose-700">Total Expenses</p>
                               <p className="text-lg font-extrabold text-rose-900 font-['Barlow_Condensed',sans-serif] mt-0.5">
                                 ₦{periodExpenses.toLocaleString()}
                               </p>
@@ -2218,11 +2537,11 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                               onClick={() => setFarmerDataTab("finance")}
                               className="bg-purple-50/60 border border-purple-200/70 p-2.5 rounded-xl text-center cursor-pointer hover:border-purple-400 transition-colors"
                             >
-                              <p className="text-[10px] uppercase font-bold text-purple-700">Net Profit (Period)</p>
+                              <p className="text-[10px] uppercase font-bold text-purple-700">Net Profit</p>
                               <p className={`text-lg font-extrabold font-['Barlow_Condensed',sans-serif] mt-0.5 ${periodNetProfit >= 0 ? "text-purple-900" : "text-rose-700"}`}>
                                 {periodNetProfit >= 0 ? `₦${periodNetProfit.toLocaleString()}` : `-₦${Math.abs(periodNetProfit).toLocaleString()}`}
                               </p>
-                              <p className="text-[10px] text-purple-600">{allInvoices.length} invoices</p>
+                              <p className="text-[10px] text-purple-600">{profitMarginPct}% margin • {allInvoices.length} invoices</p>
                             </div>
                             <div
                               onClick={() => setFarmerDataTab("sales")}
@@ -2240,9 +2559,9 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                             >
                               <p className="text-[10px] uppercase font-bold text-slate-500">Feed in Stock</p>
                               <p className="text-lg font-extrabold text-slate-800 font-['Barlow_Condensed',sans-serif] mt-0.5">
-                                {lifetimeFeedBags} Bags
+                                {lifetimeFeedBags} Bags ({lifetimeFeedKg.toLocaleString()} kg)
                               </p>
-                              <p className="text-[10px] text-slate-500">{totalPurchasedBags} purchased • {totalOpenedBags} opened</p>
+                              <p className="text-[10px] text-slate-500">Valued at ₦{Math.round(feedInventoryValue).toLocaleString()}</p>
                             </div>
                             <div
                               onClick={() => setFarmerDataTab("staff_investors")}
@@ -2253,6 +2572,30 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                                 {allStaff.length} Staff
                               </p>
                               <p className="text-[10px] text-slate-500">{allInvestors.length} Investors ({allInvestments.length} deals)</p>
+                            </div>
+                          </div>
+
+                          {/* Financial Dashboard Expense Breakdown (Matches User's Financial Dashboard) */}
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mt-2.5">
+                            <div className="bg-white border border-slate-200 p-2.5 rounded-xl">
+                              <p className="text-[10px] uppercase font-bold text-slate-400">Feed Costs</p>
+                              <p className="font-extrabold text-slate-800 font-['Barlow_Condensed',sans-serif] text-base mt-0.5">₦{feedExp.toLocaleString()}</p>
+                              <p className="text-[10px] text-slate-500">{periodExpenses > 0 ? Math.round((feedExp / periodExpenses) * 100) : 0}% of total expenses</p>
+                            </div>
+                            <div className="bg-white border border-slate-200 p-2.5 rounded-xl">
+                              <p className="text-[10px] uppercase font-bold text-slate-400">Fish Stock Costs</p>
+                              <p className="font-extrabold text-slate-800 font-['Barlow_Condensed',sans-serif] text-base mt-0.5">₦{stockExp.toLocaleString()}</p>
+                              <p className="text-[10px] text-slate-500">{periodExpenses > 0 ? Math.round((stockExp / periodExpenses) * 100) : 0}% of total expenses</p>
+                            </div>
+                            <div className="bg-white border border-slate-200 p-2.5 rounded-xl">
+                              <p className="text-[10px] uppercase font-bold text-slate-400">Maintenance</p>
+                              <p className="font-extrabold text-slate-800 font-['Barlow_Condensed',sans-serif] text-base mt-0.5">₦{maintExp.toLocaleString()}</p>
+                              <p className="text-[10px] text-slate-500">{periodExpenses > 0 ? Math.round((maintExp / periodExpenses) * 100) : 0}% of total expenses</p>
+                            </div>
+                            <div className="bg-white border border-slate-200 p-2.5 rounded-xl">
+                              <p className="text-[10px] uppercase font-bold text-slate-400">Labor + Overhead</p>
+                              <p className="font-extrabold text-slate-800 font-['Barlow_Condensed',sans-serif] text-base mt-0.5">₦{laborExp.toLocaleString()}</p>
+                              <p className="text-[10px] text-slate-500">{periodExpenses > 0 ? Math.round((laborExp / periodExpenses) * 100) : 0}% of total expenses</p>
                             </div>
                           </div>
                         </div>
@@ -2331,8 +2674,8 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                           ) : (
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                               {allPonds.map((p: any, idx: number) => {
-                                const fishCount = Number(p.current_count ?? p.currentCount ?? p.initial_stock ?? p.initialStock) || 0;
-                                const initCount = Number(p.initial_stock ?? p.initialStock ?? fishCount) || 0;
+                                const fishCount = getPondActiveFish(p);
+                                const initCount = Number(p.initialStock ?? p.initial_stock ?? fishCount) || 0;
                                 const mortCount = Math.max(0, initCount - fishCount);
                                 const pondSize = p.size_m2 ?? p.sizeM2;
                                 const avgWeight = p.avg_weight ?? p.avgWeight;
@@ -2467,20 +2810,68 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                     {/* Tab 3: Feed Stock & Inventory */}
                     {farmerDataTab === "feed" && (
                       <div className="space-y-4">
+                        {/* Active Stock by Brand & Size (Matches User's Feed Inventory Page) */}
                         <div>
                           <div className="flex items-center justify-between mb-2">
                             <h3 className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
                               <Package size={14} className="text-emerald-600" />
-                              Feed Inventory Purchased & In Stock ({allFeed.length})
+                              Active Feed Stock by Brand & Size ({activeStockByBrandSize.length} Groups)
                             </h3>
                             <span className="text-[11px] text-slate-500 font-medium">
-                              Available Stock: <strong className="text-emerald-700">{lifetimeFeedBags} bags</strong> ({totalPurchasedBags} purchased, {totalOpenedBags} opened)
+                              In Stock: <strong className="text-emerald-700">{lifetimeFeedBags} bags ({lifetimeFeedKg.toLocaleString()} kg)</strong> • Value: <strong className="text-emerald-700">₦{Math.round(feedInventoryValue).toLocaleString()}</strong>
+                            </span>
+                          </div>
+                          {activeStockByBrandSize.length === 0 ? (
+                            <div className="p-4 text-center border border-slate-200 rounded-xl bg-slate-50 text-slate-400 text-xs">
+                              No feed inventory registered.
+                            </div>
+                          ) : (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
+                              {activeStockByBrandSize.map((g, idx) => (
+                                <div key={`${g.brand}-${g.size}-${idx}`} className="bg-white border border-slate-200 p-3 rounded-xl shadow-2xs">
+                                  <div className="flex items-center justify-between">
+                                    <p className="font-bold text-slate-900 text-xs truncate">{g.brand}</p>
+                                    <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-full">
+                                      {g.size}
+                                    </span>
+                                  </div>
+                                  <div className="grid grid-cols-2 gap-2 mt-2 pt-2 border-t border-slate-100 text-[11px]">
+                                    <div>
+                                      <p className="text-[10px] text-slate-400">Remaining Stock</p>
+                                      <p className="font-extrabold text-emerald-700 font-['Barlow_Condensed',sans-serif] text-base">
+                                        {g.remainingBags} bags ({g.remainingKg} kg)
+                                      </p>
+                                    </div>
+                                    <div>
+                                      <p className="text-[10px] text-slate-400">Stock Value</p>
+                                      <p className="font-bold text-slate-800 font-['Barlow_Condensed',sans-serif] text-base">
+                                        ₦{Math.round(g.stockValue).toLocaleString()}
+                                      </p>
+                                    </div>
+                                  </div>
+                                  <p className="text-[10px] text-slate-500 mt-1.5 pt-1 border-t border-slate-50">
+                                    Purchased: <strong>{g.bags} bags</strong> • Opened: <strong>{g.openedBags} bags</strong> • {g.weightPerBag}kg/bag
+                                  </p>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+
+                        <div>
+                          <div className="flex items-center justify-between mb-2">
+                            <h3 className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                              <Layers size={13} className="text-slate-600" />
+                              Individual Feed Purchase Batches ({allFeed.length})
+                            </h3>
+                            <span className="text-[11px] text-slate-500 font-medium">
+                              Total Purchased: <strong>{totalPurchasedBags} bags</strong> • Total Opened: <strong>{totalOpenedBags} bags</strong>
                             </span>
                           </div>
 
                           {allFeed.length === 0 ? (
                             <div className="p-4 text-center border border-slate-200 rounded-xl bg-slate-50 text-slate-400 text-xs">
-                              No feed inventory registered.
+                              No feed purchase batches registered.
                             </div>
                           ) : (
                             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
@@ -2744,17 +3135,17 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                     {/* Tab 6: Financials & Invoices */}
                     {farmerDataTab === "finance" && (
                       <div className="space-y-4">
-                        {/* Summary Metric Cards */}
-                        <div className="grid grid-cols-3 gap-3">
+                        {/* Summary Metric Cards (Matches User's Financial Dashboard) */}
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
                           <div className="bg-emerald-50/80 border border-emerald-200 p-3 rounded-xl text-center">
-                            <p className="text-[10px] uppercase font-bold text-emerald-700">Recorded Revenue</p>
+                            <p className="text-[10px] uppercase font-bold text-emerald-700">Total Revenue</p>
                             <p className="text-xl font-bold text-emerald-900 font-['Barlow_Condensed',sans-serif] mt-0.5">
                               ₦{periodRevenue.toLocaleString()}
                             </p>
                             <p className="text-[10px] text-emerald-600 font-medium mt-0.5">{allRev.length} Entries</p>
                           </div>
                           <div className="bg-rose-50/80 border border-rose-200 p-3 rounded-xl text-center">
-                            <p className="text-[10px] uppercase font-bold text-rose-700">Recorded Expenses</p>
+                            <p className="text-[10px] uppercase font-bold text-rose-700">Total Expenses</p>
                             <p className="text-xl font-bold text-rose-900 font-['Barlow_Condensed',sans-serif] mt-0.5">
                               ₦{periodExpenses.toLocaleString()}
                             </p>
@@ -2766,8 +3157,41 @@ export default function UsersPage({ users, plans, onAdd, onUpdate, onDelete, onE
                               {periodNetProfit < 0 ? "-₦" + Math.abs(periodNetProfit).toLocaleString() : "₦" + periodNetProfit.toLocaleString()}
                             </p>
                             <p className={`text-[10px] font-medium mt-0.5 ${periodNetProfit >= 0 ? "text-blue-600" : "text-amber-600"}`}>
-                              {allInvoices.length} Invoices
+                              {profitMarginPct}% Margin • {allInvoices.length} Invoices
                             </p>
+                          </div>
+                          <div className="bg-amber-50/80 border border-amber-200 p-3 rounded-xl text-center">
+                            <p className="text-[10px] uppercase font-bold text-amber-700">Feed Inventory Value</p>
+                            <p className="text-xl font-bold text-amber-900 font-['Barlow_Condensed',sans-serif] mt-0.5">
+                              ₦{Math.round(feedInventoryValue).toLocaleString()}
+                            </p>
+                            <p className="text-[10px] text-amber-600 font-medium mt-0.5">
+                              {lifetimeFeedBags} bags • {activeStockByBrandSize.length} groups
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Expense Category Breakdown (Matches User's Financial Dashboard) */}
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                          <div className="bg-white border border-slate-200 p-2.5 rounded-xl">
+                            <p className="text-[10px] uppercase font-bold text-slate-400">Feed Costs</p>
+                            <p className="font-extrabold text-slate-800 font-['Barlow_Condensed',sans-serif] text-base mt-0.5">₦{feedExp.toLocaleString()}</p>
+                            <p className="text-[10px] text-slate-500">{periodExpenses > 0 ? Math.round((feedExp / periodExpenses) * 100) : 0}% of total expenses</p>
+                          </div>
+                          <div className="bg-white border border-slate-200 p-2.5 rounded-xl">
+                            <p className="text-[10px] uppercase font-bold text-slate-400">Fish Stock Costs</p>
+                            <p className="font-extrabold text-slate-800 font-['Barlow_Condensed',sans-serif] text-base mt-0.5">₦{stockExp.toLocaleString()}</p>
+                            <p className="text-[10px] text-slate-500">{periodExpenses > 0 ? Math.round((stockExp / periodExpenses) * 100) : 0}% of total expenses</p>
+                          </div>
+                          <div className="bg-white border border-slate-200 p-2.5 rounded-xl">
+                            <p className="text-[10px] uppercase font-bold text-slate-400">Maintenance</p>
+                            <p className="font-extrabold text-slate-800 font-['Barlow_Condensed',sans-serif] text-base mt-0.5">₦{maintExp.toLocaleString()}</p>
+                            <p className="text-[10px] text-slate-500">{periodExpenses > 0 ? Math.round((maintExp / periodExpenses) * 100) : 0}% of total expenses</p>
+                          </div>
+                          <div className="bg-white border border-slate-200 p-2.5 rounded-xl">
+                            <p className="text-[10px] uppercase font-bold text-slate-400">Labor + Overhead</p>
+                            <p className="font-extrabold text-slate-800 font-['Barlow_Condensed',sans-serif] text-base mt-0.5">₦{laborExp.toLocaleString()}</p>
+                            <p className="text-[10px] text-slate-500">{periodExpenses > 0 ? Math.round((laborExp / periodExpenses) * 100) : 0}% of total expenses</p>
                           </div>
                         </div>
 
