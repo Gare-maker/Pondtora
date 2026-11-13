@@ -12,6 +12,8 @@ import { toValidDbDate } from "../../lib/api";
 import { toast } from "sonner";
 import PondReportsComponent from "./PondReportsComponent";
 
+const fmtKg = (n: number | undefined | null): number => Math.round((Number(n) || 0) * 100) / 100;
+
 export function getPondActiveMortality(
   pond: Pond,
   mortality: MortalityEntry[],
@@ -704,8 +706,8 @@ function PondDetail({
     const b = r.brand?.trim() || "Not specified";
     const key=`${b}__${r.size}`;
     const ex=acc.find(a=>`${a.brand}__${a.size}`===key);
-    if(ex) ex.total+=r.total;
-    else acc.push({brand:b,size:r.size,total:r.total});
+    if(ex) ex.total = fmtKg(ex.total + (Number(r.total) || 0));
+    else acc.push({brand:b,size:r.size,total:fmtKg(r.total)});
     return acc;
   },[]);
   const handleMort=async()=>{
@@ -1048,7 +1050,7 @@ function PondDetail({
       <Card className="p-5">
         <div className="flex items-center justify-between mb-4">
           <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Feed Summary — by Size (Pallet)</p>
-          {feedSummary.length>0&&<span className="text-xs font-bold text-green-700 font-['Barlow_Condensed',sans-serif]">Total: {feedSummary.reduce((s,r)=>s+r.total,0)}kg</span>}
+          {feedSummary.length>0&&<span className="text-xs font-bold text-green-700 font-['Barlow_Condensed',sans-serif]">Total: {fmtKg(feedSummary.reduce((s,r)=>s+r.total,0))}kg</span>}
         </div>
         {(()=>{
           const allSizes=pond.status === "Empty" ? [] : Array.from(new Set([...feedSummary.map(r=>r.size),...Object.keys(pond.maxKgByPallet||{})])).sort((a,b)=>parseFloat(a)-parseFloat(b));
@@ -1057,7 +1059,7 @@ function PondDetail({
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
               {allSizes.map(size=>{
                 const sizeEntries=feedSummary.filter(r=>r.size===size);
-                const currentFeed=sizeEntries.reduce((s,r)=>s+r.total,0);
+                const currentFeed=fmtKg(sizeEntries.reduce((s,r)=>s+r.total,0));
                 const brandsList=Array.from(new Set(sizeEntries.map(r=>r.brand?.trim()||"Not specified"))).filter(Boolean);
                 const brandDisplay=brandsList.length>0?brandsList.join(", "):"Not specified";
                 const maxKg=pond.maxKgByPallet?.[size];
@@ -1136,11 +1138,11 @@ function PondDetail({
                   <td className="px-4 py-3 text-slate-500 sticky left-10 z-10 bg-white border-r border-slate-100 whitespace-nowrap">{r.date}</td>
                   <td className="px-4 py-3 font-medium text-slate-800">{r.brand?.trim() || "Not specified"}</td>
                   <td className="px-4 py-3"><Bdg label={r.size} color="blue"/></td>
-                  <td className="px-4 py-3">{r.morning}kg</td>
+                  <td className="px-4 py-3">{fmtKg(r.morning)}kg</td>
                   <td className="px-4 py-3 text-slate-400 text-xs font-mono">{r.morningTime||"—"}</td>
-                  <td className="px-4 py-3">{r.evening}kg</td>
+                  <td className="px-4 py-3">{fmtKg(r.evening)}kg</td>
                   <td className="px-4 py-3 text-slate-400 text-xs font-mono">{r.eveningTime||"—"}</td>
-                  <td className="px-4 py-3 font-bold text-green-700">{r.total}kg</td>
+                  <td className="px-4 py-3 font-bold text-green-700">{fmtKg(r.total)}kg</td>
                   <td className="px-4 py-3 text-slate-400">{r.recordedBy}</td>
                   <td className="px-4 py-3">{canEdit&&<button onClick={()=>setEditFeedRec({...r})} className="p-1.5 rounded-lg text-slate-300 hover:text-green-600 hover:bg-green-50 transition-colors"><Pencil size={13}/></button>}</td>
                 </tr>
@@ -3180,8 +3182,8 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
                 }
                 return grp.pondNames.includes(r.pond) || (r.pondId && grp.pondIds.includes(r.pondId));
               });
-              const totalFeedKg=allFeedRecs.reduce((s,r)=>s+r.total,0);
-              const bySize=allFeedRecs.reduce<Record<string,number>>((acc,r)=>{acc[r.size]=(acc[r.size]||0)+r.total;return acc;},{});
+              const totalFeedKg=fmtKg(allFeedRecs.reduce((s,r)=>s+(Number(r.total)||0),0));
+              const bySize=allFeedRecs.reduce<Record<string,number>>((acc,r)=>{acc[r.size]=fmtKg((acc[r.size]||0)+(Number(r.total)||0));return acc;},{});
               const seenMortIds = new Set<string>();
               const allMort=mortality.filter(m=>{
                 if(seenMortIds.has(m.id)) return false;
@@ -3230,7 +3232,7 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
                             const pondsForThisSize=grp.pondNames.map((pName, pIdx)=>{
                               const pId = grp.pondIds[pIdx];
                               const pFeed=allFeedRecs.filter(r=>(r.pond===pName || (pId && r.pondId===pId))&&r.size===size);
-                              const pKg=pFeed.reduce((s,r)=>s+(Number(r.total)||0),0);
+                              const pKg=fmtKg(pFeed.reduce((s,r)=>s+(Number(r.total)||0),0));
                               return { pondName: pName, kg: pKg };
                             }).filter(p=>p.kg>0);
 
@@ -3273,8 +3275,8 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
                           const pondId=grp.pondIds[pi];
                           const thisPond=ponds.find(p=>p.id===pondId);
                           const pondFeed=allFeedRecs.filter(r=>r.pond===pondName || (pondId && r.pondId===pondId));
-                          const pondFeedKg=pondFeed.reduce((s,r)=>s+r.total,0);
-                          const pondBySz=pondFeed.reduce<Record<string,number>>((acc,r)=>{acc[r.size]=(acc[r.size]||0)+r.total;return acc;},{});
+                          const pondFeedKg=fmtKg(pondFeed.reduce((s,r)=>s+(Number(r.total)||0),0));
+                          const pondBySz=pondFeed.reduce<Record<string,number>>((acc,r)=>{acc[r.size]=fmtKg((acc[r.size]||0)+(Number(r.total)||0));return acc;},{});
                           const pondMort=allMort.filter(m=>m.pondId===pondId);
                           const pondDead=pondMort.reduce((s,m)=>s+m.count,0);
                           const initCnt=stockEvents.filter(e=>e.pondId===pondId&&(e.type==="Initial"||e.type==="Restock")).reduce((s,e)=>s+e.count,0)||(thisPond?.initialStock)||1;
