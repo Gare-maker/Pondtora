@@ -41,6 +41,10 @@ DECLARE
   v_mort_rec RECORD;
   v_mort_dest INTEGER;
   v_treat_rec RECORD;
+  v_dest_max_kg JSONB := '{}'::jsonb;
+  v_src_max_kg JSONB := '{}'::jsonb;
+  v_pallet_key TEXT;
+  v_pallet_val NUMERIC;
 BEGIN
   -- 1. Validate ponds
   SELECT * INTO v_from_pond FROM ponds WHERE id = p_from_pond_id;
@@ -283,12 +287,23 @@ BEGIN
       v_init_dest := v_safe_count;
     END IF;
 
-    -- 1. Update source pond with remaining count, cost, and stock instance ID
+    -- 1. Proportionally split max_kg_by_pallet
+    IF v_from_pond.max_kg_by_pallet IS NOT NULL AND jsonb_typeof(v_from_pond.max_kg_by_pallet) = 'object' THEN
+      FOR v_pallet_key, v_pallet_val IN
+        SELECT key, (value::text)::numeric FROM jsonb_each(v_from_pond.max_kg_by_pallet)
+      LOOP
+        v_dest_max_kg := v_dest_max_kg || jsonb_build_object(v_pallet_key, ROUND(COALESCE(v_pallet_val, 0) * v_fraction));
+        v_src_max_kg := v_src_max_kg || jsonb_build_object(v_pallet_key, ROUND(COALESCE(v_pallet_val, 0) * (1 - v_fraction)));
+      END LOOP;
+    END IF;
+
+    -- 1b. Update source pond with remaining count, cost, and stock instance ID
     UPDATE ponds SET
       current_count = GREATEST(0, v_from_pond.current_count - v_safe_count),
       initial_stock = GREATEST(v_from_pond.current_count - v_safe_count, v_from_init - v_init_dest),
       total_cost = GREATEST(0, COALESCE(v_from_pond.total_cost, 0) - v_cost_share),
       fish_stock_id = v_stock_instance_id,
+      max_kg_by_pallet = v_src_max_kg,
       transfer_note = 'Transferred ' || v_safe_count || ' fish (' || ROUND(v_fraction * 100) || '%) to ' || v_to_pond.name || ' on ' || v_date_label
     WHERE id = p_from_pond_id;
 
@@ -306,6 +321,7 @@ BEGIN
       supplier = v_from_pond.supplier,
       avg_weight = v_from_pond.avg_weight,
       default_pellet = v_from_pond.default_pellet,
+      max_kg_by_pallet = v_dest_max_kg,
       transfer_note = v_safe_count || ' fish (' || ROUND(v_fraction * 100) || '%) received from ' || v_from_pond.name || ' on ' || v_date_label
     WHERE id = p_to_pond_id;
 
@@ -521,6 +537,7 @@ BEGIN
 
   RETURN jsonb_build_object(
     'success', true,
+    'splitFeedingHandled', true,
     'message', 'Fish stock successfully transferred.',
     'isFullTransfer', v_is_full,
     'transferredCount', v_safe_count,

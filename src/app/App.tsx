@@ -6972,15 +6972,22 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       : null;
 
     const belongsToSourcePondAndStock = (rec: { pondId?: string; pond?: string; pondName?: string; fishStockId?: string; fishStock?: string; date?: string; reportDate?: string }) => {
-      // Never touch records explicitly belonging to another pond
-      if (rec.pondId && rec.pondId !== fromId) return false;
       const rPondNorm = (rec.pondName || rec.pond || "").trim().toLowerCase();
-      if (rPondNorm && rPondNorm !== fromPondNameNorm) return false;
-      // Must match this pond either by pondId or pond name
-      if (rec.pondId !== fromId && rPondNorm !== fromPondNameNorm) return false;
+      // Match strictly by pondId when present; fall back to pond name only if pondId is missing
+      if (rec.pondId) {
+        if (rec.pondId !== fromId) return false;
+      } else if (rPondNorm !== fromPondNameNorm) {
+        return false;
+      }
 
-      // Exclude records explicitly tagged with a different fishStockId
-      if (fromPond.fishStockId && rec.fishStockId && rec.fishStockId !== fromPond.fishStockId) return false;
+      // Explicit stock instance ID match on this pond always belongs to this stock
+      const explicitStockIdMatch = Boolean(fromPond.fishStockId && rec.fishStockId && rec.fishStockId === fromPond.fishStockId);
+      if (explicitStockIdMatch) return true;
+
+      // Exclude records explicitly tagged with a different fishStockId (unless it's the legacy stockLabel string)
+      if (fromPond.fishStockId && rec.fishStockId && rec.fishStockId !== fromPond.fishStockId && rec.fishStockId !== stockLabel) {
+        return false;
+      }
 
       // Exclude records belonging to a prior closed cycle on this pond
       const recDate = toValidDbDate(rec.date || rec.reportDate);
@@ -7450,7 +7457,23 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       toast.error(errMsg || "Transfer failed and was rolled back. No changes were committed.");
     };
 
-    // 10. Database persistence
+    // 10. Database persistence (bounded with timeouts & batched concurrency so UI never stalls at 92%)
+    const withTimeout = <T,>(promise: Promise<T>, ms: number, msg: string): Promise<T> =>
+      Promise.race([
+        promise,
+        new Promise<T>((_, reject) => setTimeout(() => reject(new Error(msg)), ms)),
+      ]);
+
+    const runBatched = async (factories: Array<() => Promise<any>>, batchSize = 5) => {
+      for (let i = 0; i < factories.length; i += batchSize) {
+        const chunk = factories.slice(i, i + batchSize);
+        await Promise.allSettled(chunk.map(fn => fn()));
+      }
+    };
+
+    let syncCompleted = true;
+    let backgroundSyncPromise: Promise<void> | null = null;
+
     try {
       const rpcResult = await api.ponds.transferFishStock({
         fromPond: fromPond,
@@ -7467,33 +7490,58 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
         return false;
       }
 
-      if (!rpcResult?.success) {
-        // Direct database updates fallback
-        await Promise.all([
-          api.ponds.update(updatedFrom),
-          api.ponds.update(updatedTo),
-        ]);
+      const rpcCompletedAll = Boolean(rpcResult?.success && rpcResult?.splitFeedingHandled);
 
-        const fallbackTasks: Promise<any>[] = [
-          api.fishCountHistory.create(transferEntryDest),
-          api.fishCountHistory.create(transferEntrySrc),
-          ...newStockEvents.map(se => api.stockEvents.create(se)),
-          ...updatedSourceFeed.map(f => api.feeding.update({ ...f, _skipInventoryCheck: true, _skipDuplicateCheck: true } as any)),
-          ...createdDestFeed.map(f => api.feeding.create({ ...f, _skipInventoryCheck: true, _isManual: true } as any)),
-          ...updatedSourceBags.map(b => api.bagLogs.update(b)),
-          ...createdDestBags.map(b => api.bagLogs.create(b)),
-          ...updatedSourceRemains.map(r => api.remainLogs.update(r)),
-          ...createdDestRemains.map(r => api.remainLogs.create(r)),
-          ...updatedSourceMort.map(m => api.mortality.update(m)),
-          ...createdDestMort.map(m => api.mortality.create(m)),
-          ...updatedSourceTreat.map(t => api.treatments.update(t)),
-          ...createdDestTreat.map(t => api.treatments.create(t)),
+      if (!rpcCompletedAll) {
+        // Persist pond updates (including maxKgByPallet & fishStockId)
+        if (!rpcResult?.success) {
+          await withTimeout(
+            Promise.all([api.ponds.update(updatedFrom), api.ponds.update(updatedTo)]),
+            10000,
+            "Database pond update timed out. Please check your connection and try again."
+          );
+        } else {
+          // Old RPC succeeded on basic pond fields, ensure maxKgByPallet & fishStockId are synced too
+          await withTimeout(
+            Promise.allSettled([api.ponds.update(updatedFrom), api.ponds.update(updatedTo)]),
+            8000,
+            "Pond metadata sync timed out"
+          ).catch(() => {});
+        }
+
+        const taskFactories: Array<() => Promise<any>> = [
+          ...(!rpcResult?.success
+            ? [
+                () => api.fishCountHistory.create(transferEntryDest),
+                () => api.fishCountHistory.create(transferEntrySrc),
+                ...newStockEvents.map(se => () => api.stockEvents.create(se)),
+              ]
+            : []),
+          ...updatedSourceFeed.map(f => () => api.feeding.update({ ...f, _skipInventoryCheck: true, _skipDuplicateCheck: true } as any)),
+          ...createdDestFeed.map(f => () => api.feeding.create({ ...f, _skipInventoryCheck: true, _skipDuplicateCheck: true, _isManual: true } as any)),
+          ...updatedSourceBags.map(b => () => api.bagLogs.update(b)),
+          ...createdDestBags.map(b => () => api.bagLogs.create(b)),
+          ...updatedSourceRemains.map(r => () => api.remainLogs.update(r)),
+          ...createdDestRemains.map(r => () => api.remainLogs.create(r)),
+          ...updatedSourceMort.map(m => () => api.mortality.update(m)),
+          ...createdDestMort.map(m => () => api.mortality.create(m)),
+          ...updatedSourceTreat.map(t => () => api.treatments.update(t)),
+          ...createdDestTreat.map(t => () => api.treatments.create(t)),
           ...(isFullTransfer
-            ? pondReports.filter(isSourceReport).map(r => api.pondReports.update({ ...r, pondId: toId, pondName: toPond.name, fishStockId: destStockInstanceId }))
-            : createdDestReports.map(r => api.pondReports.create(r)))
+            ? pondReports.filter(isSourceReport).map(r => () => api.pondReports.update({ ...r, pondId: toId, pondName: toPond.name, fishStockId: destStockInstanceId, _allowTransferMove: true } as any))
+            : createdDestReports.map(r => () => api.pondReports.create(r))),
         ];
 
-        await Promise.allSettled(fallbackTasks);
+        if (taskFactories.length > 0) {
+          backgroundSyncPromise = runBatched(taskFactories, 5);
+          const raceResult = await Promise.race([
+            backgroundSyncPromise.then(() => "done" as const),
+            new Promise<"timeout">(resolve => setTimeout(() => resolve("timeout"), 12000)),
+          ]);
+          if (raceResult === "timeout") {
+            syncCompleted = false;
+          }
+        }
       }
     } catch (err: any) {
       console.error("Transfer database error, rolling back:", err);
@@ -7501,10 +7549,16 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       return false;
     }
 
-    // 11. Refresh backend state asynchronously in the background so the transfer finishes immediately
-    loadFromBackend().catch(reloadErr => {
-      console.warn("Post-transfer backend reload note:", reloadErr);
-    });
+    // 11. Refresh backend state only after all DB syncs have completed so local split state isn't overwritten
+    if (syncCompleted) {
+      loadFromBackend().catch(reloadErr => {
+        console.warn("Post-transfer backend reload note:", reloadErr);
+      });
+    } else if (backgroundSyncPromise) {
+      backgroundSyncPromise.then(() => loadFromBackend()).catch(reloadErr => {
+        console.warn("Post-transfer background sync/reload note:", reloadErr);
+      });
+    }
 
     // 12. Notification
     const farm = farms.find(f => f.id === activeFarmId) || farms[0];

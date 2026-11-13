@@ -511,7 +511,14 @@ function PondDetail({
     );
     return (pondReports || [])
       .filter(r => {
-        if (r.pondId !== pond.id || r.reportType === "treatment") return false;
+        const matchesPond = r.pondId === pond.id || (!r.pondId && r.pondName && r.pondName.trim().toLowerCase() === pNameNorm);
+        if (!matchesPond || r.reportType === "treatment") return false;
+
+        // Explicit fishStockId match for the active pond stock always belongs to this stock (even if transferred from another pond with older dates)
+        if ((pond as any).fishStockId && r.fishStockId && r.fishStockId === (pond as any).fishStockId) {
+          return true;
+        }
+
         const rStock = (r.fishStockId || "").trim();
         const matchesClosed = Boolean(rStock && rStock !== "—") && closedEvents.some(ce => {
           const ceBatch = ce.batch || (ce.date ? fmtStockingDate(ce.date) : null);
@@ -541,7 +548,7 @@ function PondDetail({
         return true;
       })
       .sort((a, b) => (b.reportDate || "").localeCompare(a.reportDate || ""));
-  }, [pondReports, pond.id, pond.status, activeFishStockLabel, defaultFishStockLabel, pStockDbDate, pond.stockingDate, pond.fishStock, ponds, stockEvents]);
+  }, [pondReports, pond.id, pond.name, pond.status, (pond as any).fishStockId, activeFishStockLabel, defaultFishStockLabel, pStockDbDate, pond.stockingDate, pond.fishStock, ponds, stockEvents]);
 
   const handleTreat = async () => {
     if (!treatF.medicine.trim()) return;
@@ -669,6 +676,12 @@ function PondDetail({
       );
       if (!isSamePond) return false;
 
+      // 2. Direct unique fishStockId isolation takes priority over prior pond closure dates
+      // (important when transferring a stock with historical feeding records into a previously closed pond)
+      if ((pond as any).fishStockId && r.fishStockId) {
+        return r.fishStockId === (pond as any).fishStockId;
+      }
+
       const rDate = toValidDbDate(r.date);
       if (latestClosedDate && rDate && rDate <= latestClosedDate) return false;
 
@@ -680,11 +693,6 @@ function PondDetail({
         return Boolean(ceBatch && (ceBatch.trim().toLowerCase() === fsTrimmed.toLowerCase() || isStockMatch(fsTrimmed, ceBatch, ponds)));
       });
       if (matchesClosedBatch) return false;
-
-      // 2. Direct unique fishStockId isolation
-      if ((pond as any).fishStockId && r.fishStockId) {
-        return r.fishStockId === (pond as any).fishStockId;
-      }
 
       return true;
     });
@@ -855,12 +863,15 @@ function PondDetail({
 
     try {
       setTransferStage("Transferring stock records and updating database…");
-      let success: any = false;
-      if (count >= pond.currentCount) {
-        success = await onTransfer(pond.id, destId, transferF.date);
-      } else {
-        success = await onNurseryTransfer(pond.id, destId, count, pct, transferF.date);
-      }
+      const transferOp = count >= pond.currentCount
+        ? onTransfer(pond.id, destId, transferF.date)
+        : onNurseryTransfer(pond.id, destId, count, pct, transferF.date);
+      const success: any = await Promise.race([
+        transferOp,
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("Transfer request timed out. Please check your connection and try again.")), 25000)
+        ),
+      ]);
       clearInterval(timer);
       if (success !== false) {
         setTransferProgress(100);

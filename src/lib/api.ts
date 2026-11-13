@@ -983,13 +983,15 @@ async function dbUpdate<T extends { id?: string }>(table: string, item: T, cache
   }
 
   const snake = objToSnake(itemToSave as any, effectiveUserId, table);
+  const allowTransferMove = Boolean((itemToSave as any)._allowTransferMove);
+  delete snake._allow_transfer_move;
   const targetId = (item.id && isUuid(item.id)) ? item.id : (snake.id || (item.id ? toUuid(item.id) : undefined));
   delete snake.id; // Strip primary key column so Postgres doesn't reject updating PK in SET clause
 
   // Submitted Staff Report Protection:
   // Once a staff report has been submitted, its original contents are immutable for Admin and staff alike.
   // Only separate review fields (admin_review_note, admin_review_status, reviewed_by, reviewed_at, status, resolved_by, resolved_date) may be updated.
-  if (table === "reports" || table === "pond_reports") {
+  if ((table === "reports" || table === "pond_reports") && !allowTransferMove) {
     try {
       const { data: existing } = await supabase.from(table).select("*").eq("id", targetId).maybeSingle();
       if (existing) {
@@ -2561,9 +2563,9 @@ export const api = {
       sourceMortality?: MortalityEntry[];
       sourceTreatments?: TreatmentRecord[];
     }) => {
-      // Direct atomic transfer via PostgreSQL RPC
+      // Direct atomic transfer via PostgreSQL RPC (bounded by a 10s timeout so UI never stalls)
       try {
-        const { data: rpcRes, error: rpcErr } = await supabase.rpc("transfer_fish_stock", {
+        const rpcPromise = supabase.rpc("transfer_fish_stock", {
           p_from_pond_id: opts.fromPond.id,
           p_to_pond_id: opts.toPond.id,
           p_percentage: opts.percentage,
@@ -2572,6 +2574,10 @@ export const api = {
           p_transferred_by: opts.transferredBy || "User",
           p_stock_instance_id: opts.stockInstanceId || opts.fromPond.fishStockId || null,
         });
+        const timeoutPromise = new Promise<{ data: null; error: { message: string } }>((resolve) =>
+          setTimeout(() => resolve({ data: null, error: { message: "RPC transfer_fish_stock timed out after 10s" } }), 10000)
+        );
+        const { data: rpcRes, error: rpcErr } = await Promise.race([rpcPromise, timeoutPromise]);
         if (!rpcErr && rpcRes) {
           if (rpcRes.success) {
             return { success: true, rpcExecuted: true, ...rpcRes };
@@ -2624,7 +2630,7 @@ export const api = {
   // ── Feeding records ────────────────────────────────────────────────────────
   feeding: {
     list: () => dbList<FeedingRecord>("feeding_records", "feedingRecords"),
-    create: async (r: Partial<FeedingRecord> & { _skipInventoryCheck?: boolean; _isManual?: boolean }) => {
+    create: async (r: Partial<FeedingRecord> & { _skipInventoryCheck?: boolean; _isManual?: boolean; _skipDuplicateCheck?: boolean }) => {
       const dbRec: any = { ...r };
       const isManualEntry = Boolean(
         dbRec._skipInventoryCheck ||
@@ -2635,8 +2641,10 @@ export const api = {
         dbRec.recordedBy === "Manual Pond Log"
       );
       const skipCheck = isManualEntry;
+      const skipDuplicateCheck = Boolean(dbRec._skipDuplicateCheck);
       delete dbRec._skipInventoryCheck;
       delete dbRec._isManual;
+      delete dbRec._skipDuplicateCheck;
 
       if (r.date) {
         const d = toValidDbDate(r.date);
@@ -2644,7 +2652,7 @@ export const api = {
       }
       const effectiveUid = (await getOwnerUserId()) || (await getUserId());
       // Prevent duplicate feed sizes for the same stock/pond on the same date by updating existing in place
-      if (effectiveUid && dbRec.date && dbRec.size && (dbRec.pond || dbRec.fish_stock || dbRec.fishStock)) {
+      if (!skipDuplicateCheck && effectiveUid && dbRec.date && dbRec.size && (dbRec.pond || dbRec.fish_stock || dbRec.fishStock)) {
         let q = supabase
           .from("feeding_records")
           .select("id, pond, fish_stock, size, date, morning, evening, total")
