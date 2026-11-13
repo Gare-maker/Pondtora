@@ -155,6 +155,7 @@ export interface PondReport {
   userId?: string;
   farmId: string;
   pondId: string;
+  pondName?: string;
   fishStockId: string;
   reportType: "treatment" | "other_issue";
   reportDate: string;

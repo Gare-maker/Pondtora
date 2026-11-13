@@ -2572,8 +2572,13 @@ export const api = {
           p_transferred_by: opts.transferredBy || "User",
           p_stock_instance_id: opts.stockInstanceId || opts.fromPond.fishStockId || null,
         });
-        if (!rpcErr && rpcRes && rpcRes.success) {
-          return { success: true, rpcExecuted: true, ...rpcRes };
+        if (!rpcErr && rpcRes) {
+          if (rpcRes.success) {
+            return { success: true, rpcExecuted: true, ...rpcRes };
+          }
+          if (rpcRes.error) {
+            return { success: false, error: rpcRes.error };
+          }
         }
         if (rpcErr) {
           console.warn("RPC transfer_fish_stock error notice:", rpcErr.message || rpcErr);

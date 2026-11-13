@@ -314,17 +314,15 @@ function PondDetail({
   const [viewingIssue,setViewingIssue]=useState<PondReport|null>(null);
   const [viewingTreatment,setViewingTreatment]=useState<any|null>(null);
 
-  const [transferF,setTransferF]=useState({toPond:"",date:TODAY,pct:"100",count:""});
+  const [transferF,setTransferF]=useState({toPond:"",date:TODAY,pct:"100",count:String(pond.currentCount||"")});
   const [transferErr,setTransferErr]=useState<Record<string,string>>({});
+  const [transferStep,setTransferStep]=useState<"form"|"summary">("form");
   const emptyPonds=ponds.filter(p=>p.id!==pond.id&&p.status==="Empty"&&(Number(p.currentCount)||0)===0);
   const transferDestinationPonds = useMemo(() => {
     return ponds.filter(p =>
-      p.id !== pond.id && (
-        (p.status === "Empty" && (Number(p.currentCount) || 0) === 0) ||
-        p.id === transferF.toPond
-      )
+      p.id !== pond.id && p.status === "Empty" && (Number(p.currentCount) || 0) === 0
     );
-  }, [ponds, pond.id, transferF.toPond]);
+  }, [ponds, pond.id]);
   const nurseryDestinationPonds = useMemo(() => {
     return ponds.filter(p =>
       p.id !== pond.id && (
@@ -400,6 +398,10 @@ function PondDetail({
       });
       if (matchesClosed) return false;
 
+      if ((pond as any).fishStockId && t.fishStockId && t.fishStockId !== (pond as any).fishStockId) {
+        return false;
+      }
+
       const tDate = toValidDbDate(t.date);
       if (pStockDbDate && tDate && tDate < pStockDbDate) {
         const isCurrent = ((t.fishStockId && (pond as any).fishStockId && t.fishStockId === (pond as any).fishStockId) || (tStock && (
@@ -422,6 +424,14 @@ function PondDetail({
         return Boolean(ceBatch && (isStockMatch(rStock, ceBatch, ponds) || isSameDate(rStock, ce.date)));
       });
       if (matchesClosed) return false;
+
+      if ((pond as any).fishStockId && r.fishStockId && r.fishStockId !== (pond as any).fishStockId) {
+        const isLabelMatch = Boolean(
+          (activeFishStockLabel && isStockMatch(r.fishStockId, activeFishStockLabel, ponds)) ||
+          (pond.fishStock && isStockMatch(r.fishStockId, pond.fishStock, ponds))
+        );
+        if (!isLabelMatch) return false;
+      }
 
       const rDate = toValidDbDate(r.reportDate);
       if (pStockDbDate && rDate && rDate < pStockDbDate) {
@@ -509,6 +519,14 @@ function PondDetail({
         });
         if (matchesClosed) return false;
 
+        if ((pond as any).fishStockId && r.fishStockId && r.fishStockId !== (pond as any).fishStockId) {
+          const isLabelMatch = Boolean(
+            (activeFishStockLabel && isStockMatch(r.fishStockId, activeFishStockLabel, ponds)) ||
+            (pond.fishStock && isStockMatch(r.fishStockId, pond.fishStock, ponds))
+          );
+          if (!isLabelMatch) return false;
+        }
+
         const rDate = toValidDbDate(r.reportDate);
         if (pStockDbDate && rDate && rDate < pStockDbDate) {
           const isCurrent = ((r.fishStockId && (pond as any).fishStockId && r.fishStockId === (pond as any).fishStockId) || (rStock && (
@@ -539,7 +557,8 @@ function PondDetail({
       cause: treatF.cause.trim(),
       medicine: treatF.medicine.trim(),
       remarks: remarksCombined || treatF.remarks.trim(),
-      fishStock: fishStockLabel
+      fishStock: fishStockLabel,
+      fishStockId: (pond as any).fishStockId || undefined,
     });
 
     if (onAddPondReport) {
@@ -548,7 +567,7 @@ function PondDetail({
           id: uid(),
           farmId: pond.farmId,
           pondId: pond.id,
-          fishStockId: fishStockLabel,
+          fishStockId: (pond as any).fishStockId || fishStockLabel,
           reportType: "treatment",
           reportDate: treatF.date,
           issue: treatF.medicine.trim(),
@@ -593,7 +612,7 @@ function PondDetail({
           id: uid(),
           farmId: pond.farmId,
           pondId: pond.id,
-          fishStockId: fishStockLabel,
+          fishStockId: (pond as any).fishStockId || fishStockLabel,
           reportType: "other_issue",
           reportDate: issueF.date,
           issue: issueF.issue.trim(),
@@ -662,14 +681,14 @@ function PondDetail({
       });
       if (matchesClosedBatch) return false;
 
-      // 2. Direct unique fishStockId match
-      if ((pond as any).fishStockId && r.fishStockId && r.fishStockId === (pond as any).fishStockId) {
-        return true;
+      // 2. Direct unique fishStockId isolation
+      if ((pond as any).fishStockId && r.fishStockId) {
+        return r.fishStockId === (pond as any).fishStockId;
       }
 
       return true;
     });
-  }, [feedingRecords, pond.id, pond.name, pond.species, pond.status, pond.stockingDate, pond.fishStock, pStockDbDate, pDateLabel, pStockIdentity, activeFishStockLabel, defaultFishStockLabel, stockEvents, ponds]);
+  }, [feedingRecords, pond.id, pond.name, pond.species, pond.status, pond.stockingDate, pond.fishStock, (pond as any).fishStockId, pStockDbDate, pDateLabel, pStockIdentity, activeFishStockLabel, defaultFishStockLabel, stockEvents, ponds]);
   const fhMonths=[...new Set(history.map(r=>r.month))];
   const filtHistory=fhMonth==="All"?history:history.filter(r=>r.month===fhMonth);
   const {sorted:sortedHist,sf:hSf,sd:hSd,toggle:hToggle}=useSort(filtHistory,"date");
@@ -787,16 +806,41 @@ function PondDetail({
   const [transferProgress, setTransferProgress] = useState(0);
   const [transferStage, setTransferStage] = useState("Preparing stock transfer…");
 
-  const handleTransfer = async () => {
-    if (!transferF.toPond) { setTransferErr({ toPond: "Please select a destination pond" }); return; }
-    const destPond = ponds.find(p => p.id === transferF.toPond);
-    if (!destPond || (destPond.status !== "Empty" && destPond.id !== transferF.toPond) || (destPond.id !== transferF.toPond && (Number(destPond.currentCount) || 0) > 0)) {
-      setTransferErr({ toPond: "Transfer destination must be an empty pond with no fish" });
-      return;
+  const validateTransferForm = () => {
+    const errs: Record<string, string> = {};
+    if ((Number(pond.currentCount) || 0) <= 0 || pond.status !== "Active") {
+      errs.count = "Source pond has no active fish stock to transfer";
     }
-    setTransferErr({});
+    if (!transferF.toPond) {
+      errs.toPond = "Please select an empty destination pond";
+    } else {
+      const destPond = ponds.find(p => p.id === transferF.toPond);
+      if (!destPond || destPond.status !== "Empty" || (Number(destPond.currentCount) || 0) > 0) {
+        errs.toPond = "Destination pond must be an empty pond with no active fish stock";
+      }
+    }
+    const rawCount = Number(transferF.count);
+    if (!transferF.count || isNaN(rawCount) || !Number.isInteger(rawCount) || rawCount <= 0) {
+      errs.count = "Enter a valid whole number of fish greater than 0";
+    } else if (rawCount > pond.currentCount) {
+      errs.count = `Cannot exceed current pond population (${pond.currentCount.toLocaleString()} fish)`;
+    }
+    const rawPct = Number(transferF.pct);
+    if (!transferF.pct || isNaN(rawPct) || rawPct <= 0 || rawPct > 100) {
+      errs.pct = "Percentage must be greater than 0% and at most 100%";
+    }
+    if (!transferF.date) {
+      errs.date = "Transfer date is required";
+    }
+    setTransferErr(errs);
+    return Object.keys(errs).length === 0;
+  };
+
+  const handleTransfer = async () => {
+    if (!validateTransferForm()) return;
     const destId = transferF.toPond;
-    const pct = Number(transferF.pct) || 100;
+    const count = Math.floor(Number(transferF.count));
+    const pct = pond.currentCount > 0 ? Math.min(100, Math.round((count / pond.currentCount) * 10000) / 100) : 100;
     setIsTransferring(true);
     setTransferProgress(20);
     setTransferStage("Validating stock and allocating counts…");
@@ -812,10 +856,9 @@ function PondDetail({
     try {
       setTransferStage("Transferring stock records and updating database…");
       let success: any = false;
-      if (pct >= 100) {
+      if (count >= pond.currentCount) {
         success = await onTransfer(pond.id, destId, transferF.date);
       } else {
-        const count = transferF.count ? Number(transferF.count) : Math.round(pond.currentCount * (pct / 100));
         success = await onNurseryTransfer(pond.id, destId, count, pct, transferF.date);
       }
       clearInterval(timer);
@@ -824,6 +867,7 @@ function PondDetail({
         setTransferStage("Transfer complete!");
         await new Promise(r => setTimeout(r, 300));
         setShowTransfer(false);
+        setTransferStep("form");
         setTransferF({ toPond: "", date: TODAY, pct: "100", count: "" });
         onNavigatePond?.(destId);
       }
@@ -868,6 +912,7 @@ function PondDetail({
                     {canCreate&&<button onClick={()=>{setShowAddFeedGiven(true);setShowPondMenu(false);}} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-2"><Plus size={13}/> Add Feed Given</button>}
                     {canCreate&&<button onClick={()=>{setShowMort(true);setShowPondMenu(false);}} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-2"><Plus size={13}/> Log Mortality</button>}
                     {canCreate&&<button onClick={()=>{setShowTreat(true);setShowPondMenu(false);}} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-2"><Plus size={13}/> Log Treatment</button>}
+                    {(canEdit||canCreate)&&(Number(pond.currentCount)||0)>0&&<button onClick={()=>{setTransferStep("form");setTransferF({toPond:"",date:TODAY,pct:"100",count:String(pond.currentCount)});setTransferErr({});setShowTransfer(true);setShowPondMenu(false);}} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-2"><ArrowRightLeft size={13}/> Transfer Fish Stock</button>}
                     {canEdit&&<button onClick={()=>{setShowUpdateQty(true);setShowPondMenu(false);}} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-2"><Plus size={13}/> Update Quantity</button>}
                     {canEdit&&pond.category!=="Nursery"&&<button onClick={()=>{setShowMaxKg(true);setShowPondMenu(false);}} className="w-full text-left px-4 py-2.5 text-sm text-slate-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-2"><Layers size={13}/> Set Max kg per Pallet</button>}
                     {canDelete&&<button onClick={()=>{setShowClose(true);setShowPondMenu(false);}} className="w-full text-left px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"><X size={13}/> Clear Fish Stock</button>}
@@ -883,6 +928,7 @@ function PondDetail({
                 {canCreate&&<PBtn sm onClick={()=>setShowAddFeedGiven(true)}><Plus size={12}/> Add Feed Given</PBtn>}
                 {canCreate&&<PBtn sm onClick={()=>setShowMort(true)}><Plus size={12}/> Log Mortality</PBtn>}
                 {canCreate&&<PBtn sm onClick={()=>setShowTreat(true)}><Plus size={12}/> Log Treatment</PBtn>}
+                {(canEdit||canCreate)&&(Number(pond.currentCount)||0)>0&&<PBtn sm outline onClick={()=>{setTransferStep("form");setTransferF({toPond:"",date:TODAY,pct:"100",count:String(pond.currentCount)});setTransferErr({});setShowTransfer(true);}}><ArrowRightLeft size={12}/> Transfer Fish Stock</PBtn>}
                 {canEdit&&<PBtn sm outline onClick={()=>setShowUpdateQty(true)}>Update Qty</PBtn>}
                 {canEdit&&pond.category!=="Nursery"&&<PBtn sm outline onClick={()=>setShowMaxKg(true)}>Max kg / Pallet</PBtn>}
                 {canDelete&&<PBtn sm danger onClick={()=>setShowClose(true)}>Clear Fish Stock</PBtn>}
@@ -1542,78 +1588,274 @@ function PondDetail({
           <button disabled={isTransferring} onClick={() => { setShowNurseryTransfer(false); setNurseryTF({ toPond: "", count: "", pct: "100", date: TODAY }); setNurseryErr({}); }} className="px-4 py-2 text-sm text-slate-400">Cancel</button>
         </div>
       </Modal>}
-      {showTransfer&&<Modal title={`Transfer Fish Stock — ${pond.name}`} onClose={()=>{if(!isTransferring){setShowTransfer(false);setTransferF({toPond:"",date:TODAY,pct:"100",count:""});setTransferErr({});}}} wide>
-        <div className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-xs text-slate-700 grid grid-cols-2 gap-2">
-          <span>Species: <strong>{pond.species}</strong></span>
-          <span>Fish Count: <strong>{pond.currentCount.toLocaleString()}</strong></span>
-          <span>Stocking Date: <strong>{fmtStockingDate(pond.stockingDate)}</strong></span>
-          <span>Total Cost: <strong>{fmt(pond.totalCost)}</strong></span>
-        </div>
-        <F label="Transfer Percentage">
-          <div className="flex gap-2 flex-wrap">
-            {["25","50","75","100"].map(pVal=>{
-              const isActive=transferF.pct===pVal;
-              const btnCls="px-4 py-2 rounded-lg text-sm font-semibold border transition-all "+(isActive?"border-green-400 bg-green-50 text-green-700":"border-slate-200 text-slate-500 hover:border-green-300");
-              const handlePctBtn=()=>{
-                const count=pVal==="100"?"":String(Math.round(pond.currentCount*(Number(pVal)/100)));
-                setTransferF(f=>({...f,pct:pVal,count}));
-              };
-              return <button key={pVal} type="button" onClick={handlePctBtn} className={btnCls}>{pVal}%</button>;
-            })}
-          </div>
-          <input type="number" value={transferF.pct} onChange={e=>{const v=Math.min(100,Math.max(1,Number(e.target.value)||1));const cnt=v>=100?"":String(Math.round(pond.currentCount*(v/100)));setTransferF(f=>({...f,pct:String(v),count:cnt}));}} className={IC+" mt-2 max-w-[100px]"} placeholder="Custom %" min="1" max="100"/>
-        </F>
-        {Number(transferF.pct)<100&&<F label={`Fish Count to Transfer (of ${pond.currentCount.toLocaleString()})`}><input type="number" value={transferF.count} onChange={e=>{const val=e.target.value;const num=Number(val);const synPct=num>0&&pond.currentCount>0?String(Math.min(100,Math.max(1,Math.round((num/pond.currentCount)*100)))):"";setTransferF(f=>({...f,count:val,...(synPct?{pct:synPct}:{})}));}} className={IC} min="1" max={pond.currentCount}/></F>}
-        <div><F label="Transfer To (Empty Ponds Only)">
-          <select value={transferF.toPond} disabled={isTransferring} onChange={e=>{setTransferF(p=>({...p,toPond:e.target.value}));if(e.target.value)setTransferErr(p=>({...p,toPond:""}));}} className={`${SC}${transferErr.toPond?" border-red-400":""}`}>
-            <option value="">Select empty destination pond…</option>
-            {transferDestinationPonds.map(p=><option key={p.id} value={p.id}>{p.name} — {p.type}{p.status === "Empty" ? " (Empty)" : ""}</option>)}
-          </select>
-        </F>
-        {transferDestinationPonds.length === 0 && <p className="text-xs text-amber-600 mt-1">No empty ponds available. Fish stock transfers require an empty destination pond.</p>}
-        {transferErr.toPond&&<p className="text-xs text-red-500 mt-1">{transferErr.toPond}</p>}</div>
-        <F label="Transfer Date"><input type="date" value={transferF.date} onChange={e=>setTransferF(p=>({...p,date:e.target.value}))} className={IC}/></F>
-        {transferF.toPond&&Number(transferF.pct)>=100&&<div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-xs text-amber-800 space-y-1">
-          <p className="font-semibold text-amber-900">100% Stock Transfer Summary:</p>
-          <p>✓ All <strong>{pond.currentCount.toLocaleString()} fish</strong> ({pond.species}) will transfer to <strong>{ponds.find(p=>p.id===transferF.toPond)?.name}</strong>.</p>
-          <p>✓ All feeding records, feed quantities, mortality history, treatments, reports, and original stocking dates will transfer.</p>
-          <p>✓ <strong>{pond.name}</strong> will be cleared and reset to Empty.</p>
-        </div>}
-        {transferF.toPond&&Number(transferF.pct)<100&&<div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 text-xs text-blue-700 space-y-1">
-          <p className="font-semibold text-blue-900">Partial ({Math.round(Number(transferF.pct))}%) Stock Transfer Summary:</p>
-          <p>✓ <strong>{Number(transferF.count||Math.round(pond.currentCount*Number(transferF.pct)/100)).toLocaleString()} fish</strong> will transfer to <strong>{ponds.find(p=>p.id===transferF.toPond)?.name}</strong>.</p>
-          <p>✓ <strong>{Math.round(Number(transferF.pct))}%</strong> of feed quantities (kg) and mortality entries will be allocated to destination pond.</p>
-          <p>✓ <strong>{100 - Math.round(Number(transferF.pct))}%</strong> remains in <strong>{pond.name}</strong> ({pond.currentCount - Number(transferF.count||Math.round(pond.currentCount*Number(transferF.pct)/100))} fish).</p>
-          <p>✓ Original stocking date, species, and medical treatment records are preserved in both ponds.</p>
-        </div>}
-        {isTransferring && (
-          <div className="bg-emerald-50/80 border border-emerald-200 rounded-2xl p-4 space-y-2.5 my-3 animate-fadeIn">
-            <div className="flex items-center justify-between text-xs font-semibold text-emerald-800">
-              <span className="flex items-center gap-2">
-                <Loader2 size={15} className="animate-spin text-emerald-600" />
-                <span>{transferStage}</span>
-              </span>
-              <span className="font-mono font-bold text-emerald-700">{transferProgress}%</span>
-            </div>
-            <div className="w-full bg-emerald-100 rounded-full h-2.5 overflow-hidden shadow-inner">
-              <div
-                className="bg-gradient-to-r from-emerald-500 via-teal-500 to-green-600 h-2.5 rounded-full transition-all duration-200 ease-out shadow-sm"
-                style={{ width: `${transferProgress}%` }}
-              />
-            </div>
-            <p className="text-[11px] text-emerald-600/90 text-center">
-              Please hold on while fish count and stock records are securely updated…
-            </p>
-          </div>
-        )}
-        <div className="flex gap-2 pt-1">
-          <PBtn disabled={isTransferring} onClick={handleTransfer}>
-            {isTransferring ? <Loader2 size={14} className="animate-spin" /> : <ArrowRightLeft size={14} />}
-            {isTransferring ? `Transferring (${transferProgress}%)…` : "Confirm Transfer"}
-          </PBtn>
-          <button disabled={isTransferring} onClick={()=>{setShowTransfer(false);setTransferF({toPond:"",date:TODAY,pct:"100",count:""});setTransferErr({});}} className="px-4 py-2 text-sm text-slate-400">Cancel</button>
-        </div>
-      </Modal>}
+      {showTransfer&&(()=>{
+        const parsedTransferCount = Math.max(0, Math.min(pond.currentCount, Math.floor(Number(transferF.count) || 0)));
+        const parsedPct = pond.currentCount > 0 && parsedTransferCount > 0
+          ? Math.min(100, Math.round((parsedTransferCount / pond.currentCount) * 10000) / 100)
+          : (Number(transferF.pct) || 0);
+        const remainingPopulation = Math.max(0, pond.currentCount - parsedTransferCount);
+        const isFull = parsedTransferCount >= pond.currentCount && pond.currentCount > 0;
+        const selectedDestPond = ponds.find(p => p.id === transferF.toPond);
+        const displayPct = Number.isInteger(parsedPct) ? `${parsedPct}%` : `${parsedPct.toFixed(2).replace(/\.?0+$/, "")}%`;
+
+        return (
+          <Modal
+            title={transferStep === "summary" ? `Confirm Transfer Summary — ${pond.name}` : `Transfer Fish Stock — ${pond.name}`}
+            onClose={()=>{if(!isTransferring){setShowTransfer(false);setTransferStep("form");setTransferF({toPond:"",date:TODAY,pct:"100",count:String(pond.currentCount||"")});setTransferErr({});}}}
+            wide
+          >
+            {transferStep === "form" ? (
+              <div className="space-y-4">
+                {/* 1. Source Pond & Assigned Fish Stock */}
+                <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 text-xs text-slate-700 space-y-2">
+                  <div className="flex items-center justify-between border-b border-slate-200 pb-2">
+                    <span className="font-bold uppercase tracking-wider text-slate-500 text-[10px]">Source Pond &amp; Fish Stock</span>
+                    <Bdg label={activeFishStockLabel || pond.species} color="teal"/>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    <div><span className="text-slate-400 block text-[10px]">Source Pond</span><strong>{pond.name}</strong></div>
+                    <div><span className="text-slate-400 block text-[10px]">Species</span><strong>{pond.species}</strong></div>
+                    <div><span className="text-slate-400 block text-[10px]">Current Population</span><strong className="text-green-700">{pond.currentCount.toLocaleString()} fish</strong></div>
+                    <div><span className="text-slate-400 block text-[10px]">Initial Stock</span><strong>{pond.initialStock.toLocaleString()} fish</strong></div>
+                    <div><span className="text-slate-400 block text-[10px]">Stocking Date</span><strong>{fmtStockingDate(pond.stockingDate)}</strong></div>
+                    <div><span className="text-slate-400 block text-[10px]">Stock Cost</span><strong>{fmt(pond.totalCost)}</strong></div>
+                  </div>
+                </div>
+
+                {/* 2. Eligible Destination Pond (Empty Ponds Only) */}
+                <div>
+                  <F label="Destination Pond (Empty Ponds Only)">
+                    <select
+                      value={transferF.toPond}
+                      disabled={isTransferring}
+                      onChange={e=>{setTransferF(p=>({...p,toPond:e.target.value}));if(e.target.value)setTransferErr(p=>({...p,toPond:""}));}}
+                      className={`${SC}${transferErr.toPond?" border-red-400":""}`}
+                    >
+                      <option value="">Select empty destination pond…</option>
+                      {transferDestinationPonds.map(p=>(
+                        <option key={p.id} value={p.id}>{p.name} — {p.type} ({p.category || "Production"}) · Empty</option>
+                      ))}
+                    </select>
+                  </F>
+                  {transferDestinationPonds.length === 0 && (
+                    <p className="text-xs text-amber-600 mt-1">No empty ponds available. Fish stock transfers require an empty destination pond.</p>
+                  )}
+                  {transferErr.toPond && <p className="text-xs text-red-500 mt-1">{transferErr.toPond}</p>}
+                </div>
+
+                {/* 3. Synchronized Fish Quantity & Percentage Inputs */}
+                <div className="space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-slate-700">Quick Percentage Presets</span>
+                    <span className="text-[11px] text-slate-400">Base: {pond.currentCount.toLocaleString()} fish in {pond.name}</span>
+                  </div>
+                  <div className="flex gap-2 flex-wrap">
+                    {["10","25","50","75","100"].map(pVal=>{
+                      const targetCnt = pVal === "100" ? pond.currentCount : Math.max(1, Math.min(pond.currentCount, Math.round(pond.currentCount * (Number(pVal) / 100))));
+                      const isActive = Number(transferF.pct) === Number(pVal) && Number(transferF.count) === targetCnt;
+                      return (
+                        <button
+                          key={pVal}
+                          type="button"
+                          onClick={()=>{
+                            setTransferF(f=>({...f,pct:pVal,count:String(targetCnt)}));
+                            setTransferErr(er=>({...er,count:"",pct:""}));
+                          }}
+                          className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold border transition-all ${isActive ? "border-green-500 bg-green-50 text-green-700 shadow-2xs" : "border-slate-200 text-slate-600 hover:border-green-300"}`}
+                        >
+                          {pVal}%
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                    <div>
+                      <F label={`Number of Fish to Transfer (1 – ${pond.currentCount.toLocaleString()})`}>
+                        <input
+                          type="number"
+                          step="1"
+                          min="1"
+                          max={pond.currentCount}
+                          value={transferF.count}
+                          onChange={e=>{
+                            const raw = e.target.value;
+                            if (raw === "") {
+                              setTransferF(f=>({...f,count:"",pct:""}));
+                              return;
+                            }
+                            // Prevent decimals or negatives
+                            const clean = raw.replace(/[^0-9]/g, "");
+                            const num = Number(clean);
+                            const synPct = num > 0 && pond.currentCount > 0
+                              ? String(Math.min(100, Math.round((Math.min(num, pond.currentCount) / pond.currentCount) * 10000) / 100))
+                              : "";
+                            setTransferF(f=>({...f,count:clean,pct:synPct}));
+                            if (num > 0 && num <= pond.currentCount) {
+                              setTransferErr(er=>({...er,count:"",pct:""}));
+                            }
+                          }}
+                          className={`${IC}${transferErr.count?" border-red-400":""}`}
+                          placeholder={`Max ${pond.currentCount}`}
+                        />
+                      </F>
+                      {transferErr.count && <p className="text-xs text-red-500 mt-1">{transferErr.count}</p>}
+                    </div>
+
+                    <div>
+                      <F label="Percentage of Existing Stock (%)">
+                        <input
+                          type="number"
+                          step="any"
+                          min="0.01"
+                          max="100"
+                          value={transferF.pct}
+                          onChange={e=>{
+                            const raw = e.target.value;
+                            if (raw === "") {
+                              setTransferF(f=>({...f,pct:"",count:""}));
+                              return;
+                            }
+                            const num = Number(raw);
+                            if (isNaN(num) || num < 0) return;
+                            const clamped = Math.min(100, num);
+                            const cnt = clamped > 0
+                              ? Math.max(1, Math.min(pond.currentCount, Math.round(pond.currentCount * (clamped / 100))))
+                              : 0;
+                            setTransferF(f=>({...f,pct:raw,count:cnt > 0 ? String(cnt) : ""}));
+                            if (clamped > 0 && clamped <= 100 && cnt > 0) {
+                              setTransferErr(er=>({...er,count:"",pct:""}));
+                            }
+                          }}
+                          className={`${IC}${transferErr.pct?" border-red-400":""}`}
+                          placeholder="1 - 100"
+                        />
+                      </F>
+                      {transferErr.pct && <p className="text-xs text-red-500 mt-1">{transferErr.pct}</p>}
+                    </div>
+                  </div>
+
+                  {/* Live Allocation Bar */}
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs">
+                    <span>Transferring: <strong className="text-green-700">{parsedTransferCount.toLocaleString()} fish ({displayPct})</strong></span>
+                    <span>Remaining in {pond.name}: <strong className="text-slate-800">{remainingPopulation.toLocaleString()} fish</strong></span>
+                  </div>
+                </div>
+
+                {/* 4. Transfer Date */}
+                <div>
+                  <F label="Transfer Date">
+                    <input
+                      type="date"
+                      value={transferF.date}
+                      onChange={e=>{setTransferF(p=>({...p,date:e.target.value}));if(e.target.value)setTransferErr(er=>({...er,date:""}));}}
+                      className={`${IC}${transferErr.date?" border-red-400":""}`}
+                    />
+                  </F>
+                  {transferErr.date && <p className="text-xs text-red-500 mt-1">{transferErr.date}</p>}
+                </div>
+
+                <div className="flex gap-2 pt-2">
+                  <PBtn
+                    disabled={transferDestinationPonds.length === 0}
+                    onClick={()=>{
+                      if (validateTransferForm()) {
+                        setTransferStep("summary");
+                      }
+                    }}
+                  >
+                    <ArrowRightLeft size={14} /> Review Transfer Summary
+                  </PBtn>
+                  <button
+                    onClick={()=>{setShowTransfer(false);setTransferStep("form");setTransferF({toPond:"",date:TODAY,pct:"100",count:String(pond.currentCount||"")});setTransferErr({});}}
+                    className="px-4 py-2 text-sm text-slate-400 hover:text-slate-600"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className={`rounded-xl border p-4 space-y-3 text-xs ${isFull ? "bg-amber-50/70 border-amber-200" : "bg-blue-50/70 border-blue-200"}`}>
+                  <p className={`text-xs font-bold uppercase tracking-wider ${isFull ? "text-amber-900" : "text-blue-900"}`}>
+                    TRANSFER SUMMARY
+                  </p>
+                  <div className="grid grid-cols-2 gap-y-2 gap-x-4 text-slate-700 bg-white/80 rounded-lg p-3 border border-slate-200/70">
+                    <div><span className="text-slate-400 block text-[10px]">Source Pond</span><strong>{pond.name}</strong></div>
+                    <div><span className="text-slate-400 block text-[10px]">Destination Pond</span><strong className="text-green-700">{selectedDestPond?.name || "—"}</strong></div>
+                    <div><span className="text-slate-400 block text-[10px]">Fish Stock</span><strong>{activeFishStockLabel || pond.species}</strong></div>
+                    <div><span className="text-slate-400 block text-[10px]">Original Population</span><strong>{pond.currentCount.toLocaleString()} fish</strong></div>
+                    <div><span className="text-slate-400 block text-[10px]">Quantity to Transfer</span><strong className="text-green-700">{parsedTransferCount.toLocaleString()} fish</strong></div>
+                    <div><span className="text-slate-400 block text-[10px]">Transfer Percentage</span><strong className="text-green-700">{displayPct}</strong></div>
+                    <div><span className="text-slate-400 block text-[10px]">Remaining Population</span><strong>{remainingPopulation.toLocaleString()} fish</strong></div>
+                    <div><span className="text-slate-400 block text-[10px]">Transfer Date</span><strong>{fmtStockingDate(transferF.date)}</strong></div>
+                  </div>
+
+                  <div className="space-y-1.5 text-slate-700">
+                    <p className="font-semibold text-slate-800">Records to Transfer:</p>
+                    <p>• Fish stock information: <strong>{isFull ? "100% full stock transfer" : "Proportional stock allocation"}</strong></p>
+                    <p>• Feed consumption by pellet size: <strong>{displayPct}</strong></p>
+                    <p>• Daily feeding history: <strong>{displayPct}</strong></p>
+                    <p>• Treatment records: <strong>100% (full medical history)</strong></p>
+                    <p>• Issue records: <strong>100% (full health &amp; issue history)</strong></p>
+                  </div>
+
+                  <div className={`rounded-lg px-3 py-2 text-[11px] font-medium ${isFull ? "bg-amber-100/80 text-amber-900" : "bg-blue-100/80 text-blue-900"}`}>
+                    {isFull
+                      ? `${pond.name} will become empty/inactive with 0 fish and will be available as a clean slate for new stocking. ${selectedDestPond?.name} will become the active pond for this stock.`
+                      : `${pond.name} will retain ${remainingPopulation.toLocaleString()} fish and its remaining proportional feeding & pellet history. Both ponds will maintain independent records going forward.`}
+                  </div>
+                </div>
+
+                {transferErr.toPond && <p className="text-xs text-red-500">{transferErr.toPond}</p>}
+
+                {isTransferring && (
+                  <div className="bg-emerald-50/80 border border-emerald-200 rounded-2xl p-4 space-y-2.5 animate-fadeIn">
+                    <div className="flex items-center justify-between text-xs font-semibold text-emerald-800">
+                      <span className="flex items-center gap-2">
+                        <Loader2 size={15} className="animate-spin text-emerald-600" />
+                        <span>{transferStage}</span>
+                      </span>
+                      <span className="font-mono font-bold text-emerald-700">{transferProgress}%</span>
+                    </div>
+                    <div className="w-full bg-emerald-100 rounded-full h-2.5 overflow-hidden shadow-inner">
+                      <div
+                        className="bg-gradient-to-r from-emerald-500 via-teal-500 to-green-600 h-2.5 rounded-full transition-all duration-200 ease-out shadow-sm"
+                        style={{ width: `${transferProgress}%` }}
+                      />
+                    </div>
+                    <p className="text-[11px] text-emerald-600/90 text-center">
+                      Please hold on while fish count and stock records are securely updated…
+                    </p>
+                  </div>
+                )}
+
+                <div className="flex gap-2 pt-1">
+                  <button
+                    type="button"
+                    disabled={isTransferring}
+                    onClick={()=>setTransferStep("form")}
+                    className="px-4 py-2 text-sm font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50"
+                  >
+                    ← Back
+                  </button>
+                  <PBtn disabled={isTransferring} onClick={handleTransfer}>
+                    {isTransferring ? <Loader2 size={14} className="animate-spin" /> : <ArrowRightLeft size={14} />}
+                    {isTransferring ? `Transferring (${transferProgress}%)…` : "Confirm Transfer"}
+                  </PBtn>
+                  <button
+                    disabled={isTransferring}
+                    onClick={()=>{setShowTransfer(false);setTransferStep("form");setTransferF({toPond:"",date:TODAY,pct:"100",count:String(pond.currentCount||"")});setTransferErr({});}}
+                    className="px-4 py-2 text-sm text-slate-400"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+          </Modal>
+        );
+      })()}
       {editFeedRec&&<Modal title="Edit Feeding Record" onClose={()=>setEditFeedRec(null)}>
         <div className="grid grid-cols-2 gap-3">
           <F label="Morning (kg)"><NumInput value={editFeedRec.morning} onChange={v=>{const n=Number(v)||0;setEditFeedRec(p=>p?{...p,morning:n,total:n+p.evening}:p);}} className={IC} placeholder="0"/></F>
