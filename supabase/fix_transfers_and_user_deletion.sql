@@ -545,7 +545,6 @@ END;
 $$;
 
 GRANT EXECUTE ON FUNCTION transfer_fish_stock(UUID, UUID, NUMERIC, INTEGER, TEXT, TEXT, TEXT) TO authenticated, anon;
-GRANT EXECUTE ON FUNCTION transfer_fish_stock(UUID, UUID, NUMERIC, INTEGER, TEXT, TEXT) TO authenticated, anon;
 
 
 -- ==============================================================================
