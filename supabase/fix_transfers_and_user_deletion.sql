@@ -38,8 +38,6 @@ DECLARE
   v_kg_dest NUMERIC;
   v_rem_rec RECORD;
   v_rem_dest NUMERIC;
-  v_mort_rec RECORD;
-  v_mort_dest INTEGER;
   v_treat_rec RECORD;
   v_dest_max_kg JSONB := '{}'::jsonb;
   v_src_max_kg JSONB := '{}'::jsonb;
@@ -195,19 +193,7 @@ BEGIN
         OR fish_stock_id = v_from_pond.fish_stock_id
       );
 
-    -- 4. Reassociate all mortality entries to destination pond
-    UPDATE mortality_entries SET
-      pond_id = p_to_pond_id,
-      pond_name = v_to_pond.name,
-      farm_id = COALESCE(v_to_pond.farm_id, farm_id),
-      fish_stock = v_stock_label,
-      fish_stock_id = v_dest_stock_instance_id
-    WHERE pond_id = p_from_pond_id
-      AND (
-        v_from_pond.fish_stock_id IS NULL
-        OR fish_stock_id IS NULL
-        OR fish_stock_id = v_from_pond.fish_stock_id
-      );
+    -- 4. Mortality records: DO NOT TRANSFER (remain associated with source stock/pond per policy)
 
     -- 5. Reassociate all treatment records to destination pond (100%)
     UPDATE treatment_records SET
@@ -441,34 +427,7 @@ BEGIN
       END IF;
     END LOOP;
 
-    -- 4. Proportionally allocate mortality records scoped to source pond + stock
-    FOR v_mort_rec IN
-      SELECT * FROM mortality_entries
-      WHERE pond_id = p_from_pond_id
-        AND (
-          v_from_pond.fish_stock_id IS NULL
-          OR fish_stock_id IS NULL
-          OR fish_stock_id = v_from_pond.fish_stock_id
-        )
-    LOOP
-      v_mort_dest := ROUND(COALESCE(v_mort_rec.count, 0) * v_fraction);
-      IF v_mort_dest > 0 THEN
-        UPDATE mortality_entries SET
-          count = GREATEST(0, COALESCE(v_mort_rec.count, 0) - v_mort_dest),
-          fish_stock = v_stock_label,
-          fish_stock_id = v_stock_instance_id
-        WHERE id = v_mort_rec.id;
-
-        INSERT INTO mortality_entries (
-          id, user_id, pond_id, pond_name, farm_id, date, count, cause, notes, fish_stock, fish_stock_id, created_at
-        ) VALUES (
-          gen_random_uuid(), v_mort_rec.user_id, p_to_pond_id, v_to_pond.name, COALESCE(v_to_pond.farm_id, v_mort_rec.farm_id),
-          v_mort_rec.date, v_mort_dest, v_mort_rec.cause,
-          COALESCE(v_mort_rec.notes, '') || ' (Transferred from ' || v_from_pond.name || ')',
-          v_stock_label, v_dest_stock_instance_id, NOW()
-        );
-      END IF;
-    END LOOP;
+    -- 4. Mortality records: DO NOT TRANSFER (remain associated with source stock/pond per policy)
 
     -- 5. Copy 100% of treatment records to destination pond (medical history inherited in full)
     FOR v_treat_rec IN

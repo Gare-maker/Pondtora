@@ -393,6 +393,9 @@ function PondDetail({
 
     const rawTreatments = treatments.filter(t => {
       if (t.pondId !== pond.id) return false;
+      if ((pond as any).fishStockId && t.fishStockId && t.fishStockId === (pond as any).fishStockId) {
+        return true;
+      }
       const tStock = (t.fishStock || "").trim();
       const matchesClosed = Boolean(tStock && tStock !== "—") && closedEvents.some(ce => {
         const ceBatch = ce.batch || (ce.date ? fmtStockingDate(ce.date) : null);
@@ -420,6 +423,9 @@ function PondDetail({
 
     const repTreatments = (pondReports || []).filter(r => {
       if (r.pondId !== pond.id || r.reportType !== "treatment") return false;
+      if ((pond as any).fishStockId && r.fishStockId && r.fishStockId === (pond as any).fishStockId) {
+        return true;
+      }
       const rStock = (r.fishStockId || "").trim();
       const matchesClosed = Boolean(rStock && rStock !== "—") && closedEvents.some(ce => {
         const ceBatch = ce.batch || (ce.date ? fmtStockingDate(ce.date) : null);
@@ -1511,7 +1517,7 @@ function PondDetail({
         </Modal>
       )}
       {showNurseryTransfer&&<Modal title={`Nursery Transfer — ${pond.name}`} onClose={()=>{setShowNurseryTransfer(false);setNurseryTF({toPond:"",count:"",pct:"100",date:TODAY});setNurseryErr({});}} wide>
-        <div className="bg-purple-50 border border-purple-200 rounded-xl px-4 py-3 text-xs text-purple-700">Nursery ponds support partial transfers. Select an empty destination pond, fish count, and transfer percentage. Feed quantities and mortality records will be proportionally allocated between ponds, and medical treatments will be copied.</div>
+        <div className="bg-purple-50 border border-purple-200 rounded-xl px-4 py-3 text-xs text-purple-700">Nursery ponds support partial transfers. Select an empty destination pond, fish count, and transfer percentage. Feed quantities and daily feeding history will be proportionally allocated between ponds, and treatment &amp; issue records will be preserved. Mortality records remain on the source pond.</div>
         <div><F label="Destination Pond (Empty Ponds Only)"><select value={nurseryTF.toPond} disabled={isTransferring} onChange={e=>{setNurseryTF(p=>({...p,toPond:e.target.value}));if(e.target.value)setNurseryErr(p=>({...p,toPond:""}));}} className={`${SC}${nurseryErr.toPond?" border-red-400":""}`}><option value="">Select empty destination pond…</option>{nurseryDestinationPonds.map(p=><option key={p.id} value={p.id}>{p.name} — {p.type}{p.status === "Empty" ? " (Empty)" : ""}</option>)}</select></F>{nurseryDestinationPonds.length === 0 && <p className="text-xs text-amber-600 mt-1">No empty ponds available. Transfers require an empty destination pond.</p>}{nurseryErr.toPond&&<p className="text-xs text-red-500 mt-1">{nurseryErr.toPond}</p>}</div>
         <div className="grid grid-cols-2 gap-3">
           <div><F label={`Fish to Transfer (max ${pond.currentCount.toLocaleString()})`}><input type="number" min="1" max={String(pond.currentCount)} value={nurseryTF.count} onChange={e=>{const val=e.target.value;const num=Number(val);const synPct=num>0&&pond.currentCount>0?String(Math.min(100,Math.max(1,Math.round((num/pond.currentCount)*100)))):"";setNurseryTF(p=>({...p,count:val,...(synPct?{pct:synPct}:{})}));if(val&&num>0)setNurseryErr(p=>({...p,count:""}));}} className={`${IC}${nurseryErr.count?" border-red-400":""}`} placeholder="0"/></F>{nurseryErr.count&&<p className="text-xs text-red-500 mt-1">{nurseryErr.count}</p>}</div>
@@ -1521,9 +1527,9 @@ function PondDetail({
         {nurseryTF.count&&Number(nurseryTF.count)>0&&<div className="bg-slate-50 rounded-xl p-3 text-xs text-slate-600 space-y-1">
           <p className="font-semibold text-slate-700 mb-1.5">What will be transferred:</p>
           <p>✓ <strong>{Number(nurseryTF.count).toLocaleString()} fish</strong> ({nurseryTF.pct||100}%) from {pond.name}</p>
-          <p>✓ <strong>{nurseryTF.pct||100}%</strong> of feeding records & feed quantities (allocated proportionally)</p>
-          <p>✓ <strong>{nurseryTF.pct||100}%</strong> of mortality entries</p>
-          <p>✓ <strong>All</strong> treatment records (copied for medical reference)</p>
+          <p>✓ <strong>{nurseryTF.pct||100}%</strong> of feeding records &amp; feed quantities (allocated proportionally)</p>
+          <p>✓ <strong>All</strong> treatment &amp; issue records (preserved for reference)</p>
+          <p className="text-slate-400">• Mortality records remain on {pond.name} (not transferred)</p>
           {pond.maxKgByPallet&&Object.keys(pond.maxKgByPallet).length>0&&<p>✓ <strong>{nurseryTF.pct||100}%</strong> of pallet max kg limits</p>}
         </div>}
         {isTransferring && (
@@ -1811,6 +1817,7 @@ function PondDetail({
                     <p>• Daily feeding history: <strong>{displayPct}</strong></p>
                     <p>• Treatment records: <strong>100% (full medical history)</strong></p>
                     <p>• Issue records: <strong>100% (full health &amp; issue history)</strong></p>
+                    <p>• Mortality records: <strong>Not transferred (retained on source stock)</strong></p>
                   </div>
 
                   <div className={`rounded-lg px-3 py-2 text-[11px] font-medium ${isFull ? "bg-amber-100/80 text-amber-900" : "bg-blue-100/80 text-blue-900"}`}>

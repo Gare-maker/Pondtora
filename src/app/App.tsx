@@ -6885,7 +6885,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
 
     // Snapshot for atomic rollback if database persistence fails
     const prevSnapshot = {
-      ponds, feeding, bagLogs, remainLogs, mortality, treatments, pondReports, fishCountHistory, stockEvents
+      ponds, feeding, bagLogs, remainLogs, treatments, pondReports, fishCountHistory, stockEvents
     };
 
     // 1. Max kg by pallet allocation
@@ -7075,69 +7075,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     }
     setFeeding(nextFeeding);
 
-    // 4. Mortality records allocation - Strictly isolate by source pond + stock
-    const isSourceMort = (m: MortalityEntry) => belongsToSourcePondAndStock(m as any);
-
-    let nextMortality: MortalityEntry[] = [];
-    const createdDestMort: MortalityEntry[] = [];
-    const updatedSourceMort: MortalityEntry[] = [];
-
-    if (isFullTransfer) {
-      // 100% transfer: move all mortality to destination pond
-      nextMortality = mortality.map(m => {
-        if (isSourceMort(m)) {
-          const upd: MortalityEntry = {
-            ...m,
-            pondId: toPond.id,
-            pondName: toPond.name,
-            fishStock: stockLabel,
-            fishStockId: destStockInstanceId,
-            farmId: toPond.farmId || m.farmId || activeFarmId
-          };
-          updatedSourceMort.push(upd);
-          return upd;
-        }
-        return m;
-      });
-    } else {
-      // Partial transfer: calculate and allocate proportional mortality
-      const newDestMort: MortalityEntry[] = [];
-      const updatedExisting = mortality.map(m => {
-        if (isSourceMort(m)) {
-          const countDest = Math.round((Number(m.count) || 0) * fraction);
-          const countKeep = Math.max(0, (Number(m.count) || 0) - countDest);
-
-          const upd: MortalityEntry = {
-            ...m,
-            count: countKeep,
-            fishStock: stockLabel,
-            fishStockId: stockInstanceId,
-          };
-          updatedSourceMort.push(upd);
-
-          if (countDest > 0) {
-            const destM: MortalityEntry = {
-              id: crypto.randomUUID(),
-              pondId: toPond.id,
-              pondName: toPond.name,
-              date: m.date,
-              count: countDest,
-              cause: m.cause,
-              notes: m.notes ? `${m.notes} (Transferred from ${fromPond.name})` : `Transferred from ${fromPond.name}`,
-              farmId: toPond.farmId || m.farmId || activeFarmId,
-              fishStock: stockLabel,
-              fishStockId: destStockInstanceId,
-            };
-            newDestMort.push(destM);
-            createdDestMort.push(destM);
-          }
-          return upd;
-        }
-        return m;
-      });
-      nextMortality = [...updatedExisting, ...newDestMort];
-    }
-    setMortality(nextMortality);
+    // 4. Mortality records: DO NOT TRANSFER (remain associated with source stock/pond per policy)
 
     // 5. Treatment records allocation - 100% transfer regardless of percentage, strictly isolated by source pond + stock
     const isSourceTreat = (t: TreatmentRecord) => belongsToSourcePondAndStock(t as any);
@@ -7411,7 +7349,6 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
         saveUserLocal(targetUid, "feeding", "feedingRecords", nextFeeding);
         saveUserLocal(targetUid, "bag_logs", "bagOpenLogs", nextBags);
         saveUserLocal(targetUid, "remain_logs", "feedRemainingLogs", nextRemain);
-        saveUserLocal(targetUid, "mortality", "mortalityEntries", nextMortality);
         saveUserLocal(targetUid, "treatments", "treatmentRecords", nextTreatments);
         saveUserLocal(targetUid, "pond_reports", "pondReports", nextReports);
         saveUserLocal(targetUid, "fish_count_history", "fishCountHistory", nextFch);
@@ -7422,7 +7359,6 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
           saveUserLocal(userProfile.ownerId, "feeding", "feedingRecords", nextFeeding);
           saveUserLocal(userProfile.ownerId, "bag_logs", "bagOpenLogs", nextBags);
           saveUserLocal(userProfile.ownerId, "remain_logs", "feedRemainingLogs", nextRemain);
-          saveUserLocal(userProfile.ownerId, "mortality", "mortalityEntries", nextMortality);
           saveUserLocal(userProfile.ownerId, "treatments", "treatmentRecords", nextTreatments);
           saveUserLocal(userProfile.ownerId, "pond_reports", "pondReports", nextReports);
           saveUserLocal(userProfile.ownerId, "fish_count_history", "fishCountHistory", nextFch);
@@ -7436,7 +7372,6 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       setFeeding(prevSnapshot.feeding);
       setBagLogs(prevSnapshot.bagLogs);
       setRemainLogs(prevSnapshot.remainLogs);
-      setMortality(prevSnapshot.mortality);
       setTreatments(prevSnapshot.treatments);
       setPondReports(prevSnapshot.pondReports);
       setFishCountHistory(prevSnapshot.fishCountHistory);
@@ -7447,7 +7382,6 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
           saveUserLocal(targetUid, "feeding", "feedingRecords", prevSnapshot.feeding);
           saveUserLocal(targetUid, "bag_logs", "bagOpenLogs", prevSnapshot.bagLogs);
           saveUserLocal(targetUid, "remain_logs", "feedRemainingLogs", prevSnapshot.remainLogs);
-          saveUserLocal(targetUid, "mortality", "mortalityEntries", prevSnapshot.mortality);
           saveUserLocal(targetUid, "treatments", "treatmentRecords", prevSnapshot.treatments);
           saveUserLocal(targetUid, "pond_reports", "pondReports", prevSnapshot.pondReports);
           saveUserLocal(targetUid, "fish_count_history", "fishCountHistory", prevSnapshot.fishCountHistory);
@@ -7523,8 +7457,6 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
           ...createdDestBags.map(b => () => api.bagLogs.create(b)),
           ...updatedSourceRemains.map(r => () => api.remainLogs.update(r)),
           ...createdDestRemains.map(r => () => api.remainLogs.create(r)),
-          ...updatedSourceMort.map(m => () => api.mortality.update(m)),
-          ...createdDestMort.map(m => () => api.mortality.create(m)),
           ...updatedSourceTreat.map(t => () => api.treatments.update(t)),
           ...createdDestTreat.map(t => () => api.treatments.create(t)),
           ...(isFullTransfer
@@ -7580,8 +7512,8 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     // Display success notification only AFTER database save is completed
     toast.success(
       isFullTransfer
-        ? `100% fish stock and all associated records transferred from ${fromPond.name} to ${toPond.name}. ${fromPond.name} is now cleared.`
-        : `${safeCount.toLocaleString()} fish (${Math.round(fraction * 100)}%) + proportional feed and mortality records transferred from ${fromPond.name} to ${toPond.name}.`
+        ? `100% fish stock and all associated feeding, treatment, and issue records transferred from ${fromPond.name} to ${toPond.name}. ${fromPond.name} is now cleared.`
+        : `${safeCount.toLocaleString()} fish (${Math.round(fraction * 100)}%) + proportional feeding history and relevant records transferred from ${fromPond.name} to ${toPond.name}.`
     );
     return true;
   };
@@ -7866,7 +7798,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     const pendingLocalFeed = localFeed.filter(lf => lf?.id && !serverFeedIds.has(lf.id) && !isDeletedId(lf.id));
     const feedData: FeedingRecord[] = [...serverFeed.filter(f => !isDeletedId(f.id)), ...pendingLocalFeed];
     if (pendingLocalFeed.length > 0) {
-      pendingLocalFeed.forEach(f => api.feeding.create(f).catch(console.warn));
+      pendingLocalFeed.forEach(f => api.feeding.create({ ...f, _skipInventoryCheck: true, _skipDuplicateCheck: true, _isManual: true } as any).catch(console.warn));
     }
     const normFeed = feedData.map((fr: FeedingRecord) => ({ ...fr, farmId: normFid(fr.farmId) }));
     setFeeding(normFeed);
