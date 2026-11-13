@@ -23,6 +23,19 @@ ALTER TABLE public.treatment_records ADD COLUMN IF NOT EXISTS fish_stock TEXT;
 ALTER TABLE public.treatment_records ADD COLUMN IF NOT EXISTS fish_stock_id TEXT;
 ALTER TABLE public.pond_reports ADD COLUMN IF NOT EXISTS fish_stock_id TEXT;
 
+-- Deduplicate any legacy exact-same (user_id, pond, date, size, fish_stock_id) rows before creating unique index
+WITH duplicates AS (
+  SELECT id,
+         ROW_NUMBER() OVER (
+           PARTITION BY user_id, LOWER(TRIM(pond)), date, LOWER(TRIM(size)), COALESCE(fish_stock_id, '')
+           ORDER BY created_at DESC NULLS LAST, id DESC
+         ) AS rn
+  FROM feeding_records
+  WHERE pond IS NOT NULL AND date IS NOT NULL AND size IS NOT NULL
+)
+DELETE FROM feeding_records
+WHERE id IN (SELECT id FROM duplicates WHERE rn > 1);
+
 -- Ensure fish_stock_id-scoped unique index so transferred feeding records never collide with prior closed pond cycles
 DROP INDEX IF EXISTS idx_unique_feeding_record_pond_date_size;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_feeding_record_pond_date_size
