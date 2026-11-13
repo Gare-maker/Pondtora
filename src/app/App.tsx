@@ -7405,8 +7405,16 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       }
     };
 
+    const runBatchedStrict = async (factories: Array<() => Promise<any>>, batchSize = 5) => {
+      for (let i = 0; i < factories.length; i += batchSize) {
+        const chunk = factories.slice(i, i + batchSize);
+        await Promise.all(chunk.map(fn => fn()));
+      }
+    };
+
     let syncCompleted = true;
     let backgroundSyncPromise: Promise<void> | null = null;
+    const insertedDestFeedIds: string[] = [];
 
     try {
       const rpcResult = await api.ponds.transferFishStock({
@@ -7443,6 +7451,41 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
           ).catch(() => {});
         }
 
+        // ATOMIC DESTINATION-FIRST FEEDING TRANSFER:
+        // 1) Insert destination feeding records FIRST and verify every insert succeeds before deducting source!
+        if (createdDestFeed.length > 0) {
+          await withTimeout(
+            runBatchedStrict(
+              createdDestFeed.map(f => async () => {
+                const created = await api.feeding.create({
+                  ...f,
+                  _skipInventoryCheck: true,
+                  _skipDuplicateCheck: true,
+                  _isManual: true,
+                } as any);
+                insertedDestFeedIds.push(created?.id || f.id);
+              }),
+              5
+            ),
+            15000,
+            "Timed out saving transferred feeding history to destination pond."
+          );
+        }
+
+        // 2) Only after destination inserts succeed, deduct/update source feeding records
+        if (updatedSourceFeed.length > 0) {
+          await withTimeout(
+            runBatchedStrict(
+              updatedSourceFeed.map(f => () =>
+                api.feeding.update({ ...f, _skipInventoryCheck: true, _skipDuplicateCheck: true } as any)
+              ),
+              5
+            ),
+            15000,
+            "Timed out updating source pond feeding history."
+          );
+        }
+
         const taskFactories: Array<() => Promise<any>> = [
           ...(!rpcResult?.success
             ? [
@@ -7451,14 +7494,12 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
                 ...newStockEvents.map(se => () => api.stockEvents.create(se)),
               ]
             : []),
-          ...updatedSourceFeed.map(f => () => api.feeding.update({ ...f, _skipInventoryCheck: true, _skipDuplicateCheck: true } as any)),
-          ...createdDestFeed.map(f => () => api.feeding.create({ ...f, _skipInventoryCheck: true, _skipDuplicateCheck: true, _isManual: true } as any)),
-          ...updatedSourceBags.map(b => () => api.bagLogs.update(b)),
           ...createdDestBags.map(b => () => api.bagLogs.create(b)),
-          ...updatedSourceRemains.map(r => () => api.remainLogs.update(r)),
+          ...updatedSourceBags.map(b => () => api.bagLogs.update(b)),
           ...createdDestRemains.map(r => () => api.remainLogs.create(r)),
-          ...updatedSourceTreat.map(t => () => api.treatments.update(t)),
+          ...updatedSourceRemains.map(r => () => api.remainLogs.update(r)),
           ...createdDestTreat.map(t => () => api.treatments.create(t)),
+          ...updatedSourceTreat.map(t => () => api.treatments.update(t)),
           ...(isFullTransfer
             ? pondReports.filter(isSourceReport).map(r => () => api.pondReports.update({ ...r, pondId: toId, pondName: toPond.name, fishStockId: destStockInstanceId, _allowTransferMove: true } as any))
             : createdDestReports.map(r => () => api.pondReports.create(r))),
@@ -7477,6 +7518,14 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       }
     } catch (err: any) {
       console.error("Transfer database error, rolling back:", err);
+      // Clean up any partial destination feeding inserts and revert ponds if fallback had started
+      if (insertedDestFeedIds.length > 0) {
+        Promise.allSettled(insertedDestFeedIds.map(id => api.feeding.remove(id))).catch(() => {});
+      }
+      Promise.allSettled([
+        api.ponds.update(fromPond),
+        api.ponds.update(toPond),
+      ]).catch(() => {});
       rollbackTransfer(err?.message || "Database error during transfer. Changes were rolled back.");
       return false;
     }

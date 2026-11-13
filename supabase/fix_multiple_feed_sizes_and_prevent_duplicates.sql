@@ -24,9 +24,10 @@ WHERE id IN (
 );
 
 -- Step 2: Create a unique index to enforce that each feed size can only be recorded
--- once per pond/stock per date for a given user/farm.
+-- once per pond/stock per date for a given user/farm (scoped by fish_stock_id so transferred stocks never collide with prior closed cycles).
+DROP INDEX IF EXISTS idx_unique_feeding_record_pond_date_size;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_feeding_record_pond_date_size 
-ON feeding_records (user_id, LOWER(TRIM(pond)), date, LOWER(TRIM(size)));
+ON feeding_records (user_id, LOWER(TRIM(pond)), date, LOWER(TRIM(size)), COALESCE(fish_stock_id, ''));
 
 -- Step 3: Add index on bag_open_logs to optimize feed stock and opened bag queries
 CREATE INDEX IF NOT EXISTS idx_bag_open_logs_stock_date_size

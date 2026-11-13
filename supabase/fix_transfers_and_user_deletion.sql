@@ -3,6 +3,11 @@
 -- Pondtora Farm Aquaculture Management
 -- ==============================================================================
 
+-- Ensure fish_stock_id-scoped unique index so transferred feeding records never collide with prior closed pond cycles
+DROP INDEX IF EXISTS idx_unique_feeding_record_pond_date_size;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_feeding_record_pond_date_size
+ON feeding_records (user_id, LOWER(TRIM(pond)), date, LOWER(TRIM(size)), COALESCE(fish_stock_id, ''));
+
 -- ==============================================================================
 -- 1. ATOMIC FISH STOCK TRANSFER STORED PROCEDURE
 -- ==============================================================================
@@ -316,7 +321,7 @@ BEGIN
       SELECT * FROM feeding_records
       WHERE (
           pond_id = p_from_pond_id::text
-          OR (pond_id IS NULL AND LOWER(TRIM(pond)) = LOWER(TRIM(v_from_pond.name)))
+          OR ((pond_id IS NULL OR pond_id = '') AND LOWER(TRIM(pond)) = LOWER(TRIM(v_from_pond.name)))
         )
         AND (user_id = v_from_pond.user_id OR farm_id = v_from_pond.farm_id)
         AND (
@@ -362,7 +367,7 @@ BEGIN
       SELECT * FROM bag_open_logs
       WHERE (
           pond_id = p_from_pond_id::text
-          OR (pond_id IS NULL AND LOWER(TRIM(COALESCE(pond, ''))) = LOWER(TRIM(v_from_pond.name)))
+          OR ((pond_id IS NULL OR pond_id = '') AND LOWER(TRIM(COALESCE(pond, ''))) = LOWER(TRIM(v_from_pond.name)))
         )
         AND (user_id = v_from_pond.user_id OR farm_id = v_from_pond.farm_id)
         AND (
@@ -398,7 +403,7 @@ BEGIN
       SELECT * FROM feed_remaining_logs
       WHERE (
           pond_id = p_from_pond_id::text
-          OR (pond_id IS NULL AND LOWER(TRIM(COALESCE(pond, ''))) = LOWER(TRIM(v_from_pond.name)))
+          OR ((pond_id IS NULL OR pond_id = '') AND LOWER(TRIM(COALESCE(pond, ''))) = LOWER(TRIM(v_from_pond.name)))
         )
         AND (user_id = v_from_pond.user_id OR farm_id = v_from_pond.farm_id)
         AND (
