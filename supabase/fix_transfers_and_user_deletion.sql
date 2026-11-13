@@ -3,6 +3,26 @@
 -- Pondtora Farm Aquaculture Management
 -- ==============================================================================
 
+-- Ensure required stock/pond isolation columns exist before creating indexes or RPC
+ALTER TABLE public.ponds ADD COLUMN IF NOT EXISTS fish_stock TEXT;
+ALTER TABLE public.ponds ADD COLUMN IF NOT EXISTS fish_stock_id TEXT;
+ALTER TABLE public.ponds ADD COLUMN IF NOT EXISTS max_kg_by_pallet JSONB DEFAULT '{}'::jsonb;
+ALTER TABLE public.ponds ADD COLUMN IF NOT EXISTS transfer_note TEXT;
+ALTER TABLE public.feeding_records ADD COLUMN IF NOT EXISTS pond_id TEXT;
+ALTER TABLE public.feeding_records ADD COLUMN IF NOT EXISTS fish_stock TEXT;
+ALTER TABLE public.feeding_records ADD COLUMN IF NOT EXISTS fish_stock_id TEXT;
+ALTER TABLE public.bag_open_logs ADD COLUMN IF NOT EXISTS pond TEXT;
+ALTER TABLE public.bag_open_logs ADD COLUMN IF NOT EXISTS pond_id TEXT;
+ALTER TABLE public.bag_open_logs ADD COLUMN IF NOT EXISTS fish_stock TEXT;
+ALTER TABLE public.bag_open_logs ADD COLUMN IF NOT EXISTS fish_stock_id TEXT;
+ALTER TABLE public.feed_remaining_logs ADD COLUMN IF NOT EXISTS pond TEXT;
+ALTER TABLE public.feed_remaining_logs ADD COLUMN IF NOT EXISTS pond_id TEXT;
+ALTER TABLE public.feed_remaining_logs ADD COLUMN IF NOT EXISTS fish_stock TEXT;
+ALTER TABLE public.feed_remaining_logs ADD COLUMN IF NOT EXISTS fish_stock_id TEXT;
+ALTER TABLE public.treatment_records ADD COLUMN IF NOT EXISTS fish_stock TEXT;
+ALTER TABLE public.treatment_records ADD COLUMN IF NOT EXISTS fish_stock_id TEXT;
+ALTER TABLE public.pond_reports ADD COLUMN IF NOT EXISTS fish_stock_id TEXT;
+
 -- Ensure fish_stock_id-scoped unique index so transferred feeding records never collide with prior closed pond cycles
 DROP INDEX IF EXISTS idx_unique_feeding_record_pond_date_size;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_unique_feeding_record_pond_date_size

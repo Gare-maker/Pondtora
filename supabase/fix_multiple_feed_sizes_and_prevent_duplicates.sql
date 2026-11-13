@@ -23,6 +23,11 @@ WHERE id IN (
   SELECT id FROM duplicates WHERE rn > 1
 );
 
+-- Ensure fish_stock_id column exists before creating scoped unique index
+ALTER TABLE public.feeding_records ADD COLUMN IF NOT EXISTS pond_id TEXT;
+ALTER TABLE public.feeding_records ADD COLUMN IF NOT EXISTS fish_stock TEXT;
+ALTER TABLE public.feeding_records ADD COLUMN IF NOT EXISTS fish_stock_id TEXT;
+
 -- Step 2: Create a unique index to enforce that each feed size can only be recorded
 -- once per pond/stock per date for a given user/farm (scoped by fish_stock_id so transferred stocks never collide with prior closed cycles).
 DROP INDEX IF EXISTS idx_unique_feeding_record_pond_date_size;
