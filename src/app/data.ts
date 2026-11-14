@@ -1,7 +1,7 @@
 import type { Farm, FeedItem, Pond, Expense, Revenue, FeedingRecord, MortalityEntry, MonthData, PriceGroup, InvSettings, Invoice } from "./types";
 
 /* ─── Constants ────────────────────────────────────────────── */
-export const FEED_SIZES = ["0.2 mm","0.3 mm","0.5 mm","0.8 mm","1.2 mm","1.5 mm","2.0 mm","3.0 mm","4.0 mm","6.0 mm","9.0 mm"];
+export const FEED_SIZES = ["0.2 mm","0.3 mm","0.5 mm","0.8 mm","1.2 mm","1.5 mm","2.0 mm","3.0 mm","4.0 mm","6.0 mm","8.0 mm","9.0 mm","12.0 mm"];
 export const FEED_BRANDS = ["Omega Top","Blue Crown","EcoFloat","Aqualis","Alpha Feed","Vital Feed","TopFeed Aqua","Multi Feed","Aqua Boom","Agro Feed","NCF (Nigerian Certified Feed)","Dickem Fish Feed","Aqua Pro","Durante","Enam Papa","Tropo Farms Feed","Cycle Farms Feed","Local Commercial Pellet Feed","Coppens","Aller Aqua","Skretting","INVE Aquaculture","Zeigler","Raanan Fish Feed","Aqua Feed","Aqua Plus","Aqua Gold","Aqua Mix","Aqua Star","Aqua Master","Aqua Grow","Aqua Best","Aqua Life","Aqua Float","Aller Classic","Skretting Nutra","Coppens Advance","Coppens Premium","Regional Private Label Fish Feed","Local Compounded Floating Feed","Local Compounded Sinking Feed"];
 export const EXPENSE_CATS= ["Feed","Fish Stock","Maintenance","Medication","Utilities","Labor","Transportation","Loan","General Overhead","Miscellaneous","Others"];
 export const REVENUE_SRCS= ["Fish Sales","Pond Rental","Other Income","Others"];

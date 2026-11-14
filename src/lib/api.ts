@@ -2686,14 +2686,42 @@ export const api = {
             .eq("user_id", effectiveUid);
           const farmInvRows = (invRows || []).filter((f: any) => !farmId || !f.farm_id || f.farm_id === farmId);
           const matchingInv = farmInvRows.filter((f: any) => isSamePelletSize(f.size, dbRec.size));
-          if (matchingInv.length === 0) {
-            throw new Error(`Pellet size "${dbRec.size}" is out of stock in Feed Inventory. Please purchase and record feed stock before logging feeding.`);
-          }
+
           const { data: bagLogsRows } = await supabase
             .from("bag_open_logs")
-            .select("brand, size, bags_opened, farm_id")
+            .select("brand, size, bags_opened, kg_per_bag, total_kg, farm_id")
             .eq("user_id", effectiveUid);
           const farmBagLogs = (bagLogsRows || []).filter((b: any) => !farmId || !b.farm_id || b.farm_id === farmId);
+
+          const { data: remainRows } = await supabase
+            .from("feed_remaining_logs")
+            .select("brand, size, remaining_kg, farm_id")
+            .eq("user_id", effectiveUid);
+          const matchingRemain = (remainRows || []).filter((r: any) => (!farmId || !r.farm_id || r.farm_id === farmId) && isSamePelletSize(r.size, dbRec.size));
+          const remainAvailKg = matchingRemain.reduce((s: number, r: any) => s + Math.max(0, Number(r.remaining_kg) || 0), 0);
+
+          let manualLocalKg = 0;
+          try {
+            if (typeof localStorage !== "undefined") {
+              const rawManual = localStorage.getItem(farmId ? `pondtora_manual_feed_balances_${farmId}` : "pondtora_manual_feed_balances") || localStorage.getItem("pondtora_manual_feed_balances");
+              if (rawManual) {
+                const parsedManual = JSON.parse(rawManual);
+                if (Array.isArray(parsedManual)) {
+                  manualLocalKg = parsedManual
+                    .filter((m: any) => m && isSamePelletSize(m.size, dbRec.size))
+                    .reduce((s: number, m: any) => s + Math.max(0, Number(m.currentRemainingKg ?? m.initialRemainingKg) || 0), 0);
+                }
+              }
+            }
+          } catch {}
+
+          const matchingBagLogs = farmBagLogs.filter((b: any) => isSamePelletSize(b.size, dbRec.size));
+          const hasManualOrRemaining = remainAvailKg > 0 || manualLocalKg > 0 || matchingBagLogs.length > 0;
+
+          if (matchingInv.length === 0 && !hasManualOrRemaining) {
+            throw new Error(`Pellet size "${dbRec.size}" is out of stock in Feed Inventory. Please purchase and record feed stock before logging feeding.`);
+          }
+
           let inStockBags = 0;
           let inStockKg = 0;
           matchingInv.forEach((inv: any) => {
@@ -2706,12 +2734,13 @@ export const api = {
             inStockKg += remaining * wpb;
           });
 
-          if (inStockBags <= 0 && inStockKg <= 0) {
+          const totalAvailableKg = inStockKg + Math.max(remainAvailKg, manualLocalKg);
+          if (inStockBags <= 0 && totalAvailableKg <= 0) {
             throw new Error(`Pellet size "${dbRec.size}" is completely empty (0 bags in stock). Please add feed stock before feeding.`);
           }
           const toFeed = (Number(dbRec.morning) || 0) + (Number(dbRec.evening) || 0);
-          if (inStockKg > 0 && toFeed > inStockKg) {
-            throw new Error(`Insufficient stock for pellet size "${dbRec.size}". Available: ${Math.round(inStockKg * 10) / 10} kg, but attempting to feed ${toFeed} kg.`);
+          if (totalAvailableKg > 0 && toFeed > totalAvailableKg) {
+            throw new Error(`Insufficient stock for pellet size "${dbRec.size}". Available: ${Math.round(totalAvailableKg * 10) / 10} kg, but attempting to feed ${toFeed} kg.`);
           }
         }
       }
@@ -2765,14 +2794,42 @@ export const api = {
             .eq("user_id", effectiveUid);
           const farmInvRows = (invRows || []).filter((f: any) => !farmId || !f.farm_id || f.farm_id === farmId);
           const matchingInv = farmInvRows.filter((f: any) => isSamePelletSize(f.size, dbRec.size));
-          if (matchingInv.length === 0) {
-            throw new Error(`Pellet size "${dbRec.size}" is out of stock in Feed Inventory. Please purchase and record feed stock before logging feeding.`);
-          }
+
           const { data: bagLogsRows } = await supabase
             .from("bag_open_logs")
-            .select("brand, size, bags_opened, farm_id")
+            .select("brand, size, bags_opened, kg_per_bag, total_kg, farm_id")
             .eq("user_id", effectiveUid);
           const farmBagLogs = (bagLogsRows || []).filter((b: any) => !farmId || !b.farm_id || b.farm_id === farmId);
+
+          const { data: remainRows } = await supabase
+            .from("feed_remaining_logs")
+            .select("brand, size, remaining_kg, farm_id")
+            .eq("user_id", effectiveUid);
+          const matchingRemain = (remainRows || []).filter((r: any) => (!farmId || !r.farm_id || r.farm_id === farmId) && isSamePelletSize(r.size, dbRec.size));
+          const remainAvailKg = matchingRemain.reduce((s: number, r: any) => s + Math.max(0, Number(r.remaining_kg) || 0), 0);
+
+          let manualLocalKg = 0;
+          try {
+            if (typeof localStorage !== "undefined") {
+              const rawManual = localStorage.getItem(farmId ? `pondtora_manual_feed_balances_${farmId}` : "pondtora_manual_feed_balances") || localStorage.getItem("pondtora_manual_feed_balances");
+              if (rawManual) {
+                const parsedManual = JSON.parse(rawManual);
+                if (Array.isArray(parsedManual)) {
+                  manualLocalKg = parsedManual
+                    .filter((m: any) => m && isSamePelletSize(m.size, dbRec.size))
+                    .reduce((s: number, m: any) => s + Math.max(0, Number(m.currentRemainingKg ?? m.initialRemainingKg) || 0), 0);
+                }
+              }
+            }
+          } catch {}
+
+          const matchingBagLogs = farmBagLogs.filter((b: any) => isSamePelletSize(b.size, dbRec.size));
+          const hasManualOrRemaining = remainAvailKg > 0 || manualLocalKg > 0 || matchingBagLogs.length > 0;
+
+          if (matchingInv.length === 0 && !hasManualOrRemaining) {
+            throw new Error(`Pellet size "${dbRec.size}" is out of stock in Feed Inventory. Please purchase and record feed stock before logging feeding.`);
+          }
+
           let inStockBags = 0;
           let inStockKg = 0;
           matchingInv.forEach((inv: any) => {
@@ -2785,12 +2842,13 @@ export const api = {
             inStockKg += remaining * wpb;
           });
 
-          if (inStockBags <= 0 && inStockKg <= 0) {
+          const totalAvailableKg = inStockKg + Math.max(remainAvailKg, manualLocalKg);
+          if (inStockBags <= 0 && totalAvailableKg <= 0) {
             throw new Error(`Pellet size "${dbRec.size}" is completely empty (0 bags in stock). Please add feed stock before feeding.`);
           }
           const toFeed = (Number(dbRec.morning) || 0) + (Number(dbRec.evening) || 0);
-          if (inStockKg > 0 && toFeed > inStockKg) {
-            throw new Error(`Insufficient stock for pellet size "${dbRec.size}". Available: ${Math.round(inStockKg * 10) / 10} kg, but attempting to add feed exceeding in-stock.`);
+          if (totalAvailableKg > 0 && toFeed > totalAvailableKg) {
+            throw new Error(`Insufficient stock for pellet size "${dbRec.size}". Available: ${Math.round(totalAvailableKg * 10) / 10} kg, but attempting to add feed exceeding in-stock.`);
           }
         }
       }
@@ -2801,9 +2859,29 @@ export const api = {
 
   // ── Bag open logs ──────────────────────────────────────────────────────────
   bagLogs: {
-    list: () => dbList<BagOpenLog>("bag_open_logs", "bagOpenLogs"),
+    list: async () => {
+      const rows = await dbList<BagOpenLog>("bag_open_logs", "bagOpenLogs");
+      return (rows || []).map((row: any) => {
+        if (typeof row?.pond === "string" && row.pond.startsWith("__MANUAL_PREV_DAY_BALANCE__")) {
+          const parts = row.pond.split(":");
+          const initRem = parts[1] !== undefined && parts[1] !== "" ? Number(parts[1]) : undefined;
+          const baseFed = parts[2] !== undefined && parts[2] !== "" ? Number(parts[2]) : undefined;
+          return {
+            ...row,
+            isManualPrevDayBalance: true,
+            reason: "MANUAL_PREV_DAY_BALANCE",
+            initialRemainingKg: initRem !== undefined && !isNaN(initRem) ? initRem : row.initialRemainingKg,
+            baselineFedKg: baseFed !== undefined && !isNaN(baseFed) ? baseFed : row.baselineFedKg,
+          };
+        }
+        return row;
+      });
+    },
     create: (b: Partial<BagOpenLog>) => {
       const dbBag: any = { ...b };
+      if (b.isManualPrevDayBalance || b.reason === "MANUAL_PREV_DAY_BALANCE") {
+        dbBag.pond = `__MANUAL_PREV_DAY_BALANCE__:${b.initialRemainingKg ?? 0}:${b.baselineFedKg ?? 0}`;
+      }
       if (b.date) {
         const d = toValidDbDate(b.date);
         if (d) dbBag.date = d;
@@ -2812,6 +2890,9 @@ export const api = {
     },
     update: (b: BagOpenLog) => {
       const dbBag: any = { ...b };
+      if (b.isManualPrevDayBalance || b.reason === "MANUAL_PREV_DAY_BALANCE") {
+        dbBag.pond = `__MANUAL_PREV_DAY_BALANCE__:${b.initialRemainingKg ?? 0}:${b.baselineFedKg ?? 0}`;
+      }
       if (b.date) {
         const d = toValidDbDate(b.date);
         if (d) dbBag.date = d;
@@ -2823,9 +2904,28 @@ export const api = {
 
   // ── Feed remaining logs ────────────────────────────────────────────────────
   remainLogs: {
-    list: () => dbList<FeedRemainingLog>("feed_remaining_logs", "feedRemainingLogs"),
+    list: async () => {
+      const rows = await dbList<FeedRemainingLog>("feed_remaining_logs", "feedRemainingLogs");
+      return (rows || []).map((row: any) => {
+        if (typeof row?.pond === "string" && row.pond.startsWith("__MANUAL_PREV_DAY_BALANCE__")) {
+          const parts = row.pond.split(":");
+          const initRem = parts[1] !== undefined && parts[1] !== "" ? Number(parts[1]) : undefined;
+          const baseFed = parts[2] !== undefined && parts[2] !== "" ? Number(parts[2]) : undefined;
+          return {
+            ...row,
+            isManualPrevDayBalance: true,
+            initialRemainingKg: initRem !== undefined && !isNaN(initRem) ? initRem : row.initialRemainingKg,
+            baselineFedKg: baseFed !== undefined && !isNaN(baseFed) ? baseFed : row.baselineFedKg,
+          };
+        }
+        return row;
+      });
+    },
     create: (r: Partial<FeedRemainingLog>) => {
       const dbRem: any = { ...r };
+      if (r.isManualPrevDayBalance) {
+        dbRem.pond = `__MANUAL_PREV_DAY_BALANCE__:${r.initialRemainingKg ?? r.remainingKg ?? 0}:${r.baselineFedKg ?? 0}`;
+      }
       if (r.date) {
         const d = toValidDbDate(r.date);
         if (d) dbRem.date = d;
@@ -2834,6 +2934,9 @@ export const api = {
     },
     update: (r: FeedRemainingLog) => {
       const dbRem: any = { ...r };
+      if (r.isManualPrevDayBalance) {
+        dbRem.pond = `__MANUAL_PREV_DAY_BALANCE__:${r.initialRemainingKg ?? r.remainingKg ?? 0}:${r.baselineFedKg ?? 0}`;
+      }
       if (r.date) {
         const d = toValidDbDate(r.date);
         if (d) dbRem.date = d;
