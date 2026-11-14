@@ -323,51 +323,12 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
           : "Complete record of all feed purchases."}
       </p>
       {tab==="stock"&&(
-        <><div className="hidden md:flex flex-wrap gap-2 items-center">
-          {([["Brand",fBrand,setFBrand,["All",...brands]],["Size",fSize,setFSize,["All",...sizes]]] as any[]).map(([label,val,set,opts]:any)=>(
-            <div key={label} className="flex items-center gap-1.5"><span className="text-xs text-slate-400">{label}:</span><select value={val} onChange={e=>set(e.target.value)} className={`${SC} py-1.5 text-xs w-auto`}>{opts.map((o:string)=><option key={o}>{o}</option>)}</select></div>
-          ))}
-        </div>
-        {/* Desktop table */}
-        <Card className="hidden md:block"><div className="overflow-x-auto"><table className="w-full text-sm min-w-[500px]">
-          <thead><tr className="border-b border-slate-100 bg-slate-50">
-            <th className="px-4 py-3 text-[11px] text-slate-400 w-10 sticky left-0 z-20 bg-slate-50">#</th>
-            <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider sticky left-10 z-20 bg-slate-50 border-r border-slate-200 whitespace-nowrap cursor-pointer select-none hover:text-green-600" onClick={()=>toggle("brand")}><div className="flex items-center gap-1">Brand<div className="flex flex-col -space-y-0.5"><ChevronUp size={9} className={sf==="brand"&&sd==="asc"?"text-green-600":"text-slate-200"}/><ChevronDown size={9} className={sf==="brand"&&sd==="desc"?"text-green-600":"text-slate-200"}/></div></div></th>
-            <SH label="Size" field="size" sf={sf} sd={sd} onSort={toggle}/>
-            <th className="text-left px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider whitespace-nowrap">Bags in Stock</th>
-            <SH label="Kg Per Bag" field="weightPerBag" sf={sf} sd={sd} onSort={toggle}/>
-            <SH label="Total Kg" field="totalKg" sf={sf} sd={sd} onSort={toggle}/>
-          </tr></thead>
-          <tbody className="divide-y divide-slate-50">
-            {(()=>{
-              const merged=Object.values(filtInv.reduce<Record<string,FeedItem&{_b:number}>>((acc,item)=>{
-                const key=`${item.brand}|${item.size}|${item.weightPerBag}`;
-                if(!acc[key])acc[key]={...item,_b:0};
-                acc[key]._b+=item.bags;
-                acc[key].bags=acc[key]._b;
-                return acc;
-              },{}));
-              return merged.length===0
-                ?[<tr key="empty"><td colSpan={6} className="text-center text-xs text-slate-400 py-8">No items match filters</td></tr>]
-                :merged.map((row,i)=>{
-                  const opened=bagLogs.filter(b=>b.brand===row.brand&&b.size===row.size).reduce((s,b)=>s+b.bagsOpened,0);
-                  const inStock=Math.max(0,row.bags-opened);
-                  return(
-                    <tr key={row.id+i} className="hover:bg-slate-50 transition-colors">
-                      <td className="px-4 py-3.5 text-slate-300 text-xs font-mono sticky left-0 z-10 bg-white">{i+1}</td>
-                      <td className="px-4 py-3.5 font-semibold text-slate-900 sticky left-10 z-10 bg-white border-r border-slate-100">{row.brand}</td>
-                      <td className="px-4 py-3.5"><Bdg label={row.size} color="blue"/></td>
-                      <td className="px-4 py-3.5"><span className={`font-bold ${inStock===0?"text-red-500":inStock<=3?"text-amber-500":"text-green-700"}`}>{inStock}</span></td>
-                      <td className="px-4 py-3.5 text-slate-500">{row.weightPerBag}kg</td>
-                      <td className="px-4 py-3.5 font-semibold">{inStock * row.weightPerBag}kg</td>
-                    </tr>
-                  );
-                });
-            })()}
-          </tbody>
-        </table></div></Card>
-        {/* Mobile card list */}
-        <div className="md:hidden space-y-2">
+        <div className="space-y-4">
+          <div className="flex flex-wrap gap-2 items-center">
+            {([["Brand",fBrand,setFBrand,["All",...brands]],["Size",fSize,setFSize,["All",...sizes]]] as any[]).map(([label,val,set,opts]:any)=>(
+              <div key={label} className="flex items-center gap-1.5"><span className="text-xs text-slate-400">{label}:</span><select value={val} onChange={e=>set(e.target.value)} className={`${SC} py-1.5 text-xs w-auto`}>{opts.map((o:string)=><option key={o}>{o}</option>)}</select></div>
+            ))}
+          </div>
           {(()=>{
             const merged=Object.values(filtInv.reduce<Record<string,FeedItem&{_b:number}>>((acc,item)=>{
               const key=`${item.brand}|${item.size}|${item.weightPerBag}`;
@@ -376,27 +337,82 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
               acc[key].bags=acc[key]._b;
               return acc;
             },{}));
-            if(merged.length===0)return[<p key="empty" className="text-center text-xs text-slate-400 py-8">No items match filters</p>];
-            return merged.map((row,i)=>{
-              const opened=bagLogs.filter(b=>b.brand===row.brand&&b.size===row.size).reduce((s,b)=>s+b.bagsOpened,0);
-              const inStock=Math.max(0,row.bags-opened);
-              return(
-                <div key={row.id+i} className="bg-white border border-slate-200 rounded-xl px-4 py-3 flex items-center justify-between">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <span className="text-xs text-slate-300 font-mono w-5 shrink-0">{i+1}</span>
-                    <div className="min-w-0">
-                      <p className="text-sm font-bold text-slate-900 leading-tight">{row.size}</p>
-                      <p className="text-sm text-slate-600 mt-0.5">{row.brand} · {row.weightPerBag}kg/bag</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <span className={`text-sm font-bold ${inStock===0?"text-red-500":inStock<=3?"text-amber-500":"text-green-700"}`}>{inStock} bags</span>
-                  </div>
-                </div>
+            if(merged.length===0){
+              return (
+                <Card className="p-8 text-center">
+                  <Package size={28} className="text-slate-300 mx-auto mb-2"/>
+                  <p className="text-xs text-slate-400">No items match filters</p>
+                </Card>
               );
-            });
+            }
+            return (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3.5 sm:gap-4">
+                {merged.map((row,i)=>{
+                  const opened=bagLogs.filter(b=>b.brand===row.brand&&b.size===row.size).reduce((s,b)=>s+b.bagsOpened,0);
+                  const inStock=Math.max(0,row.bags-opened);
+                  const totalRemainingKg=inStock*row.weightPerBag;
+                  const statusColor=inStock===0
+                    ?"border-red-200 bg-red-50/20"
+                    :inStock<=3
+                    ?"border-amber-200 bg-amber-50/20"
+                    :"border-slate-200/90 bg-white";
+                  const countColor=inStock===0
+                    ?"text-red-600"
+                    :inStock<=3
+                    ?"text-amber-600"
+                    :"text-green-700";
+                  const badgeBg=inStock===0
+                    ?"bg-red-50 border-red-200/80"
+                    :inStock<=3
+                    ?"bg-amber-50 border-amber-200/80"
+                    :"bg-emerald-50/80 border-emerald-200/80";
+                  return(
+                    <div
+                      key={row.id+i}
+                      className={`rounded-2xl border ${statusColor} p-4 sm:p-5 shadow-xs hover:shadow-md transition-all flex flex-col justify-between gap-3.5 min-w-0`}
+                    >
+                      <div className="flex items-start justify-between gap-2.5 min-w-0">
+                        <div className="min-w-0 flex-1">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
+                            Feed Brand
+                          </span>
+                          <h3 className="text-base sm:text-lg font-bold text-slate-900 leading-snug truncate mt-0.5" title={row.brand}>
+                            {row.brand}
+                          </h3>
+                        </div>
+                        <div className="shrink-0 text-right">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                            Feed Pallet
+                          </span>
+                          <Bdg label={row.size} color="blue"/>
+                        </div>
+                      </div>
+
+                      <div className={`rounded-xl border px-3.5 py-3 flex items-baseline justify-between gap-2 ${badgeBg}`}>
+                        <div>
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">
+                            Bags Remaining
+                          </span>
+                          <span className="text-[11px] text-slate-500 font-medium mt-0.5 block">
+                            {row.weightPerBag}kg/bag · {totalRemainingKg}kg total
+                          </span>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <span className={`text-3xl sm:text-4xl font-extrabold font-['Barlow_Condensed',sans-serif] leading-none tracking-tight ${countColor}`}>
+                            {inStock}
+                          </span>
+                          <span className={`text-xs font-bold uppercase tracking-wide ml-1 ${countColor}`}>
+                            {inStock===1?"bag":"bags"}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            );
           })()}
-        </div></>
+        </div>
       )}
       {tab==="daily_bags"&&(
         <div className="space-y-4">

@@ -659,20 +659,20 @@ export default function InvoicesPage({ponds,invoices,customers,priceGroups,setti
                   {priceGroups.length>0&&(
                     <table className="w-full text-sm">
                       <thead><tr className="bg-slate-50 border-b border-slate-100">
-                        <th className="px-4 py-3 text-left text-[11px] text-slate-500 uppercase tracking-wider">Group</th>
-                        <th className="px-4 py-3 text-left text-[11px] text-slate-500 uppercase tracking-wider whitespace-nowrap">Display Name</th>
-                        <th className="px-4 py-3 text-left text-[11px] text-slate-500 uppercase tracking-wider whitespace-nowrap">Price/kg</th>
-                        <th className="px-4 py-3 text-left text-[11px] text-slate-500 uppercase tracking-wider">Status</th>
-                        <th className="px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider">Actions</th>
+                        <th className="px-4 py-3 text-left text-[11px] text-slate-500 uppercase tracking-wider align-top">Group</th>
+                        <th className="px-4 py-3 text-left text-[11px] text-slate-500 uppercase tracking-wider whitespace-nowrap align-top">Display Name</th>
+                        <th className="px-4 py-3 text-left text-[11px] text-slate-500 uppercase tracking-wider whitespace-nowrap align-top">Price/kg</th>
+                        <th className="px-4 py-3 text-left text-[11px] text-slate-500 uppercase tracking-wider align-top">Status</th>
+                        <th className="px-4 py-3 text-[11px] text-slate-500 uppercase tracking-wider align-top">Actions</th>
                       </tr></thead>
                       <tbody className="divide-y divide-slate-50">
                         {priceGroups.map(g=>(
                           <tr key={g.id} className="hover:bg-slate-50">
-                            <td className="px-4 py-3 font-bold text-slate-900 text-base font-['Barlow_Condensed',sans-serif]">{g.group}</td>
-                            <td className="px-4 py-3"><p className="font-semibold text-slate-800">{g.group} – {g.displayName}</p>{g.description&&<p className="text-[11px] text-slate-400">{g.description}</p>}</td>
-                            <td className="px-4 py-3 font-bold text-green-700 font-['Barlow_Condensed',sans-serif]">{fmt(g.pricePerKg)}</td>
-                            <td className="px-4 py-3"><Bdg label={g.status} color={g.status==="Active"?"green":"gray"}/></td>
-                            <td className="px-4 py-3">
+                            <td className="px-4 py-3 font-bold text-slate-900 text-base font-['Barlow_Condensed',sans-serif] align-top">{g.group}</td>
+                            <td className="px-4 py-3 align-top"><p className="font-semibold text-slate-800">{g.group} – {g.displayName}</p>{g.description&&<p className="text-[11px] text-slate-400">{g.description}</p>}</td>
+                            <td className="px-4 py-3 font-bold text-green-700 font-['Barlow_Condensed',sans-serif] align-top">{fmt(g.pricePerKg)}</td>
+                            <td className="px-4 py-3 align-top"><Bdg label={g.status} color={g.status==="Active"?"green":"gray"}/></td>
+                            <td className="px-4 py-3 align-top">
                               <div className="flex gap-1">
                                 {canEdit&&<button onClick={()=>{setEditGroup(g);setGroupF({group:g.group,displayName:g.displayName,description:g.description,pricePerKg:String(g.pricePerKg),status:g.status});setGroupFormMode(true);}} className="p-1.5 rounded-lg text-slate-300 hover:text-green-600 hover:bg-green-50 transition-colors"><Pencil size={13}/></button>}
                                 {canDelete&&<button onClick={()=>{if(confirm(`Delete "${g.group} – ${g.displayName}"?`))onDeletePriceGroup(g.id);}} className="p-1.5 rounded-lg text-slate-300 hover:text-red-500 hover:bg-red-50 transition-colors"><Trash2 size={13}/></button>}

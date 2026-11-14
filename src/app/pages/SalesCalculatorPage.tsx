@@ -1206,13 +1206,13 @@ export default function SalesCalculatorPage({
             <table className="w-full text-xs text-left">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 font-bold uppercase tracking-wider text-[10px]">
-                  <th className="px-3.5 py-3">Customer</th>
-                  <th className="px-3.5 py-3">Date &amp; Time</th>
-                  <th className="px-3.5 py-3">Price Groups</th>
-                  <th className="px-3.5 py-3 text-right">Quantity (kg)</th>
-                  <th className="px-3.5 py-3 text-right">Total Amount</th>
-                  <th className="px-3.5 py-3 text-center">Status</th>
-                  <th className="px-3.5 py-3 text-center w-20">Actions</th>
+                  <th className="px-3.5 py-3 align-top">Customer</th>
+                  <th className="px-3.5 py-3 align-top">Date &amp; Time</th>
+                  <th className="px-3.5 py-3 align-top">Price Groups</th>
+                  <th className="px-3.5 py-3 text-right align-top">Quantity (kg)</th>
+                  <th className="px-3.5 py-3 text-right align-top">Total Amount</th>
+                  <th className="px-3.5 py-3 text-center align-top">Status</th>
+                  <th className="px-3.5 py-3 text-center w-20 align-top">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -1229,8 +1229,8 @@ export default function SalesCalculatorPage({
                       className="hover:bg-slate-50/80 transition-colors cursor-pointer group"
                     >
                       {/* Customer Name & Phone */}
-                      <td className="px-3.5 py-3">
-                        <div className="flex items-center gap-2">
+                      <td className="px-3.5 py-3 align-top">
+                        <div className="flex items-start gap-2">
                           <div className="w-7 h-7 rounded-lg bg-green-50 text-green-700 flex items-center justify-center font-bold text-xs shrink-0 font-['Barlow_Condensed',sans-serif]">
                             {c.customerName.charAt(0).toUpperCase()}
                           </div>
@@ -1248,7 +1248,7 @@ export default function SalesCalculatorPage({
                       </td>
 
                       {/* Date & Time */}
-                      <td className="px-3.5 py-3 text-slate-500 whitespace-nowrap">
+                      <td className="px-3.5 py-3 text-slate-500 whitespace-nowrap align-top">
                         <div className="flex items-center gap-1.5 text-xs">
                           <Clock size={12} className="text-slate-400" />
                           <span>{formatDateTime(c.createdAt)}</span>
@@ -1256,11 +1256,11 @@ export default function SalesCalculatorPage({
                       </td>
 
                       {/* Price Groups & Items breakdown */}
-                      <td className="px-3.5 py-3">
+                      <td className="px-3.5 py-3 align-top">
                         <div className="space-y-1">
                           {items.length > 0 ? (
                             items.map((it, idx) => (
-                              <div key={it.id || idx} className="flex items-center justify-between gap-3 text-xs">
+                              <div key={it.id || idx} className="flex items-start justify-between gap-3 text-xs">
                                 <span className="font-bold text-slate-800 font-mono text-[11px] bg-slate-100 px-1.5 py-0.5 rounded">
                                   {it.priceGroupCode ? `Group ${it.priceGroupCode}` : it.priceGroupName || "Fish"}: {(Number(it.quantityKg) || 0).toLocaleString()} kg
                                 </span>
@@ -1276,12 +1276,12 @@ export default function SalesCalculatorPage({
                       </td>
 
                       {/* Total Weight in KG */}
-                      <td className="px-3.5 py-3 text-right font-mono font-semibold text-slate-700">
+                      <td className="px-3.5 py-3 text-right font-mono font-semibold text-slate-700 align-top">
                         {totalKgForCalc.toLocaleString()} <span className="text-[10px] text-slate-400 font-sans">kg</span>
                       </td>
 
                       {/* Total Amount Payable */}
-                      <td className="px-3.5 py-3 text-right">
+                      <td className="px-3.5 py-3 text-right align-top">
                         <span className="font-mono font-bold text-slate-900 text-xs sm:text-sm block">
                           {fmt(c.totalAmount, cs)}
                         </span>
@@ -1302,7 +1302,7 @@ export default function SalesCalculatorPage({
                       </td>
 
                       {/* Payment Status Badge */}
-                      <td className="px-3.5 py-3 text-center">
+                      <td className="px-3.5 py-3 text-center align-top">
                         <Bdg
                           label={c.paymentStatus || "Unpaid"}
                           color={c.paymentStatus === "Paid" ? "green" : c.paymentStatus === "Partially Paid" ? "blue" : "amber"}
@@ -1310,7 +1310,7 @@ export default function SalesCalculatorPage({
                       </td>
 
                       {/* Actions */}
-                      <td className="px-3.5 py-3 text-center" onClick={e => e.stopPropagation()}>
+                      <td className="px-3.5 py-3 text-center align-top" onClick={e => e.stopPropagation()}>
                         <div className="flex items-center justify-center gap-1">
                           <div className="relative inline-block text-left">
                             <button
@@ -1639,7 +1639,7 @@ export default function SalesCalculatorPage({
         >
           <div className="space-y-3.5 pb-2">
             {/* Customer Details Form: Side-by-side on all screens */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3">
               <div>
                 <label className="block text-[11px] font-bold text-slate-700 mb-1 uppercase tracking-wide">
                   Customer Name <span className="text-red-500">*</span>
@@ -1668,20 +1668,6 @@ export default function SalesCalculatorPage({
                   disabled={isSavingCalc}
                 />
                 {calcFormErr.customerPhone && <p className="text-red-500 text-[10px] mt-0.5">{calcFormErr.customerPhone}</p>}
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-bold text-slate-700 mb-1 uppercase tracking-wide">
-                  Sales Schedule <span className="text-slate-400 font-normal text-[10px]">(Optional)</span>
-                </label>
-                <input
-                  type="text"
-                  value={salesSchedule}
-                  onChange={e => setSalesSchedule(e.target.value)}
-                  placeholder="e.g. 2026-11-05 / Morning"
-                  className={`${IC} text-xs py-2`}
-                  disabled={isSavingCalc}
-                />
               </div>
             </div>
 
@@ -1787,23 +1773,23 @@ export default function SalesCalculatorPage({
               <table className="w-full text-xs">
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50 text-slate-500">
-                    <th className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-left w-10">#</th>
-                    <th className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-left min-w-[200px]">Price Group</th>
-                    <th className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-left w-36">Weight (KG)</th>
+                    <th className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-left w-10 align-top">#</th>
+                    <th className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-left min-w-[200px] align-top">Price Group</th>
+                    <th className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-left w-36 align-top">Weight (KG)</th>
                     {discountType === "individual" && (
-                      <th className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-left min-w-[140px] w-40">Discount ({cs}/kg)</th>
+                      <th className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-left min-w-[140px] w-40 align-top">Discount ({cs}/kg)</th>
                     )}
-                    <th className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-right w-36">Amount</th>
-                    <th className="px-3 py-2 w-8"/>
+                    <th className="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-right w-36 align-top">Amount</th>
+                    <th className="px-3 py-2 w-8 align-top"/>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {calculatedRows.map((row, idx) => (
                     <tr key={row.id} className="hover:bg-slate-50/50 transition-colors">
-                      <td className="px-3 py-2.5 font-mono text-slate-400 text-center text-[11px]">
+                      <td className="px-3 py-2.5 font-mono text-slate-400 text-center text-[11px] align-top">
                         {idx + 1}
                       </td>
-                      <td className="px-3 py-2.5">
+                      <td className="px-3 py-2.5 align-top">
                         <select
                           value={row.groupId}
                           onChange={e => updateCalcItem(row.id, "groupId", e.target.value)}
@@ -1822,7 +1808,7 @@ export default function SalesCalculatorPage({
                           </p>
                         )}
                       </td>
-                      <td className="px-3 py-2.5">
+                      <td className="px-3 py-2.5 align-top">
                         <div className="relative w-full">
                           <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[11px] font-bold text-slate-500 pointer-events-none select-none">
                             kg
@@ -1837,7 +1823,7 @@ export default function SalesCalculatorPage({
                         </div>
                       </td>
                       {discountType === "individual" && (
-                        <td className="px-3 py-2.5">
+                        <td className="px-3 py-2.5 align-top">
                           <div className="relative">
                             <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[11px] font-semibold text-slate-400 pointer-events-none">{cs}</span>
                             <NumInput
@@ -1851,7 +1837,7 @@ export default function SalesCalculatorPage({
                           </div>
                         </td>
                       )}
-                      <td className="px-3 py-2.5 text-right">
+                      <td className="px-3 py-2.5 text-right align-top">
                         <span className="text-xs font-bold text-slate-900 block font-mono">
                           {fmt(row.lineTotal, cs)}
                         </span>
@@ -1861,7 +1847,7 @@ export default function SalesCalculatorPage({
                           </span>
                         )}
                       </td>
-                      <td className="px-3 py-2.5 text-center">
+                      <td className="px-3 py-2.5 text-center align-top">
                         {calculatedRows.length > 1 && (
                           <button
                             type="button"
@@ -2077,18 +2063,12 @@ export default function SalesCalculatorPage({
                 />
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-2 border-t border-emerald-200/60 text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2 border-t border-emerald-200/60 text-xs">
                 {/* Customer Phone: Only show if provided, completely omitted otherwise */}
                 {selectedCalc.customerPhone && selectedCalc.customerPhone.trim() !== "" && (
                   <div className="flex items-center gap-1.5 text-emerald-900">
                     <Phone size={13} className="text-emerald-700 shrink-0" />
                     <span>Phone: <strong className="text-emerald-950 font-mono">{selectedCalc.customerPhone}</strong></span>
-                  </div>
-                )}
-                {selectedCalc.salesSchedule && selectedCalc.salesSchedule.trim() !== "" && (
-                  <div className="flex items-center gap-1.5 text-emerald-900">
-                    <Clock size={13} className="text-emerald-700 shrink-0" />
-                    <span>Schedule: <strong className="text-emerald-950">{selectedCalc.salesSchedule}</strong></span>
                   </div>
                 )}
                 {selectedCalc.createdBy && (
@@ -2106,17 +2086,17 @@ export default function SalesCalculatorPage({
                 <table className="w-full text-xs text-left">
                   <thead className="sticky top-0 z-10 bg-slate-50 border-b border-slate-200">
                     <tr className="text-slate-500 font-bold uppercase tracking-wider text-[10px]">
-                      <th className="px-3.5 py-2.5">Price Group</th>
-                      <th className="px-3.5 py-2.5 text-right">Unit Price</th>
-                      <th className="px-3.5 py-2.5 text-right">Weight</th>
-                      <th className="px-3.5 py-2.5 text-right">Discount</th>
-                      <th className="px-3.5 py-2.5 text-right">Total</th>
+                      <th className="px-3.5 py-2.5 align-top">Price Group</th>
+                      <th className="px-3.5 py-2.5 text-right align-top">Unit Price</th>
+                      <th className="px-3.5 py-2.5 text-right align-top">Weight</th>
+                      <th className="px-3.5 py-2.5 text-right align-top">Discount</th>
+                      <th className="px-3.5 py-2.5 text-right align-top">Total</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 bg-white">
                     {(selectedCalc.items || []).map((it, idx) => (
                       <tr key={it.id || idx}>
-                        <td className="px-3.5 py-2.5">
+                        <td className="px-3.5 py-2.5 align-top">
                           <span className="font-bold text-slate-800 block">
                             {it.priceGroupCode ? `Group ${it.priceGroupCode}` : "Fish Size"}
                           </span>
@@ -2124,18 +2104,18 @@ export default function SalesCalculatorPage({
                             <span className="text-[10px] text-slate-400 block">{it.priceGroupName}</span>
                           )}
                         </td>
-                        <td className="px-3.5 py-2.5 text-right font-mono text-slate-600">
+                        <td className="px-3.5 py-2.5 text-right font-mono text-slate-600 align-top">
                           {fmt(it.unitPrice, cs)}/kg
                         </td>
-                        <td className="px-3.5 py-2.5 text-right font-mono font-semibold text-slate-800">
+                        <td className="px-3.5 py-2.5 text-right font-mono font-semibold text-slate-800 align-top">
                           {it.quantityKg.toLocaleString()} kg
                         </td>
-                        <td className="px-3.5 py-2.5 text-right font-mono text-rose-500">
+                        <td className="px-3.5 py-2.5 text-right font-mono text-rose-500 align-top">
                           {it.individualDiscountAmount && it.individualDiscountAmount > 0
                             ? `−${fmt(it.individualDiscountAmount, cs)}`
                             : "—"}
                         </td>
-                        <td className="px-3.5 py-2.5 text-right font-mono font-bold text-slate-900">
+                        <td className="px-3.5 py-2.5 text-right font-mono font-bold text-slate-900 align-top">
                           {fmt(it.finalAmount, cs)}
                         </td>
                       </tr>
