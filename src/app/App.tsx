@@ -1822,6 +1822,11 @@ function ReportsPage({
     return mt && md;
   });
   const [reportPage, setReportPage] = useState(1);
+  useEffect(() => {
+    document.querySelector("main")?.scrollTo({ top: 0, behavior: "instant" });
+    window.scrollTo({ top: 0, behavior: "instant" });
+    document.documentElement.scrollTo({ top: 0, behavior: "instant" });
+  }, [typeFilter]);
   const [editReport, setEditReport] = useState<Report | null>(null);
   const [reviewReport, setReviewReport] = useState<Report | null>(null);
   const [viewingApprovalReport, setViewingApprovalReport] = useState<Report | null>(null);
@@ -3619,6 +3624,9 @@ function SettingsPage({farms,onAddFarm,onEditFarm,onDeleteFarm,userProfile,onUpd
   }, [userProfile]);
 
   useEffect(() => {
+    document.querySelector("main")?.scrollTo({ top: 0, behavior: "instant" });
+    window.scrollTo({ top: 0, behavior: "instant" });
+    document.documentElement.scrollTo({ top: 0, behavior: "instant" });
     if (tab === "referrals") {
       refreshLiveReferrals();
     }
@@ -5302,7 +5310,11 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   const farmLimit = adminOverride.hasFreeAccess ? Infinity : (activePlan ? PLAN_FARM_LIMITS[activePlan] ?? 1 : 1);
   const mainRef=useRef<HTMLElement>(null);
   const [showScrollTop, setShowScrollTop] = useState(false);
-  useEffect(()=>{mainRef.current?.scrollTo({top:0,behavior:"instant"});},[active]);
+  useEffect(()=>{
+    mainRef.current?.scrollTo({top:0,behavior:"instant"});
+    window.scrollTo({top:0,behavior:"instant"});
+    document.documentElement.scrollTo({top:0,behavior:"instant"});
+  },[active, activeFarmId]);
   useEffect(() => {
     const handleScroll = () => {
       const scrollPos = (mainRef.current ? mainRef.current.scrollTop : 0) || window.scrollY || document.documentElement.scrollTop || 0;
@@ -6964,7 +6976,9 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     });
     setPonds(nextPonds);
 
-    // 3. Feeding records allocation - Strictly isolate by source pond ID + stock instance ID
+    // 3. Feeding records, Bag Open Logs & Feed Remaining Logs:
+    // NEVER modify, split, redistribute, or rewrite historical feeding records, bag open logs, or remaining feed logs.
+    // Pond-level feed summary & history on Pond Management are derived non-destructively via Transfer stockEvents.
     const fromPondNameNorm = (fromPond.name || "").trim().toLowerCase();
     const closedEvents = (stockEvents || []).filter(e =>
       (e.pondId === fromId || (e.pondName && e.pondName.trim().toLowerCase() === fromPondNameNorm)) && e.type === "Closed"
@@ -6975,107 +6989,25 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
 
     const belongsToSourcePondAndStock = (rec: { pondId?: string; pond?: string; pondName?: string; fishStockId?: string; fishStock?: string; date?: string; reportDate?: string }) => {
       const rPondNorm = (rec.pondName || rec.pond || "").trim().toLowerCase();
-      // Match strictly by pondId when present; fall back to pond name only if pondId is missing
       if (rec.pondId) {
         if (rec.pondId !== fromId) return false;
       } else if (rPondNorm !== fromPondNameNorm) {
         return false;
       }
 
-      // Explicit stock instance ID match on this pond always belongs to this stock
       const explicitStockIdMatch = Boolean(fromPond.fishStockId && rec.fishStockId && rec.fishStockId === fromPond.fishStockId);
       if (explicitStockIdMatch) return true;
 
-      // Exclude records explicitly tagged with a different fishStockId (unless it's the legacy stockLabel string)
       if (fromPond.fishStockId && rec.fishStockId && rec.fishStockId !== fromPond.fishStockId && rec.fishStockId !== stockLabel) {
         return false;
       }
 
-      // Exclude records belonging to a prior closed cycle on this pond
       const recDate = toValidDbDate(rec.date || rec.reportDate);
       if (latestClosedDate && recDate && recDate < latestClosedDate && (!fromPond.fishStockId || !rec.fishStockId)) {
         return false;
       }
       return true;
     };
-
-    const isSourceFeed = (r: FeedingRecord) => belongsToSourcePondAndStock(r);
-
-    let nextFeeding: FeedingRecord[] = [];
-    const createdDestFeed: FeedingRecord[] = [];
-    const updatedSourceFeed: FeedingRecord[] = [];
-
-    if (isFullTransfer) {
-      // 100% transfer: move active feeding history to destination pond (clean slate for emptied source pond)
-      nextFeeding = feeding.map(r => {
-        if (isSourceFeed(r)) {
-          const upd: FeedingRecord = {
-            ...r,
-            pond: toPond.name,
-            pondId: toPond.id,
-            farmId: toPond.farmId || r.farmId || activeFarmId,
-            fishStock: stockLabel,
-            fishStockId: destStockInstanceId,
-          };
-          updatedSourceFeed.push(upd);
-          return upd;
-        }
-        return r;
-      });
-    } else {
-      // Partial transfer: proportionally split daily feeding records & pellet consumption
-      const destFeedCopies: FeedingRecord[] = [];
-      const updatedExistingFeed = feeding.map(r => {
-        if (isSourceFeed(r)) {
-          const origMorning = Number(r.morning) || 0;
-          const origEvening = Number(r.evening) || 0;
-          const origTotal = Number(r.total) || (origMorning + origEvening);
-
-          let destMorning = Math.round(origMorning * fraction * 100) / 100;
-          let destEvening = Math.round(origEvening * fraction * 100) / 100;
-          let destTotal = Math.round((destMorning + destEvening) * 100) / 100;
-          if (origMorning === 0 && origEvening === 0 && origTotal > 0) {
-            destMorning = Math.round(origTotal * fraction * 100) / 100;
-            destTotal = destMorning;
-          }
-
-          const keepMorning = Math.max(0, Math.round((origMorning - destMorning) * 100) / 100);
-          const keepEvening = Math.max(0, Math.round((origEvening - destEvening) * 100) / 100);
-          const keepTotal = Math.max(0, Math.round((origTotal - destTotal) * 100) / 100);
-
-          const upd: FeedingRecord = {
-            ...r,
-            morning: keepMorning,
-            evening: keepEvening,
-            total: keepTotal,
-            fishStock: stockLabel,
-            fishStockId: stockInstanceId,
-          };
-          updatedSourceFeed.push(upd);
-
-          if (destTotal > 0) {
-            const destRec: FeedingRecord = {
-              ...r,
-              id: crypto.randomUUID(),
-              pond: toPond.name,
-              pondId: toPond.id,
-              farmId: toPond.farmId || r.farmId || activeFarmId,
-              fishStock: stockLabel,
-              fishStockId: destStockInstanceId,
-              morning: destMorning,
-              evening: destEvening,
-              total: destTotal,
-            };
-            destFeedCopies.push(destRec);
-            createdDestFeed.push(destRec);
-          }
-          return upd;
-        }
-        return r;
-      });
-      nextFeeding = [...updatedExistingFeed, ...destFeedCopies];
-    }
-    setFeeding(nextFeeding);
 
     // 4. Mortality records: DO NOT TRANSFER (remain associated with source stock/pond per policy)
 
@@ -7156,122 +7088,6 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     }
     setPondReports(nextReports);
 
-    // 6b. Bag Open Logs & Feed Remaining Logs allocation
-    const isSourceBag = (b: BagOpenLog) => belongsToSourcePondAndStock(b as any);
-
-    let nextBags = bagLogs;
-    const updatedSourceBags: BagOpenLog[] = [];
-    const createdDestBags: BagOpenLog[] = [];
-    if (isFullTransfer) {
-      nextBags = bagLogs.map(b => {
-        if (isSourceBag(b)) {
-          const upd: BagOpenLog = {
-            ...b,
-            pond: toPond.name,
-            pondId: toPond.id,
-            fishStock: stockLabel,
-            fishStockId: destStockInstanceId,
-            farmId: toPond.farmId || b.farmId || activeFarmId
-          };
-          updatedSourceBags.push(upd);
-          return upd;
-        }
-        return b;
-      });
-    } else {
-      const destBagCopies: BagOpenLog[] = [];
-      const updatedExistingBags = bagLogs.map(b => {
-        if (isSourceBag(b)) {
-          const origBags = Number(b.bagsOpened) || 0;
-          const origKg = Number(b.totalKg) || 0;
-          const destBags = Math.round(origBags * fraction * 100) / 100;
-          const destKg = Math.round(origKg * fraction * 100) / 100;
-          const keepBags = Math.max(0, Math.round((origBags - destBags) * 100) / 100);
-          const keepKg = Math.max(0, Math.round((origKg - destKg) * 100) / 100);
-          const updSource: BagOpenLog = {
-            ...b,
-            bagsOpened: keepBags,
-            totalKg: keepKg,
-            fishStock: stockLabel,
-            fishStockId: stockInstanceId,
-          };
-          updatedSourceBags.push(updSource);
-          if (destBags > 0 || destKg > 0) {
-            const destBag: BagOpenLog = {
-              ...b,
-              id: crypto.randomUUID(),
-              pond: toPond.name,
-              pondId: toPond.id,
-              fishStock: stockLabel,
-              fishStockId: destStockInstanceId,
-              bagsOpened: destBags,
-              totalKg: destKg,
-              farmId: toPond.farmId || b.farmId || activeFarmId,
-            };
-            destBagCopies.push(destBag);
-            createdDestBags.push(destBag);
-          }
-          return updSource;
-        }
-        return b;
-      });
-      nextBags = [...updatedExistingBags, ...destBagCopies];
-    }
-    setBagLogs(nextBags);
-
-    const isSourceRemain = (r: FeedRemainingLog) => belongsToSourcePondAndStock(r as any);
-
-    let nextRemain: FeedRemainingLog[] = [];
-    const updatedSourceRemains: FeedRemainingLog[] = [];
-    const createdDestRemains: FeedRemainingLog[] = [];
-
-    if (isFullTransfer) {
-      nextRemain = remainLogs.map(r => {
-        if (isSourceRemain(r)) {
-          const upd: FeedRemainingLog = {
-            ...r,
-            pond: toPond.name,
-            pondId: toPond.id,
-            fishStock: stockLabel,
-            fishStockId: destStockInstanceId,
-            farmId: toPond.farmId || r.farmId || activeFarmId
-          };
-          updatedSourceRemains.push(upd);
-          return upd;
-        }
-        return r;
-      });
-    } else {
-      const updatedExistingRemain = remainLogs.map(r => {
-        if (isSourceRemain(r)) {
-          const rVal = Number(r.remainingKg) || 0;
-          const destKg = Math.round(rVal * fraction * 10) / 10;
-          const keepKg = Math.max(0, Math.round((rVal - destKg) * 10) / 10);
-          const updSource: FeedRemainingLog = { ...r, remainingKg: keepKg, fishStock: stockLabel, fishStockId: stockInstanceId };
-          updatedSourceRemains.push(updSource);
-          if (destKg > 0) {
-            const destR: FeedRemainingLog = {
-              id: crypto.randomUUID(),
-              brand: r.brand,
-              size: r.size,
-              fishStock: stockLabel,
-              fishStockId: destStockInstanceId,
-              remainingKg: destKg,
-              date: dateInput || TODAY,
-              pond: toPond.name,
-              pondId: toPond.id,
-              farmId: toPond.farmId || r.farmId || activeFarmId
-            };
-            createdDestRemains.push(destR);
-          }
-          return updSource;
-        }
-        return r;
-      });
-      nextRemain = [...updatedExistingRemain, ...createdDestRemains];
-    }
-    setRemainLogs(nextRemain);
-
     // 7. Fish count history allocation & transfer logs
     const transferEntryDest: FishCountHistoryEntry = {
       id: crypto.randomUUID(),
@@ -7309,8 +7125,8 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     const nextFch = [transferEntryDest, transferEntrySrc, ...transferredFch];
     setFishCountHistory(nextFch);
 
-    // 8. Stock events
-    const seTransfer = {
+    // 8. Stock events (store transfer percentage on seTransfer for non-destructive pond-level feed calculation)
+    const seTransfer: StockEvent = {
       id: uid(),
       pondId: toId,
       pondName: toPond.name,
@@ -7318,19 +7134,21 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       species: fromPond.species,
       count: safeCount,
       cost: costShare,
+      salePrice: actualPct,
+      supplier: `TRANSFER_PCT:${actualPct}`,
       type: "Transfer" as const,
       fromPond: fromPond.name,
       farmId: toPond.farmId || activeFarmId || farms[0]?.id || "",
       batch: stockLabel,
     };
-    const newStockEvents = [seTransfer];
+    const newStockEvents: StockEvent[] = [seTransfer];
 
     if (isFullTransfer) {
-      const seClosed = {
+      const seClosed: StockEvent = {
         id: uid(),
         pondId: fromId,
         pondName: fromPond.name,
-        date: dateLabel,
+        date: (fromPond.stockingDate && fromPond.stockingDate !== "—") ? fromPond.stockingDate : dateLabel,
         species: fromPond.species,
         count: fromPond.currentCount,
         cost: fromPond.totalCost,
@@ -7348,9 +7166,6 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     if (targetUid) {
       try {
         saveUserLocal(targetUid, "ponds", "ponds", nextPonds);
-        saveUserLocal(targetUid, "feeding", "feedingRecords", nextFeeding);
-        saveUserLocal(targetUid, "bag_logs", "bagOpenLogs", nextBags);
-        saveUserLocal(targetUid, "remain_logs", "feedRemainingLogs", nextRemain);
         saveUserLocal(targetUid, "treatments", "treatmentRecords", nextTreatments);
         saveUserLocal(targetUid, "pond_reports", "pondReports", nextReports);
         saveUserLocal(targetUid, "fish_count_history", "fishCountHistory", nextFch);
@@ -7358,9 +7173,6 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
 
         if (userProfile?.ownerId && userProfile.ownerId !== targetUid) {
           saveUserLocal(userProfile.ownerId, "ponds", "ponds", nextPonds);
-          saveUserLocal(userProfile.ownerId, "feeding", "feedingRecords", nextFeeding);
-          saveUserLocal(userProfile.ownerId, "bag_logs", "bagOpenLogs", nextBags);
-          saveUserLocal(userProfile.ownerId, "remain_logs", "feedRemainingLogs", nextRemain);
           saveUserLocal(userProfile.ownerId, "treatments", "treatmentRecords", nextTreatments);
           saveUserLocal(userProfile.ownerId, "pond_reports", "pondReports", nextReports);
           saveUserLocal(userProfile.ownerId, "fish_count_history", "fishCountHistory", nextFch);
@@ -7371,9 +7183,6 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
 
     const rollbackTransfer = (errMsg: string) => {
       setPonds(prevSnapshot.ponds);
-      setFeeding(prevSnapshot.feeding);
-      setBagLogs(prevSnapshot.bagLogs);
-      setRemainLogs(prevSnapshot.remainLogs);
       setTreatments(prevSnapshot.treatments);
       setPondReports(prevSnapshot.pondReports);
       setFishCountHistory(prevSnapshot.fishCountHistory);
@@ -7381,9 +7190,6 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       if (targetUid) {
         try {
           saveUserLocal(targetUid, "ponds", "ponds", prevSnapshot.ponds);
-          saveUserLocal(targetUid, "feeding", "feedingRecords", prevSnapshot.feeding);
-          saveUserLocal(targetUid, "bag_logs", "bagOpenLogs", prevSnapshot.bagLogs);
-          saveUserLocal(targetUid, "remain_logs", "feedRemainingLogs", prevSnapshot.remainLogs);
           saveUserLocal(targetUid, "treatments", "treatmentRecords", prevSnapshot.treatments);
           saveUserLocal(targetUid, "pond_reports", "pondReports", prevSnapshot.pondReports);
           saveUserLocal(targetUid, "fish_count_history", "fishCountHistory", prevSnapshot.fishCountHistory);
@@ -7407,123 +7213,39 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       }
     };
 
-    const runBatchedStrict = async (factories: Array<() => Promise<any>>, batchSize = 5) => {
-      for (let i = 0; i < factories.length; i += batchSize) {
-        const chunk = factories.slice(i, i + batchSize);
-        await Promise.all(chunk.map(fn => fn()));
-      }
-    };
-
     let syncCompleted = true;
     let backgroundSyncPromise: Promise<void> | null = null;
-    const insertedDestFeedIds: string[] = [];
 
     try {
-      const rpcResult = await api.ponds.transferFishStock({
-        fromPond: fromPond,
-        toPond: toPond,
-        percentage: actualPct,
-        count: safeCount,
-        date: dateLabel,
-        transferredBy: userProfile?.name || userProfile?.email || "User",
-        stockInstanceId: stockInstanceId,
-      });
+      await withTimeout(
+        Promise.all([api.ponds.update(updatedFrom), api.ponds.update(updatedTo)]),
+        10000,
+        "Database pond update timed out. Please check your connection and try again."
+      );
 
-      if (rpcResult?.error && !rpcResult?.fallbackRequired) {
-        rollbackTransfer(rpcResult.error);
-        return false;
-      }
+      const taskFactories: Array<() => Promise<any>> = [
+        () => api.fishCountHistory.create(transferEntryDest),
+        () => api.fishCountHistory.create(transferEntrySrc),
+        ...newStockEvents.map(se => () => api.stockEvents.create(se)),
+        ...createdDestTreat.map(t => () => api.treatments.create(t)),
+        ...updatedSourceTreat.map(t => () => api.treatments.update(t)),
+        ...(isFullTransfer
+          ? pondReports.filter(isSourceReport).map(r => () => api.pondReports.update({ ...r, pondId: toId, pondName: toPond.name, fishStockId: destStockInstanceId, _allowTransferMove: true } as any))
+          : createdDestReports.map(r => () => api.pondReports.create(r))),
+      ];
 
-      const rpcCompletedAll = Boolean(rpcResult?.success && rpcResult?.splitFeedingHandled);
-
-      if (!rpcCompletedAll) {
-        // Persist pond updates (including maxKgByPallet & fishStockId)
-        if (!rpcResult?.success) {
-          await withTimeout(
-            Promise.all([api.ponds.update(updatedFrom), api.ponds.update(updatedTo)]),
-            10000,
-            "Database pond update timed out. Please check your connection and try again."
-          );
-        } else {
-          // Old RPC succeeded on basic pond fields, ensure maxKgByPallet & fishStockId are synced too
-          await withTimeout(
-            Promise.allSettled([api.ponds.update(updatedFrom), api.ponds.update(updatedTo)]),
-            8000,
-            "Pond metadata sync timed out"
-          ).catch(() => {});
-        }
-
-        // ATOMIC DESTINATION-FIRST FEEDING TRANSFER:
-        // 1) Insert destination feeding records FIRST and verify every insert succeeds before deducting source!
-        if (createdDestFeed.length > 0) {
-          await withTimeout(
-            runBatchedStrict(
-              createdDestFeed.map(f => async () => {
-                const created = await api.feeding.create({
-                  ...f,
-                  _skipInventoryCheck: true,
-                  _skipDuplicateCheck: true,
-                  _isManual: true,
-                } as any);
-                insertedDestFeedIds.push(created?.id || f.id);
-              }),
-              5
-            ),
-            15000,
-            "Timed out saving transferred feeding history to destination pond."
-          );
-        }
-
-        // 2) Only after destination inserts succeed, deduct/update source feeding records
-        if (updatedSourceFeed.length > 0) {
-          await withTimeout(
-            runBatchedStrict(
-              updatedSourceFeed.map(f => () =>
-                api.feeding.update({ ...f, _skipInventoryCheck: true, _skipDuplicateCheck: true } as any)
-              ),
-              5
-            ),
-            15000,
-            "Timed out updating source pond feeding history."
-          );
-        }
-
-        const taskFactories: Array<() => Promise<any>> = [
-          ...(!rpcResult?.success
-            ? [
-                () => api.fishCountHistory.create(transferEntryDest),
-                () => api.fishCountHistory.create(transferEntrySrc),
-                ...newStockEvents.map(se => () => api.stockEvents.create(se)),
-              ]
-            : []),
-          ...createdDestBags.map(b => () => api.bagLogs.create(b)),
-          ...updatedSourceBags.map(b => () => api.bagLogs.update(b)),
-          ...createdDestRemains.map(r => () => api.remainLogs.create(r)),
-          ...updatedSourceRemains.map(r => () => api.remainLogs.update(r)),
-          ...createdDestTreat.map(t => () => api.treatments.create(t)),
-          ...updatedSourceTreat.map(t => () => api.treatments.update(t)),
-          ...(isFullTransfer
-            ? pondReports.filter(isSourceReport).map(r => () => api.pondReports.update({ ...r, pondId: toId, pondName: toPond.name, fishStockId: destStockInstanceId, _allowTransferMove: true } as any))
-            : createdDestReports.map(r => () => api.pondReports.create(r))),
-        ];
-
-        if (taskFactories.length > 0) {
-          backgroundSyncPromise = runBatched(taskFactories, 5);
-          const raceResult = await Promise.race([
-            backgroundSyncPromise.then(() => "done" as const),
-            new Promise<"timeout">(resolve => setTimeout(() => resolve("timeout"), 12000)),
-          ]);
-          if (raceResult === "timeout") {
-            syncCompleted = false;
-          }
+      if (taskFactories.length > 0) {
+        backgroundSyncPromise = runBatched(taskFactories, 5);
+        const raceResult = await Promise.race([
+          backgroundSyncPromise.then(() => "done" as const),
+          new Promise<"timeout">(resolve => setTimeout(() => resolve("timeout"), 12000)),
+        ]);
+        if (raceResult === "timeout") {
+          syncCompleted = false;
         }
       }
     } catch (err: any) {
       console.error("Transfer database error, rolling back:", err);
-      // Clean up any partial destination feeding inserts and revert ponds if fallback had started
-      if (insertedDestFeedIds.length > 0) {
-        Promise.allSettled(insertedDestFeedIds.map(id => api.feeding.remove(id))).catch(() => {});
-      }
       Promise.allSettled([
         api.ponds.update(fromPond),
         api.ponds.update(toPond),
@@ -9519,6 +9241,187 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   const farmSalesCalculations=salesCalculations.filter(sc=>matchesFarm(sc.farmId));
   const farmStockEvents=stockEvents.filter(s=>matchesFarm(s.farmId,s.pondName));
 
+  /* ── Pond-Level Feeding Records (applies fish stock transfers for Pond Management only) ── */
+  const pondFeedingRecords = useMemo<FeedingRecord[]>(() => {
+    const nonDestructiveTransfers = (farmStockEvents || [])
+      .filter(e => e && e.type === "Transfer" && Boolean(e.supplier && e.supplier.startsWith("TRANSFER_PCT:")))
+      .sort((a, b) => {
+        const da = toValidDbDate(a.date) || "";
+        const db = toValidDbDate(b.date) || "";
+        if (da !== db) return da.localeCompare(db);
+        return (a.createdAt || "").localeCompare(b.createdAt || "");
+      });
+
+    if (nonDestructiveTransfers.length === 0) return farmFeeding;
+
+    let records: FeedingRecord[] = farmFeeding.map(r => ({ ...r }));
+
+    for (const ev of nonDestructiveTransfers) {
+      const rawPct = parseFloat((ev.supplier || "").replace("TRANSFER_PCT:", "")) || Number(ev.salePrice) || 0;
+      if (rawPct <= 0) continue;
+      const isFull = rawPct >= 99.99;
+      const fraction = isFull ? 1.0 : Math.min(1, rawPct / 100);
+      const fromPondNameNorm = (ev.fromPond || "").trim().toLowerCase();
+      const toPondNameNorm = (ev.pondName || "").trim().toLowerCase();
+      if (!fromPondNameNorm || !toPondNameNorm) continue;
+
+      const fromPondObj = farmPonds.find(p => p.name.trim().toLowerCase() === fromPondNameNorm);
+      const toPondObj = farmPonds.find(p => (ev.pondId && p.id === ev.pondId) || p.name.trim().toLowerCase() === toPondNameNorm);
+      const evIso = toValidDbDate(ev.date);
+
+      // Find any closed cycle on fromPond strictly before this transfer batch
+      const priorClosedDates = (farmStockEvents || [])
+        .filter(ce => ce.type === "Closed" && ((fromPondObj && ce.pondId === fromPondObj.id) || (ce.pondName || "").trim().toLowerCase() === fromPondNameNorm))
+        .map(ce => toValidDbDate(ce.clearedDate || ce.date))
+        .filter(d => Boolean(d && (!evIso || d < evIso)))
+        .sort();
+      const latestPriorClosedIso = priorClosedDates.length > 0 ? priorClosedDates[priorClosedDates.length - 1] : null;
+
+      const belongsToTransferredStock = (r: FeedingRecord) => {
+        const rPondNorm = (r.pond || "").trim().toLowerCase();
+        if (fromPondObj && r.pondId) {
+          if (r.pondId !== fromPondObj.id && rPondNorm !== fromPondNameNorm) return false;
+        } else if (rPondNorm !== fromPondNameNorm) {
+          return false;
+        }
+        const rIso = toValidDbDate(r.date);
+        if (evIso && rIso && rIso > evIso) return false;
+        if (latestPriorClosedIso && rIso && rIso < latestPriorClosedIso) return false;
+        return true;
+      };
+
+      if (isFull) {
+        records = records.map(r => {
+          if (belongsToTransferredStock(r)) {
+            return {
+              ...r,
+              pond: toPondObj?.name || ev.pondName,
+              pondId: toPondObj?.id || ev.pondId,
+              fishStock: ev.batch || r.fishStock,
+              fishStockId: toPondObj?.fishStockId || r.fishStockId,
+            };
+          }
+          return r;
+        });
+      } else {
+        const destCopies: FeedingRecord[] = [];
+        records = records.map(r => {
+          if (belongsToTransferredStock(r)) {
+            const origMorning = Number(r.morning) || 0;
+            const origEvening = Number(r.evening) || 0;
+            const origTotal = Number(r.total) || (origMorning + origEvening);
+
+            let destMorning = Math.round(origMorning * fraction * 100) / 100;
+            let destEvening = Math.round(origEvening * fraction * 100) / 100;
+            let destTotal = Math.round((destMorning + destEvening) * 100) / 100;
+            if (origMorning === 0 && origEvening === 0 && origTotal > 0) {
+              destMorning = Math.round(origTotal * fraction * 100) / 100;
+              destTotal = destMorning;
+            }
+
+            const keepMorning = Math.max(0, Math.round((origMorning - destMorning) * 100) / 100);
+            const keepEvening = Math.max(0, Math.round((origEvening - destEvening) * 100) / 100);
+            const keepTotal = Math.max(0, Math.round((origTotal - destTotal) * 100) / 100);
+
+            if (destTotal > 0) {
+              destCopies.push({
+                ...r,
+                id: `${r.id}__tx_${ev.id}`,
+                pond: toPondObj?.name || ev.pondName,
+                pondId: toPondObj?.id || ev.pondId,
+                fishStock: ev.batch || r.fishStock,
+                fishStockId: toPondObj?.fishStockId || r.fishStockId,
+                morning: destMorning,
+                evening: destEvening,
+                total: destTotal,
+              });
+            }
+
+            return {
+              ...r,
+              morning: keepMorning,
+              evening: keepEvening,
+              total: keepTotal,
+            };
+          }
+          return r;
+        });
+        records = [...records, ...destCopies];
+      }
+    }
+
+    return records;
+  }, [farmFeeding, farmStockEvents, farmPonds]);
+
+  /* ── Feeding Records Page Data (completely independent of fish stock transfers, including healing any legacy split records) ── */
+  const docFeedingRecords = useMemo<FeedingRecord[]>(() => {
+    const legacyTransfers = (farmStockEvents || [])
+      .filter(e => e && e.type === "Transfer" && !(e.supplier && e.supplier.startsWith("TRANSFER_PCT:")))
+      .sort((a, b) => {
+        const da = toValidDbDate(a.date) || "";
+        const db = toValidDbDate(b.date) || "";
+        if (da !== db) return db.localeCompare(da);
+        return (b.createdAt || "").localeCompare(a.createdAt || "");
+      });
+
+    if (legacyTransfers.length === 0) return farmFeeding;
+
+    let records: FeedingRecord[] = farmFeeding.map(r => ({ ...r }));
+
+    for (const ev of legacyTransfers) {
+      const fromPondName = (ev.fromPond || "").trim();
+      const toPondName = (ev.pondName || "").trim();
+      if (!fromPondName || !toPondName) continue;
+      const fromPondNorm = fromPondName.toLowerCase();
+      const toPondNorm = toPondName.toLowerCase();
+      const fromPondObj = farmPonds.find(p => p.name.trim().toLowerCase() === fromPondNorm);
+      const evIso = toValidDbDate(ev.date);
+
+      const wasFullCloseOnDate = (farmStockEvents || []).some(ce =>
+        ce.type === "Closed" &&
+        ((fromPondObj && ce.pondId === fromPondObj.id) || (ce.pondName || "").trim().toLowerCase() === fromPondNorm) &&
+        toValidDbDate(ce.clearedDate || ce.date) === evIso
+      );
+
+      const removedDestIds = new Set<string>();
+
+      records.forEach(destRec => {
+        if (!destRec || removedDestIds.has(destRec.id)) return;
+        const isDestPond = (ev.pondId && destRec.pondId === ev.pondId) || (destRec.pond || "").trim().toLowerCase() === toPondNorm;
+        if (!isDestPond) return;
+        const rIso = toValidDbDate(destRec.date);
+        if (evIso && rIso && rIso > evIso) return;
+
+        // Check if source pond has a split counterpart on the same date & pellet size (legacy partial transfer)
+        const srcRec = records.find(sr =>
+          sr &&
+          sr.id !== destRec.id &&
+          !removedDestIds.has(sr.id) &&
+          ((fromPondObj && sr.pondId === fromPondObj.id) || (sr.pond || "").trim().toLowerCase() === fromPondNorm) &&
+          (toValidDbDate(sr.date) === rIso || isSameDate(sr.date, destRec.date)) &&
+          isSamePelletSize(sr.size, destRec.size)
+        );
+
+        if (srcRec) {
+          srcRec.morning = Math.round(((Number(srcRec.morning) || 0) + (Number(destRec.morning) || 0)) * 100) / 100;
+          srcRec.evening = Math.round(((Number(srcRec.evening) || 0) + (Number(destRec.evening) || 0)) * 100) / 100;
+          srcRec.total = Math.round(((Number(srcRec.total) || 0) + (Number(destRec.total) || 0)) * 100) / 100;
+          removedDestIds.add(destRec.id);
+        } else if (wasFullCloseOnDate && (!evIso || !rIso || rIso <= evIso)) {
+          // Legacy 100% transfer moved the record from fromPond to toPond -> restore original pond attribution
+          destRec.pond = fromPondObj?.name || fromPondName;
+          destRec.pondId = fromPondObj?.id || destRec.pondId;
+        }
+      });
+
+      if (removedDestIds.size > 0) {
+        records = records.filter(r => !removedDestIds.has(r.id));
+      }
+    }
+
+    return records;
+  }, [farmFeeding, farmStockEvents, farmPonds]);
+
   const addSalesCalculation = async (sc: SalesCalculation, items?: SalesCalculationItem[]) => {
     if (!checkSubscriptionActive()) return;
     const fid = sc.farmId || activeFarmId || farms[0]?.id || "";
@@ -10620,9 +10523,9 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
             ) : (
               <AppErrorBoundary key={active}>
                 {active==="financial"     &&(hasPerm("Financial Dashboard")?<FinancialDashboard expenses={farmExpenses} revenues={farmRevenues} onAddExpense={addExp} onAddRevenue={addRev} onEditExpense={editExp} onEditRevenue={editRev} stockEvents={farmStockEvents} ponds={farmPonds} inventory={farmInventory} bagLogs={farmBagLogs} currency={cs} currentUser={{name:userProfile?.name||"",email:userProfile?.email||""}} canCreate={canCreate("Financial Dashboard")} canEdit={canEdit("Financial Dashboard")} canDelete={canDelete("Financial Dashboard")}/>:<AccessDenied/>)}
-                {active==="ponds"         &&(hasPerm("Pond Management")?<PondManagementPage ponds={farmPonds} onAddPond={addPond} onClosePond={closePond} onRestockPond={restockPond} onTransfer={transferStock} onNurseryTransfer={nurseryTransfer} mortality={farmMortality} onAddMortality={addMort} onEditMortality={editMort} onDeleteMortality={deleteMort} onAddCost={addExp} feedingRecords={farmFeeding} onAddFeedRecord={addFeed} stockEvents={farmStockEvents} treatments={farmTreatments} onAddTreatment={addTreatment} activeFarmId={activeFarmId} onDeletePond={deletePond} onEditFish={editFish} onSetMaxKg={setPondMaxKg} onEditPond={handleEditPond} onReorderPonds={handleReorderPonds} onScrollTop={()=>mainRef.current?.scrollTo({top:0,behavior:"instant"})} currency={cs} inventory={farmInventory} farms={farms} pondReports={farmPondReports} onAddPondReport={handleAddPondReport} fishCountHistory={fishCountHistory} onEditFeedRecord={editFeedRecord} onEditTreatment={handleEditTreatment} canCreate={canCreate("Pond Management")} canEdit={canEdit("Pond Management")} canDelete={canDelete("Pond Management")}/>:<AccessDenied/>)}
-                {active==="inventory"     &&(hasPerm("Feed Stock")?<FeedInventoryPage inventory={farmInventory} onAdd={addInv} onDelete={delInv} feedingRecords={farmFeeding} bagLogs={farmBagLogs} remainLogs={farmRemainLogs} ponds={farmPonds} onEditBagLog={editBagLog} onEditInv={editInv} currency={cs} canEditLocked={isOwner||currentStaff?.role==="Farm Manager"} canCreate={canCreate("Feed Stock")} canEdit={canEdit("Feed Stock")} canDelete={canDelete("Feed Stock")}/>:<AccessDenied/>)}
-                {active==="documentation" &&(hasPerm("Feeding Records")?<FeedDocumentationPage feedingRecords={farmFeeding} onAddRecord={addFeed} onEditFeedRecord={editFeedRecord} onDeleteRecord={deleteFeedRecord} ponds={farmPonds} inventory={farmInventory} bagLogs={farmBagLogs} onAddBagLog={addBagLog} onEditBagLog={editBagLog} onEditInv={editInv} remainLogs={farmRemainLogs} onAddRemainLog={addRemainLog} onEditRemainLog={editRemainLog} onReconMismatches={onReconMismatches} reconFocus={reconFocus} canEditLocked={isOwner||currentStaff?.role==="Farm Manager"} isOwner={isOwner||currentStaff?.role==="Admin"||currentStaff?.role==="Director"} currentUser={{name:currentStaff?.name||userProfile?.name||"",email:userProfile?.email||"",role:isOwner?"Admin":(currentStaff?.role||userProfile?.role||"Staff")}} canCreate={canCreate("Feeding Records")} canEdit={canEdit("Feeding Records")} canDelete={canDelete("Feeding Records")} stockEvents={farmStockEvents}/>:<AccessDenied/>)}
+                {active==="ponds"         &&(hasPerm("Pond Management")?<PondManagementPage ponds={farmPonds} onAddPond={addPond} onClosePond={closePond} onRestockPond={restockPond} onTransfer={transferStock} onNurseryTransfer={nurseryTransfer} mortality={farmMortality} onAddMortality={addMort} onEditMortality={editMort} onDeleteMortality={deleteMort} onAddCost={addExp} feedingRecords={pondFeedingRecords} onAddFeedRecord={addFeed} stockEvents={farmStockEvents} treatments={farmTreatments} onAddTreatment={addTreatment} activeFarmId={activeFarmId} onDeletePond={deletePond} onEditFish={editFish} onSetMaxKg={setPondMaxKg} onEditPond={handleEditPond} onReorderPonds={handleReorderPonds} onScrollTop={()=>mainRef.current?.scrollTo({top:0,behavior:"instant"})} currency={cs} inventory={farmInventory} bagLogs={farmBagLogs} farms={farms} pondReports={farmPondReports} onAddPondReport={handleAddPondReport} fishCountHistory={fishCountHistory} onEditFeedRecord={editFeedRecord} onEditTreatment={handleEditTreatment} canCreate={canCreate("Pond Management")} canEdit={canEdit("Pond Management")} canDelete={canDelete("Pond Management")}/>:<AccessDenied/>)}
+                {active==="inventory"     &&(hasPerm("Feed Stock")?<FeedInventoryPage inventory={farmInventory} onAdd={addInv} onDelete={delInv} feedingRecords={docFeedingRecords} bagLogs={farmBagLogs} remainLogs={farmRemainLogs} ponds={farmPonds} onEditBagLog={editBagLog} onEditInv={editInv} currency={cs} canEditLocked={isOwner||currentStaff?.role==="Farm Manager"} canCreate={canCreate("Feed Stock")} canEdit={canEdit("Feed Stock")} canDelete={canDelete("Feed Stock")}/>:<AccessDenied/>)}
+                {active==="documentation" &&(hasPerm("Feeding Records")?<FeedDocumentationPage feedingRecords={docFeedingRecords} onAddRecord={addFeed} onEditFeedRecord={editFeedRecord} onDeleteRecord={deleteFeedRecord} ponds={farmPonds} inventory={farmInventory} bagLogs={farmBagLogs} onAddBagLog={addBagLog} onEditBagLog={editBagLog} onEditInv={editInv} remainLogs={farmRemainLogs} onAddRemainLog={addRemainLog} onEditRemainLog={editRemainLog} onReconMismatches={onReconMismatches} reconFocus={reconFocus} canEditLocked={isOwner||currentStaff?.role==="Farm Manager"} isOwner={isOwner||currentStaff?.role==="Admin"||currentStaff?.role==="Director"} currentUser={{name:currentStaff?.name||userProfile?.name||"",email:userProfile?.email||"",role:isOwner?"Admin":(currentStaff?.role||userProfile?.role||"Staff")}} canCreate={canCreate("Feeding Records")} canEdit={canEdit("Feeding Records")} canDelete={canDelete("Feeding Records")} stockEvents={farmStockEvents}/>:<AccessDenied/>)}
                 {active==="invoices"      &&(hasPerm("Invoices")||hasPerm("Sales Management")||hasPerm("Sales Calculator")?<InvoicesPage ponds={farmPonds} invoices={farmInvoices} customers={farmCustomers} priceGroups={farmPriceGroups} settings={invSettings} onAddInvoice={addInvoice} onEditInvoice={editInvoice} onDeleteInvoice={deleteInvoice} onAddCustomer={addCustomer} onAddPriceGroup={addPriceGroup} onEditPriceGroup={editPriceGroup} onDeletePriceGroup={delPriceGroup} onUpdateSettings={(s)=>{setInvSettings(s);api.invSettings.update(s).catch(console.warn);}} currentUser={userProfile?.name} currency={cs} canCreate={canCreate("Invoices")} canEdit={canEdit("Invoices")} canDelete={canDelete("Invoices")}/>:<AccessDenied/>)}
                 {active==="sales_calculator"&&(hasPerm("Sales Management")||hasPerm("Sales Calculator")||hasPerm("Invoices")?<SalesCalculatorPage priceGroups={farmPriceGroups} calculations={farmSalesCalculations} onAddCalculation={addSalesCalculation} onEditCalculation={editSalesCalculation} onDeleteCalculation={deleteSalesCalculation} onTogglePayment={toggleSalesPaymentStatus} settings={invSettings} onAddPriceGroup={addPriceGroup} onEditPriceGroup={editPriceGroup} onDeletePriceGroup={delPriceGroup} currency={cs} activeFarmId={activeFarmId} currentUser={{name:currentStaff?.name||userProfile?.name||"",email:userProfile?.email||""}} canCreate={canCreate("Sales Management")||canCreate("Sales Calculator")||canCreate("Invoices")} canEdit={canEdit("Sales Management")||canEdit("Sales Calculator")||canEdit("Invoices")} canDelete={canDelete("Sales Management")||canDelete("Sales Calculator")||canDelete("Invoices")}/>:<AccessDenied/>)}
                 {active==="staff"         &&(isOwner?<StaffPage staff={staff} onAdd={addStaff} onEdit={editStaff} onDelete={delStaff} farms={farms.filter(f => f.userId === userProfile?.id || isOwner)} activeFarmId={activeFarmId} ownerEmail={userProfile?.email}/>:<AccessDenied/>)}

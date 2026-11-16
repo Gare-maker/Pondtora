@@ -1231,7 +1231,7 @@ export default function InvestorsPage({
             <div className="flex items-center gap-1 bg-slate-100/90 border border-slate-200/90 p-1 rounded-xl shrink-0">
               <button
                 type="button"
-                onClick={() => setStatusFilter("All")}
+                onClick={() => { setStatusFilter("All"); document.querySelector("main")?.scrollTo({ top: 0, behavior: "instant" }); window.scrollTo({ top: 0, behavior: "instant" }); document.documentElement.scrollTo({ top: 0, behavior: "instant" }); }}
                 className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
                   statusFilter === "All"
                     ? "bg-white text-slate-900 shadow-xs font-bold"
@@ -1242,7 +1242,7 @@ export default function InvestorsPage({
               </button>
               <button
                 type="button"
-                onClick={() => setStatusFilter("Active")}
+                onClick={() => { setStatusFilter("Active"); document.querySelector("main")?.scrollTo({ top: 0, behavior: "instant" }); window.scrollTo({ top: 0, behavior: "instant" }); document.documentElement.scrollTo({ top: 0, behavior: "instant" }); }}
                 className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
                   statusFilter === "Active"
                     ? "bg-white text-slate-900 shadow-xs font-bold"
@@ -1253,7 +1253,7 @@ export default function InvestorsPage({
               </button>
               <button
                 type="button"
-                onClick={() => setStatusFilter("Completed")}
+                onClick={() => { setStatusFilter("Completed"); document.querySelector("main")?.scrollTo({ top: 0, behavior: "instant" }); window.scrollTo({ top: 0, behavior: "instant" }); document.documentElement.scrollTo({ top: 0, behavior: "instant" }); }}
                 className={`px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all ${
                   statusFilter === "Completed"
                     ? "bg-white text-slate-900 shadow-xs font-bold"

@@ -149,6 +149,7 @@ function PondDetail({
   onEditFish?:(pondId:string,u:{species:string;currentCount:number;stockingDate:string;fishStock?:string},reasonOpt?:{reason?:string})=>Promise<any>|void;
   onSetMaxKg:(pondId:string,size:string,maxKg:number)=>void;
   inventory?:FeedItem[];
+  bagLogs?:BagOpenLog[];
   onEditThisPond?:(p:Pond)=>void;
   currency?:string;
   farms?:Farm[];
@@ -167,9 +168,24 @@ function PondDetail({
   const existingFishStocks = useMemo(() => {
     return [...new Set(ponds.map(p => getPondFishStock(p)).filter(s => s && s !== "Current Stock"))];
   }, [ponds]);
-  const invBrands=[...new Set(inventory.map(f=>f.brand))];
-  const invSizesForBrand=(brand:string)=>[...new Set(inventory.filter(f=>f.brand===brand).map(f=>f.size))];
-  const allInvSizes=[...new Set(inventory.map(f=>f.size))];
+  const activeStockItems = useMemo(() => {
+    const grouped: Record<string, { brand: string; size: string; bags: number }> = {};
+    (inventory || []).forEach(f => {
+      if (!f || !f.brand || !f.size) return;
+      const k = `${f.brand.trim().toLowerCase()}|${f.size.trim().toLowerCase()}`;
+      if (!grouped[k]) grouped[k] = { brand: f.brand.trim(), size: f.size.trim(), bags: 0 };
+      grouped[k].bags += Number(f.bags) || 0;
+    });
+    return Object.values(grouped).filter(row => {
+      const opened = (bagLogs || [])
+        .filter(b => b && (b.brand || "").trim().toLowerCase() === row.brand.toLowerCase() && (b.size || "").trim().toLowerCase() === row.size.toLowerCase())
+        .reduce((s, b) => s + (Number(b.bagsOpened) || 0), 0);
+      return Math.max(0, row.bags - opened) > 0;
+    });
+  }, [inventory, bagLogs]);
+  const invBrands=[...new Set(activeStockItems.map(f=>f.brand))];
+  const invSizesForBrand=(brand:string)=>[...new Set(activeStockItems.filter(f=>f.brand===brand).map(f=>f.size))];
+  const allInvSizes=[...new Set(activeStockItems.map(f=>f.size))].sort((a,b)=>(parseFloat(a)||0)-(parseFloat(b)||0));
   const supportedSpeciesList = useMemo(() => {
     const base = ["Catfish", "Tilapia", "Carp", "Salmon", "Bass", "Trout"];
     const extras = new Set<string>();
@@ -186,7 +202,7 @@ function PondDetail({
   const [feedGivenF,setFeedGivenF]=useState({
     brand:"",
     customBrand:"",
-    size:pond.defaultPellet||"2.0 mm",
+    size:(pond.defaultPellet && allInvSizes.includes(pond.defaultPellet)) ? pond.defaultPellet : (allInvSizes[0] || ""),
     customSize:"",
     pallet:"",
     totalKg:"",
@@ -1115,7 +1131,7 @@ function PondDetail({
         <div className="px-5 py-3 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3">
           <div className="flex gap-1 bg-slate-200/90 border border-slate-300/80 p-1 rounded-xl shadow-2xs">
             {(["feed","treatment","issues"] as const).map(t=>(
-              <button key={t} onClick={()=>setPondTab(t)} className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${pondTab===t?"bg-white text-slate-900 shadow-sm border border-slate-200/80 font-bold":"text-slate-600 hover:text-slate-900"}`}>
+              <button key={t} onClick={()=>{setPondTab(t);document.querySelector("main")?.scrollTo({top:0,behavior:"instant"});window.scrollTo({top:0,behavior:"instant"});document.documentElement.scrollTo({top:0,behavior:"instant"});}} className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${pondTab===t?"bg-white text-slate-900 shadow-sm border border-slate-200/80 font-bold":"text-slate-600 hover:text-slate-900"}`}>
                 {t==="feed"?"Feed History":t==="treatment"?"Treatment History":"Other Issues"}
               </button>
             ))}
@@ -1323,21 +1339,16 @@ function PondDetail({
                     onChange={e=>setFeedGivenF(p=>({...p,size:e.target.value}))}
                     className={SC}
                   >
-                    {FEED_SIZES.map(s=>(
+                    {allInvSizes.length === 0 && (
+                      <option value="">No active feed stock</option>
+                    )}
+                    {allInvSizes.length > 0 && !feedGivenF.size && (
+                      <option value="">Select pallet…</option>
+                    )}
+                    {allInvSizes.map(s=>(
                       <option key={s} value={s}>{s}</option>
                     ))}
-                    <option value="Custom">Custom / Other Size...</option>
                   </select>
-                  {feedGivenF.size === "Custom" && (
-                    <input
-                      type="text"
-                      placeholder="e.g. 1.5 mm, 5.0 mm"
-                      value={feedGivenF.customSize}
-                      onChange={e => setFeedGivenF(p => ({ ...p, customSize: e.target.value }))}
-                      className={IC}
-                      autoFocus
-                    />
-                  )}
                 </div>
               </F>
               {feedGivenErr.size&&<p className="text-xs text-red-500 mt-1">{feedGivenErr.size}</p>}
@@ -2187,9 +2198,15 @@ export function getNextPondFigure(ponds: Pond[]): string {
 }
 
 /* ─── 2. Pond Management ────────────────────────────────────── */
-export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPond,onTransfer,onNurseryTransfer,mortality,onAddMortality,onEditMortality,onDeleteMortality,onAddCost,feedingRecords,onAddFeedRecord,stockEvents,treatments,onAddTreatment,activeFarmId,onDeletePond,onEditFish,onSetMaxKg,onEditPond,onReorderPonds,onScrollTop,currency="₦",inventory=[],farms=[],pondReports=[],onAddPondReport,fishCountHistory=[],onEditFeedRecord,onEditTreatment,canCreate=true,canEdit=true,canDelete=true}:{ponds:Pond[];onAddPond:(p:Pond)=>Promise<any>|void;onClosePond:(id:string)=>void;onRestockPond:(id:string,data:{species:string;initialStock:number;stockingDate:string;stockMonth:string;supplier?:string;fishStock?:string})=>void;onTransfer:(fromId:string,toId:string,date:string)=>void|Promise<any>;onNurseryTransfer:(fromId:string,toId:string,count:number,pct:number,date:string)=>void|Promise<any>;mortality:MortalityEntry[];onAddMortality:(m:MortalityEntry,pondId:string)=>void;onEditMortality?:(oldRecord:MortalityEntry,newRecord:MortalityEntry)=>Promise<void>|void;onDeleteMortality?:(record:MortalityEntry)=>Promise<void>|void;onAddCost:(e:Expense)=>void;feedingRecords:FeedingRecord[];onAddFeedRecord?:(r:FeedingRecord)=>Promise<any>|void;stockEvents:StockEvent[];treatments:TreatmentRecord[];onAddTreatment:(t:TreatmentRecord)=>void;activeFarmId:string;onDeletePond?:(id:string)=>void;onEditFish?:(pondId:string,u:{species:string;currentCount:number;stockingDate:string;fishStock?:string},reasonOpt?:{reason?:string})=>Promise<any>|void;onSetMaxKg:(pondId:string,size:string,maxKg:number)=>void;onEditPond?:(id:string,u:Partial<Pond>)=>Promise<any>|void;onReorderPonds?:(ponds:Pond[])=>void;onScrollTop?:()=>void;currency?:string;inventory?:FeedItem[];farms?:Farm[];pondReports?:PondReport[];onAddPondReport?:(r:PondReport)=>Promise<void>;fishCountHistory?:FishCountHistoryEntry[];onEditFeedRecord?:(r:FeedingRecord)=>void;onEditTreatment?:(t:TreatmentRecord)=>void;canCreate?:boolean;canEdit?:boolean;canDelete?:boolean;}){
+export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPond,onTransfer,onNurseryTransfer,mortality,onAddMortality,onEditMortality,onDeleteMortality,onAddCost,feedingRecords,onAddFeedRecord,stockEvents,treatments,onAddTreatment,activeFarmId,onDeletePond,onEditFish,onSetMaxKg,onEditPond,onReorderPonds,onScrollTop,currency="₦",inventory=[],bagLogs=[],farms=[],pondReports=[],onAddPondReport,fishCountHistory=[],onEditFeedRecord,onEditTreatment,canCreate=true,canEdit=true,canDelete=true}:{ponds:Pond[];onAddPond:(p:Pond)=>Promise<any>|void;onClosePond:(id:string)=>void;onRestockPond:(id:string,data:{species:string;initialStock:number;stockingDate:string;stockMonth:string;supplier?:string;fishStock?:string})=>void;onTransfer:(fromId:string,toId:string,date:string)=>void|Promise<any>;onNurseryTransfer:(fromId:string,toId:string,count:number,pct:number,date:string)=>void|Promise<any>;mortality:MortalityEntry[];onAddMortality:(m:MortalityEntry,pondId:string)=>void;onEditMortality?:(oldRecord:MortalityEntry,newRecord:MortalityEntry)=>Promise<void>|void;onDeleteMortality?:(record:MortalityEntry)=>Promise<void>|void;onAddCost:(e:Expense)=>void;feedingRecords:FeedingRecord[];onAddFeedRecord?:(r:FeedingRecord)=>Promise<any>|void;stockEvents:StockEvent[];treatments:TreatmentRecord[];onAddTreatment:(t:TreatmentRecord)=>void;activeFarmId:string;onDeletePond?:(id:string)=>void;onEditFish?:(pondId:string,u:{species:string;currentCount:number;stockingDate:string;fishStock?:string},reasonOpt?:{reason?:string})=>Promise<any>|void;onSetMaxKg:(pondId:string,size:string,maxKg:number)=>void;onEditPond?:(id:string,u:Partial<Pond>)=>Promise<any>|void;onReorderPonds?:(ponds:Pond[])=>void;onScrollTop?:()=>void;currency?:string;inventory?:FeedItem[];bagLogs?:BagOpenLog[];farms?:Farm[];pondReports?:PondReport[];onAddPondReport?:(r:PondReport)=>Promise<void>;fishCountHistory?:FishCountHistoryEntry[];onEditFeedRecord?:(r:FeedingRecord)=>void;onEditTreatment?:(t:TreatmentRecord)=>void;canCreate?:boolean;canEdit?:boolean;canDelete?:boolean;}){
   const cs=currency;
   const [detailId,setDetailId]=useState<string|null>(null);
+  useEffect(() => {
+    document.querySelector("main")?.scrollTo({ top: 0, behavior: "instant" });
+    window.scrollTo({ top: 0, behavior: "instant" });
+    document.documentElement.scrollTo({ top: 0, behavior: "instant" });
+    onScrollTop?.();
+  }, [detailId]);
   const [showAdd,setShowAdd]=useState(false);
   const [addF,setAddF]=useState({name:"",lengthFt:"",widthFt:"",type:"Earthen",notes:"",category:"Production"});
   const [addErr,setAddErr]=useState<Record<string,string>>({});
@@ -2655,7 +2672,7 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
 
   if(pond) return (
     <>
-      <PondDetail pond={pond} mortality={mortality} onAddMortality={onAddMortality} onEditMortality={onEditMortality} onDeleteMortality={onDeleteMortality} onAddCost={onAddCost} feedingRecords={feedingRecords} onAddFeedRecord={onAddFeedRecord} onBack={()=>setDetailId(null)} onClosePond={onClosePond} onRestockPond={(id,data)=>{setFStatus("All");onRestockPond(id,data);}} ponds={ponds} stockEvents={stockEvents} onTransfer={onTransfer} onNurseryTransfer={onNurseryTransfer} treatments={treatments} onAddTreatment={onAddTreatment} onEditFish={onEditFish} onSetMaxKg={onSetMaxKg} inventory={inventory} onEditThisPond={openEditPond} currency={currency} farms={farms} pondReports={pondReports} onAddPondReport={onAddPondReport} fishCountHistory={fishCountHistory} onEditFeedRecord={onEditFeedRecord} onEditTreatment={onEditTreatment} canCreate={canCreate} canEdit={canEdit} canDelete={canDelete} onNavigatePond={setDetailId}/>
+      <PondDetail pond={pond} mortality={mortality} onAddMortality={onAddMortality} onEditMortality={onEditMortality} onDeleteMortality={onDeleteMortality} onAddCost={onAddCost} feedingRecords={feedingRecords} onAddFeedRecord={onAddFeedRecord} onBack={()=>setDetailId(null)} onClosePond={onClosePond} onRestockPond={(id,data)=>{setFStatus("All");onRestockPond(id,data);}} ponds={ponds} stockEvents={stockEvents} onTransfer={onTransfer} onNurseryTransfer={onNurseryTransfer} treatments={treatments} onAddTreatment={onAddTreatment} onEditFish={onEditFish} onSetMaxKg={onSetMaxKg} inventory={inventory} bagLogs={bagLogs} onEditThisPond={openEditPond} currency={currency} farms={farms} pondReports={pondReports} onAddPondReport={onAddPondReport} fishCountHistory={fishCountHistory} onEditFeedRecord={onEditFeedRecord} onEditTreatment={onEditTreatment} canCreate={canCreate} canEdit={canEdit} canDelete={canDelete} onNavigatePond={setDetailId}/>
       {editPondModal}
     </>
   );

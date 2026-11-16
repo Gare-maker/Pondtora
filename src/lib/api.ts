@@ -2551,7 +2551,7 @@ export const api = {
 
       return dbDelete("ponds", id, "ponds");
     },
-    transferFishStock: async (opts: {
+    transferFishStock: async (_opts: {
       fromPond: Pond;
       toPond: Pond;
       percentage: number;
@@ -2563,36 +2563,8 @@ export const api = {
       sourceMortality?: MortalityEntry[];
       sourceTreatments?: TreatmentRecord[];
     }) => {
-      // Direct atomic transfer via PostgreSQL RPC (bounded by a 10s timeout so UI never stalls)
-      try {
-        const rpcPromise = supabase.rpc("transfer_fish_stock", {
-          p_from_pond_id: opts.fromPond.id,
-          p_to_pond_id: opts.toPond.id,
-          p_percentage: opts.percentage,
-          p_count: opts.count || null,
-          p_date: opts.date,
-          p_transferred_by: opts.transferredBy || "User",
-          p_stock_instance_id: opts.stockInstanceId || opts.fromPond.fishStockId || null,
-        });
-        const timeoutPromise = new Promise<{ data: null; error: { message: string } }>((resolve) =>
-          setTimeout(() => resolve({ data: null, error: { message: "RPC transfer_fish_stock timed out after 10s" } }), 10000)
-        );
-        const { data: rpcRes, error: rpcErr } = await Promise.race([rpcPromise, timeoutPromise]);
-        if (!rpcErr && rpcRes) {
-          if (rpcRes.success) {
-            return { success: true, rpcExecuted: true, ...rpcRes };
-          }
-          if (rpcRes.error) {
-            return { success: false, error: rpcRes.error };
-          }
-        }
-        if (rpcErr) {
-          console.warn("RPC transfer_fish_stock error notice:", rpcErr.message || rpcErr);
-        }
-      } catch (rpcErr) {
-        console.warn("RPC transfer_fish_stock call exception:", rpcErr);
-      }
-
+      // Bypass legacy database RPC transfer_fish_stock so historical feeding_records,
+      // bag_open_logs, and feed_remaining_logs are never mutated or split in the database.
       return { success: false, fallbackRequired: true };
     },
   },

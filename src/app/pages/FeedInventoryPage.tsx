@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import {
   Plus, CheckCircle, Layers, Trash2, ChevronDown, ChevronUp,
   Pencil, Package, Download, FileText, Lock, Calendar, ChevronLeft, ChevronRight, Search, Fish, Phone
@@ -24,6 +24,11 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
   const isPurchaseEditable=(purchaseDate:string)=>canEditLocked||purchaseDate===realTodayFmt;
   const cs=currency;
   const [tab,setTab]=useState<"stock"|"daily_bags"|"purchases">("stock");
+  useEffect(()=>{
+    document.querySelector("main")?.scrollTo({top:0,behavior:"instant"});
+    window.scrollTo({top:0,behavior:"instant"});
+    document.documentElement.scrollTo({top:0,behavior:"instant"});
+  },[tab]);
   const [showBuy,setShowBuy]=useState(false);
   /* calculator state */
   const [showCalc,setShowCalc]=useState(false);

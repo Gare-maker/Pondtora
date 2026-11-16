@@ -872,7 +872,7 @@ export default function EmployeeAssessmentsPage({
         <div className="px-5 pt-5 border-b border-slate-100">
           <div className="flex gap-1 bg-slate-200/90 border border-slate-300/70 p-1 rounded-xl w-fit mb-4">
             {(["compatibility","knowledge"] as const).map(t=>(
-              <button key={t} onClick={()=>setActiveTab(t)} className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${activeTab===t?"bg-white text-slate-900 font-bold shadow-sm border border-slate-200/80":"text-slate-600 hover:text-slate-900"}`}>
+              <button key={t} onClick={()=>{setActiveTab(t);document.querySelector("main")?.scrollTo({top:0,behavior:"instant"});window.scrollTo({top:0,behavior:"instant"});document.documentElement.scrollTo({top:0,behavior:"instant"});}} className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${activeTab===t?"bg-white text-slate-900 font-bold shadow-sm border border-slate-200/80":"text-slate-600 hover:text-slate-900"}`}>
                 {t==="compatibility"?"Compatibility Test":"Knowledge Test"}
               </button>
             ))}

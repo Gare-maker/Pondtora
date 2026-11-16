@@ -648,18 +648,42 @@ function FeedDocumentation({
       const count = Number(p.currentCount);
       const init = Number(p.initialStock);
       const hasCurrentFish = p.status === "Active" && (count > 0 || (init > 0 && (p.currentCount === undefined || p.currentCount === null)));
-      let currentIntroIso =
-        toValidDbDate(p.stockingDate, viewYear) ||
-        dateToIso(p.stockingDate) ||
-        toValidDbDate(formatFishStockDate(p.fishStock), viewYear) ||
-        dateToIso(formatFishStockDate(p.fishStock));
 
-      // If currentIntroIso is not explicitly set on the pond, infer it from the latest closed cycle or earliest event/feeding for the current stock
       const latestClosedIso = closedCycles
         .map(ce => toValidDbDate(ce.clearedDate || ce.date, viewYear) || dateToIso(ce.clearedDate || ce.date))
         .filter(Boolean)
         .sort()
         .pop() || "";
+
+      // If this pond received its current stock via a Transfer event (with no Initial/Restock after latestClosedIso),
+      // its occupancy on the Feeding Records page begins on the transfer date rather than the source stock's original stockingDate.
+      const transferEventsIntoPond = pondEvents
+        .filter(pe => pe.type === "Transfer")
+        .map(pe => toValidDbDate(pe.date, viewYear) || dateToIso(pe.date))
+        .filter(d => Boolean(d && (!latestClosedIso || d >= latestClosedIso)))
+        .sort();
+      const directStockEventsIntoPond = pondEvents
+        .filter(pe => pe.type === "Initial" || pe.type === "Restock")
+        .map(pe => toValidDbDate(pe.date, viewYear) || dateToIso(pe.date))
+        .filter(d => Boolean(d && (!latestClosedIso || d >= latestClosedIso)))
+        .sort();
+
+      let transferArrivalIso = "";
+      if (transferEventsIntoPond.length > 0 && directStockEventsIntoPond.length === 0) {
+        transferArrivalIso = transferEventsIntoPond[0];
+      } else if (p.transferNote && /received from/i.test(p.transferNote)) {
+        const noteDateMatch = p.transferNote.match(/on\s+([A-Za-z]{3,9}\s+\d{1,2},?\s*\d{4}|\d{4}-\d{2}-\d{2})/i);
+        if (noteDateMatch) {
+          transferArrivalIso = toValidDbDate(noteDateMatch[1], viewYear) || dateToIso(noteDateMatch[1]);
+        }
+      }
+
+      let currentIntroIso =
+        transferArrivalIso ||
+        toValidDbDate(p.stockingDate, viewYear) ||
+        dateToIso(p.stockingDate) ||
+        toValidDbDate(formatFishStockDate(p.fishStock), viewYear) ||
+        dateToIso(formatFishStockDate(p.fishStock));
 
       if (!currentIntroIso && hasCurrentFish) {
         const curStockLabel = getPondFishStock(p);
@@ -1030,38 +1054,70 @@ function FeedDocumentation({
     });
   }, [activePonds, isStockMatch, normalizeFishStock, pondToStock]);
 
-  const allBrands = [...new Set([...(inventory || []).map(f => f?.brand).filter(Boolean), ...FEED_BRANDS])];
+  /* Active Feed Stock Groups (single source of truth matching Feed Stock page: inStock > 0) */
+  const activeFeedStockGroups = useMemo(() => {
+    const grouped: Record<string, { brand: string; size: string; totalBags: number; weightPerBag: number }> = {};
+    (inventory || []).forEach(item => {
+      if (!item || !item.size || !item.brand) return;
+      const brandClean = item.brand.trim();
+      const sizeClean = item.size.trim();
+      if (!brandClean || !sizeClean || sizeClean === "—") return;
+      const key = `${brandClean.toLowerCase()}|${sizeClean.toLowerCase()}|${item.weightPerBag || 15}`;
+      if (!grouped[key]) {
+        grouped[key] = { brand: brandClean, size: sizeClean, totalBags: 0, weightPerBag: Number(item.weightPerBag) || 15 };
+      }
+      grouped[key].totalBags += Number(item.bags) || 0;
+    });
 
-  /* Available pellet sizes drawn from all pellets in Feed Stock (inventory, opened bags, manual balances, and defaults) */
+    const activeList: Array<{ brand: string; size: string; inStockBags: number; weightPerBag: number }> = [];
+    Object.values(grouped).forEach(row => {
+      const opened = (bagLogs || [])
+        .filter(b => b && (b.brand || "").trim().toLowerCase() === row.brand.toLowerCase() && isSamePelletSize(b.size, row.size))
+        .reduce((s, b) => s + (Number(b.bagsOpened) || 0), 0);
+      const inStock = Math.max(0, row.totalBags - opened);
+      if (inStock > 0) {
+        activeList.push({
+          brand: row.brand,
+          size: row.size,
+          inStockBags: inStock,
+          weightPerBag: row.weightPerBag,
+        });
+      }
+    });
+    return activeList;
+  }, [inventory, bagLogs]);
+
+  const allBrands = useMemo(() => {
+    return [...new Set(activeFeedStockGroups.map(f => f.brand).filter(Boolean))];
+  }, [activeFeedStockGroups]);
+
+  /* Available pellet sizes strictly from active Feed Stock on the Feed Stock page (inStockBags > 0) */
   const availablePelletSizes = useMemo(() => {
-    const fromInv = (inventory || []).map(f => f?.size).filter(Boolean);
-    const fromBags = (bagLogs || []).map(b => b?.size).filter(Boolean);
-    const fromManual = (manualPrevBalances || []).map(m => m?.size).filter(Boolean);
-    const combined = [...new Set([...fromInv, ...fromBags, ...fromManual, ...FEED_SIZES])];
-    if (combined.length > 0) {
-      const uniqueSizes: string[] = [];
-      combined.forEach(s => {
-        if (!uniqueSizes.some(u => isSamePelletSize(u, s))) {
-          uniqueSizes.push(s);
-        }
-      });
-      return uniqueSizes.sort((a, b) => (parseFloat(a) || 0) - (parseFloat(b) || 0));
-    }
-    return FEED_SIZES;
-  }, [inventory, bagLogs, manualPrevBalances]);
+    const activeSizes = activeFeedStockGroups.map(f => f.size).filter(Boolean);
+    const uniqueSizes: string[] = [];
+    activeSizes.forEach(s => {
+      if (!uniqueSizes.some(u => isSamePelletSize(u, s))) {
+        uniqueSizes.push(s);
+      }
+    });
+    return uniqueSizes.sort((a, b) => (parseFloat(a) || 0) - (parseFloat(b) || 0));
+  }, [activeFeedStockGroups]);
 
-  /* Brand filtering based on Feed Stock inventory + manual balances + defaults */
+  /* Brand filtering strictly from active Feed Stock */
   const invBrands = useMemo(() => {
-    const brandsFromInv = [...new Set([...(inventory || []).map(f => f?.brand).filter(Boolean), ...(manualPrevBalances || []).map(m => m?.brand).filter(Boolean)])];
-    return brandsFromInv.length > 0 ? [...new Set([...brandsFromInv, ...FEED_BRANDS])] : (allBrands.length > 0 ? allBrands : FEED_BRANDS);
-  }, [inventory, manualPrevBalances, allBrands]);
+    return [...new Set(activeFeedStockGroups.map(f => f.brand).filter(Boolean))];
+  }, [activeFeedStockGroups]);
 
   const invSizesForBrand = (brand: string) => {
     if (!brand) return availablePelletSizes;
-    const brandItems = (inventory || []).filter(f => f && f.brand === brand);
-    const sizesFromBrand = [...new Set(brandItems.map(f => f?.size).filter(Boolean))];
-    if (sizesFromBrand.length > 0) return sizesFromBrand;
-    return availablePelletSizes;
+    const brandItems = activeFeedStockGroups.filter(f => f.brand.toLowerCase() === brand.trim().toLowerCase());
+    const sizesFromBrand: string[] = [];
+    brandItems.forEach(f => {
+      if (f.size && !sizesFromBrand.some(u => isSamePelletSize(u, f.size))) {
+        sizesFromBrand.push(f.size);
+      }
+    });
+    return sizesFromBrand.length > 0 ? sizesFromBrand : availablePelletSizes;
   };
 
   /* Date-aware check whether a fish stock was active on selDate */
@@ -1448,20 +1504,29 @@ function FeedDocumentation({
     // 5. Incoming transfers to this stock
     (feedTransfers || []).filter(t => isStockMatch(t.destinationStock, normStock)).forEach(t => addSize(t.feedSize));
 
-    return pallets;
-  }, [ponds, feedingRecords, bagLogs, remainLogs, feedTransfers, selDate, dateToIso, getPondsActiveOnDate]);
+    // Restrict strictly to pallets that currently exist as active stock on the Feed Stock page
+    return pallets
+      .map(p => availablePelletSizes.find(avail => isSamePelletSize(avail, p)) || "")
+      .filter((p, idx, arr) => Boolean(p) && arr.indexOf(p) === idx);
+  }, [ponds, feedingRecords, bagLogs, remainLogs, feedTransfers, selDate, dateToIso, getPondsActiveOnDate, availablePelletSizes]);
 
-  /* Helper to get matching brands from Feed Stock (inventory) for a selected pallet */
+  /* Helper to get matching brands from active Feed Stock for a selected pallet */
   const getMatchingBrandsForPallet = useCallback((pallet: string): string[] => {
     if (!pallet || pallet === "—" || pallet.trim() === "") return [];
-    const matching = [...new Set(
+    const activeMatching = [...new Set(
+      activeFeedStockGroups
+        .filter(f => f && f.brand && isSamePelletSize(f.size, pallet))
+        .map(f => f.brand.trim())
+        .filter(Boolean)
+    )];
+    if (activeMatching.length > 0) return activeMatching;
+    return [...new Set(
       (inventory || [])
         .filter(f => f && f.brand && isSamePelletSize(f.size, pallet))
         .map(f => f.brand.trim())
         .filter(Boolean)
     )];
-    return matching;
-  }, [inventory]);
+  }, [activeFeedStockGroups, inventory]);
 
   /* ── Remaining Feed Transfer Helpers ── */
 
@@ -3997,13 +4062,16 @@ function FeedDocumentation({
       if (existingList.length > 0) {
         existingList.forEach((existing, idx) => {
           if (existing.id) matchedRecIds.add(existing.id);
+          const matchedActiveSize = existing.size
+            ? (availablePelletSizes.find(s => isSamePelletSize(s, existing.size)) || existing.size)
+            : (availablePelletSizes[0] || "");
           rows.push({
             rowId: existing.id || `row-${p.id}-${idx}`,
             pondId: p.id,
             pondName: p.name,
             initialStock: p.initialStock || 0,
             currentCount: p.currentCount || 0,
-            size: existing.size || (availablePelletSizes[0] || "4.0 mm"),
+            size: matchedActiveSize,
             morning: existing.morning != null ? String(existing.morning) : "",
             evening: existing.evening != null ? String(existing.evening) : "",
             morningTime: existing.morningTime || "",
@@ -4017,7 +4085,10 @@ function FeedDocumentation({
         });
       } else {
         const consecutiveSuggestion = getSuggestedPallet(p.name, p);
-        const defSize = consecutiveSuggestion || (p.defaultPellet && availablePelletSizes.includes(p.defaultPellet) ? p.defaultPellet : (availablePelletSizes[0] || "4.0 mm"));
+        const defaultPondPellet = p.defaultPellet
+          ? availablePelletSizes.find(s => isSamePelletSize(s, p.defaultPellet))
+          : undefined;
+        const defSize = consecutiveSuggestion || defaultPondPellet || (availablePelletSizes[0] || "");
         rows.push({
           rowId: `row-${p.id}-0`,
           pondId: p.id,
@@ -4053,13 +4124,16 @@ function FeedDocumentation({
         : (basePond?.stockingDate && basePond.stockingDate !== "—" ? formatFishStockDate(basePond.stockingDate) : "—");
       const emptyIdx = rows.findIndex(r => !r.existingRecordId && !r.morning && !r.evening && (r.pondId === (basePond?.id || existing.pondId) || r.pondName.replace(/\s+/g, "").toLowerCase() === rPondCompact));
 
+      const matchedActiveSize = existing.size
+        ? (availablePelletSizes.find(s => isSamePelletSize(s, existing.size)) || existing.size)
+        : (availablePelletSizes[0] || "");
       const filledRow: BulkRow = {
         rowId: existing.id || `row-hist-${existing.pond || rows.length}`,
         pondId: basePond?.id || existing.pondId || `hist-${existing.pond || existing.id}`,
         pondName: basePond?.name || existing.pond || "Historical Pond",
         initialStock: basePond?.initialStock || 0,
         currentCount: basePond?.currentCount || 0,
-        size: existing.size || (availablePelletSizes[0] || "4.0 mm"),
+        size: matchedActiveSize,
         morning: existing.morning != null ? String(existing.morning) : "",
         evening: existing.evening != null ? String(existing.evening) : "",
         morningTime: existing.morningTime || "",
@@ -4088,8 +4162,8 @@ function FeedDocumentation({
       toast.error("Access denied: Only Admins can add a manual previous-day feed balance.");
       return;
     }
-    const defaultBrand = invBrands.find(b => b.toLowerCase() === "blue crown") || invBrands[0] || FEED_BRANDS[0] || "Blue Crown";
-    const defaultSize = availablePelletSizes[0] || FEED_SIZES[0] || "2.0 mm";
+    const defaultBrand = invBrands.find(b => b.toLowerCase() === "blue crown") || invBrands[0] || "";
+    const defaultSize = availablePelletSizes[0] || "";
     setManualBrand(defaultBrand);
     setManualSize(defaultSize);
     setManualBagsOpened("");
@@ -4909,7 +4983,12 @@ function FeedDocumentation({
           {(["daily", "bags", "mismatch"] as const).map(t => (
             <button
               key={t}
-              onClick={() => setDocTab(t)}
+              onClick={() => {
+                setDocTab(t);
+                document.querySelector("main")?.scrollTo({ top: 0, behavior: "instant" });
+                window.scrollTo({ top: 0, behavior: "instant" });
+                document.documentElement.scrollTo({ top: 0, behavior: "instant" });
+              }}
               className={`relative px-4 py-1.5 text-xs font-semibold rounded-lg transition-colors cursor-pointer flex items-center gap-1.5 ${
                 docTab === t ? "bg-white text-green-700 font-bold shadow-xs" : "text-slate-600 hover:text-slate-900"
               }`}
@@ -6111,40 +6190,7 @@ function FeedDocumentation({
 
       {showLog && (() => {
         const bulkDateLabel = toDateLabel(bulkDate);
-        const bulkDateIso = toValidDbDate(bulkDate, viewYear) || dateToIso(bulkDate);
         const bulkDatePonds = getPondsActiveOnDate(bulkDate);
-        const bulkBagLogs = (bagLogs || []).filter(b => {
-          if (!b || !b.date) return false;
-          const bIso = toValidDbDate(b.date, b.year || viewYear) || dateToIso(b.date);
-          return isSameDate(b.date, bulkDate) || isSameDate(b.date, bulkDateLabel) || Boolean(bulkDateIso && bIso && bulkDateIso === bIso);
-        });
-        const bulkRemainLogs = (remainLogs || []).filter(r => {
-          if (!r || !r.date) return false;
-          const rIso = toValidDbDate(r.date, r.year || viewYear) || dateToIso(r.date);
-          return isSameDate(r.date, bulkDate) || isSameDate(r.date, bulkDateLabel) || Boolean(bulkDateIso && rIso && bulkDateIso === rIso);
-        });
-        const totalBagsOnBulkDate = Math.round(bulkBagLogs.reduce((s, b) => s + (Number(b.bagsOpened) || 0), 0) * 100) / 100;
-        const totalLeftoverOnBulkDate = Math.round(bulkRemainLogs.reduce((s, r) => s + (Number(r.remainingKg) || 0), 0) * 100) / 100;
-        const uniqueBagSummary = Array.from(new Set(bulkBagLogs.filter(b => (Number(b.bagsOpened) || 0) > 0).map(b => `${b.brand && b.brand !== "—" ? `${b.brand} ` : ""}${b.size}: ${b.bagsOpened} bag${Number(b.bagsOpened) !== 1 ? "s" : ""}`)));
-        const uniqueRemainSummary = Array.from(new Set(bulkRemainLogs.map(r => `${r.brand && r.brand !== "—" ? `${r.brand} ` : ""}${r.size}: ${r.remainingKg}kg`)));
-
-        const getRowBagAndLeftoverInfo = (row: BulkRow) => {
-          const fs = row.fishStock || pondToStock(row.pondName, bulkDate);
-          const matchingBags = bulkBagLogs.filter(b =>
-            (isStockMatch(b.fishStock, fs) || isStockMatch(b.fishStock, row.pondName) || isManualPrevDayLog(b)) &&
-            (!row.size || !b.size || b.size === "—" || isSamePelletSize(b.size, row.size))
-          );
-          const matchingRemains = bulkRemainLogs.filter(r =>
-            (isStockMatch(r.fishStock, fs) || isStockMatch(r.fishStock, row.pondName) || isManualPrevDayLog(r)) &&
-            (!row.size || !r.size || r.size === "—" || isSamePelletSize(r.size, row.size))
-          );
-          const bagsOpenedForRow = Math.round(matchingBags.reduce((s, b) => s + (Number(b.bagsOpened) || 0), 0) * 100) / 100;
-          const remainForRow = matchingRemains.length > 0
-            ? Math.round((Number(matchingRemains[matchingRemains.length - 1].remainingKg) || 0) * 100) / 100
-            : getPriorCarryover(fs, row.size, bulkDate);
-          const hasExplicitRemain = matchingRemains.length > 0;
-          return { bagsOpenedForRow, remainForRow, hasExplicitRemain };
-        };
 
         return (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-2 sm:p-6" onClick={e => e.target === e.currentTarget && setShowLog(false)}>
@@ -6163,18 +6209,6 @@ function FeedDocumentation({
                       <Calendar size={13} className="text-teal-600 shrink-0" />
                       <span>{bulkDateLabel || bulkDate}</span>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowLog(false);
-                        openBagsModal();
-                      }}
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-slate-100 hover:bg-teal-50 text-slate-700 hover:text-teal-800 border border-slate-200/80 text-xs font-semibold transition-colors"
-                      title={`View or log Bags Opened & Leftover for ${bulkDateLabel}`}
-                    >
-                      <Package size={13} className="text-teal-600 shrink-0" />
-                      <span>Bags: {totalBagsOnBulkDate} · Leftover: {totalLeftoverOnBulkDate}kg</span>
-                    </button>
                     {/* Mobile Table / Card Toggle (Mobile Only) */}
                     <div className="flex md:hidden items-center gap-0.5 bg-slate-100 p-0.5 rounded-xl border border-slate-200/80">
                       <button
@@ -6201,24 +6235,6 @@ function FeedDocumentation({
                       </button>
                     </div>
                   </div>
-                </div>
-
-                {/* Date-Specific Bags Opened & Leftover Feed Summary Bar */}
-                <div className="mt-2.5 flex flex-wrap items-center gap-2 text-[11px] bg-slate-50 border border-slate-200/80 rounded-xl px-3 py-2">
-                  <span className="font-bold text-slate-700 uppercase tracking-wider text-[10px]">
-                    {bulkDateLabel} Feed Summary:
-                  </span>
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white border border-slate-200 text-slate-700 font-semibold">
-                    Active Ponds: <strong className="text-slate-900">{bulkDatePonds.length}</strong>
-                  </span>
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-teal-50/80 border border-teal-200/80 text-teal-900 font-semibold">
-                    Bags Opened: <strong>{totalBagsOnBulkDate}</strong>
-                    {uniqueBagSummary.length > 0 && <span className="text-teal-700 font-normal">({uniqueBagSummary.join(", ")})</span>}
-                  </span>
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-50/80 border border-amber-200/80 text-amber-900 font-semibold">
-                    Leftover Recorded: <strong>{bulkRemainLogs.length > 0 ? `${totalLeftoverOnBulkDate} kg` : "None logged"}</strong>
-                    {uniqueRemainSummary.length > 0 && <span className="text-amber-700 font-normal">({uniqueRemainSummary.join(", ")})</span>}
-                  </span>
                 </div>
               </div>
               <button onClick={() => setShowLog(false)} className="text-slate-400 hover:text-slate-700 p-1 shrink-0 rounded-lg hover:bg-slate-100 transition-colors"><X size={20} /></button>
@@ -6272,7 +6288,6 @@ function FeedDocumentation({
                       const rowMaxKg = pondObj?.maxKgByPallet?.[row.size];
                       const cumFed = (feedingRecords || []).filter(r => r && (r.pondId ? r.pondId === pondObj?.id : r.pond === row.pondName) && r.size === row.size && ((pondObj as any)?.fishStockId ? r.fishStockId === (pondObj as any).fishStockId : (!pondObj?.stockingDate || toValidDbDate(r.date) >= toValidDbDate(pondObj.stockingDate)))).reduce((s, r) => s + (Number(r.total) || 0), 0);
                       const rowAtMax = !!rowMaxKg && cumFed >= rowMaxKg;
-                      const { bagsOpenedForRow, remainForRow, hasExplicitRemain } = getRowBagAndLeftoverInfo(row);
                       return (
                         <tr key={row.rowId} data-bulk-row-id={row.rowId} className={`transition-colors ${hasFeed ? "bg-green-50/40" : "hover:bg-slate-50/80"}`}>
                           <td className={`w-12 min-w-[48px] max-w-[48px] px-2 py-3 text-slate-400 text-xs font-mono text-center sticky left-0 z-10 border-b border-slate-100 ${hasFeed ? "bg-[#f2faf4]" : "bg-white"}`}>{i + 1}</td>
@@ -6327,11 +6342,6 @@ function FeedDocumentation({
                                 {row.fishStock && row.fishStock !== "General Stock" ? row.fishStock : "—"}
                               </p>
                             )}
-                            {(bagsOpenedForRow > 0 || hasExplicitRemain || remainForRow > 0) && (
-                              <p className="text-[9.5px] text-slate-500 leading-tight mt-0.5 truncate">
-                                {bagsOpenedForRow > 0 ? `Bags: ${bagsOpenedForRow}` : ""}{bagsOpenedForRow > 0 && (hasExplicitRemain || remainForRow > 0) ? " · " : ""}{hasExplicitRemain ? `Leftover: ${remainForRow}kg` : (remainForRow > 0 ? `Carryover: ${remainForRow}kg` : "")}
-                              </p>
-                            )}
                           </td>
                           {logColOrder.map(col => {
                             switch (col) {
@@ -6339,19 +6349,22 @@ function FeedDocumentation({
                                 return (
                                   <td key={col} className="px-2.5 py-2.5 border-b border-slate-100 bg-transparent">
                                     <select
-                                      value={row.size}
+                                      value={availablePelletSizes.some(s => isSamePelletSize(s, row.size)) ? (availablePelletSizes.find(s => isSamePelletSize(s, row.size)) || row.size) : ""}
                                       onChange={e => updateRow(row.rowId, "size", e.target.value)}
                                       className={TS}
                                     >
+                                      {availablePelletSizes.length === 0 && (
+                                        <option value="">No active feed stock</option>
+                                      )}
+                                      {availablePelletSizes.length > 0 && !availablePelletSizes.some(s => isSamePelletSize(s, row.size)) && (
+                                        <option value="">Select pallet…</option>
+                                      )}
                                       {availablePelletSizes.map(s => {
                                         const stock = getPelletStock(s);
                                         const bagCount = stock.inStockBags || 0;
-                                        const label = !stock.exists || bagCount <= 0
-                                          ? `${s} (0 bags available)`
-                                          : `${s} (${bagCount} bag${bagCount !== 1 ? "s" : ""} available)`;
+                                        const label = `${s} (${bagCount} bag${bagCount !== 1 ? "s" : ""} available)`;
                                         return <option key={s} value={s}>{label}</option>;
                                       })}
-                                      {row.size && !availablePelletSizes.includes(row.size) && <option value={row.size}>{row.size}</option>}
                                     </select>
                                     {rowAtMax && <p className="text-[10px] font-bold mt-0.5 text-red-600">⚠ Max weight reached</p>}
                                   </td>
@@ -6444,7 +6457,6 @@ function FeedDocumentation({
                   const rowMaxKg = pondObj?.maxKgByPallet?.[row.size];
                   const cumFed = (feedingRecords || []).filter(r => r && (r.pondId ? r.pondId === pondObj?.id : r.pond === row.pondName) && r.size === row.size && ((pondObj as any)?.fishStockId ? r.fishStockId === (pondObj as any).fishStockId : (!pondObj?.stockingDate || toValidDbDate(r.date) >= toValidDbDate(pondObj.stockingDate)))).reduce((s, r) => s + (Number(r.total) || 0), 0);
                   const rowAtMax = !!rowMaxKg && cumFed >= rowMaxKg;
-                  const { bagsOpenedForRow, remainForRow, hasExplicitRemain } = getRowBagAndLeftoverInfo(row);
 
                   return (
                     <div
@@ -6484,11 +6496,6 @@ function FeedDocumentation({
                           ) : (
                             <p className="text-[10px] text-slate-400 mt-0.5 ml-6.5">{row.fishStock || "No stock"}</p>
                           )}
-                          {(bagsOpenedForRow > 0 || hasExplicitRemain || remainForRow > 0) && (
-                            <p className="text-[10px] text-slate-500 mt-0.5 ml-6.5">
-                              {bagsOpenedForRow > 0 ? `Bags Opened: ${bagsOpenedForRow}` : ""}{bagsOpenedForRow > 0 && (hasExplicitRemain || remainForRow > 0) ? " · " : ""}{hasExplicitRemain ? `Leftover: ${remainForRow}kg` : (remainForRow > 0 ? `Carryover: ${remainForRow}kg` : "")}
-                            </p>
-                          )}
                         </div>
                         <div className="flex items-center gap-1.5">
                           <button
@@ -6522,19 +6529,22 @@ function FeedDocumentation({
                       <div className="mt-2.5">
                         <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">Pellet Size</label>
                         <select
-                          value={row.size}
+                          value={availablePelletSizes.some(s => isSamePelletSize(s, row.size)) ? (availablePelletSizes.find(s => isSamePelletSize(s, row.size)) || row.size) : ""}
                           onChange={ev => updateRow(row.rowId, "size", ev.target.value)}
                           className={`${TS} text-xs py-1.5`}
                         >
+                          {availablePelletSizes.length === 0 && (
+                            <option value="">No active feed stock</option>
+                          )}
+                          {availablePelletSizes.length > 0 && !availablePelletSizes.some(s => isSamePelletSize(s, row.size)) && (
+                            <option value="">Select pallet…</option>
+                          )}
                           {availablePelletSizes.map(s => {
                             const stock = getPelletStock(s);
                             const bagCount = stock.inStockBags || 0;
-                            const label = !stock.exists || bagCount <= 0
-                              ? `${s} (0 bags available)`
-                              : `${s} (${bagCount} bag${bagCount !== 1 ? "s" : ""} available)`;
+                            const label = `${s} (${bagCount} bag${bagCount !== 1 ? "s" : ""} available)`;
                             return <option key={s} value={s}>{label}</option>;
                           })}
-                          {row.size && !availablePelletSizes.includes(row.size) && <option value={row.size}>{row.size}</option>}
                         </select>
                         {rowAtMax && <p className="text-[10px] font-bold mt-0.5 text-red-600">⚠ Max weight reached for this size</p>}
                       </div>
@@ -6828,40 +6838,37 @@ function FeedDocumentation({
                             const associated = getAssociatedPalletsForStock(row.fishStock, bagsDate);
                             const otherSizes = availablePelletSizes.filter(s => !associated.includes(s));
                             return (
-                              <select
-                                value={row.size}
-                                onChange={e => {
-                                  updateBagRow(i, "size", e.target.value);
-                                  setBagsErr(p => {
-                                    const next = { ...p };
-                                    delete next[`dup_${i}`];
-                                    delete next[`size_${i}`];
-                                    delete next[`brand_${i}`];
-                                    return next;
-                                  });
-                                }}
-                                
-                                className={`w-full text-[11px] px-2.5 py-1.5 bg-white border rounded-lg text-slate-800 font-normal focus:outline-none focus:ring-1 h-[34px] ${bagsErr[`size_${i}`] ? "border-red-300 focus:ring-red-300" : "border-slate-200 focus:ring-green-400"}`}
-                              >
-                                {!row.size && <option value="">Select pallet…</option>}
-                                {associated.length > 0 && (
-                                  <optgroup label="Associated Pallets">
-                                    {associated.map(s => (
-                                      <option key={s} value={s}>{s}</option>
-                                    ))}
-                                  </optgroup>
-                                )}
-                                {otherSizes.length > 0 && (
-                                  <optgroup label={associated.length > 0 ? "Other Pallets" : "Available Pallets"}>
-                                    {otherSizes.map(s => (
-                                      <option key={s} value={s}>{s}</option>
-                                    ))}
-                                  </optgroup>
-                                )}
-                                {row.size && !availablePelletSizes.includes(row.size) && !associated.includes(row.size) && (
-                                  <option value={row.size}>{row.size}</option>
-                                )}
-                              </select>
+                                <select
+                                  value={availablePelletSizes.some(s => isSamePelletSize(s, row.size)) ? (availablePelletSizes.find(s => isSamePelletSize(s, row.size)) || row.size) : ""}
+                                  onChange={e => {
+                                    updateBagRow(i, "size", e.target.value);
+                                    setBagsErr(p => {
+                                      const next = { ...p };
+                                      delete next[`dup_${i}`];
+                                      delete next[`size_${i}`];
+                                      delete next[`brand_${i}`];
+                                      return next;
+                                    });
+                                  }}
+                                  
+                                  className={`w-full text-[11px] px-2.5 py-1.5 bg-white border rounded-lg text-slate-800 font-normal focus:outline-none focus:ring-1 h-[34px] ${bagsErr[`size_${i}`] ? "border-red-300 focus:ring-red-300" : "border-slate-200 focus:ring-green-400"}`}
+                                >
+                                  <option value="">{availablePelletSizes.length === 0 ? "No active feed stock" : "Select pallet…"}</option>
+                                  {associated.length > 0 && (
+                                    <optgroup label="Associated Pallets">
+                                      {associated.map(s => (
+                                        <option key={s} value={s}>{s}</option>
+                                      ))}
+                                    </optgroup>
+                                  )}
+                                  {otherSizes.length > 0 && (
+                                    <optgroup label={associated.length > 0 ? "Other Pallets" : "Available Pallets"}>
+                                      {otherSizes.map(s => (
+                                        <option key={s} value={s}>{s}</option>
+                                      ))}
+                                    </optgroup>
+                                  )}
+                                </select>
                             );
                           })()}
                           {bagsErr[`size_${i}`] && (
@@ -7057,18 +7064,21 @@ function FeedDocumentation({
             </div>
             <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3">
               <F label="Feed Size (Pallet)">
-                <select value={editRec.size} onChange={e => setEditRec(p => p ? { ...p, size: e.target.value } : p)} className={SC}>
+                <select
+                  value={availablePelletSizes.some(s => isSamePelletSize(s, editRec.size)) ? (availablePelletSizes.find(s => isSamePelletSize(s, editRec.size)) || editRec.size) : ""}
+                  onChange={e => setEditRec(p => p ? { ...p, size: e.target.value } : p)}
+                  className={SC}
+                >
+                  {availablePelletSizes.length === 0 && <option value="">No active feed stock</option>}
+                  {availablePelletSizes.length > 0 && !availablePelletSizes.some(s => isSamePelletSize(s, editRec.size)) && (
+                    <option value="">Select pallet…</option>
+                  )}
                   {availablePelletSizes.map(s => {
                     const stock = getPelletStock(s, editRec.id);
                     const bagCount = stock.inStockBags || 0;
-                    const label = !stock.exists
-                      ? `${s} (Not in stock)`
-                      : bagCount <= 0
-                        ? `${s} (0 bags available)`
-                        : `${s} (${bagCount} bag${bagCount !== 1 ? "s" : ""} available)`;
+                    const label = `${s} (${bagCount} bag${bagCount !== 1 ? "s" : ""} available)`;
                     return <option key={s} value={s}>{label}</option>;
                   })}
-                  {editRec.size && !availablePelletSizes.includes(editRec.size) && <option value={editRec.size}>{editRec.size}</option>}
                 </select>
                 {(() => {
                   const stock = getPelletStock(editRec.size, editRec.id);
@@ -7162,7 +7172,7 @@ function FeedDocumentation({
                     const otherSizes = availablePelletSizes.filter(s => !associated.includes(s));
                     return (
                       <select
-                        value={editDocBag.size}
+                        value={availablePelletSizes.some(s => isSamePelletSize(s, editDocBag.size)) ? (availablePelletSizes.find(s => isSamePelletSize(s, editDocBag.size)) || editDocBag.size) : ""}
                         onChange={e => {
                           const newSize = e.target.value;
                           const matchingBrands = getMatchingBrandsForPallet(newSize);
@@ -7180,7 +7190,7 @@ function FeedDocumentation({
                         }}
                         className="w-full text-xs px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-slate-800 font-normal focus:outline-none focus:ring-1 focus:ring-green-400 h-[34px]"
                       >
-                        {!editDocBag.size && <option value="">Select pallet…</option>}
+                        <option value="">{availablePelletSizes.length === 0 ? "No active feed stock" : "Select pallet…"}</option>
                         {associated.length > 0 && (
                           <optgroup label="Associated Pallets">
                             {associated.map(s => (
@@ -7194,9 +7204,6 @@ function FeedDocumentation({
                               <option key={s} value={s}>{s}</option>
                             ))}
                           </optgroup>
-                        )}
-                        {editDocBag.size && !availablePelletSizes.includes(editDocBag.size) && !associated.includes(editDocBag.size) && (
-                          <option value={editDocBag.size}>{editDocBag.size}</option>
                         )}
                       </select>
                     );
