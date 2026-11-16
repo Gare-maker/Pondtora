@@ -116,6 +116,7 @@ function PondDetail({
   onEditFish,
   onSetMaxKg,
   inventory=[],
+  bagLogs=[],
   onEditThisPond,
   currency="₦",
   farms=[],
