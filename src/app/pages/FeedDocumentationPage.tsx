@@ -420,10 +420,14 @@ function FeedDocumentation({
   }, [bagLogs, remainLogs, activeFarmId, viewYear]);
 
   const [showManualPrevModal, setShowManualPrevModal] = useState(false);
-  const [manualBrand, setManualBrand] = useState("");
-  const [manualSize, setManualSize] = useState("");
-  const [manualBagsOpened, setManualBagsOpened] = useState("");
-  const [manualRemainingKg, setManualRemainingKg] = useState("");
+  const [manualPrevRows, setManualPrevRows] = useState<{
+    fishStock: string;
+    size: string;
+    brand: string;
+    bagsOpened: string;
+    remainingKg: string;
+    kgPerBag: number;
+  }[]>([]);
   const [manualErr, setManualErr] = useState<Record<string, string>>({});
   const [isSavingManualPrev, setIsSavingManualPrev] = useState(false);
 
@@ -1157,8 +1161,13 @@ function FeedDocumentation({
     const rIso = toValidDbDate(rDate, rec.year || viewYear) || dateToIso(rDate);
     const fs = rec.fishStock || (pond ? getPondFishStock(pond) : "");
 
-    // 1. Check manual previous-day balances on or before rDate matching size
+    // 1. Check manual previous-day balances on or before rDate matching size (preferring matching fishStock)
     const manualMatch = (manualPrevBalances || []).find(m => {
+      if (!m || !isSamePelletSize(m.size, size)) return false;
+      if (fs && m.fishStock && m.fishStock !== "—" && m.fishStock !== "All Active Stocks" && !isStockMatch(m.fishStock, fs)) return false;
+      const mIso = m.dateIso || toValidDbDate(m.date, viewYear) || dateToIso(m.date);
+      return !rIso || !mIso || mIso <= rIso || isSameDate(m.date, rDate);
+    }) || (manualPrevBalances || []).find(m => {
       if (!m || !isSamePelletSize(m.size, size)) return false;
       const mIso = m.dateIso || toValidDbDate(m.date, viewYear) || dateToIso(m.date);
       return !rIso || !mIso || mIso <= rIso || isSameDate(m.date, rDate);
@@ -1206,8 +1215,9 @@ function FeedDocumentation({
       if (r.brand && r.brand !== "—" && entry.brand && entry.brand !== "—" && r.brand.toLowerCase().trim() !== entry.brand.toLowerCase().trim()) {
         return false;
       }
-      if (entry.fishStock && entry.fishStock !== "—" && entry.fishStock !== "All Active Stocks" && r.fishStock && r.fishStock !== "—") {
-        if (!isStockMatch(r.fishStock, entry.fishStock) && !isStockMatch(pondToStock(r.pond), entry.fishStock)) {
+      if (entry.fishStock && entry.fishStock !== "—" && entry.fishStock !== "All Active Stocks") {
+        const recStock = (r.fishStock && r.fishStock !== "—") ? r.fishStock : pondToStock(r.pond, r.date || tDate);
+        if (recStock && recStock !== "—" && !isStockMatch(recStock, entry.fishStock)) {
           return false;
         }
       }
@@ -2847,6 +2857,7 @@ function FeedDocumentation({
         // Check if this size is covered by an active manual previous-day balance on or before selDate
         const isCoveredByManualPrev = (manualPrevBalances || []).some(m => {
           if (!m || !isSamePelletSize(m.size, size)) return false;
+          if (m.fishStock && m.fishStock !== "—" && m.fishStock !== "All Active Stocks" && !isStockMatch(m.fishStock, stockInfo.stockName)) return false;
           const mIso = m.dateIso || toValidDbDate(m.date, viewYear) || dateToIso(m.date);
           if (selIso && mIso && mIso > selIso) return false;
           const stats = getManualBalanceStats(m, selDate);
@@ -3239,7 +3250,7 @@ function FeedDocumentation({
         const mIso = m.dateIso || toValidDbDate(m.date, viewYear) || dateToIso(m.date);
         const isDateMatch = isSameDate(m.date, selDate) || isSameDate(m.date, toDateLabel(selDate)) || Boolean(selIso && mIso && mIso === selIso);
         if (!isDateMatch) return false;
-        return !(bagLogs || []).some(b => b && (b.id === m.id || (isManualPrevDayLog(b) && (isSameDate(b.date, m.date) || (mIso && dateToIso(b.date) === mIso)) && isSamePelletSize(b.size, m.size) && (b.brand || "").toLowerCase().trim() === m.brand.toLowerCase().trim())));
+        return !(bagLogs || []).some(b => b && (b.id === m.id || (isManualPrevDayLog(b) && (isSameDate(b.date, m.date) || (mIso && dateToIso(b.date) === mIso)) && isSamePelletSize(b.size, m.size) && (b.brand || "").toLowerCase().trim() === m.brand.toLowerCase().trim() && (!m.fishStock || !b.fishStock || isStockMatch(b.fishStock, m.fishStock)))));
       })
       .reduce((s, m) => s + (Number(m.bagsOpened) || 0), 0);
     return Math.round((fromBags + unbackedManual) * 100) / 100;
@@ -3741,7 +3752,7 @@ function FeedDocumentation({
       const size = m.size || "—";
       const k = `manual_prev||${brand.toLowerCase().trim()}||${size.toLowerCase().trim()}||${m.id}`;
 
-      const matchingBagLog = (bagLogs || []).find(b => b && (b.id === m.id || (isManualPrevDayLog(b) && isSameDate(b.date, m.date) && isSamePelletSize(b.size, m.size) && (b.brand || "").toLowerCase().trim() === brand.toLowerCase().trim())));
+      const matchingBagLog = (bagLogs || []).find(b => b && (b.id === m.id || (isManualPrevDayLog(b) && isSameDate(b.date, m.date) && isSamePelletSize(b.size, m.size) && (b.brand || "").toLowerCase().trim() === brand.toLowerCase().trim() && (!m.fishStock || !b.fishStock || isStockMatch(b.fishStock, m.fishStock)))));
       const matchingPond = pondsActiveOnSelDate.find(p => p && (pondToStock(p.name, selDate) === fs || p.name === fs || isStockMatch(p.name, fs))) ||
                            (ponds || []).find(p => p && (pondToStock(p.name, selDate) === fs || p.name === fs || isStockMatch(p.name, fs)));
       const stockDate = matchingPond?.stockingDate && matchingPond.stockingDate !== "—"
@@ -3875,7 +3886,7 @@ function FeedDocumentation({
         changed = true;
         // Also sync matching remainLog if present
         if (onEditRemainLog) {
-          const matchingRem = (remainLogs || []).find(r => r && (r.id === m.id || (isManualPrevDayLog(r) && isSameDate(r.date, m.date) && isSamePelletSize(r.size, m.size) && (r.brand || "").toLowerCase().trim() === m.brand.toLowerCase().trim())));
+          const matchingRem = (remainLogs || []).find(r => r && (r.id === m.id || (isManualPrevDayLog(r) && isSameDate(r.date, m.date) && isSamePelletSize(r.size, m.size) && (r.brand || "").toLowerCase().trim() === m.brand.toLowerCase().trim() && (!m.fishStock || !r.fishStock || isStockMatch(r.fishStock, m.fishStock)))));
           if (matchingRem && Math.abs((Number(matchingRem.remainingKg) || 0) - stats.currentRemainingKg) > 0.001) {
             onEditRemainLog({
               ...matchingRem,
@@ -4157,20 +4168,86 @@ function FeedDocumentation({
   };
 
   /* ── Manual Previous-Day Feed Balance Modal Handlers (Admin Only) ── */
+  const blankManualPrevRow = useCallback((targetDate?: string) => {
+    const tIso = getIsoDateForSelDate(targetDate || selDate);
+    const defaultStock = modalFishStockOptions.length === 1 ? modalFishStockOptions[0].name : "";
+    const associated = defaultStock ? getAssociatedPalletsForStock(defaultStock, tIso) : [];
+    const defaultSize = associated[0] || availablePelletSizes[0] || "";
+    const matchingBrands = defaultSize ? getMatchingBrandsForPallet(defaultSize) : invBrands;
+    const defaultBrand = matchingBrands.find(b => b.toLowerCase() === "blue crown") || matchingBrands[0] || "";
+    const inv = (inventory || []).find(f => f && (f.brand || "").toLowerCase().trim() === defaultBrand.toLowerCase().trim() && isSamePelletSize(f.size, defaultSize)) ||
+                (inventory || []).find(f => f && isSamePelletSize(f.size, defaultSize));
+    return {
+      fishStock: defaultStock,
+      size: defaultSize,
+      brand: defaultBrand,
+      bagsOpened: "",
+      remainingKg: "",
+      kgPerBag: Number(inv?.weightPerBag) || 15
+    };
+  }, [getIsoDateForSelDate, selDate, modalFishStockOptions, getAssociatedPalletsForStock, availablePelletSizes, getMatchingBrandsForPallet, invBrands, inventory]);
+
   const openManualPrevBalanceModal = () => {
     if (!isAdmin) {
       toast.error("Access denied: Only Admins can add a manual previous-day feed balance.");
       return;
     }
-    const defaultBrand = invBrands.find(b => b.toLowerCase() === "blue crown") || invBrands[0] || "";
-    const defaultSize = availablePelletSizes[0] || "";
-    setManualBrand(defaultBrand);
-    setManualSize(defaultSize);
-    setManualBagsOpened("");
-    setManualRemainingKg("");
+    setManualPrevRows([blankManualPrevRow(selDate)]);
     setManualErr({});
     setIsSavingManualPrev(false);
     setShowManualPrevModal(true);
+  };
+
+  const addManualPrevRow = () => {
+    setManualPrevRows(prev => [...prev, blankManualPrevRow(selDate)]);
+  };
+
+  const removeManualPrevRow = (idx: number) => {
+    setManualPrevRows(prev => prev.filter((_, i) => i !== idx));
+    setManualErr({});
+  };
+
+  const updateManualPrevRow = (idx: number, key: "fishStock" | "size" | "brand" | "bagsOpened" | "remainingKg", val: string) => {
+    const tIso = getIsoDateForSelDate(selDate);
+    setManualPrevRows(prev => prev.map((r, i) => {
+      if (i !== idx) return r;
+      if (key === "fishStock") {
+        const associated = getAssociatedPalletsForStock(val, tIso);
+        let newSize = r.size;
+        if (associated.length === 1) {
+          newSize = associated[0];
+        } else if (associated.length > 1) {
+          newSize = associated.some(p => isSamePelletSize(p, r.size)) ? r.size : associated[0];
+        } else if (associated.length === 0) {
+          newSize = availablePelletSizes.some(p => isSamePelletSize(p, r.size)) ? r.size : (availablePelletSizes[0] || "");
+        }
+        const matchingBrands = newSize ? getMatchingBrandsForPallet(newSize) : invBrands;
+        let newBrand = "";
+        if (matchingBrands.length === 1) {
+          newBrand = matchingBrands[0];
+        } else if (matchingBrands.length > 1) {
+          newBrand = matchingBrands.some(b => b.toLowerCase().trim() === (r.brand || "").toLowerCase().trim()) ? r.brand : matchingBrands[0];
+        }
+        const inv = (inventory || []).find(f => f && (f.brand || "").toLowerCase().trim() === newBrand.toLowerCase().trim() && isSamePelletSize(f.size, newSize));
+        return { ...r, fishStock: val, size: newSize, brand: newBrand, kgPerBag: Number(inv?.weightPerBag) || 15 };
+      }
+      if (key === "size") {
+        const matchingBrands = getMatchingBrandsForPallet(val);
+        let newBrand = "";
+        if (matchingBrands.length === 1) {
+          newBrand = matchingBrands[0];
+        } else if (matchingBrands.length > 1) {
+          newBrand = matchingBrands.some(b => b.toLowerCase().trim() === (r.brand || "").toLowerCase().trim()) ? r.brand : matchingBrands[0];
+        }
+        const inv = (inventory || []).find(f => f && (f.brand || "").toLowerCase().trim() === newBrand.toLowerCase().trim() && isSamePelletSize(f.size, val));
+        return { ...r, size: val, brand: newBrand, kgPerBag: Number(inv?.weightPerBag) || 15 };
+      }
+      if (key === "brand") {
+        const inv = (inventory || []).find(f => f && (f.brand || "").toLowerCase().trim() === val.toLowerCase().trim() && isSamePelletSize(f.size, r.size));
+        return { ...r, brand: val, kgPerBag: Number(inv?.weightPerBag) || 15 };
+      }
+      return { ...r, [key]: val };
+    }));
   };
 
   const handleSaveManualPrevBalance = () => {
@@ -4181,26 +4258,71 @@ function FeedDocumentation({
     if (isSavingManualPrev) return;
 
     const errs: Record<string, string> = {};
-    const brandClean = (manualBrand || "").trim();
-    const sizeClean = (manualSize || "").trim();
-    const bagsVal = Number(manualBagsOpened);
-    const remVal = Number(manualRemainingKg);
-
-    if (!brandClean) errs.brand = "Feed Brand is required.";
-    if (!sizeClean) errs.size = "Feed Size is required.";
-    if (manualBagsOpened.trim() === "" || isNaN(bagsVal) || bagsVal <= 0) {
-      errs.bagsOpened = "Enter a valid positive number of bags opened.";
-    }
-    if (manualRemainingKg.trim() === "" || isNaN(remVal) || remVal < 0) {
-      errs.remainingKg = "Enter a valid non-negative remaining feed quantity (kg).";
+    if (!manualPrevRows.length) {
+      errs.entries = "Please add at least one feed stock entry.";
     }
 
-    const matchingInv = (inventory || []).find(f => f && (f.brand || "").toLowerCase().trim() === brandClean.toLowerCase() && isSamePelletSize(f.size, sizeClean)) ||
-                        (inventory || []).find(f => f && isSamePelletSize(f.size, sizeClean));
-    const baseWpb = Number(matchingInv?.weightPerBag) || 15;
-    const kgPerBag = (!isNaN(bagsVal) && bagsVal > 0 && !isNaN(remVal) && remVal > bagsVal * baseWpb)
-      ? Math.ceil(remVal / bagsVal)
-      : baseWpb;
+    const seenKeys = new Set<string>();
+    const preparedRows: {
+      fishStock: string;
+      brandClean: string;
+      sizeClean: string;
+      bagsVal: number;
+      remVal: number;
+      kgPerBag: number;
+    }[] = [];
+
+    manualPrevRows.forEach((r, idx) => {
+      const stockClean = (r.fishStock || "").trim();
+      const brandClean = (r.brand || "").trim();
+      const sizeClean = (r.size || "").trim();
+      const bagsVal = Number(r.bagsOpened);
+      const remVal = Number(r.remainingKg);
+
+      if (!stockClean) errs[`fs_${idx}`] = "Feed Stock is required.";
+      if (!sizeClean) errs[`size_${idx}`] = "Feed Size is required.";
+      if (!brandClean) errs[`brand_${idx}`] = "Feed Brand is required.";
+
+      if (sizeClean && brandClean && inventory.length > 0) {
+        const matchingBrands = getMatchingBrandsForPallet(sizeClean);
+        if (matchingBrands.length > 0 && !matchingBrands.some(b => b.toLowerCase().trim() === brandClean.toLowerCase())) {
+          errs[`brand_${idx}`] = `Brand "${brandClean}" is not associated with ${sizeClean} in Feed Stock.`;
+        }
+      }
+
+      if (stockClean && sizeClean && brandClean) {
+        const dupKey = `${normalizeFishStock(stockClean).toLowerCase().trim()}__${brandClean.toLowerCase()}__${sizeClean.toLowerCase()}`;
+        if (seenKeys.has(dupKey)) {
+          errs[`dup_${idx}`] = "Duplicate entry for this Feed Stock, Brand & Feed Size. Remove or combine into one entry.";
+        }
+        seenKeys.add(dupKey);
+      }
+
+      if (r.bagsOpened.trim() === "" || isNaN(bagsVal) || bagsVal <= 0) {
+        errs[`bags_${idx}`] = "Enter a valid positive number of bags opened.";
+      }
+      if (r.remainingKg.trim() === "" || isNaN(remVal) || remVal < 0) {
+        errs[`rem_${idx}`] = "Enter a valid non-negative remaining feed quantity (kg).";
+      }
+
+      const matchingInv = (inventory || []).find(f => f && (f.brand || "").toLowerCase().trim() === brandClean.toLowerCase() && isSamePelletSize(f.size, sizeClean)) ||
+                          (inventory || []).find(f => f && isSamePelletSize(f.size, sizeClean));
+      const kgPerBag = Number(matchingInv?.weightPerBag) || r.kgPerBag || 15;
+      const maxOpenedKg = Math.round(bagsVal * kgPerBag * 100) / 100;
+
+      if (!isNaN(bagsVal) && bagsVal > 0 && !isNaN(remVal) && remVal > maxOpenedKg + 0.001) {
+        errs[`rem_${idx}`] = `Feed Remaining (${remVal} kg) cannot exceed quantity opened (${maxOpenedKg} kg for ${bagsVal} bag${bagsVal !== 1 ? "s" : ""}).`;
+      }
+
+      preparedRows.push({
+        fishStock: stockClean,
+        brandClean,
+        sizeClean,
+        bagsVal,
+        remVal,
+        kgPerBag
+      });
+    });
 
     if (Object.keys(errs).length > 0) {
       setManualErr(errs);
@@ -4215,115 +4337,117 @@ function FeedDocumentation({
       const monStr = dateParts[0] || selMonLabel || curMonLabel;
       const yrNum = selYear || viewYear || new Date().getFullYear();
 
-      const primaryActiveStock = pondsActiveOnSelDate[0]
-        ? getPondFishStock(pondsActiveOnSelDate[0])
-        : (activePonds[0] ? getPondFishStock(activePonds[0]) : "All Active Stocks");
-      const resolvedStock = (primaryActiveStock && primaryActiveStock !== "—" && primaryActiveStock !== "General Stock")
-        ? primaryActiveStock
-        : "All Active Stocks";
+      let updatedList = [...manualPrevBalances];
 
-      // Capture baseline feeding on selDate at the moment this manual balance is created so ONLY subsequent feedings deduct from remVal
-      const baselineByRecordId: Record<string, number> = {};
-      let baselineFedKg = 0;
-      (feedingRecords || []).forEach(r => {
-        if (!r) return;
-        const rIso = toValidDbDate(r.date, viewYear) || dateToIso(r.date);
-        if ((isSameDate(r.date, selDate) || rIso === dateIso) && isSamePelletSize(r.size, sizeClean)) {
-          if (!r.brand || r.brand === "—" || r.brand.toLowerCase().trim() === brandClean.toLowerCase()) {
-            const tot = Number(r.total) || ((Number(r.morning) || 0) + (Number(r.evening) || 0));
-            if (r.id) baselineByRecordId[r.id] = tot;
-            baselineFedKg += tot;
+      preparedRows.forEach(item => {
+        const resolvedStock = normalizeFishStock(item.fishStock, selDate) !== "—"
+          ? normalizeFishStock(item.fishStock, selDate)
+          : item.fishStock;
+
+        // Capture baseline feeding on selDate at the moment this manual balance is created so ONLY subsequent feedings deduct from remVal
+        const baselineByRecordId: Record<string, number> = {};
+        let baselineFedKg = 0;
+        (feedingRecords || []).forEach(r => {
+          if (!r) return;
+          const rIso = toValidDbDate(r.date, viewYear) || dateToIso(r.date);
+          if ((isSameDate(r.date, selDate) || rIso === dateIso) && isSamePelletSize(r.size, item.sizeClean)) {
+            const recStock = (r.fishStock && r.fishStock !== "—") ? r.fishStock : pondToStock(r.pond, r.date || selDate);
+            const stockMatches = !resolvedStock || resolvedStock === "All Active Stocks" || !recStock || recStock === "—" || isStockMatch(recStock, resolvedStock);
+            if (stockMatches && (!r.brand || r.brand === "—" || r.brand.toLowerCase().trim() === item.brandClean.toLowerCase())) {
+              const tot = Number(r.total) || ((Number(r.morning) || 0) + (Number(r.evening) || 0));
+              if (r.id) baselineByRecordId[r.id] = tot;
+              baselineFedKg += tot;
+            }
           }
+        });
+
+        const existingIdx = updatedList.findIndex(m =>
+          m &&
+          isSameDate(m.date, dateLabel) &&
+          m.brand.toLowerCase().trim() === item.brandClean.toLowerCase() &&
+          isSamePelletSize(m.size, item.sizeClean) &&
+          (isStockMatch(m.fishStock, resolvedStock) || normalizeFishStock(m.fishStock, selDate).toLowerCase().trim() === resolvedStock.toLowerCase().trim())
+        );
+
+        const entryId = existingIdx >= 0 ? updatedList[existingIdx].id : uid();
+        const newManualEntry: ManualPrevBalanceRecord = {
+          id: entryId,
+          farmId: activeFarmId,
+          date: dateLabel,
+          dateIso,
+          brand: item.brandClean,
+          size: item.sizeClean,
+          bagsOpened: Math.round(item.bagsVal * 100) / 100,
+          kgPerBag: item.kgPerBag,
+          initialRemainingKg: Math.round(item.remVal * 100) / 100,
+          currentRemainingKg: Math.round(item.remVal * 100) / 100,
+          baselineFedKg: Math.round(baselineFedKg * 100) / 100,
+          baselineByRecordId,
+          fishStock: resolvedStock,
+          createdBy: currentUser?.name || "Admin",
+          createdAt: new Date().toISOString()
+        };
+
+        if (existingIdx >= 0) {
+          updatedList[existingIdx] = newManualEntry;
+        } else {
+          updatedList = [newManualEntry, ...updatedList];
+        }
+
+        // Persist in bagLogs & remainLogs so Feed Stock / Bags Opened stay synchronized across sessions
+        const bagLogEntry: BagOpenLog = {
+          id: newManualEntry.id,
+          date: dateLabel,
+          month: monStr,
+          year: yrNum,
+          brand: item.brandClean,
+          size: item.sizeClean,
+          bagsOpened: newManualEntry.bagsOpened,
+          kgPerBag: item.kgPerBag,
+          totalKg: Math.round(newManualEntry.bagsOpened * item.kgPerBag * 100) / 100,
+          fishStock: resolvedStock,
+          reason: "MANUAL_PREV_DAY_BALANCE",
+          isManualPrevDayBalance: true,
+          initialRemainingKg: newManualEntry.initialRemainingKg,
+          baselineFedKg: newManualEntry.baselineFedKg
+        };
+
+        if (existingIdx >= 0 && onEditBagLog) {
+          onEditBagLog(bagLogEntry);
+        } else {
+          onAddBagLog(bagLogEntry);
+        }
+
+        const remainLogEntry: FeedRemainingLog = {
+          id: newManualEntry.id,
+          date: dateLabel,
+          month: monStr,
+          year: yrNum,
+          brand: item.brandClean,
+          size: item.sizeClean,
+          fishStock: resolvedStock,
+          remainingKg: newManualEntry.initialRemainingKg,
+          isManualPrevDayBalance: true,
+          initialRemainingKg: newManualEntry.initialRemainingKg,
+          baselineFedKg: newManualEntry.baselineFedKg
+        };
+
+        if (existingIdx >= 0 && onEditRemainLog) {
+          onEditRemainLog(remainLogEntry);
+        } else if (onAddRemainLog) {
+          onAddRemainLog(remainLogEntry);
         }
       });
 
-      const entryId = uid();
-      const newManualEntry: ManualPrevBalanceRecord = {
-        id: entryId,
-        farmId: activeFarmId,
-        date: dateLabel,
-        dateIso,
-        brand: brandClean,
-        size: sizeClean,
-        bagsOpened: Math.round(bagsVal * 100) / 100,
-        kgPerBag,
-        initialRemainingKg: Math.round(remVal * 100) / 100,
-        currentRemainingKg: Math.round(remVal * 100) / 100,
-        baselineFedKg: Math.round(baselineFedKg * 100) / 100,
-        baselineByRecordId,
-        fishStock: resolvedStock,
-        recordedBy: currentUser?.name || "Admin",
-        createdAt: new Date().toISOString()
-      };
-
-      // Replace if same brand + size + date manual entry already exists, otherwise append
-      const existingIdx = manualPrevBalances.findIndex(m =>
-        m &&
-        isSameDate(m.date, dateLabel) &&
-        m.brand.toLowerCase().trim() === brandClean.toLowerCase() &&
-        isSamePelletSize(m.size, sizeClean)
-      );
-
-      let updatedList: ManualPrevBalanceRecord[];
-      if (existingIdx >= 0) {
-        const prevEntry = manualPrevBalances[existingIdx];
-        newManualEntry.id = prevEntry.id;
-        updatedList = [...manualPrevBalances];
-        updatedList[existingIdx] = newManualEntry;
-      } else {
-        updatedList = [newManualEntry, ...manualPrevBalances];
-      }
       saveManualPrevBalances(updatedList);
-
-      // Persist in bagLogs & remainLogs so Feed Stock / Bags Opened stay synchronized across sessions
-      const bagLogEntry: BagOpenLog = {
-        id: newManualEntry.id,
-        date: dateLabel,
-        month: monStr,
-        year: yrNum,
-        brand: brandClean,
-        size: sizeClean,
-        bagsOpened: newManualEntry.bagsOpened,
-        kgPerBag,
-        totalKg: Math.round(newManualEntry.bagsOpened * kgPerBag * 100) / 100,
-        fishStock: resolvedStock,
-        openedBy: currentUser?.name || "Admin",
-        reason: "MANUAL_PREV_DAY_BALANCE",
-        isManualPrevDayBalance: true,
-        initialRemainingKg: newManualEntry.initialRemainingKg,
-        baselineFedKg: newManualEntry.baselineFedKg
-      };
-
-      if (existingIdx >= 0 && onEditBagLog) {
-        onEditBagLog(bagLogEntry);
-      } else {
-        onAddBagLog(bagLogEntry);
-      }
-
-      const remainLogEntry: FeedRemainingLog = {
-        id: newManualEntry.id,
-        date: dateLabel,
-        month: monStr,
-        year: yrNum,
-        brand: brandClean,
-        size: sizeClean,
-        fishStock: resolvedStock,
-        remainingKg: newManualEntry.initialRemainingKg,
-        loggedBy: currentUser?.name || "Admin",
-        isManualPrevDayBalance: true,
-        initialRemainingKg: newManualEntry.initialRemainingKg,
-        baselineFedKg: newManualEntry.baselineFedKg
-      };
-
-      if (existingIdx >= 0 && onEditRemainLog) {
-        onEditRemainLog(remainLogEntry);
-      } else if (onAddRemainLog) {
-        onAddRemainLog(remainLogEntry);
-      }
-
       setShowManualPrevModal(false);
       setDocTab("bags");
-      toast.success(`Added previous-day feed balance: ${brandClean} (${sizeClean}) — ${newManualEntry.initialRemainingKg} kg remaining`);
+      if (preparedRows.length === 1) {
+        const one = preparedRows[0];
+        toast.success(`Saved opening feed balance: ${one.brandClean} (${one.sizeClean}) — ${Math.round(one.remVal * 100) / 100} kg remaining`);
+      } else {
+        toast.success(`Saved ${preparedRows.length} opening feed balances for ${selDate}`);
+      }
     } finally {
       setIsSavingManualPrev(false);
     }
@@ -8023,7 +8147,7 @@ function FeedDocumentation({
           }}
         >
           <div
-            className="bg-white rounded-2xl w-full max-w-lg border border-slate-200 shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
+            className="bg-white rounded-2xl w-full max-w-xl border border-slate-200 shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
             onClick={e => e.stopPropagation()}
           >
             {/* Modal Header */}
@@ -8034,7 +8158,7 @@ function FeedDocumentation({
                 </div>
                 <div>
                   <h3 className="font-bold text-sm tracking-tight">Add Previous-Day Feed Balance</h3>
-                  <p className="text-[11px] text-slate-400">Admin feed balance reconciliation for {selDate}</p>
+                  <p className="text-[11px] text-slate-400">Opening feed balances for {selDate}</p>
                 </div>
               </div>
               <button
@@ -8052,125 +8176,226 @@ function FeedDocumentation({
             </div>
 
             {/* Modal Body */}
-            <div className="p-5 overflow-y-auto space-y-4">
+            <div className="p-4 sm:p-5 overflow-y-auto space-y-3.5">
               <div className="p-3 bg-teal-50/90 border border-teal-200 rounded-xl text-xs text-teal-900 leading-relaxed">
-                <p className="font-semibold text-teal-950 mb-0.5">Manual Feed Balance Reconciliation ({selDate})</p>
+                <p className="font-semibold text-teal-950 mb-0.5">Opening Feed Balance ({selDate})</p>
                 <p className="text-teal-800">
-                  Record leftover feed from bags opened on a previous day without requiring prior feeding records. Subsequent feeding logged from this date onward will automatically deduct from this balance.
+                  Enter existing opened batches and actual remaining feed for each stock. Pondtora will save these as your starting balances and deduct subsequent feedings from here.
                 </p>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                {/* 1. Feed Brand */}
-                <div>
-                  <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 block mb-1">
-                    Feed Brand <span className="text-red-500">*</span>
-                  </label>
-                  <select
-                    value={manualBrand}
-                    onChange={e => {
-                      const nextBrand = e.target.value;
-                      setManualBrand(nextBrand);
-                      const brandSizes = invSizesForBrand(nextBrand);
-                      if (brandSizes.length > 0 && !brandSizes.some(s => isSamePelletSize(s, manualSize))) {
-                        setManualSize(brandSizes[0]);
-                      }
-                      setManualErr(p => { const c = { ...p }; delete c.brand; return c; });
-                    }}
-                    className={`${SC} ${manualErr.brand ? "border-red-400 bg-red-50/30" : ""}`}
-                  >
-                    <option value="">Select Feed Brand</option>
-                    {invBrands.map(b => (
-                      <option key={b} value={b}>{b}</option>
-                    ))}
-                  </select>
-                  {manualErr.brand && <p className="text-[11px] font-semibold text-red-600 mt-1">{manualErr.brand}</p>}
+              {manualErr.entries && (
+                <div className="p-2.5 bg-red-50 border border-red-200 rounded-xl text-xs font-semibold text-red-700">
+                  {manualErr.entries}
                 </div>
+              )}
 
-                {/* 2. Feed Size */}
-                <div>
-                  <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 block mb-1">
-                    Feed Size <span className="text-red-500">*</span>
-                  </label>
-                  <select
-                    value={manualSize}
-                    onChange={e => {
-                      setManualSize(e.target.value);
-                      setManualErr(p => { const c = { ...p }; delete c.size; return c; });
-                    }}
-                    className={`${SC} ${manualErr.size ? "border-red-400 bg-red-50/30" : ""}`}
-                  >
-                    <option value="">Select Feed Size</option>
-                    {availablePelletSizes.map(sz => (
-                      <option key={sz} value={sz}>{sz}</option>
-                    ))}
-                  </select>
-                  {manualErr.size && <p className="text-[11px] font-semibold text-red-600 mt-1">{manualErr.size}</p>}
-                </div>
-
-                {/* 3. Bags Opened */}
-                <div>
-                  <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 block mb-1">
-                    Bags Opened <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="number"
-                    min={0.1}
-                    step="any"
-                    value={manualBagsOpened}
-                    onChange={e => {
-                      setManualBagsOpened(e.target.value);
-                      setManualErr(p => { const c = { ...p }; delete c.bagsOpened; delete c.remainingKg; return c; });
-                    }}
-                    placeholder="e.g. 1"
-                    className={`${IC} ${manualErr.bagsOpened ? "border-red-400 bg-red-50/30" : ""}`}
-                  />
-                  {manualErr.bagsOpened && <p className="text-[11px] font-semibold text-red-600 mt-1">{manualErr.bagsOpened}</p>}
-                </div>
-
-                {/* 4. Feed Remaining (kg) */}
-                <div>
-                  <label className="text-[11px] font-bold uppercase tracking-wider text-slate-500 block mb-1">
-                    Feed Remaining (kg) <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="number"
-                    min={0}
-                    step="any"
-                    value={manualRemainingKg}
-                    onChange={e => {
-                      setManualRemainingKg(e.target.value);
-                      setManualErr(p => { const c = { ...p }; delete c.remainingKg; return c; });
-                    }}
-                    placeholder="e.g. 16"
-                    className={`${IC} ${manualErr.remainingKg ? "border-red-400 bg-red-50/30" : ""}`}
-                  />
-                  {manualErr.remainingKg && <p className="text-[11px] font-semibold text-red-600 mt-1">{manualErr.remainingKg}</p>}
-                </div>
+              <div className="flex items-center justify-between">
+                <p className="text-[11px] text-slate-500 font-medium">
+                  {manualPrevRows.length} feed stock {manualPrevRows.length === 1 ? "entry" : "entries"}
+                </p>
               </div>
 
-              {(() => {
-                const matchingInv = (inventory || []).find(f => f && (f.brand || "").toLowerCase().trim() === (manualBrand || "").toLowerCase().trim() && isSamePelletSize(f.size, manualSize)) ||
-                                    (inventory || []).find(f => f && isSamePelletSize(f.size, manualSize));
-                const wpb = Number(matchingInv?.weightPerBag) || 15;
-                const bagsNum = Number(manualBagsOpened) || 0;
-                const remNum = Number(manualRemainingKg);
-                const hasValidRem = manualRemainingKg.trim() !== "" && !isNaN(remNum) && remNum >= 0;
-                if (bagsNum <= 0 && !hasValidRem) return null;
+              {manualPrevRows.map((row, i) => {
+                const tIso = getIsoDateForSelDate(selDate);
+                const associated = row.fishStock ? getAssociatedPalletsForStock(row.fishStock, tIso) : [];
+                const otherSizes = availablePelletSizes.filter(s => !associated.includes(s));
+                const matchingBrands = row.size ? getMatchingBrandsForPallet(row.size) : [];
+                const brandOptions = matchingBrands.length > 0 ? matchingBrands : invBrands;
+                const avail = getStockAvailable(row.brand, row.size);
+                const bagsNum = Number(row.bagsOpened) || 0;
+                const remNum = Number(row.remainingKg);
+                const hasValidRem = row.remainingKg.trim() !== "" && !isNaN(remNum) && remNum >= 0;
+                const matchingInv = (inventory || []).find(f => f && (f.brand || "").toLowerCase().trim() === (row.brand || "").toLowerCase().trim() && isSamePelletSize(f.size, row.size)) ||
+                                    (inventory || []).find(f => f && isSamePelletSize(f.size, row.size));
+                const wpb = Number(matchingInv?.weightPerBag) || row.kgPerBag || 15;
+                const maxOpenedKg = Math.round(bagsNum * wpb * 100) / 100;
+                const isDupInForm = manualPrevRows.findIndex((other, idx) =>
+                  idx < i &&
+                  other.fishStock && row.fishStock &&
+                  normalizeFishStock(other.fishStock).toLowerCase().trim() === normalizeFishStock(row.fishStock).toLowerCase().trim() &&
+                  (other.brand || "").toLowerCase().trim() === (row.brand || "").toLowerCase().trim() &&
+                  isSamePelletSize(other.size, row.size)
+                ) !== -1;
+
                 return (
-                  <div className="p-3 bg-slate-50 border border-slate-200/80 rounded-xl flex flex-wrap items-center justify-between gap-2 text-xs">
-                    <div className="text-slate-600">
-                      <span className="font-semibold text-slate-800">{manualBrand || "—"}</span> · <span className="font-semibold text-slate-800">{manualSize || "—"}</span>
-                      {bagsNum > 0 && <span className="ml-1.5 text-slate-500">({bagsNum} bag{bagsNum !== 1 ? "s" : ""} opened)</span>}
-                    </div>
-                    {hasValidRem && (
-                      <span className="px-2.5 py-1 rounded-lg bg-emerald-100 text-emerald-900 font-bold font-['Barlow_Condensed',sans-serif] text-sm">
-                        Starting Balance: {remNum} kg
+                  <div key={i} className="bg-slate-50/90 border border-slate-200 rounded-xl p-3.5 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-600">
+                        Entry #{i + 1}
                       </span>
+                      {manualPrevRows.length > 1 && (
+                        <button
+                          type="button"
+                          disabled={isSavingManualPrev}
+                          onClick={() => removeManualPrevRow(i)}
+                          className="inline-flex items-center gap-1 text-[11px] font-semibold text-red-600 hover:text-red-700 px-2 py-0.5 rounded-md hover:bg-red-50 transition-colors"
+                        >
+                          <Trash2 size={12} /> Remove
+                        </button>
+                      )}
+                    </div>
+
+                    {/* 1. Feed Stock */}
+                    <div>
+                      <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1">
+                        Feed Stock <span className="text-red-500">*</span>
+                      </label>
+                      <select
+                        value={row.fishStock}
+                        onChange={e => {
+                          updateManualPrevRow(i, "fishStock", e.target.value);
+                          setManualErr(p => { const c = { ...p }; delete c[`fs_${i}`]; delete c[`dup_${i}`]; return c; });
+                        }}
+                        className={`${SC} ${manualErr[`fs_${i}`] ? "border-red-400 bg-red-50/30" : ""}`}
+                      >
+                        <option value="">Select feed stock…</option>
+                        {modalFishStockOptions.map(opt => (
+                          <option key={opt.name} value={opt.name}>{opt.label}</option>
+                        ))}
+                      </select>
+                      {manualErr[`fs_${i}`] && <p className="text-[11px] font-semibold text-red-600 mt-1">{manualErr[`fs_${i}`]}</p>}
+                    </div>
+
+                    {/* 2. Feed Size & 3. Feed Brand */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1">
+                          Feed Size (Pallet) <span className="text-red-500">*</span>
+                        </label>
+                        <select
+                          value={availablePelletSizes.some(s => isSamePelletSize(s, row.size)) ? (availablePelletSizes.find(s => isSamePelletSize(s, row.size)) || row.size) : ""}
+                          onChange={e => {
+                            updateManualPrevRow(i, "size", e.target.value);
+                            setManualErr(p => { const c = { ...p }; delete c[`size_${i}`]; delete c[`brand_${i}`]; delete c[`dup_${i}`]; return c; });
+                          }}
+                          className={`${SC} ${manualErr[`size_${i}`] ? "border-red-400 bg-red-50/30" : ""}`}
+                        >
+                          <option value="">{availablePelletSizes.length === 0 ? "No active feed stock" : "Select feed size…"}</option>
+                          {associated.length > 0 && (
+                            <optgroup label="Associated Pallets">
+                              {associated.map(s => (
+                                <option key={s} value={s}>{s}</option>
+                              ))}
+                            </optgroup>
+                          )}
+                          {otherSizes.length > 0 && (
+                            <optgroup label={associated.length > 0 ? "Other Pallets" : "Available Pallets"}>
+                              {otherSizes.map(s => (
+                                <option key={s} value={s}>{s}</option>
+                              ))}
+                            </optgroup>
+                          )}
+                        </select>
+                        {manualErr[`size_${i}`] && <p className="text-[11px] font-semibold text-red-600 mt-1">{manualErr[`size_${i}`]}</p>}
+                      </div>
+
+                      <div>
+                        <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1">
+                          Feed Brand <span className="text-red-500">*</span>
+                        </label>
+                        <select
+                          value={row.brand}
+                          onChange={e => {
+                            updateManualPrevRow(i, "brand", e.target.value);
+                            setManualErr(p => { const c = { ...p }; delete c[`brand_${i}`]; delete c[`dup_${i}`]; return c; });
+                          }}
+                          className={`${SC} ${manualErr[`brand_${i}`] ? "border-red-400 bg-red-50/30" : ""}`}
+                        >
+                          <option value="">Select Feed Brand</option>
+                          {brandOptions.map(b => (
+                            <option key={b} value={b}>{b}</option>
+                          ))}
+                          {row.brand && !brandOptions.includes(row.brand) && (
+                            <option value={row.brand}>{row.brand}</option>
+                          )}
+                        </select>
+                        {manualErr[`brand_${i}`] && <p className="text-[11px] font-semibold text-red-600 mt-1">{manualErr[`brand_${i}`]}</p>}
+                      </div>
+                    </div>
+
+                    {row.brand && row.size && (
+                      <div className="flex items-center justify-between px-2.5 py-1 rounded-md bg-white border border-slate-200/80 text-[11px] text-slate-500">
+                        <span className="text-[10px] uppercase font-medium text-slate-400">Store Stock ({wpb} kg/bag):</span>
+                        <span className={`font-medium ${avail.remainingBags <= 2 ? "text-amber-600" : "text-slate-700"}`}>
+                          {avail.remainingBags} bag{avail.remainingBags !== 1 ? "s" : ""} ({avail.remainingKg} kg)
+                        </span>
+                      </div>
+                    )}
+
+                    {/* 4. Batch Open & 5. Feed Remaining (kg) */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1">
+                          Batch Open (Bags) <span className="text-red-500">*</span>
+                        </label>
+                        <input
+                          type="number"
+                          min={0.1}
+                          step="any"
+                          value={row.bagsOpened}
+                          onChange={e => {
+                            updateManualPrevRow(i, "bagsOpened", e.target.value);
+                            setManualErr(p => { const c = { ...p }; delete c[`bags_${i}`]; delete c[`rem_${i}`]; return c; });
+                          }}
+                          placeholder="e.g. 5"
+                          className={`${IC} ${manualErr[`bags_${i}`] ? "border-red-400 bg-red-50/30" : ""}`}
+                        />
+                        {manualErr[`bags_${i}`] && <p className="text-[11px] font-semibold text-red-600 mt-1">{manualErr[`bags_${i}`]}</p>}
+                      </div>
+
+                      <div>
+                        <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block mb-1">
+                          Feed Remaining (kg) <span className="text-red-500">*</span>
+                        </label>
+                        <input
+                          type="number"
+                          min={0}
+                          step="any"
+                          value={row.remainingKg}
+                          onChange={e => {
+                            updateManualPrevRow(i, "remainingKg", e.target.value);
+                            setManualErr(p => { const c = { ...p }; delete c[`rem_${i}`]; return c; });
+                          }}
+                          placeholder={bagsNum > 0 ? `Max ${maxOpenedKg} kg` : "e.g. 16"}
+                          className={`${IC} ${manualErr[`rem_${i}`] ? "border-red-400 bg-red-50/30" : ""}`}
+                        />
+                        {manualErr[`rem_${i}`] && <p className="text-[11px] font-semibold text-red-600 mt-1">{manualErr[`rem_${i}`]}</p>}
+                      </div>
+                    </div>
+
+                    {(isDupInForm || manualErr[`dup_${i}`]) && (
+                      <div className="flex items-start gap-1.5 text-[11px] font-medium text-amber-700 bg-amber-50 px-2.5 py-1.5 rounded-lg border border-amber-200">
+                        <AlertTriangle size={13} className="text-amber-500 shrink-0 mt-0.5" />
+                        <span>{manualErr[`dup_${i}`] || "This Feed Stock, Brand & Size is already entered above."}</span>
+                      </div>
+                    )}
+
+                    {(bagsNum > 0 || hasValidRem) && (
+                      <div className="p-2.5 bg-white border border-slate-200/80 rounded-lg flex flex-wrap items-center justify-between gap-2 text-xs">
+                        <div className="text-slate-600">
+                          <span className="font-semibold text-slate-800">{row.fishStock || "—"}</span> · {row.brand || "—"} ({row.size || "—"})
+                          {bagsNum > 0 && <span className="ml-1.5 text-slate-500">· {bagsNum} bag{bagsNum !== 1 ? "s" : ""} ({maxOpenedKg} kg)</span>}
+                        </div>
+                        {hasValidRem && (
+                          <span className="px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-900 font-bold font-['Barlow_Condensed',sans-serif] text-sm">
+                            Starting Balance: {remNum} kg
+                          </span>
+                        )}
+                      </div>
                     )}
                   </div>
                 );
-              })()}
+              })}
+
+              <button
+                type="button"
+                disabled={isSavingManualPrev}
+                onClick={addManualPrevRow}
+                className="w-full flex items-center justify-center gap-2 py-2.5 border-2 border-dashed border-teal-300 text-teal-700 hover:bg-teal-50/70 rounded-xl text-xs font-semibold transition-colors"
+              >
+                <Plus size={14} /> Add Another Feed Stock
+              </button>
             </div>
 
             {/* Modal Footer */}
@@ -8187,7 +8412,7 @@ function FeedDocumentation({
                 Cancel
               </PBtn>
               <PBtn onClick={handleSaveManualPrevBalance} disabled={isSavingManualPrev}>
-                <Check size={14} /> {isSavingManualPrev ? "Saving..." : "Save Feed Balance"}
+                <Check size={14} /> {isSavingManualPrev ? "Saving..." : "Save Feed Balances"}
               </PBtn>
             </div>
           </div>
