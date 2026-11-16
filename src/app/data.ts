@@ -286,6 +286,13 @@ export function formatFishStock(stock: string | null | undefined): string {
   return trimmed;
 }
 
+export function isManualPrevDayBalanceLog(log?: { isManualPrevDayBalance?: boolean; reason?: string; pond?: string } | null): boolean {
+  if (!log) return false;
+  if (log.isManualPrevDayBalance || log.reason === "MANUAL_PREV_DAY_BALANCE") return true;
+  if (typeof log.pond === "string" && log.pond.startsWith("__MANUAL_PREV_DAY_BALANCE__")) return true;
+  return false;
+}
+
 export function getPondFishStock(pond?: { species?: string; stockingDate?: string; name?: string; fishStock?: string } | null): string {
   if (!pond) return "General Stock";
   // If an explicit fish stock identity/batch is set, use it as the source of truth

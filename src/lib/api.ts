@@ -2661,9 +2661,12 @@ export const api = {
 
           const { data: bagLogsRows } = await supabase
             .from("bag_open_logs")
-            .select("brand, size, bags_opened, kg_per_bag, total_kg, farm_id")
+            .select("brand, size, bags_opened, kg_per_bag, total_kg, farm_id, pond")
             .eq("user_id", effectiveUid);
-          const farmBagLogs = (bagLogsRows || []).filter((b: any) => !farmId || !b.farm_id || b.farm_id === farmId);
+          const farmBagLogs = (bagLogsRows || []).filter((b: any) =>
+            (!farmId || !b.farm_id || b.farm_id === farmId) &&
+            !(typeof b.pond === "string" && b.pond.startsWith("__MANUAL_PREV_DAY_BALANCE__"))
+          );
 
           const { data: remainRows } = await supabase
             .from("feed_remaining_logs")
@@ -2769,9 +2772,12 @@ export const api = {
 
           const { data: bagLogsRows } = await supabase
             .from("bag_open_logs")
-            .select("brand, size, bags_opened, kg_per_bag, total_kg, farm_id")
+            .select("brand, size, bags_opened, kg_per_bag, total_kg, farm_id, pond")
             .eq("user_id", effectiveUid);
-          const farmBagLogs = (bagLogsRows || []).filter((b: any) => !farmId || !b.farm_id || b.farm_id === farmId);
+          const farmBagLogs = (bagLogsRows || []).filter((b: any) =>
+            (!farmId || !b.farm_id || b.farm_id === farmId) &&
+            !(typeof b.pond === "string" && b.pond.startsWith("__MANUAL_PREV_DAY_BALANCE__"))
+          );
 
           const { data: remainRows } = await supabase
             .from("feed_remaining_logs")

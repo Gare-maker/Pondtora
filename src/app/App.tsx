@@ -20,7 +20,7 @@ import {
   ResponsiveContainer, PieChart, Pie, Cell, Legend
 } from "recharts";
 import type { View, SortDir, MonthData, FeedItem, Pond, Expense, Revenue, FeedingRecord, FeedEditEntry, MortalityEntry, BagOpenLog, FeedRemainingLog, StaffMember, Report, UserProfile, StockEvent, PriceGroup, Customer, InvSettings, InvoiceLineItem, Invoice, Farm, TreatmentRecord, WItem, EditEntry, Investor, Investment, InvestmentPayment, PondReport, FarmEquipment, FishCountHistoryEntry, InvestmentEditHistoryEntry, FarmToolQuantityHistoryEntry, SalesCalculation, SalesCalculationItem, SalesCalculationEditHistoryEntry } from "./types";
-import { EXPENSE_CATS, REVENUE_SRCS, POND_TYPES, POND_SPECIES, MORT_CAUSES, TODAY, getTodayStr, fmt, yFmt, uid, toMon, toYr, PAYMENT_METHODS, INV_STATUSES, STAFF_PERMISSIONS, STAFF_ROLES_ALL, INIT_INV_SETTINGS, ADMIN_NAME, downloadCSV, openPrintWindow, COUNTRY_CURRENCIES, COUNTRIES, DIAL_CODES, FLAG_EMOJI, convertNGN, fmtStockingDate, formatFishStockDate, formatFishStock, getPondFishStock, isSameDate, isStockMatch, isSamePelletSize } from "./data";
+import { EXPENSE_CATS, REVENUE_SRCS, POND_TYPES, POND_SPECIES, MORT_CAUSES, TODAY, getTodayStr, fmt, yFmt, uid, toMon, toYr, PAYMENT_METHODS, INV_STATUSES, STAFF_PERMISSIONS, STAFF_ROLES_ALL, INIT_INV_SETTINGS, ADMIN_NAME, downloadCSV, openPrintWindow, COUNTRY_CURRENCIES, COUNTRIES, DIAL_CODES, FLAG_EMOJI, convertNGN, fmtStockingDate, formatFishStockDate, formatFishStock, getPondFishStock, isSameDate, isStockMatch, isSamePelletSize, isManualPrevDayBalanceLog } from "./data";
 import { Card, Bdg, PBtn, Pagination, PER_PAGE, StatCard, Tip, Modal, F, IC, SC, SearchableSelect, SelDrop, DMONTHS_S, DateFilter, SearchableCountrySelect, SH, useSort, DateInput, NumInput } from "./shared";
 import InvoicesPage from "./pages/InvoicesPage";
 import SalesCalculatorPage from "./pages/SalesCalculatorPage";
@@ -6108,7 +6108,22 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     // Check pellet stock availability (bypassed for manual feed entries & verified bulk logs)
     if (farmRec.size && !isManualEntry) {
       const invItems = inventory.filter(f => (!f.farmId || f.farmId === fid) && isSamePelletSize(f.size, farmRec.size));
-      if (invItems.length === 0) {
+      let manualPrevAvailKg = remainLogs
+        .filter(rl => isManualPrevDayBalanceLog(rl) && (!rl.farmId || rl.farmId === fid) && isSamePelletSize(rl.size, farmRec.size))
+        .reduce((s, rl) => s + Math.max(0, Number(rl.remainingKg) || 0), 0);
+      try {
+        const rawManual = localStorage.getItem(`pondtora_manual_feed_balances_${fid}`) || localStorage.getItem("pondtora_manual_feed_balances");
+        if (rawManual) {
+          const parsed = JSON.parse(rawManual);
+          if (Array.isArray(parsed)) {
+            const localKg = parsed
+              .filter((m: any) => m && isSamePelletSize(m.size, farmRec.size))
+              .reduce((s: number, m: any) => s + Math.max(0, Number(m.currentRemainingKg ?? m.initialRemainingKg) || 0), 0);
+            manualPrevAvailKg = Math.max(manualPrevAvailKg, localKg);
+          }
+        }
+      } catch {}
+      if (invItems.length === 0 && manualPrevAvailKg <= 0) {
         toast.error(`Pellet size "${farmRec.size}" is out of stock in Feed Inventory. Please purchase and add feed stock first.`);
         throw new Error(`Pellet size "${farmRec.size}" is out of stock in Feed Inventory.`);
       }
@@ -6116,22 +6131,23 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       let inStockKg = 0;
       invItems.forEach(f => {
         const opened = bagLogs
-          .filter(b => (!b.farmId || b.farmId === fid) && (b.brand || "").toLowerCase().trim() === (f.brand || "").toLowerCase().trim() && isSamePelletSize(b.size, f.size))
+          .filter(b => !isManualPrevDayBalanceLog(b) && (!b.farmId || b.farmId === fid) && (b.brand || "").toLowerCase().trim() === (f.brand || "").toLowerCase().trim() && isSamePelletSize(b.size, f.size))
           .reduce((s, b) => s + (Number(b.bagsOpened) || 0), 0);
         const wpb = Number(f.weightPerBag) || 15;
         const remaining = Math.max(0, (Number(f.bags) || 0) - opened);
         inStockBags += remaining;
         inStockKg += remaining * wpb;
       });
+      const totalAvailKg = inStockKg + manualPrevAvailKg;
 
-      if (inStockBags <= 0 && inStockKg <= 0) {
+      if (inStockBags <= 0 && totalAvailKg <= 0) {
         toast.error(`Pellet size "${farmRec.size}" is completely empty (0 bags in stock). Please add feed stock before feeding.`);
         throw new Error(`Pellet size "${farmRec.size}" is completely empty (0 bags in stock).`);
       }
       const toFeed = (Number(farmRec.morning) || 0) + (Number(farmRec.evening) || 0);
-      if (inStockKg > 0 && toFeed > inStockKg) {
-        toast.error(`Insufficient stock for pellet size "${farmRec.size}". In stock: ${Math.round(inStockKg * 10) / 10} kg, requested: ${toFeed} kg.`);
-        throw new Error(`Insufficient stock for pellet size "${farmRec.size}". In stock: ${Math.round(inStockKg * 10) / 10} kg, requested: ${toFeed} kg.`);
+      if (totalAvailKg > 0 && toFeed > totalAvailKg) {
+        toast.error(`Insufficient stock for pellet size "${farmRec.size}". In stock: ${Math.round(totalAvailKg * 10) / 10} kg, requested: ${toFeed} kg.`);
+        throw new Error(`Insufficient stock for pellet size "${farmRec.size}". In stock: ${Math.round(totalAvailKg * 10) / 10} kg, requested: ${toFeed} kg.`);
       }
     }
 
@@ -6216,7 +6232,22 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     const isManualEntry = farmRec.recordedBy === "Manual Feed Entry" || farmRec.recordedBy === "Manual Pond Log" || (farmRec as any)._isManual || (farmRec as any)._skipInventoryCheck;
     if (farmRec.size && !isManualEntry) {
       const invItems = inventory.filter(f => (!f.farmId || f.farmId === farmRec.farmId) && isSamePelletSize(f.size, farmRec.size));
-      if (invItems.length === 0) {
+      let manualPrevAvailKg = remainLogs
+        .filter(rl => isManualPrevDayBalanceLog(rl) && (!rl.farmId || rl.farmId === farmRec.farmId) && isSamePelletSize(rl.size, farmRec.size))
+        .reduce((s, rl) => s + Math.max(0, Number(rl.remainingKg) || 0), 0);
+      try {
+        const rawManual = localStorage.getItem(`pondtora_manual_feed_balances_${farmRec.farmId}`) || localStorage.getItem("pondtora_manual_feed_balances");
+        if (rawManual) {
+          const parsed = JSON.parse(rawManual);
+          if (Array.isArray(parsed)) {
+            const localKg = parsed
+              .filter((m: any) => m && isSamePelletSize(m.size, farmRec.size))
+              .reduce((s: number, m: any) => s + Math.max(0, Number(m.currentRemainingKg ?? m.initialRemainingKg) || 0), 0);
+            manualPrevAvailKg = Math.max(manualPrevAvailKg, localKg);
+          }
+        }
+      } catch {}
+      if (invItems.length === 0 && manualPrevAvailKg <= 0) {
         toast.error(`Pellet size "${farmRec.size}" is out of stock in Feed Inventory. Please purchase and add feed stock first.`);
         throw new Error(`Pellet size "${farmRec.size}" is out of stock in Feed Inventory.`);
       }
@@ -6224,22 +6255,23 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       let inStockKg = 0;
       invItems.forEach(f => {
         const opened = bagLogs
-          .filter(b => (!b.farmId || b.farmId === farmRec.farmId) && (b.brand || "").toLowerCase().trim() === (f.brand || "").toLowerCase().trim() && isSamePelletSize(b.size, f.size))
+          .filter(b => !isManualPrevDayBalanceLog(b) && (!b.farmId || b.farmId === farmRec.farmId) && (b.brand || "").toLowerCase().trim() === (f.brand || "").toLowerCase().trim() && isSamePelletSize(b.size, f.size))
           .reduce((s, b) => s + (Number(b.bagsOpened) || 0), 0);
         const wpb = Number(f.weightPerBag) || 15;
         const remaining = Math.max(0, (Number(f.bags) || 0) - opened);
         inStockBags += remaining;
         inStockKg += remaining * wpb;
       });
+      const totalAvailKg = inStockKg + manualPrevAvailKg;
 
-      if (inStockBags <= 0 && inStockKg <= 0) {
+      if (inStockBags <= 0 && totalAvailKg <= 0) {
         toast.error(`Pellet size "${farmRec.size}" is completely empty (0 bags in stock). Please add feed stock before feeding.`);
         throw new Error(`Pellet size "${farmRec.size}" is completely empty (0 bags in stock).`);
       }
       const toFeed = (Number(farmRec.morning) || 0) + (Number(farmRec.evening) || 0);
-      if (inStockKg > 0 && toFeed > inStockKg) {
-        toast.error(`Insufficient stock for pellet size "${farmRec.size}". In stock: ${Math.round(inStockKg * 10) / 10} kg, requested: ${toFeed} kg.`);
-        throw new Error(`Insufficient stock for pellet size "${farmRec.size}". In stock: ${Math.round(inStockKg * 10) / 10} kg, requested: ${toFeed} kg.`);
+      if (totalAvailKg > 0 && toFeed > totalAvailKg) {
+        toast.error(`Insufficient stock for pellet size "${farmRec.size}". In stock: ${Math.round(totalAvailKg * 10) / 10} kg, requested: ${toFeed} kg.`);
+        throw new Error(`Insufficient stock for pellet size "${farmRec.size}". In stock: ${Math.round(totalAvailKg * 10) / 10} kg, requested: ${toFeed} kg.`);
       }
     }
     setFeeding(prev=>{
@@ -9353,8 +9385,11 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     return records;
   }, [farmFeeding, farmStockEvents, farmPonds]);
 
-  /* ── Feeding Records Page Data (completely independent of fish stock transfers, including healing any legacy split records) ── */
+  /* ── Feeding Records Page Data (completely independent of fish stock transfers & excludes pond-level manual feed giving) ── */
   const docFeedingRecords = useMemo<FeedingRecord[]>(() => {
+    const baseFeeding = farmFeeding.filter(
+      r => !(r.isPondLevelOnly || r.recordedBy === "Manual Feed Entry" || r.recordedBy === "Manual Pond Log")
+    );
     const legacyTransfers = (farmStockEvents || [])
       .filter(e => e && e.type === "Transfer" && !(e.supplier && e.supplier.startsWith("TRANSFER_PCT:")))
       .sort((a, b) => {
@@ -9364,9 +9399,9 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
         return (b.createdAt || "").localeCompare(a.createdAt || "");
       });
 
-    if (legacyTransfers.length === 0) return farmFeeding;
+    if (legacyTransfers.length === 0) return baseFeeding;
 
-    let records: FeedingRecord[] = farmFeeding.map(r => ({ ...r }));
+    let records: FeedingRecord[] = baseFeeding.map(r => ({ ...r }));
 
     for (const ev of legacyTransfers) {
       const fromPondName = (ev.fromPond || "").trim();
@@ -10159,7 +10194,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
 
     // Feed inventory low-stock alerts (≤3 bags remaining) - only if feed inventory exists
     if (canSeeInventory && farmInventory.length > 0) {
-      const openedByKey = bagLogs.reduce<Record<string, number>>((acc, b) => { const k = `${b.brand}|${b.size}`; acc[k] = (acc[k] || 0) + b.bagsOpened; return acc; }, {});
+      const openedByKey = bagLogs.filter(b => !isManualPrevDayBalanceLog(b)).reduce<Record<string, number>>((acc, b) => { const k = `${b.brand}|${b.size}`; acc[k] = (acc[k] || 0) + b.bagsOpened; return acc; }, {});
       const invByKey = farmInventory.reduce<Record<string, number>>((acc, i) => { const k = `${i.brand}|${i.size}`; acc[k] = (acc[k] || 0) + i.bags; return acc; }, {});
       Object.entries(invByKey).forEach(([k, total]) => {
         const inStock = Math.max(0, total - (openedByKey[k] || 0));

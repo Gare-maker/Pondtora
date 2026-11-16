@@ -6,7 +6,7 @@ import {
   MoreVertical, TrendingUp, TrendingDown, Filter, History, GripVertical, Calendar, Loader2
 } from "lucide-react";
 import type { Pond, Expense, MortalityEntry, FeedingRecord, StockEvent, TreatmentRecord, BagOpenLog, FeedRemainingLog, FeedItem, Farm, PondReport, FishCountHistoryEntry } from "../types";
-import { EXPENSE_CATS, POND_TYPES, POND_SPECIES, MORT_CAUSES, TODAY, fmt, uid, toMon, toYr, downloadCSV, openPrintWindow, fmtStockingDate, getPondFishStock, formatFishStock, isStockMatch, isSameDate, getFishStockDateLabel, isFormattedDate, isSamePelletSize, FEED_SIZES, FEED_BRANDS, toDateLabel } from "../data";
+import { EXPENSE_CATS, POND_TYPES, POND_SPECIES, MORT_CAUSES, TODAY, fmt, uid, toMon, toYr, downloadCSV, openPrintWindow, fmtStockingDate, getPondFishStock, formatFishStock, isStockMatch, isSameDate, getFishStockDateLabel, isFormattedDate, isSamePelletSize, FEED_SIZES, FEED_BRANDS, toDateLabel, isManualPrevDayBalanceLog } from "../data";
 import { Card, Bdg, PBtn, Pagination, PER_PAGE, StatCard, Modal, F, IC, SC, SH, useSort, DateFilter, NumInput } from "../shared";
 import { toValidDbDate } from "../../lib/api";
 import { toast } from "sonner";
@@ -179,7 +179,7 @@ function PondDetail({
     });
     return Object.values(grouped).filter(row => {
       const opened = (bagLogs || [])
-        .filter(b => b && (b.brand || "").trim().toLowerCase() === row.brand.toLowerCase() && (b.size || "").trim().toLowerCase() === row.size.toLowerCase())
+        .filter(b => b && !isManualPrevDayBalanceLog(b) && (b.brand || "").trim().toLowerCase() === row.brand.toLowerCase() && (b.size || "").trim().toLowerCase() === row.size.toLowerCase())
         .reduce((s, b) => s + (Number(b.bagsOpened) || 0), 0);
       return Math.max(0, row.bags - opened) > 0;
     });
@@ -187,6 +187,16 @@ function PondDetail({
   const invBrands=[...new Set(activeStockItems.map(f=>f.brand))];
   const invSizesForBrand=(brand:string)=>[...new Set(activeStockItems.filter(f=>f.brand===brand).map(f=>f.size))];
   const allInvSizes=[...new Set(activeStockItems.map(f=>f.size))].sort((a,b)=>(parseFloat(a)||0)-(parseFloat(b)||0));
+  const allRegisteredBrands = useMemo(() => [...new Set([
+    ...FEED_BRANDS,
+    ...(inventory || []).map(f => f?.brand?.trim()).filter(Boolean),
+    ...(feedingRecords || []).map(r => r?.brand?.trim()).filter(b => b && b !== "—" && b !== "Not specified"),
+  ])], [inventory, feedingRecords]);
+  const allRegisteredSizes = useMemo(() => [...new Set([
+    ...FEED_SIZES,
+    ...(inventory || []).map(f => f?.size?.trim()).filter(Boolean),
+    ...(feedingRecords || []).map(r => r?.size?.trim()).filter(s => s && s !== "—"),
+  ])].sort((a, b) => (parseFloat(a) || 0) - (parseFloat(b) || 0)), [inventory, feedingRecords]);
   const supportedSpeciesList = useMemo(() => {
     const base = ["Catfish", "Tilapia", "Carp", "Salmon", "Bass", "Trout"];
     const extras = new Set<string>();
@@ -799,6 +809,7 @@ function PondDetail({
         evening: 0,
         total: numKg,
         recordedBy: "Manual Feed Entry",
+        isPondLevelOnly: true,
         _isManual: true,
         _skipInventoryCheck: true,
         pallet: feedGivenF.pallet?.trim() || undefined,
@@ -1312,7 +1323,7 @@ function PondDetail({
                 className={SC}
               >
                 <option value="">Not specified (Optional)</option>
-                {Array.from(new Set([...(inventory||[]).map(i=>i.brand?.trim()).filter(Boolean),...FEED_BRANDS])).map(b=>(
+                {allRegisteredBrands.map(b=>(
                   <option key={b} value={b}>{b}</option>
                 ))}
                 <option value="Custom">Custom / Other Brand...</option>
@@ -1340,16 +1351,23 @@ function PondDetail({
                     onChange={e=>setFeedGivenF(p=>({...p,size:e.target.value}))}
                     className={SC}
                   >
-                    {allInvSizes.length === 0 && (
-                      <option value="">No active feed stock</option>
-                    )}
-                    {allInvSizes.length > 0 && !feedGivenF.size && (
+                    {!feedGivenF.size && (
                       <option value="">Select pallet…</option>
                     )}
-                    {allInvSizes.map(s=>(
+                    {allRegisteredSizes.map(s=>(
                       <option key={s} value={s}>{s}</option>
                     ))}
+                    <option value="Custom">Custom / Other Size...</option>
                   </select>
+                  {feedGivenF.size === "Custom" && (
+                    <input
+                      type="text"
+                      placeholder="Enter custom pellet size (e.g. 5mm)"
+                      value={feedGivenF.customSize}
+                      onChange={e => setFeedGivenF(p => ({ ...p, customSize: e.target.value }))}
+                      className={IC}
+                    />
+                  )}
                 </div>
               </F>
               {feedGivenErr.size&&<p className="text-xs text-red-500 mt-1">{feedGivenErr.size}</p>}

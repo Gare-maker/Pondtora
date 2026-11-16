@@ -4,7 +4,7 @@ import {
   Pencil, Package, Download, FileText, Lock, Calendar, ChevronLeft, ChevronRight, Search, Fish, Phone
 } from "lucide-react";
 import type { FeedItem, BagOpenLog, FeedRemainingLog, Pond } from "../types";
-import { FEED_SIZES, FEED_BRANDS, TODAY, fmt, uid, toMon, toYr, downloadCSV, openPrintWindow, fmtDate, fmtStockingDate, formatFishStock, formatFishStockDate, getPondFishStock } from "../data";
+import { FEED_SIZES, FEED_BRANDS, TODAY, fmt, uid, toMon, toYr, downloadCSV, openPrintWindow, fmtDate, fmtStockingDate, formatFishStock, formatFishStockDate, getPondFishStock, isManualPrevDayBalanceLog } from "../data";
 import { Card, Bdg, PBtn, Pagination, PER_PAGE, StatCard, Modal, F, IC, SC, SH, SearchableSelect, useSort, DateInput, NumInput } from "../shared";
 import { isSameDate, toValidDbDate } from "../../lib/api";
 
@@ -44,15 +44,16 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
   const {sorted:sortedInv,sf,sd,toggle}=useSort(inventory,"brand");
   const brands=[...new Set(inventory.map(f=>f.brand))]; const sizes=[...new Set(inventory.map(f=>f.size))]; const months=[...new Set(inventory.map(f=>f.month).filter(Boolean))];
   const filtInv=sortedInv.filter(f=>(fBrand==="All"||f.brand===fBrand)&&(fSize==="All"||f.size===fSize)&&(fMonth==="All"||f.month===fMonth));
+  const stockDeductibleBagLogs=useMemo(()=>bagLogs.filter(b=>!isManualPrevDayBalanceLog(b)),[bagLogs]);
   const totalBagsPurchased=inventory.reduce((s,f)=>s+f.bags,0);
-  const totalBagsOpened=bagLogs.reduce((s,b)=>s+(Number(b.bagsOpened)||0),0);
+  const totalBagsOpened=stockDeductibleBagLogs.reduce((s,b)=>s+(Number(b.bagsOpened)||0),0);
   const totalBagsInStock=Object.values(inventory.reduce<Record<string,{brand:string;size:string;bags:number}>>((acc,f)=>{
     const k=`${(f.brand||"").toLowerCase().trim()}|${(f.size||"").toLowerCase().trim()}`;
     if(!acc[k])acc[k]={brand:f.brand,size:f.size,bags:0};
     acc[k].bags+=Number(f.bags)||0;
     return acc;
   },{})).reduce((s,row)=>{
-    const opened=bagLogs.filter(b=>(b.brand||"").toLowerCase().trim()===(row.brand||"").toLowerCase().trim()&&(b.size||"").toLowerCase().trim()===(row.size||"").toLowerCase().trim()).reduce((sb,b)=>sb+(Number(b.bagsOpened)||0),0);
+    const opened=stockDeductibleBagLogs.filter(b=>(b.brand||"").toLowerCase().trim()===(row.brand||"").toLowerCase().trim()&&(b.size||"").toLowerCase().trim()===(row.size||"").toLowerCase().trim()).reduce((sb,b)=>sb+(Number(b.bagsOpened)||0),0);
     return s+Math.max(0,row.bags-opened);
   },0);
   const totalKgInStock=Object.values(inventory.reduce<Record<string,{brand:string;size:string;wpb:number;bags:number}>>((acc,f)=>{
@@ -61,7 +62,7 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
     acc[k].bags+=f.bags;
     return acc;
   },{})).reduce((s,row)=>{
-    const opened=bagLogs.filter(b=>b.brand===row.brand&&b.size===row.size).reduce((sb,b)=>sb+(Number(b.bagsOpened)||0),0);
+    const opened=stockDeductibleBagLogs.filter(b=>b.brand===row.brand&&b.size===row.size).reduce((sb,b)=>sb+(Number(b.bagsOpened)||0),0);
     const inStock=Math.max(0,row.bags-opened);
     return s+(inStock*row.wpb);
   },0);
@@ -74,7 +75,7 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
     acc[k].totalCost += b * c;
     return acc;
   }, {})).reduce((s, group) => {
-    const opened = bagLogs.filter(b => b.brand === group.brand && b.size === group.size).reduce((sb, b) => sb + (Number(b.bagsOpened) || 0), 0);
+    const opened = stockDeductibleBagLogs.filter(b => b.brand === group.brand && b.size === group.size).reduce((sb, b) => sb + (Number(b.bagsOpened) || 0), 0);
     const inStock = Math.max(0, group.bags - opened);
     const avgCost = group.bags > 0 ? group.totalCost / group.bags : 0;
     return s + (inStock * avgCost);
@@ -353,7 +354,7 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
             return (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3.5 sm:gap-4">
                 {merged.map((row,i)=>{
-                  const opened=bagLogs.filter(b=>b.brand===row.brand&&b.size===row.size).reduce((s,b)=>s+b.bagsOpened,0);
+                  const opened=stockDeductibleBagLogs.filter(b=>b.brand===row.brand&&b.size===row.size).reduce((s,b)=>s+b.bagsOpened,0);
                   const inStock=Math.max(0,row.bags-opened);
                   const totalRemainingKg=inStock*row.weightPerBag;
                   const statusColor=inStock===0
