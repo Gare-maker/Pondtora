@@ -1736,11 +1736,36 @@ function FeedDocumentation({
 
     try {
       const sourceFs = selectedTransferRow.fishStock;
-      const destFs = transferDestStock;
       const size = selectedTransferRow.size;
       const brand = selectedTransferRow.brand;
       const origDate = selectedTransferRow.lastBagLog?.date || selDate;
       const tDate = transferDate || selDate;
+
+      const destRow = mergedBagRows.find(r =>
+        (isStockMatch(r.fishStock, transferDestStock) || normalizeFishStock(r.fishStock, tDate) === normalizeFishStock(transferDestStock, tDate)) &&
+        (size === "—" || isSamePelletSize(r.size, size)) &&
+        (!brand || brand === "—" || !r.brand || r.brand === "—" || r.brand.trim().toLowerCase() === brand.trim().toLowerCase())
+      );
+      const destFs = destRow?.fishStock || transferDestStock;
+
+      // Prevent accidental duplicate submission of the exact same transfer
+      const nowMs = Date.now();
+      const isDuplicateTransfer = (feedTransfers || []).some(t =>
+        t &&
+        isStockMatch(t.sourceStock, sourceFs) &&
+        isStockMatch(t.destinationStock, destFs) &&
+        isSamePelletSize(t.feedSize, size) &&
+        (t.feedBrand || "").trim().toLowerCase() === (brand || "").trim().toLowerCase() &&
+        isSameDate(t.transferDate, tDate) &&
+        Math.abs((Number(t.quantityKg) || 0) - numQty) < 0.001 &&
+        t.transferTimestamp &&
+        (nowMs - new Date(t.transferTimestamp).getTime()) < 5000
+      );
+      if (isDuplicateTransfer) {
+        setTransferModalOpen(false);
+        setSelectedTransferRow(null);
+        return;
+      }
 
       const newRecord: FeedTransferRecord = {
         id: uid(),
@@ -1797,11 +1822,6 @@ function FeedDocumentation({
         (isStockMatch(r.fishStock, destFs) || normalizeFishStock(r.fishStock) === normalizeFishStock(destFs))
       );
 
-      const destRow = mergedBagRows.find(r =>
-        (isStockMatch(r.fishStock, destFs) || normalizeFishStock(r.fishStock) === normalizeFishStock(destFs)) &&
-        (size === "—" || isSamePelletSize(r.size, size)) &&
-        (!brand || brand === "—" || !r.brand || r.brand === "—" || r.brand.trim().toLowerCase() === brand.trim().toLowerCase())
-      );
       const destPrevBalance = destRow
         ? ((destRow.feedRemainingToday !== null && destRow.feedRemainingToday !== undefined)
           ? destRow.feedRemainingToday
@@ -1812,6 +1832,8 @@ function FeedDocumentation({
       if (existingDestRemain && onEditRemainLog) {
         await onEditRemainLog({
           ...existingDestRemain,
+          fishStock: destFs,
+          brand: existingDestRemain.brand && existingDestRemain.brand !== "—" ? existingDestRemain.brand : brand,
           remainingKg: updatedDestRemain,
           date: tDate
         });
@@ -3649,6 +3671,23 @@ function FeedDocumentation({
       const num = parseFloat(clean);
       return !isNaN(num) ? `${num}mm` : clean.toLowerCase();
     };
+    const findRowKey = (brand: string, size: string, fs: string): string => {
+      const bNorm = (brand || "—").trim().toLowerCase();
+      const szNorm = canonSizeKey(size);
+      const fsNorm = (fs || "—").trim().toLowerCase();
+      const directKey = `${bNorm}||${szNorm}||${fsNorm}`;
+      if (map.has(directKey)) return directKey;
+      for (const [existingKey, existingRow] of map.entries()) {
+        const sameStock = isStockMatch(existingRow.fishStock, fs) ||
+          normalizeFishStock(existingRow.fishStock, selDate).toLowerCase().trim() === normalizeFishStock(fs, selDate).toLowerCase().trim();
+        const sameSize = (size === "—" && existingRow.size === "—") || isSamePelletSize(existingRow.size, size);
+        const sameBrand = bNorm === "—" || existingRow.brand.trim().toLowerCase() === "—" || existingRow.brand.trim().toLowerCase() === bNorm;
+        if (sameStock && sameSize && sameBrand) {
+          return existingKey;
+        }
+      }
+      return directKey;
+    };
     const sumUniqueDayRemains = (fs: string, size: string, brand: string) => {
       const seen = new Set<string>();
       const matches = dayRemainLogs.filter(r => {
@@ -3676,7 +3715,7 @@ function FeedDocumentation({
       if (!isManualBag && !isStockActiveOnSelDate(b.fishStock) && !isStockActiveOnSelDate(fs) && bags <= 0) return;
       const brand = b.brand || "—";
       const size = b.size || "—";
-      const k = `${brand.toLowerCase().trim()}||${canonSizeKey(size)}||${fs.toLowerCase().trim()}`;
+      const k = findRowKey(brand, size, fs);
       const existing = map.get(k);
       const invItem = (inventory || []).find(f => f && (brand !== "—" ? f.brand.toLowerCase().trim() === brand.toLowerCase().trim() : true) && (size !== "—" ? isSamePelletSize(f.size, size) : true));
       const kgPb = Number(b.kgPerBag) || invItem?.weightPerBag || 15;
@@ -3731,7 +3770,7 @@ function FeedDocumentation({
       if (!isManualRem && !isStockActiveOnSelDate(r.fishStock) && !isStockActiveOnSelDate(fs) && remVal <= 0) return;
       const brand = r.brand || "—";
       const size = r.size || "—";
-      const k = `${brand.toLowerCase().trim()}||${canonSizeKey(size)}||${fs.toLowerCase().trim()}`;
+      const k = findRowKey(brand, size, fs);
       const existing = map.get(k);
       const remAgg = sumUniqueDayRemains(fs, size, brand);
 
@@ -3806,7 +3845,7 @@ function FeedDocumentation({
 
         const feedRemainingToday = Math.max(0, Math.round((carryoverKg - totalFed) * 10) / 10);
 
-        const k = `${brand.toLowerCase().trim()}||${size.toLowerCase().trim()}||${key}`;
+        const k = findRowKey(brand, size, fs);
         if (!map.has(k)) {
           map.set(k, {
             brand,
@@ -3833,9 +3872,8 @@ function FeedDocumentation({
       const size = t.feedSize || "—";
       const stockInfo = activeStocksMap.get(normalizeFishStock(destStock, selDate).toLowerCase().trim()) ||
         Array.from(activeStocksMap.values()).find(s => isStockMatch(s.stockName, destStock));
-      const stockKey = stockInfo ? normalizeFishStock(stockInfo.stockName, selDate).toLowerCase().trim() : normalizeFishStock(destStock, selDate).toLowerCase().trim();
       const fs = stockInfo ? stockInfo.stockName : destStock;
-      const k = `${brand.toLowerCase().trim()}||${size.toLowerCase().trim()}||${stockKey}`;
+      const k = findRowKey(brand, size, fs);
 
       if (!map.has(k)) {
         const matchingPond = pondsActiveOnSelDate.find(p => p && (pondToStock(p.name, selDate) === fs || p.name === fs || isStockMatch(p.name, fs))) ||
@@ -3909,7 +3947,7 @@ function FeedDocumentation({
       const fs = normalizeFishStock(rawStock, selDate) !== "—" ? normalizeFishStock(rawStock, selDate) : rawStock;
       const brand = m.brand || "—";
       const size = m.size || "—";
-      const k = `${brand.toLowerCase().trim()}||${canonSizeKey(size)}||${(fs || "All Active Stocks").toLowerCase().trim()}`;
+      const k = findRowKey(brand, size, fs || "All Active Stocks");
 
       const matchingBagLog = (bagLogs || []).find(b => b && (b.id === m.id || (isManualPrevDayLog(b) && isSameDate(b.date, m.date) && isSamePelletSize(b.size, m.size) && (b.brand || "").toLowerCase().trim() === brand.toLowerCase().trim() && (!m.fishStock || !b.fishStock || isStockMatch(b.fishStock, m.fishStock)))));
       const matchingPond = pondsActiveOnSelDate.find(p => p && (pondToStock(p.name, selDate) === fs || p.name === fs || isStockMatch(p.name, fs))) ||
@@ -5773,9 +5811,11 @@ function FeedDocumentation({
                       const isBagsMismatch = Boolean(!row.isManualPrevDayBalance && expData.hasFed && (row.bagsOpened !== expData.expectedBags || (!row.hasBagLog && expData.expectedBags > 0)));
                       const isRemainMismatch = Boolean(!row.isManualPrevDayBalance && row.hasRemainLog && expData.hasFed && Math.abs(((row.feedRemainingToday ?? row.remainingKg) || 0) - expData.expectedRemaining) > 0.05);
 
+                      const rowUniqueKey = `desktop__${i}__${row.lastBagLog?.id || ""}__${row.fishStock}__${row.brand}__${row.size}`;
+
                       return (
                         <tr
-                          key={i}
+                          key={rowUniqueKey}
                           className={`hover:bg-slate-50/80 transition-colors ${isHighlightedRow ? "bg-orange-50/30" : ""}`}
                         >
                           {/* Sticky Fish Stock Column (Solid Opaque Background & High Z-Index) */}
@@ -5879,15 +5919,9 @@ function FeedDocumentation({
                           <td className="px-3 py-3 text-right">
                             <div className="flex items-center justify-end gap-1 relative">
                               {canEdit && (
-                                isRecordEditable(row.lastBagLog?.date || selDate) ? (
-                                  <button onClick={() => openEditMergedRow(row)} className="p-1.5 rounded text-slate-400 hover:text-green-600 hover:bg-green-50 transition-colors" title={row.hasBagLog ? "Edit entry" : "Log bags / leftover"}>
-                                    <Pencil size={13} />
-                                  </button>
-                                ) : (
-                                  <button onClick={() => alert("This record can only be edited by an Administrator or Manager after 24 hours.")} className="p-1.5 rounded text-slate-300 cursor-not-allowed" title="Locked">
-                                    <Lock size={13} />
-                                  </button>
-                                )
+                                <button onClick={() => openEditMergedRow(row)} className="p-1.5 rounded text-slate-400 hover:text-green-600 hover:bg-green-50 transition-colors" title="Edit">
+                                  <Pencil size={13} />
+                                </button>
                               )}
                               {/* 3-dots Menu Button */}
                               <div className="relative">
@@ -5896,15 +5930,14 @@ function FeedDocumentation({
                                   data-bag-menu-button="true"
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    const mId = `desktop__${row.fishStock}__${row.brand}__${row.size}`;
-                                    setActiveBagMenuId(activeBagMenuId === mId ? null : mId);
+                                    setActiveBagMenuId(activeBagMenuId === rowUniqueKey ? null : rowUniqueKey);
                                   }}
                                   className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
                                   title="Actions"
                                 >
                                   <MoreVertical size={14} />
                                 </button>
-                                {activeBagMenuId === `desktop__${row.fishStock}__${row.brand}__${row.size}` && (
+                                {activeBagMenuId === rowUniqueKey && (
                                   <div
                                     data-bag-menu-dropdown="true"
                                     onClick={e => e.stopPropagation()}
@@ -5917,13 +5950,13 @@ function FeedDocumentation({
                                     >
                                       <Eye size={13} className="text-slate-400" /> View Details
                                     </button>
-                                    {canEdit && isRecordEditable(row.lastBagLog?.date || selDate) && (
+                                    {canEdit && (
                                       <button
                                         type="button"
                                         onClick={() => { setActiveBagMenuId(null); openEditMergedRow(row); }}
                                         className="w-full px-3 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2"
                                       >
-                                        <Pencil size={13} className="text-green-600" /> {row.hasBagLog ? "Edit Entry" : "Log Bags"}
+                                        <Pencil size={13} className="text-green-600" /> Edit
                                       </button>
                                     )}
                                     {/* Transfer Remaining Feed Option (Section 3) */}
@@ -6050,11 +6083,12 @@ function FeedDocumentation({
                 const expData = getExpectedFeedData(selDate, row.fishStock, row.brand, row.size, row.hasBagLog ? row.bagsOpened : undefined);
                 const isBagsMismatch = Boolean(!row.isManualPrevDayBalance && expData.hasFed && (row.bagsOpened !== expData.expectedBags || (!row.hasBagLog && expData.expectedBags > 0)));
                 const isRemainMismatch = Boolean(!row.isManualPrevDayBalance && row.hasRemainLog && expData.hasFed && Math.abs(((row.feedRemainingToday ?? row.remainingKg) || 0) - expData.expectedRemaining) > 0.05);
-                const isMenuOpen = activeBagMenuId === `${row.fishStock}__${row.brand}__${row.size}`;
+                const mobileMenuKey = `mobile__${i}__${row.lastBagLog?.id || ""}__${row.fishStock}__${row.brand}__${row.size}`;
+                const isMenuOpen = activeBagMenuId === mobileMenuKey;
 
                 return (
                   <div
-                    key={i}
+                    key={mobileMenuKey}
                     onClick={() => setViewBagDetail(row)}
                     className={`bg-white border rounded-2xl p-4 shadow-xs transition-all cursor-pointer hover:border-green-300 hover:shadow-sm relative ${isHighlightedRow
                         ? "bg-orange-50/70 border-orange-400 ring-2 ring-orange-400 shadow-md"
@@ -6120,7 +6154,7 @@ function FeedDocumentation({
                             data-bag-menu-button="true"
                             onClick={(e) => {
                               e.stopPropagation();
-                              setActiveBagMenuId(isMenuOpen ? null : `${row.fishStock}__${row.brand}__${row.size}`);
+                              setActiveBagMenuId(isMenuOpen ? null : mobileMenuKey);
                             }}
                             className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
                             title="Actions"
@@ -6141,19 +6175,13 @@ function FeedDocumentation({
                                 <Eye size={13} className="text-slate-400" /> View Details
                               </button>
                               {canEdit && (
-                                isRecordEditable(row.lastBagLog?.date || selDate) ? (
-                                  <button
-                                    type="button"
-                                    onClick={() => { setActiveBagMenuId(null); openEditMergedRow(row); }}
-                                    className="w-full px-3 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2"
-                                  >
-                                    <Pencil size={13} className="text-green-600" /> {row.hasBagLog ? "Edit Entry" : "Log Bags"}
-                                  </button>
-                                ) : (
-                                  <div className="px-3 py-1.5 text-[11px] text-slate-400 flex items-center gap-1.5">
-                                    <Lock size={12} /> Locked
-                                  </div>
-                                )
+                                <button
+                                  type="button"
+                                  onClick={() => { setActiveBagMenuId(null); openEditMergedRow(row); }}
+                                  className="w-full px-3 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                                >
+                                  <Pencil size={13} className="text-green-600" /> Edit
+                                </button>
                               )}
                               {/* Transfer Remaining Feed (Section 3) */}
                               <button
