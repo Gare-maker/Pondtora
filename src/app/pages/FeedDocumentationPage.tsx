@@ -1225,54 +1225,13 @@ function FeedDocumentation({
     return "—";
   }, [selDate, viewYear, dateToIso, manualPrevBalances, bagLogs, remainLogs, inventory, isStockMatch]);
 
-  /* Helper to compute live remaining balance for a ManualPrevBalanceRecord on targetDate */
+  /* Helper to retrieve balance for a ManualPrevBalanceRecord on targetDate without auto-deducting feeding entries */
   const getManualBalanceStats = useCallback((entry: ManualPrevBalanceRecord, targetDate?: string) => {
     const tDate = targetDate || selDate;
     const tIso = toValidDbDate(tDate, viewYear) || dateToIso(tDate);
     const eIso = entry.dateIso || toValidDbDate(entry.date, viewYear) || dateToIso(entry.date);
 
-    // Matching feeding records by size (and brand if feeding record specifies a brand)
-    const matchesEntryFeed = (r: FeedingRecord) => {
-      if (!r) return false;
-      if (!isSamePelletSize(r.size, entry.size)) return false;
-      if (r.brand && r.brand !== "—" && entry.brand && entry.brand !== "—" && r.brand.toLowerCase().trim() !== entry.brand.toLowerCase().trim()) {
-        return false;
-      }
-      if (entry.fishStock && entry.fishStock !== "—" && entry.fishStock !== "All Active Stocks") {
-        const recStock = (r.fishStock && r.fishStock !== "—") ? r.fishStock : pondToStock(r.pond, r.date || tDate);
-        if (recStock && recStock !== "—" && !isStockMatch(recStock, entry.fishStock)) {
-          return false;
-        }
-      }
-      return true;
-    };
-
-    // Feeding on entry.date AFTER the manual entry was created
-    const sameDayRecords = (feedingRecords || []).filter(r => r && (isSameDate(r.date, entry.date) || (toValidDbDate(r.date, viewYear) || dateToIso(r.date)) === eIso) && matchesEntryFeed(r));
-    let fedOnEntryDateAfterCreation = 0;
-    if (entry.baselineByRecordId) {
-      sameDayRecords.forEach(r => {
-        const recTotal = Number(r.total) || ((Number(r.morning) || 0) + (Number(r.evening) || 0));
-        const baseVal = entry.baselineByRecordId?.[r.id] ?? 0;
-        if (recTotal > baseVal) {
-          fedOnEntryDateAfterCreation += (recTotal - baseVal);
-        }
-      });
-    } else {
-      const totalSameDay = sameDayRecords.reduce((s, r) => s + (Number(r.total) || ((Number(r.morning) || 0) + (Number(r.evening) || 0))), 0);
-      fedOnEntryDateAfterCreation = Math.max(0, totalSameDay - (Number(entry.baselineFedKg) || 0));
-    }
-
-    if (!tIso || !eIso || isSameDate(tDate, entry.date) || tIso === eIso) {
-      const rem = Math.max(0, Math.round((entry.initialRemainingKg - fedOnEntryDateAfterCreation) * 100) / 100);
-      return {
-        startBalanceKg: entry.initialRemainingKg,
-        fedTodayKg: Math.round(fedOnEntryDateAfterCreation * 100) / 100,
-        currentRemainingKg: rem
-      };
-    }
-
-    if (tIso < eIso) {
+    if (tIso && eIso && tIso < eIso) {
       return {
         startBalanceKg: 0,
         fedTodayKg: 0,
@@ -1280,29 +1239,13 @@ function FeedDocumentation({
       };
     }
 
-    // tIso > eIso: deduct feedings between eIso and tIso
-    let fedStrictlyBetween = 0;
-    let fedOnTargetDate = 0;
-    (feedingRecords || []).forEach(r => {
-      if (!r || !matchesEntryFeed(r)) return;
-      const rIso = toValidDbDate(r.date, viewYear) || dateToIso(r.date);
-      if (!rIso) return;
-      const recTotal = Number(r.total) || ((Number(r.morning) || 0) + (Number(r.evening) || 0));
-      if (rIso > eIso && rIso < tIso) {
-        fedStrictlyBetween += recTotal;
-      } else if (rIso === tIso || isSameDate(r.date, tDate)) {
-        fedOnTargetDate += recTotal;
-      }
-    });
-
-    const startBalanceKg = Math.max(0, Math.round((entry.initialRemainingKg - fedOnEntryDateAfterCreation - fedStrictlyBetween) * 100) / 100);
-    const currentRemainingKg = Math.max(0, Math.round((startBalanceKg - fedOnTargetDate) * 100) / 100);
+    const bal = Math.max(0, Math.round((Number(entry.initialRemainingKg) || 0) * 100) / 100);
     return {
-      startBalanceKg,
-      fedTodayKg: Math.round(fedOnTargetDate * 100) / 100,
-      currentRemainingKg
+      startBalanceKg: bal,
+      fedTodayKg: 0,
+      currentRemainingKg: bal
     };
-  }, [feedingRecords, selDate, viewYear, dateToIso]);
+  }, [selDate, viewYear, dateToIso]);
 
   /* Helper to get prior leftover carryover for a fish stock, pallet size, and optional brand strictly before targetDate */
   const getPriorCarryover = useCallback((stockName: string, size: string, targetDate: string, brand?: string): number => {
@@ -4109,9 +4052,9 @@ function FeedDocumentation({
         availableRemainingKg: stats.currentRemainingKg,
         grossRemainingKg: stats.startBalanceKg,
         hasBagLog: isCreatedOnSelDate,
-        hasRemainLog: true,
+        hasRemainLog: isCreatedOnSelDate,
         lastBagLog: matchingBagLog || null,
-        isManualPrevDayBalance: true,
+        isManualPrevDayBalance: isCreatedOnSelDate,
         initialManualRemainingKg: m.initialRemainingKg,
         manualFedDeductedKg: stats.fedTodayKg,
         hasFedToday: stats.fedTodayKg > 0,
@@ -4219,32 +4162,7 @@ function FeedDocumentation({
     );
   }, [bagLogs, remainLogs, dayRecords, feedTransfers, manualPrevBalances, getManualBalanceStats, pondsActiveOnSelDate, getTransferUsage, selDate, viewYear, ponds, inventory, getPriorCarryover, dateToIso, getAssociatedPalletsForStock, getMatchingBrandsForPallet, availablePelletSizes, isStockActiveOnSelDate, isManualPrevDayLog]);
 
-  /* Sync manualPrevBalances currentRemainingKg to localStorage & remainLogs whenever feedingRecords change */
-  useEffect(() => {
-    if (!manualPrevBalances || manualPrevBalances.length === 0) return;
-    let changed = false;
-    const updated = manualPrevBalances.map(m => {
-      const stats = getManualBalanceStats(m, m.date);
-      if (Math.abs((m.currentRemainingKg ?? m.initialRemainingKg) - stats.currentRemainingKg) > 0.001) {
-        changed = true;
-        // Also sync matching remainLog if present
-        if (onEditRemainLog) {
-          const matchingRem = (remainLogs || []).find(r => r && (r.id === m.id || (isManualPrevDayLog(r) && isSameDate(r.date, m.date) && isSamePelletSize(r.size, m.size) && (r.brand || "").toLowerCase().trim() === m.brand.toLowerCase().trim() && (!m.fishStock || !r.fishStock || isStockMatch(r.fishStock, m.fishStock)))));
-          if (matchingRem && Math.abs((Number(matchingRem.remainingKg) || 0) - stats.currentRemainingKg) > 0.001) {
-            onEditRemainLog({
-              ...matchingRem,
-              remainingKg: stats.currentRemainingKg
-            });
-          }
-        }
-        return { ...m, currentRemainingKg: stats.currentRemainingKg };
-      }
-      return m;
-    });
-    if (changed) {
-      saveManualPrevBalances(updated);
-    }
-  }, [feedingRecords, manualPrevBalances, getManualBalanceStats, onEditRemainLog, remainLogs, saveManualPrevBalances, isManualPrevDayLog]);
+  /* Manual previous-day balances are only updated by explicit user edits or transfers, never by feeding entries. */
 
   const filteredMergedBagRows = useMemo(() => {
     let list = mergedBagRows;
