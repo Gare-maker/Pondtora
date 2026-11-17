@@ -953,7 +953,7 @@ function FeedDocumentation({
 
     const fa = formatFishStock(stockA).trim().toLowerCase();
     const fb = formatFishStock(stockB).trim().toLowerCase();
-    if (fa === fb && fa !== "—" && !isFormattedDate(fa)) return true;
+    if (fa === fb && fa !== "—") return true;
 
     const datePonds = targetDate ? getPondsActiveOnDate(targetDate) : pondsActiveOnSelDate;
     const candidatePonds = [...(datePonds || []), ...(ponds || []).filter(p => p && p.status === "Active")];
