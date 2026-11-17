@@ -1641,14 +1641,15 @@ function FeedDocumentation({
     };
   }, [feedingRecords, feedTransfers, dateToIso]);
 
-  /* Validates if a destination stock can receive remaining feed (any active stock other than source) */
+  /* Validates if a destination stock can receive remaining feed (any active stock other than source, or same stock when transferring from a manual daily balance) */
   const checkTransferEligibility = useCallback((destStockName: string, sourceRow: MergedBagRow): { eligible: boolean; reason?: string } => {
     if (!destStockName || !sourceRow) {
       return { eligible: false, reason: "Missing stock information." };
     }
     const normDest = normalizeFishStock(destStockName);
     const normSrc = normalizeFishStock(sourceRow.fishStock);
-    if (normDest === normSrc || isStockMatch(destStockName, sourceRow.fishStock)) {
+    const isSameStock = normDest === normSrc || isStockMatch(destStockName, sourceRow.fishStock);
+    if (isSameStock && !sourceRow.isManualPrevDayBalance) {
       return { eligible: false, reason: "Destination stock cannot be the same as the source stock." };
     }
     if (!isStockCurrentlyActive(destStockName)) {
@@ -1656,7 +1657,7 @@ function FeedDocumentation({
     }
 
     return { eligible: true };
-  }, [isStockCurrentlyActive]);
+  }, [isStockCurrentlyActive, normalizeFishStock, isStockMatch]);
 
   /* Calculates genuine available remaining feed for transfer */
   const getAvailableRemainingForTransfer = useCallback((row: MergedBagRow): number => {
@@ -1789,64 +1790,134 @@ function FeedDocumentation({
       saveFeedTransfers(updatedTransfers);
 
       // Deduct from source stock remaining log to maintain consistent balance
+      const isSameStockTransfer = isStockMatch(destFs, sourceFs) || normalizeFishStock(destFs) === normalizeFishStock(sourceFs);
       const newSourceRemaining = Math.max(0, Math.round((currentAvailable - numQty) * 10) / 10);
-      const existingSourceRemain = (remainLogs || []).find(r =>
-        isSameDate(r.date, origDate) &&
-        (size === "—" || isSamePelletSize(r.size, size)) &&
-        (!brand || brand === "—" || !r.brand || r.brand === "—" || r.brand.trim().toLowerCase() === brand.trim().toLowerCase()) &&
-        (isStockMatch(r.fishStock, sourceFs) || normalizeFishStock(r.fishStock) === normalizeFishStock(sourceFs))
-      );
 
-      if (existingSourceRemain && onEditRemainLog) {
-        await onEditRemainLog({
-          ...existingSourceRemain,
-          remainingKg: newSourceRemaining,
-          date: origDate
+      if (isSameStockTransfer) {
+        // Transferring a Manual Daily Feed Balance into the same stock's normal Log Bags Open & Leftover workflow:
+        // 1. Reduce the manual balance so it cannot be transferred or deducted twice
+        const updatedManualList = (manualPrevBalances || []).map(m => {
+          if (!m) return m;
+          const matchesManual =
+            (m.fishStock && (isStockMatch(m.fishStock, sourceFs) || normalizeFishStock(m.fishStock) === normalizeFishStock(sourceFs))) &&
+            (size === "—" || isSamePelletSize(m.size, size)) &&
+            (!brand || brand === "—" || !m.brand || m.brand === "—" || m.brand.trim().toLowerCase() === brand.trim().toLowerCase());
+          if (!matchesManual) return m;
+          const nextInit = Math.max(0, Math.round((m.initialRemainingKg - numQty) * 100) / 100);
+          return {
+            ...m,
+            initialRemainingKg: nextInit,
+            currentRemainingKg: newSourceRemaining
+          };
         });
-      } else if (onAddRemainLog) {
-        await onAddRemainLog({
-          id: uid(),
-          brand,
-          size,
-          fishStock: sourceFs,
-          remainingKg: newSourceRemaining,
-          date: origDate
-        });
-      }
+        saveManualPrevBalances(updatedManualList);
 
-      // Add transferred amount to destination stock remaining balance immediately
-      const existingDestRemain = (remainLogs || []).find(r =>
-        isSameDate(r.date, tDate) &&
-        (size === "—" || isSamePelletSize(r.size, size)) &&
-        (!brand || brand === "—" || !r.brand || r.brand === "—" || r.brand.trim().toLowerCase() === brand.trim().toLowerCase()) &&
-        (isStockMatch(r.fishStock, destFs) || normalizeFishStock(r.fishStock) === normalizeFishStock(destFs))
-      );
+        const existingManualSourceRemain = (remainLogs || []).find(r =>
+          isManualPrevDayLog(r) &&
+          isSameDate(r.date, origDate) &&
+          (size === "—" || isSamePelletSize(r.size, size)) &&
+          (!brand || brand === "—" || !r.brand || r.brand === "—" || r.brand.trim().toLowerCase() === brand.trim().toLowerCase()) &&
+          (isStockMatch(r.fishStock, sourceFs) || normalizeFishStock(r.fishStock) === normalizeFishStock(sourceFs))
+        );
+        if (existingManualSourceRemain && onEditRemainLog) {
+          await onEditRemainLog({
+            ...existingManualSourceRemain,
+            remainingKg: newSourceRemaining,
+            initialRemainingKg: Math.max(0, Math.round(((existingManualSourceRemain.initialRemainingKg ?? existingManualSourceRemain.remainingKg ?? 0) - numQty) * 100) / 100),
+            date: origDate
+          });
+        }
 
-      const destPrevBalance = destRow
-        ? ((destRow.feedRemainingToday !== null && destRow.feedRemainingToday !== undefined)
-          ? destRow.feedRemainingToday
-          : (destRow.availableRemainingKg ?? destRow.remainingKg ?? destRow.carryoverKg ?? 0))
-        : 0;
-      const updatedDestRemain = Math.max(0, Math.round((destPrevBalance + numQty) * 10) / 10);
+        // 2. Credit the transferred quantity into the stock's normal (non-manual) remainLog
+        const existingNormalDestRemain = (remainLogs || []).find(r =>
+          !isManualPrevDayLog(r) &&
+          isSameDate(r.date, tDate) &&
+          (size === "—" || isSamePelletSize(r.size, size)) &&
+          (!brand || brand === "—" || !r.brand || r.brand === "—" || r.brand.trim().toLowerCase() === brand.trim().toLowerCase()) &&
+          (isStockMatch(r.fishStock, destFs) || normalizeFishStock(r.fishStock) === normalizeFishStock(destFs))
+        );
+        const normalPrev = existingNormalDestRemain ? (Number(existingNormalDestRemain.remainingKg) || 0) : 0;
+        const nextNormalRemain = Math.max(0, Math.round((normalPrev + numQty) * 10) / 10);
 
-      if (existingDestRemain && onEditRemainLog) {
-        await onEditRemainLog({
-          ...existingDestRemain,
-          fishStock: destFs,
-          brand: existingDestRemain.brand && existingDestRemain.brand !== "—" ? existingDestRemain.brand : brand,
-          remainingKg: updatedDestRemain,
-          date: tDate
-        });
-      } else if (onAddRemainLog) {
-        await onAddRemainLog({
-          id: uid(),
-          brand,
-          size,
-          fishStock: destFs,
-          remainingKg: updatedDestRemain,
-          date: tDate,
-          farmId: activeFarmId
-        });
+        if (existingNormalDestRemain && onEditRemainLog) {
+          await onEditRemainLog({
+            ...existingNormalDestRemain,
+            fishStock: destFs,
+            brand: existingNormalDestRemain.brand && existingNormalDestRemain.brand !== "—" ? existingNormalDestRemain.brand : brand,
+            remainingKg: nextNormalRemain,
+            date: tDate
+          });
+        } else if (onAddRemainLog) {
+          await onAddRemainLog({
+            id: uid(),
+            brand,
+            size,
+            fishStock: destFs,
+            remainingKg: nextNormalRemain,
+            date: tDate,
+            farmId: activeFarmId,
+            isManualPrevDayBalance: false
+          });
+        }
+      } else {
+        const existingSourceRemain = (remainLogs || []).find(r =>
+          isSameDate(r.date, origDate) &&
+          (size === "—" || isSamePelletSize(r.size, size)) &&
+          (!brand || brand === "—" || !r.brand || r.brand === "—" || r.brand.trim().toLowerCase() === brand.trim().toLowerCase()) &&
+          (isStockMatch(r.fishStock, sourceFs) || normalizeFishStock(r.fishStock) === normalizeFishStock(sourceFs))
+        );
+
+        if (existingSourceRemain && onEditRemainLog) {
+          await onEditRemainLog({
+            ...existingSourceRemain,
+            remainingKg: newSourceRemaining,
+            date: origDate
+          });
+        } else if (onAddRemainLog) {
+          await onAddRemainLog({
+            id: uid(),
+            brand,
+            size,
+            fishStock: sourceFs,
+            remainingKg: newSourceRemaining,
+            date: origDate
+          });
+        }
+
+        // Add transferred amount to destination stock remaining balance immediately
+        const existingDestRemain = (remainLogs || []).find(r =>
+          isSameDate(r.date, tDate) &&
+          (size === "—" || isSamePelletSize(r.size, size)) &&
+          (!brand || brand === "—" || !r.brand || r.brand === "—" || r.brand.trim().toLowerCase() === brand.trim().toLowerCase()) &&
+          (isStockMatch(r.fishStock, destFs) || normalizeFishStock(r.fishStock) === normalizeFishStock(destFs))
+        );
+
+        const destPrevBalance = destRow
+          ? ((destRow.feedRemainingToday !== null && destRow.feedRemainingToday !== undefined)
+            ? destRow.feedRemainingToday
+            : (destRow.availableRemainingKg ?? destRow.remainingKg ?? destRow.carryoverKg ?? 0))
+          : 0;
+        const updatedDestRemain = Math.max(0, Math.round((destPrevBalance + numQty) * 10) / 10);
+
+        if (existingDestRemain && onEditRemainLog) {
+          await onEditRemainLog({
+            ...existingDestRemain,
+            fishStock: destFs,
+            brand: existingDestRemain.brand && existingDestRemain.brand !== "—" ? existingDestRemain.brand : brand,
+            remainingKg: updatedDestRemain,
+            date: tDate
+          });
+        } else if (onAddRemainLog) {
+          await onAddRemainLog({
+            id: uid(),
+            brand,
+            size,
+            fishStock: destFs,
+            remainingKg: updatedDestRemain,
+            date: tDate,
+            farmId: activeFarmId
+          });
+        }
       }
 
       toast.success(
@@ -8091,11 +8162,14 @@ function FeedDocumentation({
                           className={`${SC} w-full py-2.5 px-3 text-xs font-medium text-slate-800 bg-white border border-slate-200 rounded-xl shadow-2xs focus:ring-2 focus:ring-teal-500 focus:border-teal-500`}
                         >
                           <option value="">— Select destination stock —</option>
-                          {eligibleStocks.map(s => (
-                            <option key={s.key} value={s.name}>
-                              {s.label}
-                            </option>
-                          ))}
+                          {eligibleStocks.map(s => {
+                            const isSameAsSource = selectedTransferRow && (isStockMatch(s.name, selectedTransferRow.fishStock) || normalizeFishStock(s.name) === normalizeFishStock(selectedTransferRow.fishStock));
+                            return (
+                              <option key={s.key} value={s.name}>
+                                {isSameAsSource ? `${s.label} (Normal Log Bags Open & Leftover)` : s.label}
+                              </option>
+                            );
+                          })}
                         </select>
                       )}
                     </div>
