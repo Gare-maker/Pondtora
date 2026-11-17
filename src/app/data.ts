@@ -431,7 +431,7 @@ export function isStockMatch(stockA?: string | null, stockB?: string | null, pon
 
   const fa = formatFishStock(stockA).trim().toLowerCase();
   const fb = formatFishStock(stockB).trim().toLowerCase();
-  if (fa === fb && fa !== "—" && !isFormattedDate(fa)) return true;
+  if (fa === fb && fa !== "—") return true;
 
   if (ponds && ponds.length > 0) {
     const pA = (ponds || []).find(p => p && p.name && p.name.toLowerCase().trim() === a);

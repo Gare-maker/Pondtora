@@ -2524,11 +2524,62 @@ function FeedDocumentation({
     return [];
   };
 
+  const getDefaultBagRowsForDate = (targetDate: string): BagRow[] => {
+    const existing = getBagRowsForDate(targetDate);
+    if (existing.length > 0) return existing;
+
+    const targetIso = dateToIso(targetDate);
+    const dateLabel = toDateLabel(targetDate);
+    const dateOptions = getFishStockOptionsForDate(targetDate);
+    const fedRowsMap = new Map<string, BagRow>();
+
+    (feedingRecords || []).forEach(r => {
+      if (!r || !r.size || r.size === "—") return;
+      const rIso = dateToIso(r.date);
+      const dateMatch = isSameDate(r.date, targetDate) || isSameDate(r.date, dateLabel) || Boolean(targetIso && rIso && targetIso === rIso);
+      if (!dateMatch) return;
+      const tot = Number(r.total) || ((Number(r.morning) || 0) + (Number(r.evening) || 0));
+      if (tot <= 0) return;
+
+      const rawFs = (r.fishStock && r.fishStock !== "—") ? r.fishStock : pondToStock(r.pond, targetDate);
+      const matchedOpt = dateOptions.find(opt =>
+        opt.name === rawFs ||
+        isStockMatch(opt.name, rawFs) ||
+        normalizeFishStock(opt.name, targetDate) === normalizeFishStock(rawFs, targetDate) ||
+        opt.ponds.some(p => p === r.pond || isStockMatch(p, r.pond))
+      );
+      const fs = matchedOpt?.name || normalizeFishStock(rawFs, targetDate) || dateOptions[0]?.name || "";
+      if (!fs || fs === "—") return;
+
+      const size = availablePelletSizes.find(s => isSamePelletSize(s, r.size)) || r.size;
+      const matchingBrands = getMatchingBrandsForPallet(size);
+      const brand = (r.brand && r.brand !== "—" && r.brand !== "Not specified")
+        ? r.brand
+        : (matchingBrands[0] || invBrands[0] || "");
+      const inv = (inventory || []).find(f => f && f.brand?.toLowerCase().trim() === brand.toLowerCase().trim() && isSamePelletSize(f.size, size));
+      const key = `${normalizeFishStock(fs, targetDate).toLowerCase()}__${brand.toLowerCase().trim()}__${size.toLowerCase().trim()}`;
+      if (!fedRowsMap.has(key)) {
+        fedRowsMap.set(key, {
+          fishStock: fs,
+          brand,
+          size,
+          kgPerBag: inv?.weightPerBag || 15,
+          qty: "",
+          remainingKg: ""
+        });
+      }
+    });
+
+    if (fedRowsMap.size > 0) {
+      return Array.from(fedRowsMap.values());
+    }
+    return [blankBagRow(targetDate)];
+  };
+
   const openBagsModal = () => {
     const initialDate = getIsoDateForSelDate(selDate);
     setBagsDate(initialDate);
-    const existing = getBagRowsForDate(initialDate);
-    setBagRows(existing.length > 0 ? existing : [blankBagRow(initialDate)]);
+    setBagRows(getDefaultBagRowsForDate(initialDate));
     setBagsErr({});
     setShowBagsModal(true);
   };
@@ -2537,8 +2588,7 @@ function FeedDocumentation({
     setBagsDate(newDate);
     if (newDate) {
       setBagsErr({});
-      const existing = getBagRowsForDate(newDate);
-      setBagRows(existing.length > 0 ? existing : [blankBagRow(newDate)]);
+      setBagRows(getDefaultBagRowsForDate(newDate));
     }
   };
 
@@ -3967,9 +4017,11 @@ function FeedDocumentation({
           existingRow.hasBagLog = true;
           existingRow.hasRemainLog = true;
         }
-        existingRow.isManualPrevDayBalance = true;
-        if (existingRow.initialManualRemainingKg === undefined) existingRow.initialManualRemainingKg = m.initialRemainingKg;
-        if (existingRow.manualFedDeductedKg === undefined) existingRow.manualFedDeductedKg = stats.fedTodayKg;
+        if (isCreatedOnSelDate) {
+          existingRow.isManualPrevDayBalance = true;
+          if (existingRow.initialManualRemainingKg === undefined) existingRow.initialManualRemainingKg = m.initialRemainingKg;
+          if (existingRow.manualFedDeductedKg === undefined) existingRow.manualFedDeductedKg = stats.fedTodayKg;
+        }
         return;
       }
 
