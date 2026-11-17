@@ -6335,71 +6335,125 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     if (!checkSubscriptionActive()) return;
     const fid=b.farmId||activeFarmId||farms[0]?.id||"";
     const farmBag:BagOpenLog={...b,id:isUuid(b.id)?b.id:crypto.randomUUID(),farmId:fid};
+    const isManualNew = isManualPrevDayBalanceLog(farmBag);
+    let existingMatch: BagOpenLog | undefined;
     setBagLogs(prev=>{
-      const existing=prev.find(x=>x.id===farmBag.id || (isSameDate(x.date,farmBag.date)&&(x.size||"").toLowerCase().trim()===(farmBag.size||"").toLowerCase().trim()&&(!farmBag.brand||!x.brand||x.brand.toLowerCase().trim()===farmBag.brand.toLowerCase().trim())&&isStockMatch(x.fishStock, farmBag.fishStock)&&(!x.farmId||x.farmId===farmBag.farmId)));
-      if(existing){
-        const updated: BagOpenLog={...existing,...farmBag,id:existing.id};
-        api.bagLogs.update(updated).catch(console.warn);
-        return prev.map(x=>x.id===existing.id?updated:x);
+      existingMatch=prev.find(x=>x.id===farmBag.id || (
+        isManualPrevDayBalanceLog(x) === isManualNew &&
+        isSameDate(x.date,farmBag.date) &&
+        isSamePelletSize(x.size,farmBag.size) &&
+        (!farmBag.brand||!x.brand||x.brand.toLowerCase().trim()===farmBag.brand.toLowerCase().trim()) &&
+        isStockMatch(x.fishStock, farmBag.fishStock) &&
+        (!x.farmId||x.farmId===farmBag.farmId)
+      ));
+      if(existingMatch){
+        const updated: BagOpenLog={...existingMatch,...farmBag,id:existingMatch.id};
+        return prev.map(x=>x.id===existingMatch!.id?updated:x);
       } else {
-        api.bagLogs.create(farmBag).catch(console.warn);
         return [farmBag,...prev];
       }
     });
+    if(existingMatch){
+      const updated: BagOpenLog={...existingMatch,...farmBag,id:existingMatch.id};
+      await api.bagLogs.update(updated).catch(async () => {
+        await api.bagLogs.create(updated);
+      });
+    } else {
+      await api.bagLogs.create(farmBag);
+    }
   };
   const editBagLog=async(b:BagOpenLog)=>{
     if (!checkSubscriptionActive()) return;
     const fid=b.farmId||activeFarmId||farms[0]?.id||"";
     const farmBag:BagOpenLog={...b,farmId:fid};
+    const isManualEdit = isManualPrevDayBalanceLog(farmBag);
+    let targetId = farmBag.id;
     setBagLogs(prev=>{
       const exists = prev.some(x=>x.id===farmBag.id);
       if (exists) {
         return prev.map(x=>x.id===farmBag.id?farmBag:x);
       }
-      const matchIdx = prev.findIndex(x=>isSameDate(x.date, farmBag.date)&&(x.size||"").toLowerCase().trim()===(farmBag.size||"").toLowerCase().trim()&&isStockMatch(x.fishStock, farmBag.fishStock));
+      const matchIdx = prev.findIndex(x=>
+        isManualPrevDayBalanceLog(x) === isManualEdit &&
+        isSameDate(x.date, farmBag.date) &&
+        isSamePelletSize(x.size, farmBag.size) &&
+        (!farmBag.brand||!x.brand||x.brand.toLowerCase().trim()===farmBag.brand.toLowerCase().trim()) &&
+        isStockMatch(x.fishStock, farmBag.fishStock)
+      );
       if (matchIdx >= 0) {
-        return prev.map((x, idx) => idx === matchIdx ? { ...x, ...farmBag } : x);
+        targetId = prev[matchIdx].id;
+        return prev.map((x, idx) => idx === matchIdx ? { ...x, ...farmBag, id: prev[matchIdx].id } : x);
       }
       return [farmBag, ...prev];
     });
-    api.bagLogs.update(farmBag).catch(() => {
-      api.bagLogs.create(farmBag).catch(console.warn);
-    });
+    const toPersist = { ...farmBag, id: targetId };
+    try {
+      await api.bagLogs.update(toPersist);
+    } catch {
+      await api.bagLogs.create(toPersist);
+    }
   };
   const addRemainLog=async(r:FeedRemainingLog)=>{
     if (!checkSubscriptionActive()) return;
     const fid=r.farmId||activeFarmId||farms[0]?.id||"";
     const farmRemain:FeedRemainingLog={...r,id:isUuid(r.id)?r.id:crypto.randomUUID(),farmId:fid};
+    const isManualNew = isManualPrevDayBalanceLog(farmRemain);
+    let existingMatch: FeedRemainingLog | undefined;
     setRemainLogs(prev=>{
-      const existing=prev.find(x=>x.id===farmRemain.id || (isSameDate(x.date,farmRemain.date)&&(x.size||"").toLowerCase().trim()===(farmRemain.size||"").toLowerCase().trim()&&(!farmRemain.brand||!x.brand||x.brand.toLowerCase().trim()===farmRemain.brand.toLowerCase().trim())&&isStockMatch(x.fishStock, farmRemain.fishStock)&&(!x.farmId||x.farmId===farmRemain.farmId)));
-      if(existing){
-        const updated: FeedRemainingLog={...existing,...farmRemain,id:existing.id};
-        api.remainLogs.update(updated).catch(console.warn);
-        return prev.map(x=>x.id===existing.id?updated:x);
+      existingMatch=prev.find(x=>x.id===farmRemain.id || (
+        isManualPrevDayBalanceLog(x) === isManualNew &&
+        isSameDate(x.date,farmRemain.date) &&
+        isSamePelletSize(x.size,farmRemain.size) &&
+        (!farmRemain.brand||!x.brand||x.brand.toLowerCase().trim()===farmRemain.brand.toLowerCase().trim()) &&
+        isStockMatch(x.fishStock, farmRemain.fishStock) &&
+        (!x.farmId||x.farmId===farmRemain.farmId)
+      ));
+      if(existingMatch){
+        const updated: FeedRemainingLog={...existingMatch,...farmRemain,id:existingMatch.id};
+        return prev.map(x=>x.id===existingMatch!.id?updated:x);
       } else {
-        api.remainLogs.create(farmRemain).catch(console.warn);
         return [farmRemain,...prev];
       }
     });
+    if(existingMatch){
+      const updated: FeedRemainingLog={...existingMatch,...farmRemain,id:existingMatch.id};
+      await api.remainLogs.update(updated).catch(async () => {
+        await api.remainLogs.create(updated);
+      });
+    } else {
+      await api.remainLogs.create(farmRemain);
+    }
   };
-  const editRemainLog=(r:FeedRemainingLog)=>{
+  const editRemainLog=async(r:FeedRemainingLog)=>{
     if (!checkSubscriptionActive()) return;
     const fid=r.farmId||activeFarmId||farms[0]?.id||"";
     const farmRemain:FeedRemainingLog={...r,farmId:fid};
+    const isManualEdit = isManualPrevDayBalanceLog(farmRemain);
+    let targetId = farmRemain.id;
     setRemainLogs(prev=>{
       const exists = prev.some(x=>x.id===farmRemain.id);
       if (exists) {
         return prev.map(x=>x.id===farmRemain.id?farmRemain:x);
       }
-      const matchIdx = prev.findIndex(x=>isSameDate(x.date, farmRemain.date)&&(x.size||"").toLowerCase().trim()===(farmRemain.size||"").toLowerCase().trim()&&isStockMatch(x.fishStock, farmRemain.fishStock));
+      const matchIdx = prev.findIndex(x=>
+        isManualPrevDayBalanceLog(x) === isManualEdit &&
+        isSameDate(x.date, farmRemain.date) &&
+        isSamePelletSize(x.size, farmRemain.size) &&
+        (!farmRemain.brand||!x.brand||x.brand.toLowerCase().trim()===farmRemain.brand.toLowerCase().trim()) &&
+        isStockMatch(x.fishStock, farmRemain.fishStock)
+      );
       if (matchIdx >= 0) {
-        return prev.map((x, idx) => idx === matchIdx ? { ...x, ...farmRemain } : x);
+        targetId = prev[matchIdx].id;
+        return prev.map((x, idx) => idx === matchIdx ? { ...x, ...farmRemain, id: prev[matchIdx].id } : x);
       }
       return [farmRemain, ...prev];
     });
-    api.remainLogs.update(farmRemain).catch(() => {
-      api.remainLogs.create(farmRemain).catch(console.warn);
-    });
+    const toPersist = { ...farmRemain, id: targetId };
+    try {
+      await api.remainLogs.update(toPersist);
+    } catch {
+      await api.remainLogs.create(toPersist);
+    }
   };
   const addInv=async(f:FeedItem)=>{
     if (!checkSubscriptionActive()) return;

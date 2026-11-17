@@ -4,7 +4,7 @@ import {
   Pencil, Package, Download, FileText, Lock, Calendar, ChevronLeft, ChevronRight, Search, Fish, Phone
 } from "lucide-react";
 import type { FeedItem, BagOpenLog, FeedRemainingLog, Pond } from "../types";
-import { FEED_SIZES, FEED_BRANDS, TODAY, fmt, uid, toMon, toYr, downloadCSV, openPrintWindow, fmtDate, fmtStockingDate, formatFishStock, formatFishStockDate, getPondFishStock, isManualPrevDayBalanceLog } from "../data";
+import { FEED_SIZES, FEED_BRANDS, TODAY, fmt, uid, toMon, toYr, downloadCSV, openPrintWindow, fmtDate, fmtStockingDate, formatFishStock, formatFishStockDate, getPondFishStock, isManualPrevDayBalanceLog, isSamePelletSize } from "../data";
 import { Card, Bdg, PBtn, Pagination, PER_PAGE, StatCard, Modal, F, IC, SC, SH, SearchableSelect, useSort, DateInput, NumInput } from "../shared";
 import { isSameDate, toValidDbDate } from "../../lib/api";
 
@@ -188,12 +188,18 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
     const dayRemainLogs = (remainLogs || []).filter(r => isSameDate(r.date, dailyDateStr));
     const dailyMap: Record<string, FeedHistoryRow> = {};
 
+    const canonSize = (s?: string) => {
+      const clean = (s || "").trim();
+      const num = parseFloat(clean);
+      return !isNaN(num) ? `${num}mm` : clean.toLowerCase();
+    };
+    const seenRemainIds = new Set<string>();
     dayBagLogs.forEach(b => {
       const stock = (b.fishStock && b.fishStock.trim() && b.fishStock !== "—") ? b.fishStock.trim() : "General Stock";
-      const brand = b.brand || "Standard";
-      const size = b.size || "4.0 mm";
+      const brand = (b.brand || "Standard").trim();
+      const size = (b.size || "4.0 mm").trim();
       const info = getStockInfo(stock);
-      const key = `${info.name.toLowerCase().trim()}__${brand.toLowerCase().trim()}__${size.toLowerCase().trim()}`;
+      const key = `${info.name.toLowerCase().trim()}__${brand.toLowerCase()}__${canonSize(size)}`;
       const bags = Number(b.bagsOpened) || 0;
       const kgPb = Number(b.kgPerBag) || 15;
       const kg = Number(b.totalKg) || (bags * kgPb);
@@ -219,11 +225,13 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
     });
 
     dayRemainLogs.forEach(r => {
+      if (r.id && seenRemainIds.has(r.id)) return;
+      if (r.id) seenRemainIds.add(r.id);
       const stock = (r.fishStock && r.fishStock.trim() && r.fishStock !== "—") ? r.fishStock.trim() : "General Stock";
-      const brand = r.brand || "Standard";
-      const size = r.size || "4.0 mm";
+      const brand = (r.brand || "Standard").trim();
+      const size = (r.size || "4.0 mm").trim();
       const info = getStockInfo(stock);
-      const key = `${info.name.toLowerCase().trim()}__${brand.toLowerCase().trim()}__${size.toLowerCase().trim()}`;
+      const key = `${info.name.toLowerCase().trim()}__${brand.toLowerCase()}__${canonSize(size)}`;
       const rem = Number(r.remainingKg) || 0;
 
       if (!dailyMap[key]) {
@@ -241,7 +249,7 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
           remainingKg: rem
         };
       } else {
-        dailyMap[key].remainingKg = rem;
+        dailyMap[key].remainingKg = Math.round((dailyMap[key].remainingKg + rem) * 100) / 100;
       }
     });
 
@@ -336,8 +344,9 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
             ))}
           </div>
           {(()=>{
+            const canonSize = (s?: string) => { const n = parseFloat((s || "").trim()); return !isNaN(n) ? `${n}mm` : (s || "").trim().toLowerCase(); };
             const merged=Object.values(filtInv.reduce<Record<string,FeedItem&{_b:number}>>((acc,item)=>{
-              const key=`${item.brand}|${item.size}|${item.weightPerBag}`;
+              const key=`${(item.brand||"").trim().toLowerCase()}|${canonSize(item.size)}|${item.weightPerBag}`;
               if(!acc[key])acc[key]={...item,_b:0};
               acc[key]._b+=item.bags;
               acc[key].bags=acc[key]._b;
@@ -354,7 +363,7 @@ export default function FeedInventory({inventory,onAdd,onDelete,feedingRecords,b
             return (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3.5 sm:gap-4">
                 {merged.map((row,i)=>{
-                  const opened=stockDeductibleBagLogs.filter(b=>b.brand===row.brand&&b.size===row.size).reduce((s,b)=>s+b.bagsOpened,0);
+                  const opened=stockDeductibleBagLogs.filter(b=>(b.brand||"").trim().toLowerCase()===(row.brand||"").trim().toLowerCase()&&isSamePelletSize(b.size,row.size)).reduce((s,b)=>s+b.bagsOpened,0);
                   const inStock=Math.max(0,row.bags-opened);
                   const totalRemainingKg=inStock*row.weightPerBag;
                   const statusColor=inStock===0

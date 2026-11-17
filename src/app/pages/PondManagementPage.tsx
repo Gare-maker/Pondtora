@@ -2431,17 +2431,45 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
     type SG={key:string;stockName:string;stockingDate:string;speciesList:string[];supplierList:string[];pondNames:string[];pondIds:string[];stockIds:string[];totalStartCount:number;isActive:boolean};
     const groups:Record<string,SG>={};
 
+    const resolveGroupKey = (rawLabel: string, fallbackDate?: string, stockId?: string): string => {
+      const cleanLabel = (rawLabel || "").trim();
+      const formattedLabel = cleanLabel && cleanLabel !== "—" ? formatFishStock(cleanLabel) : "";
+      const candidates = Object.values(groups);
+      if (stockId) {
+        const byId = candidates.find(g => g.stockIds.includes(stockId));
+        if (byId) return byId.key;
+      }
+      if (cleanLabel && cleanLabel !== "—" && cleanLabel !== "General Stock") {
+        const byMatch = candidates.find(g =>
+          g.key.toLowerCase() === cleanLabel.toLowerCase() ||
+          g.stockName.toLowerCase() === cleanLabel.toLowerCase() ||
+          (formattedLabel && (g.key.toLowerCase() === formattedLabel.toLowerCase() || g.stockName.toLowerCase() === formattedLabel.toLowerCase())) ||
+          isStockMatch(g.key, cleanLabel) ||
+          isStockMatch(g.stockName, cleanLabel)
+        );
+        if (byMatch) return byMatch.key;
+      }
+      if (fallbackDate && fallbackDate !== "—") {
+        const byDate = candidates.find(g => g.stockingDate && g.stockingDate !== "—" && isSameDate(g.stockingDate, fallbackDate) && isStockMatch(g.stockName, fallbackDate));
+        if (byDate) return byDate.key;
+      }
+      return formattedLabel || cleanLabel || (fallbackDate ? fmtStockingDate(fallbackDate) : "Fish Stock");
+    };
+
+    const seenEventKeys = new Set<string>();
+
     // 1. Process all stock events (Initial, Restock, Closed, Transfer)
     (stockEvents||[]).forEach(ev=>{
-      const stockName = ev.batch || (ev.species && ev.species !== "—" && !POND_SPECIES.includes(ev.species)
+      const rawStockName = ev.batch || (ev.species && ev.species !== "—" && !POND_SPECIES.includes(ev.species)
         ? ev.species
         : (ev.date ? fmtStockingDate(ev.date) : "Fish Stock"));
-      const gk = stockName;
+      if(!rawStockName||rawStockName==="—"||rawStockName==="General Stock")return;
+      const gk = resolveGroupKey(rawStockName, ev.date || ev.clearedDate, (ev as any).fishStockId);
       if(!gk||gk==="—"||gk==="General Stock")return;
       if(!groups[gk]){
         groups[gk]={
           key:gk,
-          stockName,
+          stockName:gk,
           stockingDate:ev.date || ev.clearedDate || "—",
           speciesList:[],
           supplierList:[],
@@ -2454,12 +2482,15 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
       }
       if((ev as any).fishStockId && !groups[gk].stockIds.includes((ev as any).fishStockId)) groups[gk].stockIds.push((ev as any).fishStockId);
       if(ev.species&&ev.species!=="—"&&!groups[gk].speciesList.includes(ev.species))groups[gk].speciesList.push(ev.species);
-      if(ev.supplier&&!groups[gk].supplierList.includes(ev.supplier))groups[gk].supplierList.push(ev.supplier);
-      if(ev.pondName&&!groups[gk].pondNames.includes(ev.pondName)){
+      if(ev.supplier && !ev.supplier.startsWith("TRANSFER_PCT:") && !groups[gk].supplierList.includes(ev.supplier))groups[gk].supplierList.push(ev.supplier);
+      if(ev.pondName && !groups[gk].pondNames.some(pn => pn.toLowerCase() === ev.pondName!.toLowerCase())){
         groups[gk].pondNames.push(ev.pondName);
-        if(ev.pondId) groups[gk].pondIds.push(ev.pondId);
       }
-      if(ev.type==="Initial"||ev.type==="Restock"){
+      if(ev.pondId && !groups[gk].pondIds.includes(ev.pondId)) groups[gk].pondIds.push(ev.pondId);
+
+      const evDedupKey = `${ev.pondId || ev.pondName || ""}__${ev.type}__${ev.date || ""}__${ev.count || 0}`;
+      if((ev.type==="Initial"||ev.type==="Restock") && !seenEventKeys.has(evDedupKey)){
+        seenEventKeys.add(evDedupKey);
         groups[gk].totalStartCount+=(ev.count||0);
       } else if(ev.type==="Closed" && groups[gk].totalStartCount===0 && ev.count){
         groups[gk].totalStartCount = ev.count;
@@ -2468,13 +2499,13 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
 
     // 2. Also ensure all active ponds with fish stocks are represented and unified
     (ponds||[]).filter(p=>p.status==="Active").forEach(p=>{
-      const gk = getPondFishStock(p);
-      if(!gk || gk === "—" || gk === "General Stock") return;
-      const stockName = gk;
+      const rawGk = getPondFishStock(p);
+      if(!rawGk || rawGk === "—" || rawGk === "General Stock") return;
+      const gk = resolveGroupKey(rawGk, p.stockingDate, (p as any).fishStockId);
       if(!groups[gk]){
         groups[gk]={
           key:gk,
-          stockName,
+          stockName:gk,
           stockingDate:p.stockingDate || "—",
           speciesList:[],
           supplierList:[],
@@ -2488,20 +2519,21 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
       if((p as any).fishStockId && !groups[gk].stockIds.includes((p as any).fishStockId)) groups[gk].stockIds.push((p as any).fishStockId);
       if(p.species&&p.species!=="—"&&!groups[gk].speciesList.includes(p.species))groups[gk].speciesList.push(p.species);
       if(p.supplier&&!groups[gk].supplierList.includes(p.supplier))groups[gk].supplierList.push(p.supplier);
-      if(p.name&&!groups[gk].pondNames.includes(p.name)){
+      const alreadyListedPond = groups[gk].pondIds.includes(p.id) || (p.name && groups[gk].pondNames.some(pn => pn.toLowerCase() === p.name.toLowerCase()));
+      if(p.name && !alreadyListedPond){
         groups[gk].pondNames.push(p.name);
         groups[gk].pondIds.push(p.id);
-        const wasInEvents=(stockEvents||[]).some(e=>e.pondId===p.id&&(e.type==="Initial"||e.type==="Restock")&&e.date===p.stockingDate);
+        const wasInEvents=(stockEvents||[]).some(e=>(e.pondId===p.id || (e.pondName && e.pondName.toLowerCase()===p.name.toLowerCase())) && (e.type==="Initial"||e.type==="Restock") && isSameDate(e.date, p.stockingDate));
         if(!wasInEvents){
           groups[gk].totalStartCount+=(p.initialStock||p.currentCount||0);
         }
       }
     });
 
-    // 3. Scan feeding records and treatments with explicit fishStock labels
+    // 3. Scan feeding records with explicit fishStock labels (consolidating into existing groups)
     (feedingRecords||[]).forEach(r=>{
       if(r.fishStock && r.fishStock !== "—" && r.fishStock !== "General Stock"){
-        const gk = r.fishStock;
+        const gk = resolveGroupKey(r.fishStock, r.date, r.fishStockId);
         if(!groups[gk]){
           groups[gk]={
             key:gk,
@@ -2517,9 +2549,9 @@ export default function PondManagement({ponds,onAddPond,onClosePond,onRestockPon
           };
         }
         if(r.fishStockId && !groups[gk].stockIds.includes(r.fishStockId)) groups[gk].stockIds.push(r.fishStockId);
-        if(r.pond && !groups[gk].pondNames.includes(r.pond)){
+        if(r.pond && !groups[gk].pondNames.some(pn => pn.toLowerCase() === r.pond.toLowerCase())){
           groups[gk].pondNames.push(r.pond);
-          const matchedPond = ponds.find(p=>p.name===r.pond);
+          const matchedPond = ponds.find(p=>p.name.toLowerCase()===r.pond.toLowerCase());
           if(matchedPond && !groups[gk].pondIds.includes(matchedPond.id)){
             groups[gk].pondIds.push(matchedPond.id);
           }
