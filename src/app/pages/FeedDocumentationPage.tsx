@@ -3776,7 +3776,6 @@ function FeedDocumentation({
       const isManualBag = isManualPrevDayLog(b);
       const fs = normalizeFishStock(b.fishStock, selDate) || "—";
       const bags = Number(b.bagsOpened) || 0;
-      if (!isManualBag && !isStockActiveOnSelDate(b.fishStock) && !isStockActiveOnSelDate(fs) && bags <= 0) return;
       const brand = b.brand || "—";
       const size = b.size || "—";
       const k = findRowKey(brand, size, fs);
@@ -3984,25 +3983,6 @@ function FeedDocumentation({
 
       const stats = getManualBalanceStats(m, selDate);
       if (!isCreatedOnSelDate && stats.startBalanceKg <= 0 && stats.currentRemainingKg <= 0) return;
-
-      // If a normal non-manual bagLog or remainLog has been recorded strictly after mIso (up to selIsoForManual),
-      // getPriorCarryover + normal mergedBagRows has already taken over tracking this balance seamlessly.
-      if (isBeforeSelDate && mIso && selIsoForManual) {
-        const hasNormalTakeover = (bagLogs || []).some(b => {
-          if (!b || isManualPrevDayLog(b) || !isSamePelletSize(b.size, m.size)) return false;
-          if (m.brand && b.brand && b.brand !== "—" && b.brand.toLowerCase().trim() !== m.brand.toLowerCase().trim()) return false;
-          if (m.fishStock && m.fishStock !== "All Active Stocks" && b.fishStock && !isStockMatch(b.fishStock, m.fishStock)) return false;
-          const bIso = toValidDbDate(b.date, b.year || viewYear) || dateToIso(b.date);
-          return Boolean(bIso && bIso > mIso && bIso <= selIsoForManual);
-        }) || (remainLogs || []).some(r => {
-          if (!r || isManualPrevDayLog(r) || !isSamePelletSize(r.size, m.size)) return false;
-          if (m.brand && r.brand && r.brand !== "—" && r.brand.toLowerCase().trim() !== m.brand.toLowerCase().trim()) return false;
-          if (m.fishStock && m.fishStock !== "All Active Stocks" && r.fishStock && !isStockMatch(r.fishStock, m.fishStock)) return false;
-          const rIso = toValidDbDate(r.date, r.year || viewYear) || dateToIso(r.date);
-          return Boolean(rIso && rIso > mIso && rIso <= selIsoForManual);
-        });
-        if (hasNormalTakeover) return;
-      }
 
       const defaultActiveStock = activeStocksMap.size > 0
         ? Array.from(activeStocksMap.values())[0].stockName
