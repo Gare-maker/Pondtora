@@ -9332,9 +9332,97 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   const farmSalesCalculations=salesCalculations.filter(sc=>matchesFarm(sc.farmId));
   const farmStockEvents=stockEvents.filter(s=>matchesFarm(s.farmId,s.pondName));
 
+  /* ── Shared Helper: Heal any legacy physically-split DB feeding records so transfers are never double-applied ── */
+  const healedBaseFarmFeeding = useMemo<FeedingRecord[]>(() => {
+    const allTransfers = (farmStockEvents || [])
+      .filter(e => e && e.type === "Transfer")
+      .sort((a, b) => {
+        const da = toValidDbDate(a.date) || "";
+        const db = toValidDbDate(b.date) || "";
+        if (da !== db) return db.localeCompare(da);
+        return (b.createdAt || "").localeCompare(a.createdAt || "");
+      });
+
+    if (allTransfers.length === 0) return farmFeeding;
+
+    let records: FeedingRecord[] = farmFeeding.map(r => ({ ...r }));
+
+    for (const ev of allTransfers) {
+      const fromPondName = (ev.fromPond || "").trim();
+      const toPondName = (ev.pondName || "").trim();
+      if (!fromPondName || !toPondName) continue;
+      const fromPondNorm = fromPondName.toLowerCase();
+      const toPondNorm = toPondName.toLowerCase();
+      const fromPondObj = farmPonds.find(p => p.name.trim().toLowerCase() === fromPondNorm);
+      const toPondObj = farmPonds.find(p => (ev.pondId && p.id === ev.pondId) || p.name.trim().toLowerCase() === toPondNorm);
+      const evIso = toValidDbDate(ev.date);
+
+      // Find latest closed date on toPond strictly before evIso so we don't touch older closed cycles
+      const priorToPondClosedDates = (farmStockEvents || [])
+        .filter(ce => ce.type === "Closed" && ((toPondObj && ce.pondId === toPondObj.id) || (ce.pondName || "").trim().toLowerCase() === toPondNorm))
+        .map(ce => toValidDbDate(ce.clearedDate || ce.date))
+        .filter(d => Boolean(d && (!evIso || d < evIso)))
+        .sort();
+      const latestPriorToClosedIso = priorToPondClosedDates.length > 0 ? priorToPondClosedDates[priorToPondClosedDates.length - 1] : null;
+
+      const rawPct = parseFloat((ev.supplier || "").replace("TRANSFER_PCT:", "")) || Number(ev.salePrice) || 0;
+      const isFullTransfer = rawPct >= 99.99 || (farmStockEvents || []).some(ce =>
+        ce.type === "Closed" &&
+        ((fromPondObj && ce.pondId === fromPondObj.id) || (ce.pondName || "").trim().toLowerCase() === fromPondNorm) &&
+        toValidDbDate(ce.clearedDate || ce.date) === evIso
+      );
+
+      const removedDestIds = new Set<string>();
+      // Track which (srcRec.id, total) has already been healed once to avoid double-adding identical retry duplicates
+      const healedSrcTotals = new Map<string, Set<string>>();
+
+      records.forEach(destRec => {
+        if (!destRec || removedDestIds.has(destRec.id)) return;
+        const isDestPond = (toPondObj && destRec.pondId === toPondObj.id) || (ev.pondId && destRec.pondId === ev.pondId) || (destRec.pond || "").trim().toLowerCase() === toPondNorm;
+        if (!isDestPond) return;
+        const rIso = toValidDbDate(destRec.date);
+        if (evIso && rIso && rIso > evIso) return;
+        if (latestPriorToClosedIso && rIso && rIso < latestPriorToClosedIso) return;
+
+        // Check if source pond has a split counterpart on the same date & pellet size (legacy partial transfer or timeout retry)
+        const srcRec = records.find(sr =>
+          sr &&
+          sr.id !== destRec.id &&
+          !removedDestIds.has(sr.id) &&
+          ((fromPondObj && sr.pondId === fromPondObj.id) || (sr.pond || "").trim().toLowerCase() === fromPondNorm) &&
+          (toValidDbDate(sr.date) === rIso || isSameDate(sr.date, destRec.date)) &&
+          isSamePelletSize(sr.size, destRec.size)
+        );
+
+        if (srcRec) {
+          const destSig = `${Number(destRec.morning) || 0}_${Number(destRec.evening) || 0}_${Number(destRec.total) || 0}`;
+          const seenSigs = healedSrcTotals.get(srcRec.id) || new Set<string>();
+          if (!seenSigs.has(destSig)) {
+            srcRec.morning = Math.round(((Number(srcRec.morning) || 0) + (Number(destRec.morning) || 0)) * 100) / 100;
+            srcRec.evening = Math.round(((Number(srcRec.evening) || 0) + (Number(destRec.evening) || 0)) * 100) / 100;
+            srcRec.total = Math.round(((Number(srcRec.total) || 0) + (Number(destRec.total) || 0)) * 100) / 100;
+            seenSigs.add(destSig);
+            healedSrcTotals.set(srcRec.id, seenSigs);
+          }
+          removedDestIds.add(destRec.id);
+        } else if (isFullTransfer && (!evIso || !rIso || rIso <= evIso)) {
+          // Legacy 100% transfer moved the record from fromPond to toPond -> restore original pond attribution
+          destRec.pond = fromPondObj?.name || fromPondName;
+          destRec.pondId = fromPondObj?.id || destRec.pondId;
+        }
+      });
+
+      if (removedDestIds.size > 0) {
+        records = records.filter(r => !removedDestIds.has(r.id));
+      }
+    }
+
+    return records;
+  }, [farmFeeding, farmStockEvents, farmPonds]);
+
   /* ── Pond-Level Feeding Records (applies fish stock transfers for Pond Management only) ── */
   const pondFeedingRecords = useMemo<FeedingRecord[]>(() => {
-    const nonDestructiveTransfers = (farmStockEvents || [])
+    const rawTransfers = (farmStockEvents || [])
       .filter(e => e && e.type === "Transfer" && (
         Boolean(e.supplier && e.supplier.startsWith("TRANSFER_PCT:")) ||
         (Number(e.salePrice) > 0 && Number(e.salePrice) <= 100 && Boolean(e.fromPond))
@@ -9346,9 +9434,28 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
         return (a.createdAt || "").localeCompare(b.createdAt || "");
       });
 
-    if (nonDestructiveTransfers.length === 0) return farmFeeding;
+    // Deduplicate retry/duplicate Transfer events for the same (fromPond, toPond) within the same active cycle on toPond
+    const dedupedTransfersMap = new Map<string, StockEvent>();
+    for (const ev of rawTransfers) {
+      const fromNorm = (ev.fromPond || "").trim().toLowerCase();
+      const toNorm = (ev.pondName || "").trim().toLowerCase();
+      const evIso = toValidDbDate(ev.date) || "";
+      if (!fromNorm || !toNorm) continue;
+      const toPondObj = farmPonds.find(p => (ev.pondId && p.id === ev.pondId) || p.name.trim().toLowerCase() === toNorm);
+      const priorClosures = (farmStockEvents || [])
+        .filter(ce => ce.type === "Closed" && ((toPondObj && ce.pondId === toPondObj.id) || (ce.pondName || "").trim().toLowerCase() === toNorm))
+        .map(ce => toValidDbDate(ce.clearedDate || ce.date) || "")
+        .filter(d => Boolean(d && (!evIso || d < evIso)))
+        .sort();
+      const cycleKey = priorClosures.length > 0 ? priorClosures[priorClosures.length - 1] : "open";
+      const key = `${fromNorm}__${toNorm}__${cycleKey}`;
+      dedupedTransfersMap.set(key, ev);
+    }
+    const nonDestructiveTransfers = Array.from(dedupedTransfersMap.values());
 
-    let records: FeedingRecord[] = farmFeeding.map(r => ({ ...r }));
+    if (nonDestructiveTransfers.length === 0) return healedBaseFarmFeeding;
+
+    let records: FeedingRecord[] = healedBaseFarmFeeding.map(r => ({ ...r }));
 
     for (const ev of nonDestructiveTransfers) {
       const rawPct = parseFloat((ev.supplier || "").replace("TRANSFER_PCT:", "")) || Number(ev.salePrice) || 0;
@@ -9362,6 +9469,18 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       const fromPondObj = farmPonds.find(p => p.name.trim().toLowerCase() === fromPondNameNorm);
       const toPondObj = farmPonds.find(p => (ev.pondId && p.id === ev.pondId) || p.name.trim().toLowerCase() === toPondNameNorm);
       const evIso = toValidDbDate(ev.date);
+
+      // Check if toPond was closed AFTER this transfer event
+      const toPondClosedAfterTransfer = (farmStockEvents || []).some(ce => {
+        if (ce.type !== "Closed") return false;
+        const matchesTo = (toPondObj && ce.pondId === toPondObj.id) || (ce.pondName || "").trim().toLowerCase() === toPondNameNorm;
+        if (!matchesTo) return false;
+        const ceIso = toValidDbDate(ce.clearedDate || ce.date);
+        if (!ceIso || !evIso) return false;
+        if (ceIso > evIso) return true;
+        if (ceIso === evIso && ce.createdAt && ev.createdAt && ce.createdAt > ev.createdAt) return true;
+        return false;
+      });
 
       // Find any closed cycle on fromPond strictly before this transfer batch
       const priorClosedDates = (farmStockEvents || [])
@@ -9388,6 +9507,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       if (isFull) {
         records = records.map(r => {
           if (belongsToTransferredStock(r)) {
+            if (toPondClosedAfterTransfer) return r;
             return {
               ...r,
               pond: toPondObj?.name || ev.pondName,
@@ -9400,8 +9520,13 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
         });
       } else {
         const destCopies: FeedingRecord[] = [];
+        const seenSourceIds = new Set<string>();
         records = records.map(r => {
           if (belongsToTransferredStock(r)) {
+            const baseSourceId = String(r.id).split("__tx_")[0];
+            if (seenSourceIds.has(baseSourceId)) return r;
+            seenSourceIds.add(baseSourceId);
+
             const origMorning = Number(r.morning) || 0;
             const origEvening = Number(r.evening) || 0;
             const origTotal = Number(r.total) || (origMorning + origEvening);
@@ -9418,10 +9543,10 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
             const keepEvening = Math.max(0, Math.round((origEvening - destEvening) * 100) / 100);
             const keepTotal = Math.max(0, Math.round((origTotal - destTotal) * 100) / 100);
 
-            if (destTotal > 0) {
+            if (destTotal > 0 && !toPondClosedAfterTransfer) {
               destCopies.push({
                 ...r,
-                id: `${r.id}__tx_${ev.id}`,
+                id: `${baseSourceId}__tx_${ev.id}`,
                 pond: toPondObj?.name || ev.pondName,
                 pondId: toPondObj?.id || ev.pondId,
                 fishStock: ev.batch || r.fishStock,
@@ -9446,79 +9571,14 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     }
 
     return records;
-  }, [farmFeeding, farmStockEvents, farmPonds]);
+  }, [healedBaseFarmFeeding, farmStockEvents, farmPonds]);
 
   /* ── Feeding Records Page Data (completely independent of fish stock transfers & excludes pond-level manual feed giving) ── */
   const docFeedingRecords = useMemo<FeedingRecord[]>(() => {
-    const baseFeeding = farmFeeding.filter(
+    return healedBaseFarmFeeding.filter(
       r => !(r.isPondLevelOnly || r.recordedBy === "Manual Feed Entry" || r.recordedBy === "Manual Pond Log")
     );
-    const legacyTransfers = (farmStockEvents || [])
-      .filter(e => e && e.type === "Transfer" && !(e.supplier && e.supplier.startsWith("TRANSFER_PCT:")))
-      .sort((a, b) => {
-        const da = toValidDbDate(a.date) || "";
-        const db = toValidDbDate(b.date) || "";
-        if (da !== db) return db.localeCompare(da);
-        return (b.createdAt || "").localeCompare(a.createdAt || "");
-      });
-
-    if (legacyTransfers.length === 0) return baseFeeding;
-
-    let records: FeedingRecord[] = baseFeeding.map(r => ({ ...r }));
-
-    for (const ev of legacyTransfers) {
-      const fromPondName = (ev.fromPond || "").trim();
-      const toPondName = (ev.pondName || "").trim();
-      if (!fromPondName || !toPondName) continue;
-      const fromPondNorm = fromPondName.toLowerCase();
-      const toPondNorm = toPondName.toLowerCase();
-      const fromPondObj = farmPonds.find(p => p.name.trim().toLowerCase() === fromPondNorm);
-      const evIso = toValidDbDate(ev.date);
-
-      const wasFullCloseOnDate = (farmStockEvents || []).some(ce =>
-        ce.type === "Closed" &&
-        ((fromPondObj && ce.pondId === fromPondObj.id) || (ce.pondName || "").trim().toLowerCase() === fromPondNorm) &&
-        toValidDbDate(ce.clearedDate || ce.date) === evIso
-      );
-
-      const removedDestIds = new Set<string>();
-
-      records.forEach(destRec => {
-        if (!destRec || removedDestIds.has(destRec.id)) return;
-        const isDestPond = (ev.pondId && destRec.pondId === ev.pondId) || (destRec.pond || "").trim().toLowerCase() === toPondNorm;
-        if (!isDestPond) return;
-        const rIso = toValidDbDate(destRec.date);
-        if (evIso && rIso && rIso > evIso) return;
-
-        // Check if source pond has a split counterpart on the same date & pellet size (legacy partial transfer)
-        const srcRec = records.find(sr =>
-          sr &&
-          sr.id !== destRec.id &&
-          !removedDestIds.has(sr.id) &&
-          ((fromPondObj && sr.pondId === fromPondObj.id) || (sr.pond || "").trim().toLowerCase() === fromPondNorm) &&
-          (toValidDbDate(sr.date) === rIso || isSameDate(sr.date, destRec.date)) &&
-          isSamePelletSize(sr.size, destRec.size)
-        );
-
-        if (srcRec) {
-          srcRec.morning = Math.round(((Number(srcRec.morning) || 0) + (Number(destRec.morning) || 0)) * 100) / 100;
-          srcRec.evening = Math.round(((Number(srcRec.evening) || 0) + (Number(destRec.evening) || 0)) * 100) / 100;
-          srcRec.total = Math.round(((Number(srcRec.total) || 0) + (Number(destRec.total) || 0)) * 100) / 100;
-          removedDestIds.add(destRec.id);
-        } else if (wasFullCloseOnDate && (!evIso || !rIso || rIso <= evIso)) {
-          // Legacy 100% transfer moved the record from fromPond to toPond -> restore original pond attribution
-          destRec.pond = fromPondObj?.name || fromPondName;
-          destRec.pondId = fromPondObj?.id || destRec.pondId;
-        }
-      });
-
-      if (removedDestIds.size > 0) {
-        records = records.filter(r => !removedDestIds.has(r.id));
-      }
-    }
-
-    return records;
-  }, [farmFeeding, farmStockEvents, farmPonds]);
+  }, [healedBaseFarmFeeding]);
 
   const addSalesCalculation = async (sc: SalesCalculation, items?: SalesCalculationItem[]) => {
     if (!checkSubscriptionActive()) return;

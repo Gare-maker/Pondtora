@@ -702,7 +702,7 @@ function PondDetail({
       ? closedEvents.map(e => toValidDbDate(e.clearedDate || e.date)).filter(Boolean).sort().reverse()[0]
       : null;
 
-    return feedingRecords.filter(r => {
+    const filtered = feedingRecords.filter(r => {
       // 1. Match Pond (by ID or pond name, case/whitespace insensitive)
       const rPondCompact = (r.pond || "").replace(/\s+/g, "").toLowerCase();
       const isSamePond = Boolean(
@@ -731,6 +731,25 @@ function PondDetail({
 
       return true;
     });
+
+    // Deduplicate identical feeding records on the same pond, date, pellet size, and brand
+    const deduped: FeedingRecord[] = [];
+    const seenKeys = new Set<string>();
+    for (const r of filtered) {
+      const dKey = toValidDbDate(r.date) || (r.date || "").trim();
+      const sKey = (r.size || "").trim().toLowerCase();
+      const bKey = (r.brand || "").trim().toLowerCase();
+      const baseId = String(r.id || "").split("__tx_")[0];
+      const idOrSlotKey = r.isPondLevelOnly
+        ? `manual_${r.id}`
+        : `${dKey}__${sKey}__${bKey}__${baseId}`;
+      const slotSignature = `${dKey}__${sKey}__${bKey}__${Number(r.morning) || 0}__${Number(r.evening) || 0}__${Number(r.total) || 0}`;
+      if (seenKeys.has(idOrSlotKey) || (!r.isPondLevelOnly && seenKeys.has(slotSignature))) continue;
+      seenKeys.add(idOrSlotKey);
+      if (!r.isPondLevelOnly) seenKeys.add(slotSignature);
+      deduped.push(r);
+    }
+    return deduped;
   }, [feedingRecords, pond.id, pond.name, pond.species, pond.status, pond.stockingDate, pond.fishStock, (pond as any).fishStockId, pStockDbDate, pDateLabel, pStockIdentity, activeFishStockLabel, defaultFishStockLabel, stockEvents, ponds]);
   const fhMonths=[...new Set(history.map(r=>r.month))];
   const filtHistory=fhMonth==="All"?history:history.filter(r=>r.month===fhMonth);
@@ -884,8 +903,13 @@ function PondDetail({
     if (isTransferring) return;
     if (!validateTransferForm()) return;
     const destId = transferF.toPond;
-    const count = Math.floor(Number(transferF.count));
-    const pct = pond.currentCount > 0 ? Math.min(100, Math.round((count / pond.currentCount) * 10000) / 100) : 100;
+    const rawPctNum = Number(transferF.pct);
+    const pct = rawPctNum > 0 && rawPctNum <= 100
+      ? Math.min(100, Math.round(rawPctNum * 100) / 100)
+      : (pond.currentCount > 0 ? Math.min(100, Math.round((Math.floor(Number(transferF.count)) / pond.currentCount) * 10000) / 100) : 100);
+    const count = pct >= 100
+      ? pond.currentCount
+      : Math.max(1, Math.min(pond.currentCount, Math.round(pond.currentCount * (pct / 100)) || Math.floor(Number(transferF.count))));
     setIsTransferring(true);
     setTransferProgress(20);
     setTransferStage("Validating stock and allocating counts…");
@@ -900,7 +924,7 @@ function PondDetail({
 
     try {
       setTransferStage("Transferring stock records and updating database…");
-      const transferOp = count >= pond.currentCount
+      const transferOp = (pct >= 100 && count >= pond.currentCount)
         ? onTransfer(pond.id, destId, transferF.date)
         : onNurseryTransfer(pond.id, destId, count, pct, transferF.date);
       const success: any = await Promise.race([
@@ -1551,8 +1575,8 @@ function PondDetail({
         <div className="bg-purple-50 border border-purple-200 rounded-xl px-4 py-3 text-xs text-purple-700">Nursery ponds support partial transfers. Select an empty destination pond, fish count, and transfer percentage. Feed quantities and daily feeding history will be proportionally allocated between ponds, and treatment &amp; issue records will be preserved. Mortality records remain on the source pond.</div>
         <div><F label="Destination Pond (Empty Ponds Only)"><select value={nurseryTF.toPond} disabled={isTransferring} onChange={e=>{setNurseryTF(p=>({...p,toPond:e.target.value}));if(e.target.value)setNurseryErr(p=>({...p,toPond:""}));}} className={`${SC}${nurseryErr.toPond?" border-red-400":""}`}><option value="">Select empty destination pond…</option>{nurseryDestinationPonds.map(p=><option key={p.id} value={p.id}>{p.name} — {p.type}{p.status === "Empty" ? " (Empty)" : ""}</option>)}</select></F>{nurseryDestinationPonds.length === 0 && <p className="text-xs text-amber-600 mt-1">No empty ponds available. Transfers require an empty destination pond.</p>}{nurseryErr.toPond&&<p className="text-xs text-red-500 mt-1">{nurseryErr.toPond}</p>}</div>
         <div className="grid grid-cols-2 gap-3">
-          <div><F label={`Fish to Transfer (max ${pond.currentCount.toLocaleString()})`}><input type="number" min="1" max={String(pond.currentCount)} value={nurseryTF.count} onChange={e=>{const val=e.target.value;const num=Number(val);const synPct=num>0&&pond.currentCount>0?String(Math.min(100,Math.max(1,Math.round((num/pond.currentCount)*100)))):"";setNurseryTF(p=>({...p,count:val,...(synPct?{pct:synPct}:{})}));if(val&&num>0)setNurseryErr(p=>({...p,count:""}));}} className={`${IC}${nurseryErr.count?" border-red-400":""}`} placeholder="0"/></F>{nurseryErr.count&&<p className="text-xs text-red-500 mt-1">{nurseryErr.count}</p>}</div>
-          <F label="% of Fish & Records"><input type="number" min="1" max="100" value={nurseryTF.pct} onChange={e=>{const pVal=Math.min(100,Math.max(1,Number(e.target.value)||1));const cnt=Math.round(pond.currentCount*(pVal/100));setNurseryTF(p=>({...p,pct:String(pVal),count:String(cnt)}));if(cnt>0)setNurseryErr(p=>({...p,count:""}));}} className={IC} placeholder="100"/></F>
+          <div><F label={`Fish to Transfer (max ${pond.currentCount.toLocaleString()})`}><input type="number" min="1" max={String(pond.currentCount)} value={nurseryTF.count} onChange={e=>{const val=e.target.value;if(val===""){setNurseryTF(p=>({...p,count:"",pct:""}));return;}const num=Number(val);const synPct=num>0&&pond.currentCount>0?String(Math.min(100,Math.round((Math.min(num,pond.currentCount)/pond.currentCount)*10000)/100)):"";setNurseryTF(p=>({...p,count:val,pct:synPct}));if(val&&num>0)setNurseryErr(p=>({...p,count:""}));}} className={`${IC}${nurseryErr.count?" border-red-400":""}`} placeholder="0"/></F>{nurseryErr.count&&<p className="text-xs text-red-500 mt-1">{nurseryErr.count}</p>}</div>
+          <F label="% of Fish & Records"><input type="number" step="any" min="0.01" max="100" value={nurseryTF.pct} onChange={e=>{const raw=e.target.value;if(raw===""){setNurseryTF(p=>({...p,pct:"",count:""}));return;}const num=Number(raw);if(isNaN(num)||num<0)return;const pVal=Math.min(100,num);const cnt=pVal>0?Math.max(1,Math.min(pond.currentCount,Math.round(pond.currentCount*(pVal/100)))):0;setNurseryTF(p=>({...p,pct:raw,count:cnt>0?String(cnt):""}));if(cnt>0)setNurseryErr(p=>({...p,count:""}));}} className={IC} placeholder="100"/></F>
         </div>
         <F label="Transfer Date"><input type="date" value={nurseryTF.date} onChange={e=>setNurseryTF(p=>({...p,date:e.target.value}))} className={IC}/></F>
         {nurseryTF.count&&Number(nurseryTF.count)>0&&<div className="bg-slate-50 rounded-xl p-3 text-xs text-slate-600 space-y-1">
@@ -1639,12 +1663,20 @@ function PondDetail({
         </div>
       </Modal>}
       {showTransfer&&(()=>{
-        const parsedTransferCount = Math.max(0, Math.min(pond.currentCount, Math.floor(Number(transferF.count) || 0)));
-        const parsedPct = pond.currentCount > 0 && parsedTransferCount > 0
-          ? Math.min(100, Math.round((parsedTransferCount / pond.currentCount) * 10000) / 100)
-          : (Number(transferF.pct) || 0);
+        const rawPctInput = Number(transferF.pct);
+        const hasValidPctInput = transferF.pct !== "" && !isNaN(rawPctInput) && rawPctInput > 0 && rawPctInput <= 100;
+        const parsedPct = hasValidPctInput
+          ? Math.min(100, Math.round(rawPctInput * 100) / 100)
+          : (pond.currentCount > 0 && Number(transferF.count) > 0
+            ? Math.min(100, Math.round((Math.min(pond.currentCount, Math.floor(Number(transferF.count))) / pond.currentCount) * 10000) / 100)
+            : 0);
+        const parsedTransferCount = hasValidPctInput
+          ? (parsedPct >= 100
+              ? pond.currentCount
+              : Math.max(1, Math.min(pond.currentCount, Math.round(pond.currentCount * (parsedPct / 100)) || Math.floor(Number(transferF.count) || 0))))
+          : Math.max(0, Math.min(pond.currentCount, Math.floor(Number(transferF.count) || 0)));
         const remainingPopulation = Math.max(0, pond.currentCount - parsedTransferCount);
-        const isFull = parsedTransferCount >= pond.currentCount && pond.currentCount > 0;
+        const isFull = parsedPct >= 100 && parsedTransferCount >= pond.currentCount && pond.currentCount > 0;
         const selectedDestPond = ponds.find(p => p.id === transferF.toPond);
         const displayPct = Number.isInteger(parsedPct) ? `${parsedPct}%` : `${parsedPct.toFixed(2).replace(/\.?0+$/, "")}%`;
 
