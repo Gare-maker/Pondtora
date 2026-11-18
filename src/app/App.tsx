@@ -5836,7 +5836,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       } catch {}
     }
 
-    const se:StockEvent={id:crypto.randomUUID(),pondId:id,pondName:p.name,date:stockingDateVal,species:p.species!=="—"?p.species:stockLabel,count:p.initialStock||p.currentCount,cost:p.totalCost,type:"Closed" as const,clearedDate:TODAY,farmId:fid,batch:stockLabel,supplier:p.supplier};
+    const se:StockEvent={id:crypto.randomUUID(),pondId:id,pondName:p.name,date:stockingDateVal,species:p.species!=="—"?p.species:stockLabel,count:p.initialStock||p.currentCount,cost:p.totalCost,type:"Closed" as const,clearedDate:TODAY,farmId:fid,batch:stockLabel,supplier:p.supplier,createdAt:new Date().toISOString()};
     const nextStockEvents = [...stockEvents, se];
     setStockEvents(nextStockEvents);
 
@@ -5923,6 +5923,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       supplier:data.supplier,
       farmId:fid,
       batch: fs,
+      createdAt: new Date().toISOString(),
     };
     const nextStockEvents = [...stockEvents, se];
     setStockEvents(nextStockEvents);
@@ -7070,6 +7071,9 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     // NEVER modify, split, redistribute, or rewrite historical feeding records, bag open logs, or remaining feed logs.
     // Pond-level feed summary & history on Pond Management are derived non-destructively via Transfer stockEvents.
     const fromPondNameNorm = (fromPond.name || "").trim().toLowerCase();
+    const fromPondStockIso = (fromPond.stockingDate && fromPond.stockingDate !== "—")
+      ? toValidDbDate(fromPond.stockingDate)
+      : toValidDbDate(stockLabel);
     const closedEvents = (stockEvents || []).filter(e =>
       (e.pondId === fromId || (e.pondName && e.pondName.trim().toLowerCase() === fromPondNameNorm)) && e.type === "Closed"
     );
@@ -7080,24 +7084,52 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     const belongsToSourcePondAndStock = (rec: { pondId?: string; pond?: string; pondName?: string; fishStockId?: string; fishStock?: string; date?: string; reportDate?: string }) => {
       const rPondNorm = (rec.pondName || rec.pond || "").trim().toLowerCase();
       if (rec.pondId) {
-        if (rec.pondId !== fromId) return false;
+        if (rec.pondId !== fromId && rPondNorm !== fromPondNameNorm) return false;
       } else if (rPondNorm !== fromPondNameNorm) {
         return false;
       }
 
-      const explicitStockIdMatch = Boolean(fromPond.fishStockId && rec.fishStockId && rec.fishStockId === fromPond.fishStockId);
-      if (explicitStockIdMatch) return true;
-
-      if (fromPond.fishStockId && rec.fishStockId && rec.fishStockId !== fromPond.fishStockId && rec.fishStockId !== stockLabel) {
-        return false;
-      }
-
       const recDate = toValidDbDate(rec.date || rec.reportDate);
-      if (latestClosedDate && recDate && recDate < latestClosedDate && (!fromPond.fishStockId || !rec.fishStockId)) {
+      if (fromPondStockIso && recDate && recDate < fromPondStockIso) {
         return false;
       }
+
+      const recStockDate = toValidDbDate(rec.fishStock);
+      if (fromPondStockIso && recStockDate && recStockDate !== fromPondStockIso) {
+        return false;
+      }
+
+      if (fromPond.fishStockId && rec.fishStockId && rec.fishStockId !== fromId) {
+        if (rec.fishStockId !== fromPond.fishStockId && rec.fishStockId !== stockLabel) {
+          return false;
+        }
+        if (rec.fishStockId === fromPond.fishStockId) {
+          return true;
+        }
+      }
+
+      if (latestClosedDate && recDate && recDate <= latestClosedDate) {
+        return false;
+      }
+
+      const fsTrim = (rec.fishStock || "").trim();
+      if (fsTrim && closedEvents.some(ce => {
+        const ceBatch = ce.batch || (ce.date ? fmtStockingDate(ce.date) : null);
+        return Boolean(ceBatch && (!stockLabel || !isStockMatch(ceBatch, stockLabel, ponds)) && isStockMatch(fsTrim, ceBatch, ponds));
+      })) {
+        return false;
+      }
+
       return true;
     };
+
+    // Capture exact base IDs of feeding records currently belonging to fromPond's active stock at the moment of transfer
+    const activeSourceFeedIds = Array.from(new Set(
+      (pondFeedingRecords || [])
+        .filter(r => belongsToSourcePondAndStock(r))
+        .map(r => String(r.id || "").split("__tx_")[0])
+        .filter(Boolean)
+    ));
 
     // 4. Mortality records: DO NOT TRANSFER (remain associated with source stock/pond per policy)
 
@@ -7215,9 +7247,11 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     const nextFch = [transferEntryDest, transferEntrySrc, ...transferredFch];
     setFishCountHistory(nextFch);
 
-    // 8. Stock events (store transfer percentage on seTransfer for non-destructive pond-level feed calculation)
+    // 8. Stock events (store transfer percentage & exact source stock/feed metadata on seTransfer for non-destructive pond-level feed calculation)
+    const transferEventId = crypto.randomUUID();
+    const feedIdsTag = activeSourceFeedIds.length > 0 ? activeSourceFeedIds.join(",") : "NONE";
     const seTransfer: StockEvent = {
-      id: crypto.randomUUID(),
+      id: transferEventId,
       pondId: toId,
       pondName: toPond.name,
       date: dateLabel,
@@ -7225,7 +7259,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       count: safeCount,
       cost: costShare,
       salePrice: actualPct,
-      supplier: `TRANSFER_PCT:${actualPct}`,
+      supplier: `TRANSFER_PCT:${actualPct}|SRC_STOCK:${stockInstanceId}|DST_STOCK:${destStockInstanceId}|STOCK_DATE:${fromPondStockIso || ""}|FEED_IDS:${feedIdsTag}`,
       type: "Transfer" as const,
       fromPond: fromPond.name,
       farmId: toPond.farmId || activeFarmId || farms[0]?.id || "",
@@ -7245,8 +7279,10 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
         cost: fromPond.totalCost,
         type: "Closed" as const,
         clearedDate: dateLabel,
+        supplier: `CLOSED_BY_TRANSFER:${transferEventId}`,
         farmId: fromPond.farmId || activeFarmId || farms[0]?.id || "",
         batch: stockLabel,
+        createdAt: new Date().toISOString(),
       };
       newStockEvents.push(seClosed);
     }
@@ -9365,12 +9401,13 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
         .sort();
       const latestPriorToClosedIso = priorToPondClosedDates.length > 0 ? priorToPondClosedDates[priorToPondClosedDates.length - 1] : null;
 
+      const isLegacyEvent = !(ev.supplier && ev.supplier.startsWith("TRANSFER_PCT:"));
       const rawPct = parseFloat((ev.supplier || "").replace("TRANSFER_PCT:", "")) || Number(ev.salePrice) || 0;
-      const isFullTransfer = rawPct >= 99.99 || (farmStockEvents || []).some(ce =>
+      const isLegacyFullTransfer = isLegacyEvent && (rawPct >= 99.99 || (farmStockEvents || []).some(ce =>
         ce.type === "Closed" &&
         ((fromPondObj && ce.pondId === fromPondObj.id) || (ce.pondName || "").trim().toLowerCase() === fromPondNorm) &&
         toValidDbDate(ce.clearedDate || ce.date) === evIso
-      );
+      ));
 
       const removedDestIds = new Set<string>();
       // Track which (srcRec.id, total) has already been healed once to avoid double-adding identical retry duplicates
@@ -9391,7 +9428,8 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
           !removedDestIds.has(sr.id) &&
           ((fromPondObj && sr.pondId === fromPondObj.id) || (sr.pond || "").trim().toLowerCase() === fromPondNorm) &&
           (toValidDbDate(sr.date) === rIso || isSameDate(sr.date, destRec.date)) &&
-          isSamePelletSize(sr.size, destRec.size)
+          isSamePelletSize(sr.size, destRec.size) &&
+          (!sr.fishStock || !destRec.fishStock || sr.fishStock === "—" || destRec.fishStock === "—" || isStockMatch(sr.fishStock, destRec.fishStock, farmPonds))
         );
 
         if (srcRec) {
@@ -9405,7 +9443,11 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
             healedSrcTotals.set(srcRec.id, seenSigs);
           }
           removedDestIds.add(destRec.id);
-        } else if (isFullTransfer && (!evIso || !rIso || rIso <= evIso)) {
+        } else if (
+          isLegacyFullTransfer &&
+          (!evIso || !rIso || rIso <= evIso) &&
+          Boolean(ev.batch && destRec.fishStock && isStockMatch(destRec.fishStock, ev.batch, farmPonds))
+        ) {
           // Legacy 100% transfer moved the record from fromPond to toPond -> restore original pond attribution
           destRec.pond = fromPondObj?.name || fromPondName;
           destRec.pondId = fromPondObj?.id || destRec.pondId;
@@ -9431,33 +9473,55 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
         const da = toValidDbDate(a.date) || "";
         const db = toValidDbDate(b.date) || "";
         if (da !== db) return da.localeCompare(db);
-        return (a.createdAt || "").localeCompare(b.createdAt || "");
+        const ca = a.createdAt || "";
+        const cb = b.createdAt || "";
+        if (ca !== cb) return ca.localeCompare(cb);
+        return (farmStockEvents || []).indexOf(a) - (farmStockEvents || []).indexOf(b);
       });
 
-    // Deduplicate retry/duplicate Transfer events for the same (fromPond, toPond) within the same active cycle on toPond
+    if (rawTransfers.length === 0) return healedBaseFarmFeeding;
+
+    const parseSupplierMeta = (supplier?: string | null) => {
+      const s = supplier || "";
+      const srcStockId = (s.match(/\|SRC_STOCK:([^|]+)/)?.[1] || "").trim();
+      const dstStockId = (s.match(/\|DST_STOCK:([^|]+)/)?.[1] || "").trim();
+      const stockDateIso = (s.match(/\|STOCK_DATE:([^|]+)/)?.[1] || "").trim();
+      const feedIdsRaw = (s.match(/\|FEED_IDS:([^|]+)/)?.[1] || "").trim();
+      const hasFeedIds = s.includes("|FEED_IDS:");
+      const feedIdsSet = new Set<string>(
+        hasFeedIds && feedIdsRaw && feedIdsRaw !== "NONE"
+          ? feedIdsRaw.split(",").map(x => x.trim()).filter(Boolean)
+          : []
+      );
+      return { srcStockId, dstStockId, stockDateIso, hasFeedIds, feedIdsSet };
+    };
+
+    // Deduplicate retry/duplicate Transfer events for the same (fromPond, toPond, date, stockDate)
     const dedupedTransfersMap = new Map<string, StockEvent>();
     for (const ev of rawTransfers) {
       const fromNorm = (ev.fromPond || "").trim().toLowerCase();
       const toNorm = (ev.pondName || "").trim().toLowerCase();
       const evIso = toValidDbDate(ev.date) || "";
       if (!fromNorm || !toNorm) continue;
-      const toPondObj = farmPonds.find(p => (ev.pondId && p.id === ev.pondId) || p.name.trim().toLowerCase() === toNorm);
-      const priorClosures = (farmStockEvents || [])
-        .filter(ce => ce.type === "Closed" && ((toPondObj && ce.pondId === toPondObj.id) || (ce.pondName || "").trim().toLowerCase() === toNorm))
-        .map(ce => toValidDbDate(ce.clearedDate || ce.date) || "")
-        .filter(d => Boolean(d && (!evIso || d < evIso)))
-        .sort();
-      const cycleKey = priorClosures.length > 0 ? priorClosures[priorClosures.length - 1] : "open";
-      const key = `${fromNorm}__${toNorm}__${cycleKey}`;
+      const meta = parseSupplierMeta(ev.supplier);
+      const batchIso = meta.stockDateIso || toValidDbDate(ev.batch) || "";
+      const key = `${fromNorm}__${toNorm}__${evIso}__${batchIso}`;
       dedupedTransfersMap.set(key, ev);
     }
     const nonDestructiveTransfers = Array.from(dedupedTransfersMap.values());
 
-    if (nonDestructiveTransfers.length === 0) return healedBaseFarmFeeding;
+    // Identify the single latest Transfer event targeting each destination pond
+    const latestTransferByDestPond = new Map<string, StockEvent>();
+    for (const ev of nonDestructiveTransfers) {
+      const toNorm = (ev.pondName || "").trim().toLowerCase();
+      if (toNorm) latestTransferByDestPond.set(toNorm, ev);
+    }
 
     let records: FeedingRecord[] = healedBaseFarmFeeding.map(r => ({ ...r }));
+    const activeIncomingTransferByPond = new Map<string, StockEvent>();
 
-    for (const ev of nonDestructiveTransfers) {
+    for (let evIdx = 0; evIdx < nonDestructiveTransfers.length; evIdx++) {
+      const ev = nonDestructiveTransfers[evIdx];
       const rawPct = parseFloat((ev.supplier || "").replace("TRANSFER_PCT:", "")) || Number(ev.salePrice) || 0;
       if (rawPct <= 0) continue;
       const isFull = rawPct >= 99.99;
@@ -9469,26 +9533,106 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       const fromPondObj = farmPonds.find(p => p.name.trim().toLowerCase() === fromPondNameNorm);
       const toPondObj = farmPonds.find(p => (ev.pondId && p.id === ev.pondId) || p.name.trim().toLowerCase() === toPondNameNorm);
       const evIso = toValidDbDate(ev.date);
+      const evPosInAllEvents = (farmStockEvents || []).indexOf(ev);
+      const meta = parseSupplierMeta(ev.supplier);
 
-      // Check if toPond was closed AFTER this transfer event
-      const toPondClosedAfterTransfer = (farmStockEvents || []).some(ce => {
-        if (ce.type !== "Closed") return false;
-        const matchesTo = (toPondObj && ce.pondId === toPondObj.id) || (ce.pondName || "").trim().toLowerCase() === toPondNameNorm;
-        if (!matchesTo) return false;
-        const ceIso = toValidDbDate(ce.clearedDate || ce.date);
-        if (!ceIso || !evIso) return false;
-        if (ceIso > evIso) return true;
-        if (ceIso === evIso && ce.createdAt && ev.createdAt && ce.createdAt > ev.createdAt) return true;
-        return false;
+      const isLatestTransferIntoToPond = latestTransferByDestPond.get(toPondNameNorm)?.id === ev.id;
+      const toPondActiveStockIso = (toPondObj && toPondObj.status === "Active" && toPondObj.stockingDate && toPondObj.stockingDate !== "—")
+        ? toValidDbDate(toPondObj.stockingDate)
+        : null;
+      const fromPondActiveStockIso = (fromPondObj && fromPondObj.status === "Active" && fromPondObj.stockingDate && fromPondObj.stockingDate !== "—")
+        ? toValidDbDate(fromPondObj.stockingDate)
+        : null;
+
+      // Determine the transferred stock's stocking date (ISO)
+      const evStockingIso =
+        meta.stockDateIso ||
+        toValidDbDate(ev.batch) ||
+        (isLatestTransferIntoToPond ? toPondActiveStockIso : null) ||
+        fromPondActiveStockIso ||
+        null;
+
+      // Check if toPond subsequently transferred this exact batch out to another pond in a chained transfer (A -> B -> C)
+      const wasChainTransferredOutOfToPond = nonDestructiveTransfers.slice(evIdx + 1).some(laterEv => {
+        if ((laterEv.fromPond || "").trim().toLowerCase() !== toPondNameNorm) return false;
+        const laterMeta = parseSupplierMeta(laterEv.supplier);
+        const laterStockIso = laterMeta.stockDateIso || toValidDbDate(laterEv.batch);
+        if (evStockingIso && laterStockIso) return evStockingIso === laterStockIso;
+        if (ev.batch && laterEv.batch) return isStockMatch(ev.batch, laterEv.batch, farmPonds);
+        return true;
       });
 
-      // Find any closed cycle on fromPond strictly before this transfer batch
-      const priorClosedDates = (farmStockEvents || [])
-        .filter(ce => ce.type === "Closed" && ((fromPondObj && ce.pondId === fromPondObj.id) || (ce.pondName || "").trim().toLowerCase() === fromPondNameNorm))
+      // Check if toPond was closed, restocked, or superseded by a later transfer AFTER this transfer event
+      const toPondClosedOrSuperseded = (() => {
+        if (!isLatestTransferIntoToPond && !wasChainTransferredOutOfToPond) return true;
+
+        const closedAfter = (farmStockEvents || []).some(ce => {
+          if (ce.type !== "Closed") return false;
+          if (ce.supplier === `CLOSED_BY_TRANSFER:${ev.id}`) return false;
+          const matchesTo = (toPondObj && ce.pondId === toPondObj.id) || (ce.pondName || "").trim().toLowerCase() === toPondNameNorm;
+          if (!matchesTo) return false;
+          const ceIso = toValidDbDate(ce.clearedDate || ce.date);
+          if (!ceIso || !evIso) return false;
+          if (ceIso > evIso) return true;
+          if (ceIso === evIso) {
+            if (ce.createdAt && ev.createdAt) return ce.createdAt >= ev.createdAt;
+            if (ev.batch && ce.batch && isStockMatch(ce.batch, ev.batch, farmPonds)) return true;
+            if (evStockingIso && toValidDbDate(ce.date) === evStockingIso) return true;
+            const cePos = (farmStockEvents || []).indexOf(ce);
+            if (cePos > evPosInAllEvents && evPosInAllEvents !== -1) return true;
+          }
+          return false;
+        });
+        if (closedAfter && !wasChainTransferredOutOfToPond) return true;
+
+        // If toPond currently has an active stock with a different stocking date (and didn't chain-transfer this stock out), this transfer is from an old closed cycle
+        if (!wasChainTransferredOutOfToPond && toPondObj) {
+          if (toPondObj.status === "Empty") return true;
+          if (evStockingIso && toPondActiveStockIso && evStockingIso !== toPondActiveStockIso) return true;
+          if (meta.dstStockId && toPondObj.fishStockId && toPondObj.fishStockId !== meta.dstStockId) return true;
+        }
+        return false;
+      })();
+
+      if (!toPondClosedOrSuperseded && isLatestTransferIntoToPond) {
+        activeIncomingTransferByPond.set(toPondNameNorm, ev);
+      }
+
+      // Find all prior Closed events on fromPond on or before evIso (excluding the closure generated by ev itself)
+      const priorFromClosures = (farmStockEvents || []).filter(ce => {
+        if (ce.type !== "Closed") return false;
+        if (ce.supplier === `CLOSED_BY_TRANSFER:${ev.id}`) return false;
+        const matchesFrom = (fromPondObj && ce.pondId === fromPondObj.id) || (ce.pondName || "").trim().toLowerCase() === fromPondNameNorm;
+        if (!matchesFrom) return false;
+        const ceIso = toValidDbDate(ce.clearedDate || ce.date);
+        if (!ceIso || !evIso) return false;
+        if (ceIso < evIso) return true;
+        if (ceIso === evIso) {
+          // Exclude if this Closed event was created by ev itself (100% transfer of the exact same batch at the same time)
+          if (isFull && ce.count === ev.count && (!evStockingIso || !toValidDbDate(ce.date) || toValidDbDate(ce.date) === evStockingIso)) {
+            if (!ce.createdAt || !ev.createdAt || Math.abs(new Date(ce.createdAt).getTime() - new Date(ev.createdAt).getTime()) < 5000) {
+              return false;
+            }
+          }
+          if (ce.createdAt && ev.createdAt && ce.createdAt > ev.createdAt) return false;
+          return true;
+        }
+        return false;
+      });
+      const priorFromClosedDates = priorFromClosures
         .map(ce => toValidDbDate(ce.clearedDate || ce.date))
-        .filter(d => Boolean(d && (!evIso || d < evIso)))
-        .sort();
-      const latestPriorClosedIso = priorClosedDates.length > 0 ? priorClosedDates[priorClosedDates.length - 1] : null;
+        .filter(Boolean)
+        .sort() as string[];
+      const latestPriorClosedIso = priorFromClosedDates.length > 0 ? priorFromClosedDates[priorFromClosedDates.length - 1] : null;
+
+      // Determine expected source fishStockId for this transfer if known
+      const expectedSrcStockId =
+        meta.srcStockId ||
+        ((!isFull && fromPondObj && fromPondObj.status === "Active" && (!evStockingIso || !fromPondActiveStockIso || evStockingIso === fromPondActiveStockIso) && fromPondObj.fishStockId && fromPondObj.fishStockId !== fromPondObj.id)
+          ? fromPondObj.fishStockId
+          : (isFull && !toPondClosedOrSuperseded && toPondObj?.fishStockId && toPondObj.fishStockId !== toPondObj.id
+              ? toPondObj.fishStockId
+              : ""));
 
       const belongsToTransferredStock = (r: FeedingRecord) => {
         const rPondNorm = (r.pond || "").trim().toLowerCase();
@@ -9497,24 +9641,62 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
         } else if (rPondNorm !== fromPondNameNorm) {
           return false;
         }
+
+        const baseSourceId = String(r.id || "").split("__tx_")[0];
+        if (meta.hasFeedIds) {
+          return meta.feedIdsSet.has(baseSourceId);
+        }
+
         const rIso = toValidDbDate(r.date);
         if (evIso && rIso && rIso > evIso) return false;
         if (ev.createdAt && (r as any).createdAt && evIso && rIso === evIso && (r as any).createdAt > ev.createdAt) return false;
-        if (latestPriorClosedIso && rIso && rIso < latestPriorClosedIso) return false;
+
+        // 1. Feeding date cannot be earlier than the transferred fish stock's stocking date
+        if (evStockingIso && rIso && rIso < evStockingIso) return false;
+
+        // 2. Feeding record's fishStock date cannot conflict with the transferred stock's stocking date
+        const rStockIso = toValidDbDate(r.fishStock);
+        if (evStockingIso && rStockIso && rStockIso !== evStockingIso) return false;
+        if (ev.batch && r.fishStock && r.fishStock !== "—" && !isStockMatch(r.fishStock, ev.batch, farmPonds) && rStockIso && evStockingIso && rStockIso !== evStockingIso) {
+          return false;
+        }
+
+        // 3. Direct source fishStockId verification when available
+        if (expectedSrcStockId && r.fishStockId && r.fishStockId !== fromPondObj?.id && !String(r.id || "").includes("__tx_")) {
+          if (r.fishStockId !== expectedSrcStockId) return false;
+        }
+
+        // 4. Exclude records from prior closed cycles on fromPond (including same-day closures prior to restock)
+        if (latestPriorClosedIso && rIso) {
+          if (rIso < latestPriorClosedIso) return false;
+          if (rIso === latestPriorClosedIso) {
+            const matchesAnyClosedBatch = priorFromClosures.some(ce =>
+              Boolean(ce.batch && r.fishStock && isStockMatch(r.fishStock, ce.batch, farmPonds) && (!ev.batch || !isStockMatch(ce.batch, ev.batch, farmPonds)))
+            );
+            if (matchesAnyClosedBatch) return false;
+            if (expectedSrcStockId && (!r.fishStockId || r.fishStockId !== expectedSrcStockId)) return false;
+          }
+        }
+
         return true;
       };
+
+      const assignedDestStockId = !toPondClosedOrSuperseded
+        ? (meta.dstStockId || toPondObj?.fishStockId || undefined)
+        : (meta.dstStockId || `closed_tx_${ev.id}`);
 
       if (isFull) {
         records = records.map(r => {
           if (belongsToTransferredStock(r)) {
-            if (toPondClosedAfterTransfer) return r;
+            if (toPondClosedOrSuperseded) return r;
             return {
               ...r,
               pond: toPondObj?.name || ev.pondName,
               pondId: toPondObj?.id || ev.pondId,
               fishStock: ev.batch || r.fishStock,
-              fishStockId: toPondObj?.fishStockId || r.fishStockId,
-            };
+              fishStockId: assignedDestStockId || r.fishStockId,
+              _transferredByEvId: ev.id,
+            } as FeedingRecord;
           }
           return r;
         });
@@ -9543,18 +9725,19 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
             const keepEvening = Math.max(0, Math.round((origEvening - destEvening) * 100) / 100);
             const keepTotal = Math.max(0, Math.round((origTotal - destTotal) * 100) / 100);
 
-            if (destTotal > 0 && !toPondClosedAfterTransfer) {
+            if (destTotal > 0 && !toPondClosedOrSuperseded) {
               destCopies.push({
                 ...r,
                 id: `${baseSourceId}__tx_${ev.id}`,
                 pond: toPondObj?.name || ev.pondName,
                 pondId: toPondObj?.id || ev.pondId,
                 fishStock: ev.batch || r.fishStock,
-                fishStockId: toPondObj?.fishStockId || r.fishStockId,
+                fishStockId: assignedDestStockId || r.fishStockId,
                 morning: destMorning,
                 evening: destEvening,
                 total: destTotal,
-              });
+                _transferredByEvId: ev.id,
+              } as FeedingRecord);
             }
 
             return {
@@ -9568,6 +9751,27 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
         });
         records = [...records, ...destCopies];
       }
+    }
+
+    // Final isolation guard: for any pond whose current active stock came from an incoming transfer activeEv,
+    // before activeEv happened that destination pond was Empty (0 fish), so any record on that pond with date < activeEvIso
+    // that was NOT transferred by activeEv is an orphaned record from a previous lifecycle on that pond.
+    if (activeIncomingTransferByPond.size > 0) {
+      records = records.filter(r => {
+        const rPondNorm = (r.pond || "").trim().toLowerCase();
+        const pondObj = farmPonds.find(p => (r.pondId && p.id === r.pondId) || p.name.trim().toLowerCase() === rPondNorm);
+        const pNorm = (pondObj?.name || r.pond || "").trim().toLowerCase();
+        const activeEv = activeIncomingTransferByPond.get(pNorm);
+        if (!activeEv) return true;
+        if ((r as any)._transferredByEvId === activeEv.id) return true;
+
+        // If this record was NOT transferred by activeEv, it can only belong to this pond if it was logged ON OR AFTER the transfer date for the current stock
+        const activeEvIso = toValidDbDate(activeEv.date);
+        const rIso = toValidDbDate(r.date);
+        if (activeEvIso && rIso && rIso < activeEvIso) return false;
+        if ((r as any)._transferredByEvId && (r as any)._transferredByEvId !== activeEv.id) return false;
+        return true;
+      });
     }
 
     return records;

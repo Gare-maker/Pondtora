@@ -688,9 +688,6 @@ function PondDetail({
   const history = useMemo(() => {
     if (pond.status === "Empty") return [];
 
-    const pNameNorm = (pond.name || "").trim().toLowerCase();
-    const pIdNorm = (pond.id || "").trim().toLowerCase();
-
     // Check for prior closed cycles in stockEvents to isolate old historical lifecycles
     const pNameCompact = (pond.name || "").replace(/\s+/g, "").toLowerCase();
     const pIdCompact = (pond.id || "").toLowerCase();
@@ -702,6 +699,35 @@ function PondDetail({
       ? closedEvents.map(e => toValidDbDate(e.clearedDate || e.date)).filter(Boolean).sort().reverse()[0]
       : null;
 
+    // Identify the latest incoming Transfer event into this pond if its current active stock came from a transfer
+    const incomingTransfers = (stockEvents || [])
+      .filter(e =>
+        e &&
+        e.type === "Transfer" &&
+        ((e.pondId && e.pondId === pond.id) || (e.pondName && e.pondName.replace(/\s+/g, "").toLowerCase() === pNameCompact))
+      )
+      .sort((a, b) => {
+        const da = toValidDbDate(a.date) || "";
+        const db = toValidDbDate(b.date) || "";
+        if (da !== db) return da.localeCompare(db);
+        const ca = a.createdAt || "";
+        const cb = b.createdAt || "";
+        if (ca !== cb) return ca.localeCompare(cb);
+        return (stockEvents || []).indexOf(a) - (stockEvents || []).indexOf(b);
+      });
+    const latestIncomingTransfer = incomingTransfers.length > 0 ? incomingTransfers[incomingTransfers.length - 1] : null;
+    const activeIncomingTransfer = (() => {
+      if (!latestIncomingTransfer) return null;
+      const evIso = toValidDbDate(latestIncomingTransfer.date);
+      const evStockIso =
+        (latestIncomingTransfer.supplier?.match(/\|STOCK_DATE:([^|]+)/)?.[1] || "").trim() ||
+        toValidDbDate(latestIncomingTransfer.batch);
+      if (pStockDbDate && evStockIso && pStockDbDate !== evStockIso) return null;
+      if (latestClosedDate && evIso && latestClosedDate > evIso) return null;
+      return latestIncomingTransfer;
+    })();
+    const activeIncomingEvIso = activeIncomingTransfer ? toValidDbDate(activeIncomingTransfer.date) : null;
+
     const filtered = feedingRecords.filter(r => {
       // 1. Match Pond (by ID or pond name, case/whitespace insensitive)
       const rPondCompact = (r.pond || "").replace(/\s+/g, "").toLowerCase();
@@ -711,21 +737,54 @@ function PondDetail({
       );
       if (!isSamePond) return false;
 
-      // 2. Direct unique fishStockId isolation takes priority over prior pond closure dates
-      // (important when transferring a stock with historical feeding records into a previously closed pond)
-      if ((pond as any).fishStockId && r.fishStockId) {
-        return r.fishStockId === (pond as any).fishStockId;
+      // 2. Feeding date and stock batch date cannot precede the current active fish stock's stocking date
+      const rDate = toValidDbDate(r.date);
+      if (pStockDbDate && rDate && rDate < pStockDbDate) return false;
+
+      const rStockDate = toValidDbDate(r.fishStock);
+      if (pStockDbDate && rStockDate && rStockDate !== pStockDbDate) return false;
+
+      // 3. Unique fishStockId isolation (when both pond and record carry a stock instance ID distinct from pond.id)
+      if ((pond as any).fishStockId && r.fishStockId && r.fishStockId !== pond.id) {
+        if (r.fishStockId !== (pond as any).fishStockId) return false;
       }
 
-      const rDate = toValidDbDate(r.date);
-      if (latestClosedDate && rDate && rDate <= latestClosedDate) return false;
+      // 4. If this pond's current active stock was received via a transfer, before the transfer date this pond was Empty (0 fish),
+      // so any record from before the transfer date MUST have been transferred by that active transfer event.
+      const txEvId = (r as any)._transferredByEvId as string | undefined;
+      if (activeIncomingTransfer) {
+        if (txEvId) {
+          return txEvId === activeIncomingTransfer.id;
+        }
+        if (activeIncomingEvIso && rDate && rDate < activeIncomingEvIso) {
+          return false;
+        }
+      } else if (txEvId) {
+        return false;
+      }
+
+      // 5. Prior closed cycle date isolation (for records not explicitly transferred by activeIncomingTransfer)
+      if (!txEvId && latestClosedDate && rDate) {
+        if (rDate < latestClosedDate) return false;
+        if (rDate === latestClosedDate) {
+          const hasMatchingNewStockId = Boolean(
+            (pond as any).fishStockId &&
+            r.fishStockId &&
+            r.fishStockId !== pond.id &&
+            r.fishStockId === (pond as any).fishStockId
+          );
+          if (!hasMatchingNewStockId) return false;
+        }
+      }
 
       const fsTrimmed = (r.fishStock || "").trim();
 
-      // Check if this record explicitly matches a past closed batch for this pond
+      // 6. Check if this record explicitly matches a past closed batch for this pond
       const matchesClosedBatch = Boolean(fsTrimmed) && closedEvents.some(ce => {
         const ceBatch = ce.batch || (ce.date ? fmtStockingDate(ce.date) : null);
-        return Boolean(ceBatch && (ceBatch.trim().toLowerCase() === fsTrimmed.toLowerCase() || isStockMatch(fsTrimmed, ceBatch, ponds)));
+        if (!ceBatch) return false;
+        if (activeFishStockLabel && isStockMatch(ceBatch, activeFishStockLabel, ponds)) return false;
+        return ceBatch.trim().toLowerCase() === fsTrimmed.toLowerCase() || isStockMatch(fsTrimmed, ceBatch, ponds);
       });
       if (matchesClosedBatch) return false;
 
@@ -755,11 +814,12 @@ function PondDetail({
   const filtHistory=fhMonth==="All"?history:history.filter(r=>r.month===fhMonth);
   const {sorted:sortedHist,sf:hSf,sd:hSd,toggle:hToggle}=useSort(filtHistory,"date");
   const feedSummary=history.reduce<{brand:string;size:string;total:number}[]>((acc,r)=>{
-    const b = r.brand?.trim() || "Not specified";
-    const key=`${b}__${r.size}`;
-    const ex=acc.find(a=>`${a.brand}__${a.size}`===key);
+    const b = (r.brand && r.brand.trim() && r.brand.trim() !== "—") ? r.brand.trim() : "Not specified";
+    const s = (r.size || "").trim();
+    const key=`${b.toLowerCase()}__${s.toLowerCase()}`;
+    const ex=acc.find(a=>`${a.brand.toLowerCase()}__${a.size.toLowerCase()}`===key);
     if(ex) ex.total = fmtKg(ex.total + (Number(r.total) || 0));
-    else acc.push({brand:b,size:r.size,total:fmtKg(r.total)});
+    else acc.push({brand:b,size:s,total:fmtKg(r.total)});
     return acc;
   },[]);
   const handleMort=async()=>{
@@ -1112,19 +1172,29 @@ function PondDetail({
           {feedSummary.length>0&&<span className="text-xs font-bold text-green-700 font-['Barlow_Condensed',sans-serif]">Total: {fmtKg(feedSummary.reduce((s,r)=>s+r.total,0))}kg</span>}
         </div>
         {(()=>{
-          const allSizes=pond.status === "Empty" ? [] : Array.from(new Set([...feedSummary.map(r=>r.size),...Object.keys(pond.maxKgByPallet||{})])).sort((a,b)=>parseFloat(a)-parseFloat(b));
-          if(allSizes.length===0)return<p className="text-xs text-slate-400 text-center py-2">No feeding data recorded yet. Set Max kg / Pallet to track pallet limits.</p>;
+          const summaryCards: { brand: string; size: string; total: number }[] = pond.status === "Empty"
+            ? []
+            : [
+                ...feedSummary,
+                ...Object.keys(pond.maxKgByPallet || {})
+                  .filter(sz => !feedSummary.some(f => isSamePelletSize(f.size, sz)))
+                  .map(sz => ({ brand: "Not specified", size: sz, total: 0 })),
+              ].sort((a, b) => {
+                const diff = (parseFloat(a.size) || 0) - (parseFloat(b.size) || 0);
+                if (diff !== 0) return diff;
+                return a.brand.localeCompare(b.brand);
+              });
+          if(summaryCards.length===0)return<p className="text-xs text-slate-400 text-center py-2">No feeding data recorded yet. Set Max kg / Pallet to track pallet limits.</p>;
           return(
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-              {allSizes.map(size=>{
-                const sizeEntries=feedSummary.filter(r=>r.size===size);
-                const currentFeed=fmtKg(sizeEntries.reduce((s,r)=>s+r.total,0));
-                const brandsList=Array.from(new Set(sizeEntries.map(r=>r.brand?.trim()||"Not specified"))).filter(Boolean);
-                const brandDisplay=brandsList.length>0?brandsList.join(", "):"Not specified";
+              {summaryCards.map(entry=>{
+                const size=entry.size;
+                const currentFeed=fmtKg(entry.total);
+                const brandDisplay=entry.brand?.trim()||"Not specified";
                 const maxKg=pond.maxKgByPallet?.[size];
                 const atMax=!!maxKg&&currentFeed>=maxKg;
                 return(
-                  <div key={size} className={`rounded-xl p-3 border flex flex-col gap-2 ${atMax?"bg-red-50 border-red-200":"bg-slate-50 border-slate-200"}`}>
+                  <div key={`${entry.brand}__${size}`} className={`rounded-xl p-3 border flex flex-col gap-2 ${atMax?"bg-red-50 border-red-200":"bg-slate-50 border-slate-200"}`}>
                     {/* Header row: badge + edit icon */}
                     <div className="flex items-start justify-between gap-1 min-w-0">
                       <div className="flex flex-col gap-0.5 min-w-0">

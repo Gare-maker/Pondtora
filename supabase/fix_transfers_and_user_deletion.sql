@@ -1,6 +1,22 @@
  
 
 -- ==============================================================================
+-- 1. ENSURE POND & FEEDING TRANSFER ISOLATION COLUMNS EXIST
+-- ==============================================================================
+ALTER TABLE ponds ADD COLUMN IF NOT EXISTS fish_stock TEXT;
+ALTER TABLE ponds ADD COLUMN IF NOT EXISTS fish_stock_id TEXT;
+
+ALTER TABLE stock_events ADD COLUMN IF NOT EXISTS batch TEXT;
+ALTER TABLE stock_events ADD COLUMN IF NOT EXISTS cleared_date DATE;
+ALTER TABLE stock_events ADD COLUMN IF NOT EXISTS from_pond TEXT;
+ALTER TABLE stock_events ADD COLUMN IF NOT EXISTS supplier TEXT;
+
+ALTER TABLE feeding_records ADD COLUMN IF NOT EXISTS pond_id UUID;
+ALTER TABLE feeding_records ADD COLUMN IF NOT EXISTS fish_stock TEXT;
+ALTER TABLE feeding_records ADD COLUMN IF NOT EXISTS fish_stock_id TEXT;
+ALTER TABLE feeding_records ADD COLUMN IF NOT EXISTS edit_history JSONB;
+
+-- ==============================================================================
 -- 2. PERMANENT USER DELETION STORED PROCEDURES
 -- ==============================================================================
 CREATE OR REPLACE FUNCTION delete_user_completely(target_user_id UUID)
