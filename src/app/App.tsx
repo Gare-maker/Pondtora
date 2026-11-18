@@ -7213,7 +7213,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
 
     // 8. Stock events (store transfer percentage on seTransfer for non-destructive pond-level feed calculation)
     const seTransfer: StockEvent = {
-      id: uid(),
+      id: crypto.randomUUID(),
       pondId: toId,
       pondName: toPond.name,
       date: dateLabel,
@@ -7226,12 +7226,13 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       fromPond: fromPond.name,
       farmId: toPond.farmId || activeFarmId || farms[0]?.id || "",
       batch: stockLabel,
+      createdAt: new Date().toISOString(),
     };
     const newStockEvents: StockEvent[] = [seTransfer];
 
     if (isFullTransfer) {
       const seClosed: StockEvent = {
-        id: uid(),
+        id: crypto.randomUUID(),
         pondId: fromId,
         pondName: fromPond.name,
         date: (fromPond.stockingDate && fromPond.stockingDate !== "—") ? fromPond.stockingDate : dateLabel,
@@ -7304,15 +7305,18 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
 
     try {
       await withTimeout(
-        Promise.all([api.ponds.update(updatedFrom), api.ponds.update(updatedTo)]),
-        10000,
-        "Database pond update timed out. Please check your connection and try again."
+        Promise.all([
+          api.ponds.update(updatedFrom),
+          api.ponds.update(updatedTo),
+          ...newStockEvents.map(se => api.stockEvents.create(se)),
+        ]),
+        12000,
+        "Database pond & transfer event update timed out. Please check your connection and try again."
       );
 
       const taskFactories: Array<() => Promise<any>> = [
         () => api.fishCountHistory.create(transferEntryDest),
         () => api.fishCountHistory.create(transferEntrySrc),
-        ...newStockEvents.map(se => () => api.stockEvents.create(se)),
         ...createdDestTreat.map(t => () => api.treatments.create(t)),
         ...updatedSourceTreat.map(t => () => api.treatments.update(t)),
         ...(isFullTransfer
@@ -9330,7 +9334,10 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
   /* ── Pond-Level Feeding Records (applies fish stock transfers for Pond Management only) ── */
   const pondFeedingRecords = useMemo<FeedingRecord[]>(() => {
     const nonDestructiveTransfers = (farmStockEvents || [])
-      .filter(e => e && e.type === "Transfer" && Boolean(e.supplier && e.supplier.startsWith("TRANSFER_PCT:")))
+      .filter(e => e && e.type === "Transfer" && (
+        Boolean(e.supplier && e.supplier.startsWith("TRANSFER_PCT:")) ||
+        (Number(e.salePrice) > 0 && Number(e.salePrice) <= 100 && Boolean(e.fromPond))
+      ))
       .sort((a, b) => {
         const da = toValidDbDate(a.date) || "";
         const db = toValidDbDate(b.date) || "";
@@ -9372,6 +9379,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
         }
         const rIso = toValidDbDate(r.date);
         if (evIso && rIso && rIso > evIso) return false;
+        if (ev.createdAt && (r as any).createdAt && evIso && rIso === evIso && (r as any).createdAt > ev.createdAt) return false;
         if (latestPriorClosedIso && rIso && rIso < latestPriorClosedIso) return false;
         return true;
       };
