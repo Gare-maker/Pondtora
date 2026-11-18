@@ -6925,6 +6925,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       throw err;
     }
   };
+  const executingTransferRef = useRef(false);
   const handleExecuteTransfer = async (
     fromId: string,
     toId: string,
@@ -6933,6 +6934,9 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     dateInput?: string
   ) => {
     if (!checkSubscriptionActive()) return false;
+    if (executingTransferRef.current) return false;
+    executingTransferRef.current = true;
+    try {
     const fromPond = ponds.find(p => p.id === fromId);
     const toPond = ponds.find(p => p.id === toId);
     if (!fromPond || !toPond) {
@@ -7310,7 +7314,7 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
           api.ponds.update(updatedTo),
           ...newStockEvents.map(se => api.stockEvents.create(se)),
         ]),
-        12000,
+        18000,
         "Database pond & transfer event update timed out. Please check your connection and try again."
       );
 
@@ -7325,14 +7329,8 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
       ];
 
       if (taskFactories.length > 0) {
-        backgroundSyncPromise = runBatched(taskFactories, 5);
-        const raceResult = await Promise.race([
-          backgroundSyncPromise.then(() => "done" as const),
-          new Promise<"timeout">(resolve => setTimeout(() => resolve("timeout"), 12000)),
-        ]);
-        if (raceResult === "timeout") {
-          syncCompleted = false;
-        }
+        syncCompleted = false;
+        backgroundSyncPromise = runBatched(taskFactories, 10);
       }
     } catch (err: any) {
       console.error("Transfer database error, rolling back:", err);
@@ -7379,6 +7377,9 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
         : `${safeCount.toLocaleString()} fish (${Math.round(fraction * 100)}%) + proportional feeding history and relevant records transferred from ${fromPond.name} to ${toPond.name}.`
     );
     return true;
+    } finally {
+      executingTransferRef.current = false;
+    }
   };
 
   const transferStock = async (fromId: string, toId: string, date: string): Promise<boolean> => {

@@ -881,6 +881,7 @@ function PondDetail({
   };
 
   const handleTransfer = async () => {
+    if (isTransferring) return;
     if (!validateTransferForm()) return;
     const destId = transferF.toPond;
     const count = Math.floor(Number(transferF.count));
@@ -905,7 +906,7 @@ function PondDetail({
       const success: any = await Promise.race([
         transferOp,
         new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error("Transfer request timed out. Please check your connection and try again.")), 25000)
+          setTimeout(() => reject(new Error("Transfer request timed out. Please check your connection and try again.")), 30000)
         ),
       ]);
       clearInterval(timer);
@@ -1842,9 +1843,19 @@ function PondDetail({
 
                   <div className="space-y-1.5 text-slate-700">
                     <p className="font-semibold text-slate-800">Records to Transfer:</p>
-                    <p>• Fish stock information: <strong>{isFull ? "100% full stock transfer" : "Proportional stock allocation"}</strong></p>
-                    <p>• Feed consumption by pellet size: <strong>{displayPct}</strong></p>
-                    <p>• Daily feeding history: <strong>{displayPct}</strong></p>
+                    {(() => {
+                      const totalPondFeedKg = fmtKg(history.reduce((s, r) => s + (Number(r.total) || ((Number(r.morning) || 0) + (Number(r.evening) || 0))), 0));
+                      const frac = isFull ? 1 : (pond.currentCount > 0 ? parsedTransferCount / pond.currentCount : 0);
+                      const destFeedKg = isFull ? totalPondFeedKg : fmtKg(totalPondFeedKg * frac);
+                      const retainFeedKg = Math.max(0, fmtKg(totalPondFeedKg - destFeedKg));
+                      return (
+                        <>
+                          <p>• Fish stock information: <strong>{isFull ? "100% full stock transfer" : `${displayPct} proportional allocation (${parsedTransferCount.toLocaleString()} fish)`}</strong></p>
+                          <p>• Feed consumption by pellet size: <strong>{displayPct}</strong>{totalPondFeedKg > 0 ? ` (${destFeedKg} kg transferred · ${retainFeedKg} kg retained)` : ""}</p>
+                          <p>• Daily feeding history: <strong>{displayPct}</strong></p>
+                        </>
+                      );
+                    })()}
                     <p>• Treatment records: <strong>100% (full medical history)</strong></p>
                     <p>• Issue records: <strong>100% (full health &amp; issue history)</strong></p>
                     <p>• Mortality records: <strong>Not transferred (retained on source stock)</strong></p>
