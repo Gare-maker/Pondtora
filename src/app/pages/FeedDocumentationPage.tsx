@@ -123,6 +123,7 @@ export type MergedBagRow = {
   isManualPrevDayBalance?: boolean;
   initialManualRemainingKg?: number;
   manualFedDeductedKg?: number;
+  usedKgToday?: number;
 };
 
 export interface ManualPrevBalanceRecord {
@@ -150,6 +151,7 @@ export type BagRow = {
   size: string;
   kgPerBag: number;
   qty: string;
+  usedKg?: string;
   remainingKg: string;
 };
 
@@ -222,7 +224,46 @@ function FeedDocumentation({
   const [feedErr, setFeedErr] = useState<Record<string, string>>({});
   const [showCal, setShowCal] = useState(false);
   const [showBagsModal, setShowBagsModal] = useState(false);
+  const [bagsModalLockedStock, setBagsModalLockedStock] = useState<string | null>(null);
   const [bagsErr, setBagsErr] = useState<Record<string, string>>({});
+
+  /* ── Daily Feed Balance per-brand Quantity Used (kg) persistence (independent of Feed Stock & Feeding Records) ── */
+  const dailyBrandUsedStorageKey = useMemo(
+    () => `pondtora_daily_brand_used_${activeFarmId || "default"}`,
+    [activeFarmId]
+  );
+  const [dailyBrandUsedMap, setDailyBrandUsedMap] = useState<Record<string, number>>(() => {
+    try {
+      const raw = localStorage.getItem(`pondtora_daily_brand_used_${activeFarmId || "default"}`);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === "object") return parsed;
+      }
+    } catch { }
+    return {};
+  });
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(dailyBrandUsedStorageKey);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === "object") {
+          setDailyBrandUsedMap(parsed);
+          return;
+        }
+      }
+    } catch { }
+    setDailyBrandUsedMap({});
+  }, [dailyBrandUsedStorageKey]);
+  const persistDailyBrandUsedMap = useCallback((updater: (prev: Record<string, number>) => Record<string, number>) => {
+    setDailyBrandUsedMap(prev => {
+      const next = updater(prev);
+      try {
+        localStorage.setItem(dailyBrandUsedStorageKey, JSON.stringify(next));
+      } catch { }
+      return next;
+    });
+  }, [dailyBrandUsedStorageKey]);
   const [deleteRecId, setDeleteRecId] = useState<string | null>(null);
   const [docTab, setDocTab] = useState<"daily" | "bags" | "mismatch">("daily");
   const [bulkMobileView, setBulkMobileView] = useState<"table" | "card">("table");
@@ -2434,6 +2475,30 @@ function FeedDocumentation({
     };
   };
 
+  const getBrandUsedKey = useCallback((dateStr: string, fishStock: string, brand: string, size: string): string => {
+    const dIso = toValidDbDate(dateStr, viewYear) || dateToIso(dateStr) || dateStr;
+    const normFs = normalizeFishStock(fishStock, dateStr).toLowerCase().trim();
+    const normBr = (brand || "").toLowerCase().trim();
+    const normSz = (size || "").toLowerCase().replace(/\s+/g, "").trim();
+    return `${dIso}__${normFs}__${normBr}__${normSz}`;
+  }, [viewYear, dateToIso, normalizeFishStock]);
+
+  const getBrandUsedKg = useCallback((dateStr: string, fishStock: string, brand: string, size: string): number | null => {
+    if (!fishStock || !brand || brand === "—" || !size || size === "—") return null;
+    const exactKey = getBrandUsedKey(dateStr, fishStock, brand, size);
+    if (dailyBrandUsedMap[exactKey] !== undefined) return dailyBrandUsedMap[exactKey];
+    const dIso = toValidDbDate(dateStr, viewYear) || dateToIso(dateStr) || "";
+    const normBr = brand.toLowerCase().trim();
+    const normSz = size.toLowerCase().replace(/\s+/g, "").trim();
+    for (const [k, v] of Object.entries(dailyBrandUsedMap)) {
+      const [kDate, kFs, kBr, kSz] = k.split("__");
+      if (kDate === dIso && kBr === normBr && kSz === normSz && (isStockMatch(kFs, fishStock) || normalizeFishStock(kFs, dateStr).toLowerCase().trim() === normalizeFishStock(fishStock, dateStr).toLowerCase().trim())) {
+        return v;
+      }
+    }
+    return null;
+  }, [dailyBrandUsedMap, getBrandUsedKey, viewYear, dateToIso, isStockMatch, normalizeFishStock]);
+
   const blankBagRow = (targetDate?: string, preferredStock?: string, preferredSize?: string): BagRow => {
     const dateOpts = targetDate ? getFishStockOptionsForDate(targetDate) : modalFishStockOptions;
     const opts = dateOpts.length > 0 ? dateOpts : modalFishStockOptions;
@@ -2449,6 +2514,7 @@ function FeedDocumentation({
       size: pallet,
       kgPerBag: 15,
       qty: "",
+      usedKg: "",
       remainingKg: ""
     };
   };
@@ -2493,6 +2559,7 @@ function FeedDocumentation({
         (!r.size || r.size === "—" || isSamePelletSize(r.size, size))
       );
 
+      const usedVal = getBrandUsedKg(checkDate, fs, brand, size);
       map.set(key, {
         id: b.id,
         fishStock: fs,
@@ -2500,6 +2567,7 @@ function FeedDocumentation({
         size,
         kgPerBag: kgPb,
         qty: b.bagsOpened !== undefined && b.bagsOpened !== null ? String(b.bagsOpened) : "",
+        usedKg: usedVal !== null ? String(usedVal) : "",
         remainingKg: rLog && rLog.remainingKg !== undefined && rLog.remainingKg !== null ? String(rLog.remainingKg) : ""
       });
     });
@@ -2523,12 +2591,14 @@ function FeedDocumentation({
       if (!map.has(key)) {
         const inv = (inventory || []).find(f => f && f.brand === brand && isSamePelletSize(f.size, size));
         const kgPb = inv?.weightPerBag || 15;
+        const usedVal = getBrandUsedKg(checkDate, fs, brand, size);
         map.set(key, {
           fishStock: fs,
           brand,
           size,
           kgPerBag: kgPb,
           qty: "",
+          usedKg: usedVal !== null ? String(usedVal) : "",
           remainingKg: r.remainingKg !== undefined && r.remainingKg !== null ? String(r.remainingKg) : ""
         });
       }
@@ -2550,8 +2620,49 @@ function FeedDocumentation({
   const openBagsModal = () => {
     const initialDate = getIsoDateForSelDate(selDate);
     setBagsDate(initialDate);
+    setBagsModalLockedStock(null);
     setBagRows(getDefaultBagRowsForDate(initialDate));
     setBagsErr({});
+    setShowBagsModal(true);
+  };
+
+  const openDailyBalanceForStock = (row: MergedBagRow) => {
+    const initialDate = getIsoDateForSelDate(selDate);
+    const dateOptions = getFishStockOptionsForDate(initialDate);
+    const matchedOpt = dateOptions.find(opt =>
+      opt.name === row.fishStock ||
+      isStockMatch(opt.name, row.fishStock) ||
+      normalizeFishStock(opt.name) === normalizeFishStock(row.fishStock) ||
+      opt.ponds.some(p => p === row.fishStock || isStockMatch(p, row.fishStock))
+    );
+    const resolvedFs = matchedOpt?.name || (isPondName(row.fishStock) ? pondToStock(row.fishStock, initialDate) : row.fishStock) || (dateOptions[0]?.name || "");
+    const fs = isPondName(resolvedFs) ? (dateOptions[0]?.name || "") : resolvedFs;
+
+    setBagsDate(initialDate);
+    setBagsModalLockedStock(fs);
+    setBagsErr({});
+
+    const existingForStock = getBagRowsForDate(initialDate).filter(r =>
+      isStockMatch(r.fishStock, fs) || normalizeFishStock(r.fishStock, initialDate).toLowerCase().trim() === normalizeFishStock(fs, initialDate).toLowerCase().trim()
+    );
+    if (existingForStock.length > 0) {
+      setBagRows(existingForStock);
+    } else {
+      const sz = row.size && row.size !== "—" ? row.size : (getAssociatedPalletsForStock(fs, initialDate)[0] || "");
+      const br = row.brand && row.brand !== "—" ? row.brand : "";
+      const inv = br ? (inventory || []).find(f => f && f.brand === br && isSamePelletSize(f.size, sz)) : undefined;
+      const usedVal = br ? getBrandUsedKg(initialDate, fs, br, sz) : null;
+      setBagRows([{
+        id: row.lastBagLog?.id,
+        fishStock: fs,
+        brand: br,
+        size: sz,
+        kgPerBag: row.lastBagLog?.kgPerBag || inv?.weightPerBag || 15,
+        qty: row.hasBagLog ? String(row.bagsOpened) : "",
+        usedKg: usedVal !== null ? String(usedVal) : "",
+        remainingKg: row.hasRemainLog && row.feedRemainingToday !== null && row.feedRemainingToday !== undefined ? String(row.feedRemainingToday) : ""
+      }]);
+    }
     setShowBagsModal(true);
   };
 
@@ -2559,11 +2670,33 @@ function FeedDocumentation({
     setBagsDate(newDate);
     if (newDate) {
       setBagsErr({});
-      setBagRows(getDefaultBagRowsForDate(newDate));
+      if (bagsModalLockedStock) {
+        const existingForStock = getBagRowsForDate(newDate).filter(r =>
+          isStockMatch(r.fishStock, bagsModalLockedStock) ||
+          normalizeFishStock(r.fishStock, newDate).toLowerCase().trim() === normalizeFishStock(bagsModalLockedStock, newDate).toLowerCase().trim()
+        );
+        setBagRows(existingForStock.length > 0 ? existingForStock : [blankBagRow(newDate, bagsModalLockedStock)]);
+      } else {
+        setBagRows(getDefaultBagRowsForDate(newDate));
+      }
     }
   };
 
-  const addBagRow = () => setBagRows(prev => [...prev, blankBagRow(bagsDate, "", "")]);
+  const addBagRow = () => setBagRows(prev => [
+    ...prev,
+    bagsModalLockedStock ? blankBagRow(bagsDate, bagsModalLockedStock, prev[prev.length - 1]?.size || "") : blankBagRow(bagsDate, "", "")
+  ]);
+  const addBrandRowForStock = (fishStock: string, preferredSize?: string, insertAfterIdx?: number) => {
+    const newRow = blankBagRow(bagsDate, fishStock, preferredSize || "");
+    setBagRows(prev => {
+      if (insertAfterIdx !== undefined && insertAfterIdx >= 0 && insertAfterIdx < prev.length) {
+        const next = [...prev];
+        next.splice(insertAfterIdx + 1, 0, newRow);
+        return next;
+      }
+      return [...prev, newRow];
+    });
+  };
   const removeBagRow = (i: number) => setBagRows(prev => prev.filter((_, idx) => idx !== i));
   const updateBagRow = (i: number, k: keyof BagRow, v: string) => setBagRows(prev => prev.map((r, idx) => {
     if (idx !== i) return r;
@@ -2651,10 +2784,11 @@ function FeedDocumentation({
       formStockSizeKeys.add(stockSizeKey);
 
       const hasQty = r.qty !== "" && !isNaN(Number(r.qty));
+      const hasUsed = r.usedKg !== undefined && r.usedKg !== "" && !isNaN(Number(r.usedKg));
       const hasRemain = r.remainingKg !== "" && !isNaN(Number(r.remainingKg));
 
-      if (!hasQty && !hasRemain) {
-        errs[`qty_${idx}`] = "Enter Bags Opened or Leftover Feed";
+      if (!hasQty && !hasUsed && !hasRemain) {
+        errs[`qty_${idx}`] = "Enter Bags Opened, Quantity Used, or Leftover Feed";
         return;
       }
 
@@ -2671,6 +2805,13 @@ function FeedDocumentation({
           }
           requestedBagsByBrandSize[k].totalRequestedBags += requestedBags;
           requestedBagsByBrandSize[k].totalRequestedKg += (requestedBags * (r.kgPerBag || 15));
+        }
+      }
+
+      if (r.usedKg !== undefined && r.usedKg !== "") {
+        const usedVal = Number(r.usedKg);
+        if (isNaN(usedVal) || usedVal < 0) {
+          errs[`used_${idx}`] = "Enter a valid feed used quantity (0 or greater)";
         }
       }
 
@@ -2713,30 +2854,56 @@ function FeedDocumentation({
     setBagsErr({});
 
     setShowBagsModal(false);
-    toast.success("Bags opened and leftover feed saved");
+    setBagsModalLockedStock(null);
+    toast.success("Daily feed balance saved");
     setSelDate(dateLabel);
     if (docTab !== "mismatch") {
       setDocTab("bags");
     }
 
+    // Count how many distinct brands are being logged per (fishStock, size) so we never attribute a multi-brand feeding to a single brand
+    const brandCountByStockSize = new Map<string, Set<string>>();
+    for (const r of bagRows) {
+      const fsKey = normalizeFishStock(r.fishStock, bagsDate).toLowerCase().trim();
+      const szKey = (r.size || "").toLowerCase().replace(/\s+/g, "").trim();
+      const brKey = (r.brand || "").toLowerCase().trim();
+      if (!fsKey || !szKey || !brKey) continue;
+      const groupKey = `${fsKey}__${szKey}`;
+      const set = brandCountByStockSize.get(groupKey) || new Set<string>();
+      set.add(brKey);
+      brandCountByStockSize.set(groupKey, set);
+    }
+
+    const usedMapUpdates: { key: string; val: number | null }[] = [];
     const promises: Promise<any>[] = [];
     for (const r of bagRows) {
       const fs = normalizeFishStock(r.fishStock) || undefined;
       const hasQty = r.qty !== "" && !isNaN(Number(r.qty));
       const n = hasQty ? Number(r.qty) : 0;
+      const hasUsedVal = r.usedKg !== undefined && r.usedKg !== "" && !isNaN(Number(r.usedKg));
+      const usedVal = hasUsedVal ? Math.round(Number(r.usedKg) * 100) / 100 : null;
       const hasRemVal = r.remainingKg !== "" && !isNaN(Number(r.remainingKg));
-      const remVal = hasRemVal ? Number(r.remainingKg) : 0;
+      const remVal = hasRemVal ? Math.round(Number(r.remainingKg) * 100) / 100 : 0;
 
-      // ── 1. Save Bags Opened ───────────────────────────────────────────
+      if (fs && r.brand && r.size) {
+        usedMapUpdates.push({
+          key: getBrandUsedKey(bagsDate, fs, r.brand, r.size),
+          val: usedVal
+        });
+      }
+
+      // ── 1. Save Bags Opened (0 bags when recording used/leftover without opening new bags -> zero inventory deduction) ──
       const existingRec = (bagLogs || []).find(x =>
-        (r.id && x.id === r.id) ||
-        (isSameDate(x.date, dateLabel) &&
-          isSamePelletSize(x.size, r.size) &&
-          (!r.brand || !x.brand || x.brand.toLowerCase().trim() === r.brand.toLowerCase().trim()) &&
-          isStockMatch(x.fishStock, fs))
+        !isManualPrevDayLog(x) && (
+          (r.id && x.id === r.id) ||
+          (isSameDate(x.date, dateLabel) &&
+            isSamePelletSize(x.size, r.size) &&
+            (!r.brand || !x.brand || x.brand.toLowerCase().trim() === r.brand.toLowerCase().trim()) &&
+            isStockMatch(x.fishStock, fs))
+        )
       );
 
-      if (hasQty) {
+      if (hasQty || (hasUsedVal && !hasRemVal)) {
         if (existingRec && onEditBagLog) {
           promises.push(Promise.resolve(onEditBagLog({
             ...existingRec,
@@ -2750,7 +2917,7 @@ function FeedDocumentation({
             totalKg: n * r.kgPerBag,
             fishStock: fs
           })));
-        } else if (n > 0 || (n === 0 && !hasRemVal)) {
+        } else if (n > 0 || (n === 0 && (!hasRemVal || hasUsedVal))) {
           promises.push(Promise.resolve(onAddBagLog({
             id: r.id || uid(),
             date: dateLabel,
@@ -2766,8 +2933,9 @@ function FeedDocumentation({
         }
       }
 
-      // ── 2. Save Remaining Leftover Feed ───────────────────────────────
+      // ── 2. Save Remaining Leftover Feed (independent per Fish Stock + Brand + Pellet Size) ──
       const existingRemain = (remainLogs || []).find(x =>
+        !isManualPrevDayLog(x) &&
         (!r.brand || !x.brand || x.brand.toLowerCase().trim() === r.brand.toLowerCase().trim()) &&
         (!r.size || !x.size || isSamePelletSize(x.size, r.size)) &&
         (isStockMatch(x.fishStock, fs) || normalizeFishStock(x.fishStock) === fs) &&
@@ -2794,7 +2962,7 @@ function FeedDocumentation({
             date: dateLabel
           })));
         }
-      } else if (hasQty && existingRemain && onEditRemainLog && fs) {
+      } else if (hasQty && !hasUsedVal && existingRemain && onEditRemainLog && fs) {
         // Bags opened saved and leftover empty -> treat as 0 leftover
         promises.push(Promise.resolve(onEditRemainLog({
           ...existingRemain,
@@ -2806,8 +2974,10 @@ function FeedDocumentation({
         })));
       }
 
-      // ── 3. Synchronize selected Feed Brand to any feeding records on this date for this fishStock & size that lacked a brand ──
-      if (r.brand && fs && onEditFeedRecord) {
+      // ── 3. Synchronize selected Feed Brand ONLY when a single brand is logged for this (fishStock, size) on bagsDate ──
+      const groupKey = `${normalizeFishStock(r.fishStock, bagsDate).toLowerCase().trim()}__${(r.size || "").toLowerCase().replace(/\s+/g, "").trim()}`;
+      const isSingleBrandForStockSize = (brandCountByStockSize.get(groupKey)?.size || 0) === 1;
+      if (isSingleBrandForStockSize && r.brand && fs && onEditFeedRecord) {
         const matchingUnbrandedFeed = (feedingRecords || []).filter(fr => {
           if (!fr || !isSamePelletSize(fr.size, r.size)) return false;
           if (!isSameDate(fr.date, bagsDate) && !isSameDate(fr.date, dateLabel)) return false;
@@ -2822,6 +2992,20 @@ function FeedDocumentation({
           })));
         }
       }
+    }
+
+    if (usedMapUpdates.length > 0) {
+      persistDailyBrandUsedMap(prev => {
+        const next = { ...prev };
+        for (const u of usedMapUpdates) {
+          if (u.val === null) {
+            delete next[u.key];
+          } else {
+            next[u.key] = u.val;
+          }
+        }
+        return next;
+      });
     }
 
     Promise.all(promises).catch(err => {
@@ -2964,7 +3148,9 @@ function FeedDocumentation({
           (size === "—" || isSamePelletSize(r.size, size)) &&
           (brand === "—" || !r.brand || r.brand === "—" || r.brand.toLowerCase().trim() === brand.toLowerCase().trim())
         );
-        const sizeFedKg = sizeFedRecords.reduce((s, r) => s + (Number(r.total) || ((Number(r.morning) || 0) + (Number(r.evening) || 0))), 0);
+        const rawSizeFedKg = sizeFedRecords.reduce((s, r) => s + (Number(r.total) || ((Number(r.morning) || 0) + (Number(r.evening) || 0))), 0);
+        const explicitBrandUsedKg = brand !== "—" ? getBrandUsedKg(selDate, stockInfo.stockName, brand, size) : null;
+        const sizeFedKg = explicitBrandUsedKg !== null ? explicitBrandUsedKg : rawSizeFedKg;
 
         // Carryover from previous feeding records strictly before selDate
         const carryoverKg = getPriorCarryover(stockInfo.stockName, size, selDate, brand);
@@ -3123,11 +3309,16 @@ function FeedDocumentation({
     const inv = selectedBrand ? (inventory || []).find(f => f && f.brand === selectedBrand && isSamePelletSize(f.size, selectedPallet)) : undefined;
     const kgPb = inv?.weightPerBag || 15;
 
-    // Check existing rows for date
-    const existingRows = getBagRowsForDate(targetDate);
+    // Check existing rows for date filtered to this already-selected fish stock
+    setBagsModalLockedStock(fs);
+    const existingRows = getBagRowsForDate(targetDate).filter(r =>
+      isStockMatch(r.fishStock, fs) ||
+      normalizeFishStock(r.fishStock, targetDate).toLowerCase().trim() === normalizeFishStock(fs, targetDate).toLowerCase().trim()
+    );
     const existingIdx = existingRows.findIndex(r =>
       isStockMatch(r.fishStock, fs) &&
-      isSamePelletSize(r.size, selectedPallet)
+      isSamePelletSize(r.size, selectedPallet) &&
+      (!selectedBrand || !r.brand || r.brand.toLowerCase().trim() === selectedBrand.toLowerCase().trim())
     );
 
     if (existingIdx >= 0) {
@@ -3142,13 +3333,14 @@ function FeedDocumentation({
       const withoutTarget = updated.filter((_, i) => i !== existingIdx);
       setBagRows([target, ...withoutTarget]);
     } else {
-      // Create new prefilled row for the missing record
+      // Create new prefilled row for the missing record under this already-selected fish stock
       const newRow: BagRow = {
         fishStock: fs,
         brand: selectedBrand,
         size: selectedPallet,
         kgPerBag: kgPb,
         qty: row.recordedBags > 0 ? String(row.recordedBags) : "",
+        usedKg: "",
         remainingKg: (row.recordedRemaining !== null && row.recordedRemaining > 0) ? String(row.recordedRemaining) : ""
       };
       setBagRows([newRow, ...existingRows]);
@@ -4070,6 +4262,8 @@ function FeedDocumentation({
         entry.hasRemainLog = false;
       }
 
+      const explicitUsedToday = getBrandUsedKg(selDate, fs, brand, size);
+      entry.usedKgToday = explicitUsedToday !== null ? explicitUsedToday : undefined;
       entry.transfersOut = transfersOut;
       entry.transfersIn = transfersIn;
       entry.totalTransferredOutKg = totalTransferredOutKg;
@@ -4078,14 +4272,15 @@ function FeedDocumentation({
       entry.remainingKg = finalRemaining !== null ? finalRemaining : computedAvailable;
       entry.availableRemainingKg = finalRemaining !== null ? finalRemaining : computedAvailable;
       entry.grossRemainingKg = grossRemainingKg;
-      entry.hasFedToday = totalFed > 0;
-      entry.totalFedToday = totalFed;
+      entry.hasFedToday = totalFed > 0 || (explicitUsedToday !== null && explicitUsedToday > 0);
+      entry.totalFedToday = explicitUsedToday !== null ? explicitUsedToday : totalFed;
     });
 
     return Array.from(map.values()).filter(row =>
       row.isManualPrevDayBalance ||
       row.hasBagLog ||
       row.hasRemainLog ||
+      (row.usedKgToday !== undefined && row.usedKgToday > 0) ||
       (row.bagsOpened && row.bagsOpened > 0) ||
       (isStockActiveOnSelDate(row.fishStock) && (
         (row.remainingKg && row.remainingKg > 0.001) ||
@@ -4094,17 +4289,18 @@ function FeedDocumentation({
         (row.carryoverKg && row.carryoverKg > 0.001)
       ))
     );
-  }, [bagLogs, remainLogs, dayRecords, feedTransfers, manualPrevBalances, getManualBalanceStats, pondsActiveOnSelDate, getTransferUsage, selDate, viewYear, ponds, inventory, getPriorCarryover, dateToIso, getAssociatedPalletsForStock, getMatchingBrandsForPallet, availablePelletSizes, isStockActiveOnSelDate, isManualPrevDayLog]);
+  }, [bagLogs, remainLogs, dayRecords, feedTransfers, manualPrevBalances, getManualBalanceStats, pondsActiveOnSelDate, getTransferUsage, selDate, viewYear, ponds, inventory, getPriorCarryover, dateToIso, getAssociatedPalletsForStock, getMatchingBrandsForPallet, availablePelletSizes, isStockActiveOnSelDate, isManualPrevDayLog, getBrandUsedKg]);
 
   /* Manual previous-day balances are only updated by explicit user edits or transfers, never by feeding entries. */
 
   const filteredMergedBagRows = useMemo(() => {
     let list = mergedBagRows;
-    // Bags Opened view: Display rows where bags were opened on selDate OR leftover/carryover/transfer belongs to selDate
+    // Bags Opened view: Display rows where bags were opened on selDate OR leftover/carryover/transfer/used belongs to selDate
     list = list.filter(r =>
       r.isManualPrevDayBalance ||
       r.hasBagLog ||
       r.hasRemainLog ||
+      (r.usedKgToday !== undefined && r.usedKgToday > 0) ||
       (r.bagsOpened && r.bagsOpened > 0) ||
       (isStockActiveOnSelDate(r.fishStock) && (
         (r.remainingKg && r.remainingKg > 0.001) ||
@@ -5872,6 +6068,11 @@ function FeedDocumentation({
                                 );
                               })()}
                             </div>
+                            {row.usedKgToday !== undefined && row.usedKgToday > 0 && (
+                              <p className="text-[10px] text-emerald-700 font-semibold leading-tight mt-0.5">
+                                Used: {row.usedKgToday} kg
+                              </p>
+                            )}
                             {row.isManualPrevDayBalance && (row.manualFedDeductedKg ?? 0) > 0 && (
                               <p className="text-[10px] text-teal-700 font-medium leading-tight mt-0.5">
                                 ({row.carryoverKg} kg − {row.manualFedDeductedKg} kg fed)
@@ -5924,6 +6125,15 @@ function FeedDocumentation({
                                     >
                                       <Eye size={13} className="text-slate-400" /> View Details
                                     </button>
+                                    {canEdit && (
+                                      <button
+                                        type="button"
+                                        onClick={() => { setActiveBagMenuId(null); openDailyBalanceForStock(row); }}
+                                        className="w-full px-3 py-2 text-left text-xs font-medium text-emerald-700 hover:bg-emerald-50 flex items-center gap-2"
+                                      >
+                                        <Plus size={13} className="text-emerald-600" /> Daily Feed Balance
+                                      </button>
+                                    )}
                                     {canEdit && (
                                       <button
                                         type="button"
@@ -6151,6 +6361,15 @@ function FeedDocumentation({
                               {canEdit && (
                                 <button
                                   type="button"
+                                  onClick={() => { setActiveBagMenuId(null); openDailyBalanceForStock(row); }}
+                                  className="w-full px-3 py-2 text-left text-xs font-medium text-emerald-700 hover:bg-emerald-50 flex items-center gap-2"
+                                >
+                                  <Plus size={13} className="text-emerald-600" /> Daily Feed Balance
+                                </button>
+                              )}
+                              {canEdit && (
+                                <button
+                                  type="button"
                                   onClick={() => { setActiveBagMenuId(null); openEditMergedRow(row); }}
                                   className="w-full px-3 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2"
                                 >
@@ -6222,6 +6441,11 @@ function FeedDocumentation({
                             <span className={isBagsMismatch ? "text-red-600 font-bold" : "text-slate-600"}>0 bags</span>
                           )}
                         </span>
+                        {row.usedKgToday !== undefined && row.usedKgToday > 0 && (
+                          <p className="text-[10px] font-semibold text-emerald-700 mt-0.5">
+                            Used: {row.usedKgToday} kg
+                          </p>
+                        )}
                         {!row.isManualPrevDayBalance && expData.hasFed && (
                           <p className={`text-[10px] font-medium mt-0.5 ${isBagsMismatch ? "text-red-600 font-semibold" : "text-slate-400"}`}>
                             Exp: {expData.expectedBags}
@@ -7031,41 +7255,51 @@ function FeedDocumentation({
         </div>
       )}
 
-      {/* ── Log Opened Bags & Leftover Feed Modal ── */}
-      {/* ── Log Opened Bags & Leftover Feed Modal ── */}
+      {/* ── Log Opened Bags & Leftover Feed / Daily Feed Balance Modal ── */}
       {showBagsModal && (
-        <div className="fixed inset-0 bg-black/50 z-[70] flex items-center justify-center p-3 sm:p-6" onClick={e => e.target === e.currentTarget && setShowBagsModal(false)}>
+        <div className="fixed inset-0 bg-black/50 z-[70] flex items-center justify-center p-3 sm:p-6" onClick={e => e.target === e.currentTarget && (setShowBagsModal(false), setBagsModalLockedStock(null))}>
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col overflow-hidden max-h-[90dvh] sm:max-h-[85vh]">
             <div className="flex items-start justify-between px-4 sm:px-5 py-3 border-b border-slate-100 shrink-0">
               <div>
-                <h2 className="text-base font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">Log Opened Bags &amp; Leftover Feed</h2>
-                <p className="text-[11px] text-slate-400 mt-0.5">Record bags opened and leftover feed per Fish Stock.</p>
+                <h2 className="text-base font-bold text-slate-900 font-['Barlow_Condensed',sans-serif]">
+                  {bagsModalLockedStock ? "Daily Feed Balance" : "Log Opened Bags & Leftover Feed"}
+                </h2>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  {bagsModalLockedStock
+                    ? "Record one or more feed brands, quantities used, and leftovers for this fish stock."
+                    : "Record bags opened, feed used, and leftover feed per Fish Stock."}
+                </p>
               </div>
-              <button onClick={() => setShowBagsModal(false)} className="text-slate-400 hover:text-slate-700 p-1 ml-4 shrink-0 rounded-lg hover:bg-slate-100 transition-colors"><X size={18} /></button>
+              <button onClick={() => { setShowBagsModal(false); setBagsModalLockedStock(null); }} className="text-slate-400 hover:text-slate-700 p-1 ml-4 shrink-0 rounded-lg hover:bg-slate-100 transition-colors"><X size={18} /></button>
             </div>
-            <div className="px-4 sm:px-5 py-2.5 border-b border-slate-100 bg-slate-50/70 shrink-0 flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2">
+            <div className="px-4 sm:px-5 py-2.5 border-b border-slate-100 bg-slate-50/70 shrink-0 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Date:</span>
                 <span className="text-xs font-bold text-slate-800 bg-white border border-slate-200/80 px-2.5 py-1 rounded-lg shadow-2xs">
                   {toDateLabel(bagsDate) || bagsDate}
                 </span>
+                {bagsModalLockedStock && (
+                  <span className="text-xs font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-lg">
+                    {getStockDisplayName(bagsModalLockedStock)}
+                  </span>
+                )}
               </div>
               <div className="flex items-center gap-2">
-                <p className="text-[11px] text-slate-500 font-medium">{bagRows.length} card{bagRows.length !== 1 ? "s" : ""}</p>
+                <p className="text-[11px] text-slate-500 font-medium">{bagRows.length} {bagRows.length === 1 ? "entry" : "entries"}</p>
               </div>
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 sm:px-5 py-3 space-y-3">
               {bagRows.length === 0 ? (
                 <div className="text-center py-8 px-4 bg-slate-50 border border-dashed border-slate-200 rounded-2xl">
                   <Package className="w-8 h-8 text-slate-300 mx-auto mb-2" />
-                  <p className="text-xs font-semibold text-slate-700">No bags logged for {toDateLabel(bagsDate) || bagsDate}</p>
-                  <p className="text-[11px] text-slate-400 mt-0.5 mb-3">You have not logged any opened bags for this date.</p>
+                  <p className="text-xs font-semibold text-slate-700">No entries logged for {toDateLabel(bagsDate) || bagsDate}</p>
+                  <p className="text-[11px] text-slate-400 mt-0.5 mb-3">You have not logged any feed balance entries for this date.</p>
                   <button
                     type="button"
                     onClick={addBagRow}
                     className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-emerald-700 bg-emerald-100 hover:bg-emerald-200 rounded-lg transition-colors shadow-xs"
                   >
-                    <Plus size={13} /> Add Bag Log Entry
+                    <Plus size={13} /> Add Entry
                   </button>
                 </div>
               ) : (
@@ -7074,42 +7308,63 @@ function FeedDocumentation({
                   const requestedBags = Number(row.qty) || 0;
                   const requestedKg = requestedBags * row.kgPerBag;
                   const isOverStock = requestedBags > avail.remainingBags;
+                  const rowNormFs = normalizeFishStock(row.fishStock, bagsDate).toLowerCase().trim();
+                  const isSiblingBrandRow = !bagsModalLockedStock && Boolean(rowNormFs) && bagRows.findIndex((other, idx) =>
+                    idx < i && normalizeFishStock(other.fishStock, bagsDate).toLowerCase().trim() === rowNormFs
+                  ) !== -1;
+                  const isLastOfSameStock = Boolean(rowNormFs) && !bagRows.slice(i + 1).some(other =>
+                    normalizeFishStock(other.fishStock, bagsDate).toLowerCase().trim() === rowNormFs
+                  );
 
                   return (
                     <div key={i} className={`p-3 border rounded-xl relative space-y-2.5 ${isOverStock ? "border-red-300 bg-red-50/50" : "border-slate-200/90 bg-slate-50/90"}`}>
                       {bagRows.length > 1 && (
-                        <button type="button" onClick={() => removeBagRow(i)} className="absolute top-2.5 right-2.5 p-1 rounded text-slate-300 hover:text-red-500 transition-colors" title="Remove card">
+                        <button type="button" onClick={() => removeBagRow(i)} className="absolute top-2.5 right-2.5 p-1 rounded text-slate-300 hover:text-red-500 transition-colors" title="Remove entry">
                           <X size={13} />
                         </button>
                       )}
 
-                      {/* Fish Stock */}
-                      <div>
-                        <label className="block text-[10px] font-medium text-slate-500 uppercase tracking-wider mb-1">Fish Stock</label>
-                        <select
-                          value={row.fishStock}
-                          onChange={e => {
-                            updateBagRow(i, "fishStock", e.target.value);
-                            setBagsErr(p => {
-                              const next = { ...p };
-                              delete next[`fs_${i}`];
-                              delete next[`stock_${i}`];
-                              delete next[`size_${i}`];
-                              delete next[`brand_${i}`];
-                              return next;
-                            });
-                          }}
-                          className="w-full text-[11px] px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-slate-800 font-normal focus:outline-none focus:ring-1 focus:ring-green-400"
-                        >
-                          <option value="">Select fish stock…</option>
-                          {modalFishStockOptions.map(opt => (
-                            <option key={opt.name} value={opt.name}>{opt.label}</option>
-                          ))}
-                        </select>
-                        {(bagsErr[`fs_${i}`] || bagsErr[`stock_${i}`]) && (
-                          <p className="text-[10px] text-red-500 mt-1">{bagsErr[`fs_${i}`] || bagsErr[`stock_${i}`]}</p>
-                        )}
-                      </div>
+                      {/* Fish Stock (hidden when already locked or sibling brand entry for the same fish stock) */}
+                      {bagsModalLockedStock ? (
+                        <div className="flex items-center justify-between pr-6">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                            Brand Entry #{i + 1}
+                          </span>
+                        </div>
+                      ) : isSiblingBrandRow ? (
+                        <div className="flex items-center justify-between pr-6">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700">
+                            Additional Brand · {getStockDisplayName(row.fishStock)}
+                          </span>
+                        </div>
+                      ) : (
+                        <div>
+                          <label className="block text-[10px] font-medium text-slate-500 uppercase tracking-wider mb-1">Fish Stock</label>
+                          <select
+                            value={row.fishStock}
+                            onChange={e => {
+                              updateBagRow(i, "fishStock", e.target.value);
+                              setBagsErr(p => {
+                                const next = { ...p };
+                                delete next[`fs_${i}`];
+                                delete next[`stock_${i}`];
+                                delete next[`size_${i}`];
+                                delete next[`brand_${i}`];
+                                return next;
+                              });
+                            }}
+                            className="w-full text-[11px] px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-slate-800 font-normal focus:outline-none focus:ring-1 focus:ring-green-400"
+                          >
+                            <option value="">Select fish stock…</option>
+                            {modalFishStockOptions.map(opt => (
+                              <option key={opt.name} value={opt.name}>{opt.label}</option>
+                            ))}
+                          </select>
+                          {(bagsErr[`fs_${i}`] || bagsErr[`stock_${i}`]) && (
+                            <p className="text-[10px] text-red-500 mt-1">{bagsErr[`fs_${i}`] || bagsErr[`stock_${i}`]}</p>
+                          )}
+                        </div>
+                      )}
 
                       {/* Pallet Size & Feed Brand (Pallet first, Feed Brand second) */}
                       <div className="grid grid-cols-2 gap-2">
@@ -7202,9 +7457,9 @@ function FeedDocumentation({
                         </span>
                       </div>
 
-                      {/* Bags Opened & Leftover Feed (2 columns side by side) */}
-                      <div className="grid grid-cols-2 gap-2 pt-0.5">
-                        {/* Left: Bags Opened */}
+                      {/* Bags Opened, Quantity Used (kg), & Leftover Feed */}
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-0.5">
+                        {/* 1. Bags Opened */}
                         <div className="bg-white p-2.5 rounded-lg border border-slate-200/80 space-y-1">
                           <label className="block text-[10px] font-medium text-slate-500 uppercase tracking-wider">Bags Opened</label>
                           <input
@@ -7230,7 +7485,7 @@ function FeedDocumentation({
                             return (
                               <div className="space-y-0.5 mt-1">
                                 <p className="text-[10px] text-slate-500 font-normal leading-tight">
-                                  Expected Bags Open:{" "}
+                                  Exp:{" "}
                                   <span className="text-emerald-700 font-bold">
                                     {exp.expectedBags} bag{exp.expectedBags !== 1 ? "s" : ""}
                                   </span>
@@ -7239,9 +7494,6 @@ function FeedDocumentation({
                                     <span className="text-slate-500"> · {requestedKg} kg</span>
                                   )}
                                 </p>
-                                {!exp.hasFed && (
-                                  <p className="text-[9px] text-slate-400 leading-tight">No feeding records on this date</p>
-                                )}
                               </div>
                             );
                           })()}
@@ -7252,7 +7504,35 @@ function FeedDocumentation({
                           )}
                         </div>
 
-                        {/* Right: Leftover Feed */}
+                        {/* 2. Feed Used (kg) — reconciles multi-brand feeding without deducting inventory */}
+                        <div className="bg-white p-2.5 rounded-lg border border-slate-200/80 space-y-1">
+                          <label className="block text-[10px] font-medium text-slate-500 uppercase tracking-wider">Feed Used (kg)</label>
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.1"
+                            value={row.usedKg ?? ""}
+                            onChange={e => {
+                              updateBagRow(i, "usedKg", e.target.value);
+                              setBagsErr(p => {
+                                const next = { ...p };
+                                delete next[`used_${i}`];
+                                delete next[`qty_${i}`];
+                                return next;
+                              });
+                            }}
+                            className={`w-full text-[11px] px-2 py-1 bg-slate-50/50 border rounded-md font-normal text-slate-800 placeholder:text-slate-300 focus:outline-none focus:ring-1 ${bagsErr[`used_${i}`] ? "border-red-300 focus:ring-red-100" : "border-slate-200 focus:ring-green-400"}`}
+                            placeholder="0.0"
+                          />
+                          {bagsErr[`used_${i}`] && (
+                            <p className="text-[10px] text-red-500 font-semibold">{bagsErr[`used_${i}`]}</p>
+                          )}
+                          <p className="text-[9px] text-slate-400 leading-tight mt-1">
+                            Qty used from this brand
+                          </p>
+                        </div>
+
+                        {/* 3. Leftover Feed (kg) */}
                         <div className="bg-white p-2.5 rounded-lg border border-slate-200/80 space-y-1">
                           <label className="block text-[10px] font-medium text-slate-500 uppercase tracking-wider">Leftover (kg)</label>
                           <input
@@ -7279,7 +7559,7 @@ function FeedDocumentation({
                             const exp = getExpectedFeedData(bagsDate, row.fishStock, row.brand, row.size, requestedBags);
                             return (
                               <p className="text-[10px] text-slate-500 font-normal leading-tight mt-1">
-                                Expected Leftover:{" "}
+                                Exp:{" "}
                                 <span className="text-amber-700 font-bold">
                                   {exp.expectedRemaining} kg
                                 </span>
@@ -7291,22 +7571,63 @@ function FeedDocumentation({
                       </div>
 
                       {(() => {
-                        const isDupInForm = bagRows.findIndex((other, idx) =>
+                        const isDupInForm = Boolean(row.fishStock && row.brand && row.size) && bagRows.findIndex((other, idx) =>
                           idx < i &&
                           normalizeFishStock(other.fishStock).toLowerCase().trim() === normalizeFishStock(row.fishStock).toLowerCase().trim() &&
                           (other.brand || "").toLowerCase().trim() === (row.brand || "").toLowerCase().trim() &&
-                          other.size.toLowerCase().trim() === row.size.toLowerCase().trim()
+                          isSamePelletSize(other.size, row.size)
                         ) !== -1;
 
-                        if (isDupInForm) {
+                        if (isDupInForm || bagsErr[`dup_${i}`]) {
                           return (
                             <div className="flex items-start gap-1.5 text-[11px] font-medium text-amber-700 bg-amber-50 px-2.5 py-1.5 rounded-lg border border-amber-200">
                               <AlertTriangle size={13} className="text-amber-500 shrink-0 mt-0.5" />
-                              <span>This stock &amp; size is already entered above.</span>
+                              <span>{bagsErr[`dup_${i}`] || "This stock, brand & pellet size is already entered above."}</span>
                             </div>
                           );
                         }
                         return null;
+                      })()}
+
+                      {/* Combined multi-brand summary & Add Another Brand button for the same Fish Stock */}
+                      {(() => {
+                        if (!row.fishStock || !isLastOfSameStock) return null;
+                        const sameStockRows = bagRows.filter(other =>
+                          normalizeFishStock(other.fishStock, bagsDate).toLowerCase().trim() === rowNormFs
+                        );
+                        // Group by pellet size when 2+ entries exist for the same stock & size
+                        const sizeGroups = new Map<string, { size: string; count: number; totalUsed: number; totalLeftover: number }>();
+                        sameStockRows.forEach(sr => {
+                          if (!sr.size) return;
+                          const sk = sr.size.toLowerCase().replace(/\s+/g, "").trim();
+                          const ex = sizeGroups.get(sk) || { size: sr.size, count: 0, totalUsed: 0, totalLeftover: 0 };
+                          ex.count += 1;
+                          ex.totalUsed = Math.round((ex.totalUsed + (Number(sr.usedKg) || 0)) * 100) / 100;
+                          ex.totalLeftover = Math.round((ex.totalLeftover + (Number(sr.remainingKg) || 0)) * 100) / 100;
+                          sizeGroups.set(sk, ex);
+                        });
+                        const multiBrandGroups = Array.from(sizeGroups.values()).filter(g => g.count > 1);
+                        return (
+                          <div className="space-y-1.5 pt-1">
+                            {multiBrandGroups.map(g => (
+                              <div key={g.size} className="flex flex-wrap items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-[11px] text-emerald-900">
+                                <span className="font-semibold">Combined ({g.size} · {g.count} brands)</span>
+                                <span className="font-bold">
+                                  Used: {g.totalUsed} kg · Leftover: {g.totalLeftover} kg
+                                </span>
+                              </div>
+                            ))}
+                            {!bagsModalLockedStock && (
+                              <button
+                                type="button"
+                                onClick={() => addBrandRowForStock(row.fishStock, row.size, i)}
+                                className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded-lg border border-dashed border-teal-300 text-teal-700 hover:bg-teal-50/70 text-[11px] font-semibold transition-colors"
+                              >
+                                <Plus size={12} /> Add Another Brand for {getStockDisplayName(row.fishStock)}
+                              </button>
+                            )}
+                          </div>
+                        );
                       })()}
                     </div>
                   );
@@ -7318,12 +7639,12 @@ function FeedDocumentation({
                   onClick={addBagRow}
                   className="w-full flex items-center justify-center gap-2 py-2.5 border-2 border-dashed border-emerald-300 text-emerald-700 hover:bg-emerald-50/70 rounded-xl text-xs font-semibold transition-colors"
                 >
-                  <Plus size={14} /> Add Another Stock
+                  <Plus size={14} /> {bagsModalLockedStock ? "Add Another Brand" : "Add Another Stock"}
                 </button>
               )}
             </div>
             <div className="shrink-0 sticky bottom-0 bg-slate-50 border-t border-slate-100 px-4 sm:px-5 py-3 rounded-b-2xl flex items-center justify-between z-10">
-              <button onClick={() => { setShowBagsModal(false); setBagsErr({}); }} className="px-3.5 py-1.5 text-xs text-slate-500 hover:text-slate-800 font-medium transition-colors">
+              <button onClick={() => { setShowBagsModal(false); setBagsModalLockedStock(null); setBagsErr({}); }} className="px-3.5 py-1.5 text-xs text-slate-500 hover:text-slate-800 font-medium transition-colors">
                 Cancel
               </button>
               <PBtn onClick={handleSaveBags} sm>
@@ -7674,6 +7995,9 @@ function FeedDocumentation({
                 <div className="bg-slate-50 rounded-xl p-3">
                   <p className="text-[10px] uppercase tracking-wider text-slate-400 mb-0.5">Bags Opened Today</p>
                   <p className="text-base font-bold text-slate-800 font-['Barlow_Condensed',sans-serif]">{viewBagDetail.bagsOpened} bag{viewBagDetail.bagsOpened !== 1 ? "s" : ""}</p>
+                  {viewBagDetail.usedKgToday !== undefined && viewBagDetail.usedKgToday > 0 && (
+                    <p className="text-[10px] text-emerald-700 font-semibold mt-0.5">Used: {viewBagDetail.usedKgToday} kg</p>
+                  )}
                 </div>
                 <div className="bg-amber-50 rounded-xl p-3 border border-amber-200">
                   <p className="text-[10px] uppercase tracking-wider text-amber-600 mb-0.5">Feed Remaining Today</p>
