@@ -226,44 +226,6 @@ function FeedDocumentation({
   const [showBagsModal, setShowBagsModal] = useState(false);
   const [bagsModalLockedStock, setBagsModalLockedStock] = useState<string | null>(null);
   const [bagsErr, setBagsErr] = useState<Record<string, string>>({});
-
-  /* ── Daily Feed Balance per-brand Quantity Used (kg) persistence (independent of Feed Stock & Feeding Records) ── */
-  const dailyBrandUsedStorageKey = useMemo(
-    () => `pondtora_daily_brand_used_${activeFarmId || "default"}`,
-    [activeFarmId]
-  );
-  const [dailyBrandUsedMap, setDailyBrandUsedMap] = useState<Record<string, number>>(() => {
-    try {
-      const raw = localStorage.getItem(`pondtora_daily_brand_used_${activeFarmId || "default"}`);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (parsed && typeof parsed === "object") return parsed;
-      }
-    } catch { }
-    return {};
-  });
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(dailyBrandUsedStorageKey);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (parsed && typeof parsed === "object") {
-          setDailyBrandUsedMap(parsed);
-          return;
-        }
-      }
-    } catch { }
-    setDailyBrandUsedMap({});
-  }, [dailyBrandUsedStorageKey]);
-  const persistDailyBrandUsedMap = useCallback((updater: (prev: Record<string, number>) => Record<string, number>) => {
-    setDailyBrandUsedMap(prev => {
-      const next = updater(prev);
-      try {
-        localStorage.setItem(dailyBrandUsedStorageKey, JSON.stringify(next));
-      } catch { }
-      return next;
-    });
-  }, [dailyBrandUsedStorageKey]);
   const [deleteRecId, setDeleteRecId] = useState<string | null>(null);
   const [docTab, setDocTab] = useState<"daily" | "bags" | "mismatch">("daily");
   const [bulkMobileView, setBulkMobileView] = useState<"table" | "card">("table");
@@ -339,6 +301,44 @@ function FeedDocumentation({
 
   /* ── Remaining Feed Transfers State & Persistence ── */
   const activeFarmId = ponds[0]?.farmId || "default";
+
+  /* ── Daily Feed Balance per-brand Quantity Used (kg) persistence (independent of Feed Stock & Feeding Records) ── */
+  const dailyBrandUsedStorageKey = useMemo(
+    () => `pondtora_daily_brand_used_${activeFarmId || "default"}`,
+    [activeFarmId]
+  );
+  const [dailyBrandUsedMap, setDailyBrandUsedMap] = useState<Record<string, number>>(() => {
+    try {
+      const raw = localStorage.getItem(`pondtora_daily_brand_used_${activeFarmId || "default"}`);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === "object") return parsed;
+      }
+    } catch { }
+    return {};
+  });
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(dailyBrandUsedStorageKey);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === "object") {
+          setDailyBrandUsedMap(parsed);
+          return;
+        }
+      }
+    } catch { }
+    setDailyBrandUsedMap({});
+  }, [dailyBrandUsedStorageKey]);
+  const persistDailyBrandUsedMap = useCallback((updater: (prev: Record<string, number>) => Record<string, number>) => {
+    setDailyBrandUsedMap(prev => {
+      const next = updater(prev);
+      try {
+        localStorage.setItem(dailyBrandUsedStorageKey, JSON.stringify(next));
+      } catch { }
+      return next;
+    });
+  }, [dailyBrandUsedStorageKey]);
   const [feedTransfers, setFeedTransfers] = useState<FeedTransferRecord[]>(() => {
     try {
       const raw = localStorage.getItem(`pondtora_feed_transfers_${activeFarmId}`) || localStorage.getItem("pondtora_feed_transfers");
