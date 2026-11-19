@@ -2974,24 +2974,7 @@ function FeedDocumentation({
         })));
       }
 
-      // ── 3. Synchronize selected Feed Brand ONLY when a single brand is logged for this (fishStock, size) on bagsDate ──
-      const groupKey = `${normalizeFishStock(r.fishStock, bagsDate).toLowerCase().trim()}__${(r.size || "").toLowerCase().replace(/\s+/g, "").trim()}`;
-      const isSingleBrandForStockSize = (brandCountByStockSize.get(groupKey)?.size || 0) === 1;
-      if (isSingleBrandForStockSize && r.brand && fs && onEditFeedRecord) {
-        const matchingUnbrandedFeed = (feedingRecords || []).filter(fr => {
-          if (!fr || !isSamePelletSize(fr.size, r.size)) return false;
-          if (!isSameDate(fr.date, bagsDate) && !isSameDate(fr.date, dateLabel)) return false;
-          const frStock = (fr.fishStock && fr.fishStock !== "—") ? fr.fishStock : pondToStock(fr.pond, bagsDate);
-          if (!isStockMatch(frStock, fs) && normalizeFishStock(frStock, bagsDate) !== normalizeFishStock(fs, bagsDate)) return false;
-          return !fr.brand || fr.brand === "—" || fr.brand === "Not specified";
-        });
-        for (const fr of matchingUnbrandedFeed) {
-          promises.push(Promise.resolve(onEditFeedRecord({
-            ...fr,
-            brand: r.brand
-          })));
-        }
-      }
+      // Feeding records and Daily Feed Balance records remain completely separate (no brand overwrite on feeding records)
     }
 
     if (usedMapUpdates.length > 0) {
@@ -5579,7 +5562,7 @@ function FeedDocumentation({
                       <th className="hidden md:table-cell px-4 py-3 text-xs font-bold text-teal-800 uppercase tracking-wider text-left whitespace-nowrap bg-teal-50/70 border-y border-teal-200/80">Fish Stock Date</th>
                       <th className="hidden md:table-cell px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left whitespace-nowrap">Initial Stock</th>
                       <th className="hidden md:table-cell px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left whitespace-nowrap">Fish Count</th>
-                      {["Feed Brand", "Pellet Size", "Morning (kg)", "AM Time", "Evening (kg)", "PM Time", "Total (kg)", "Recorded By"].map(h => (
+                      {["Pellet Size", "Morning (kg)", "AM Time", "Evening (kg)", "PM Time", "Total (kg)", "Recorded By"].map(h => (
                         <th key={h} className="px-4 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left whitespace-nowrap">{h}</th>
                       ))}
                       <th className="px-4 py-3 w-8" />
@@ -5596,7 +5579,6 @@ function FeedDocumentation({
                         : (pond.stockingDate && pond.stockingDate !== "—"
                           ? formatFishStockDate(pond.stockingDate)
                           : (pondToStockDate(pond.name) !== "—" ? pondToStockDate(pond.name) : "—"));
-                      const recBrand = getRecordFeedBrand(rec, pond);
                       return (
                         <tr key={rec ? rec.id : `pond-${pond.id}`} onClick={() => rec && setViewFeedRec(rec)} className={`transition-colors ${hasFeed ? "hover:bg-green-50/30 cursor-pointer" : "opacity-40 hover:opacity-60"}`}>
                           <td className={`w-12 min-w-[48px] max-w-[48px] px-2 py-3.5 text-slate-300 text-xs font-mono text-center sticky left-0 z-10 ${hasFeed ? "bg-white" : "bg-white"}`}>{i + 1}</td>
@@ -5622,7 +5604,6 @@ function FeedDocumentation({
                           </td>
                           <td className="hidden md:table-cell px-4 py-3.5 text-slate-500 font-['Barlow_Condensed',sans-serif] text-base">{pond.initialStock.toLocaleString()}</td>
                           <td className="hidden md:table-cell px-4 py-3.5 font-semibold text-green-700 font-['Barlow_Condensed',sans-serif] text-base">{pond.currentCount.toLocaleString()}</td>
-                          <td className="px-4 py-3.5 font-semibold text-slate-700 text-xs whitespace-nowrap">{rec ? recBrand : <span className="text-slate-300 text-xs">—</span>}</td>
                           <td className="px-4 py-3.5">{rec ? <span className="flex items-center gap-1.5"><Bdg label={rec.size} color={atMax ? "red" : "blue"} />{atMax && <span className="text-[10px] font-bold text-red-500">⚠ Limit</span>}</span> : <span className="text-slate-300 text-xs">—</span>}</td>
                           <td className="px-4 py-3.5 font-medium">{rec ? `${rec.morning}kg` : <span className="text-slate-300">—</span>}</td>
                           <td className="px-4 py-3.5 text-slate-500 text-xs">{rec?.morningTime || <span className="text-slate-300">—</span>}</td>
@@ -5647,7 +5628,7 @@ function FeedDocumentation({
                   {dayGrand > 0 && (
                     <tfoot>
                       <tr className="bg-slate-50 border-t-2 border-slate-200">
-                        <td colSpan={12} className="hidden md:table-cell px-4 py-3 text-right text-xs font-bold text-slate-500 uppercase tracking-wider">Grand Total</td>
+                        <td colSpan={11} className="hidden md:table-cell px-4 py-3 text-right text-xs font-bold text-slate-500 uppercase tracking-wider">Grand Total</td>
                         <td className="px-4 py-3"><span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-green-600 text-white font-bold text-sm font-['Barlow_Condensed',sans-serif]">{dayGrand}kg</span></td>
                         <td colSpan={2} />
                       </tr>
@@ -5823,10 +5804,7 @@ function FeedDocumentation({
                     {hasFeed ? (
                       <div className="mt-3 pt-2.5 border-t border-slate-100 grid grid-cols-3 gap-2">
                         <div className="bg-slate-50/90 border border-slate-100 rounded-xl p-2 sm:p-2.5 flex flex-col justify-between">
-                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-0.5">Brand &amp; Size</span>
-                          {getRecordFeedBrand(rec, pond) !== "—" && (
-                            <span className="text-[11px] font-semibold text-slate-700 truncate block">{getRecordFeedBrand(rec, pond)}</span>
-                          )}
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-0.5">Pellet Size</span>
                           <div className="flex items-center gap-1 mt-0.5">
                             <Bdg label={rec.size} color={atMax ? "red" : "blue"} />
                             {atMax && <span className="text-[10px] font-bold text-red-500">⚠ Limit</span>}
@@ -6128,15 +6106,6 @@ function FeedDocumentation({
                                     {canEdit && (
                                       <button
                                         type="button"
-                                        onClick={() => { setActiveBagMenuId(null); openDailyBalanceForStock(row); }}
-                                        className="w-full px-3 py-2 text-left text-xs font-medium text-emerald-700 hover:bg-emerald-50 flex items-center gap-2"
-                                      >
-                                        <Plus size={13} className="text-emerald-600" /> Daily Feed Balance
-                                      </button>
-                                    )}
-                                    {canEdit && (
-                                      <button
-                                        type="button"
                                         onClick={() => { setActiveBagMenuId(null); openEditMergedRow(row); }}
                                         className="w-full px-3 py-2 text-left text-xs font-medium text-slate-700 hover:bg-slate-50 flex items-center gap-2"
                                       >
@@ -6358,15 +6327,6 @@ function FeedDocumentation({
                               >
                                 <Eye size={13} className="text-slate-400" /> View Details
                               </button>
-                              {canEdit && (
-                                <button
-                                  type="button"
-                                  onClick={() => { setActiveBagMenuId(null); openDailyBalanceForStock(row); }}
-                                  className="w-full px-3 py-2 text-left text-xs font-medium text-emerald-700 hover:bg-emerald-50 flex items-center gap-2"
-                                >
-                                  <Plus size={13} className="text-emerald-600" /> Daily Feed Balance
-                                </button>
-                              )}
                               {canEdit && (
                                 <button
                                   type="button"
@@ -7457,11 +7417,11 @@ function FeedDocumentation({
                         </span>
                       </div>
 
-                      {/* Bags Opened, Quantity Used (kg), & Leftover Feed */}
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-0.5">
-                        {/* 1. Bags Opened */}
-                        <div className="bg-white p-2.5 rounded-lg border border-slate-200/80 space-y-1">
-                          <label className="block text-[10px] font-medium text-slate-500 uppercase tracking-wider">Bags Opened</label>
+                      {/* Compact Side-by-Side Bags Open & Leftovers (50% / 50% on mobile and desktop) */}
+                      <div className="grid grid-cols-2 gap-2">
+                        {/* Left (50%): Bags Open */}
+                        <div className="bg-white p-2 rounded-lg border border-slate-200/80 space-y-1 min-w-0">
+                          <label className="block text-[10px] font-semibold text-slate-500 uppercase tracking-wider truncate">Bags Open</label>
                           <input
                             type="number"
                             min="0"
@@ -7474,67 +7434,36 @@ function FeedDocumentation({
                                 return next;
                               });
                             }}
-                            className={`w-full text-[11px] px-2 py-1 bg-slate-50/50 border ${isOverStock || bagsErr[`qty_${i}`] ? "border-red-300 focus:ring-red-100" : "border-slate-200 focus:ring-green-400"} rounded-md font-normal text-slate-800 placeholder:text-slate-300 focus:outline-none focus:ring-1`}
+                            className={`w-full h-[32px] text-xs px-2 py-1 bg-slate-50/50 border ${isOverStock || bagsErr[`qty_${i}`] ? "border-red-300 focus:ring-red-100" : "border-slate-200 focus:ring-green-400"} rounded-md font-normal text-slate-800 placeholder:text-slate-300 focus:outline-none focus:ring-1`}
                             placeholder="0"
                           />
                           {bagsErr[`qty_${i}`] && (
-                            <p className="text-[10px] text-red-500 font-semibold">{bagsErr[`qty_${i}`]}</p>
+                            <p className="text-[10px] text-red-500 font-semibold leading-tight">{bagsErr[`qty_${i}`]}</p>
                           )}
                           {(() => {
                             const exp = getExpectedFeedData(bagsDate, row.fishStock, row.brand, row.size, requestedBags);
                             return (
-                              <div className="space-y-0.5 mt-1">
-                                <p className="text-[10px] text-slate-500 font-normal leading-tight">
-                                  Exp:{" "}
-                                  <span className="text-emerald-700 font-bold">
-                                    {exp.expectedBags} bag{exp.expectedBags !== 1 ? "s" : ""}
-                                  </span>
-                                  {exp.hasFed && <span className="text-slate-400"> ({exp.totalFed} kg fed)</span>}
-                                  {row.qty !== "" && !isNaN(requestedBags) && requestedBags > 0 && (
-                                    <span className="text-slate-500"> · {requestedKg} kg</span>
-                                  )}
-                                </p>
-                              </div>
+                              <p className="text-[10px] text-slate-500 font-normal leading-tight truncate">
+                                Exp:{" "}
+                                <span className="text-emerald-700 font-bold">
+                                  {exp.expectedBags} bag{exp.expectedBags !== 1 ? "s" : ""}
+                                </span>
+                                {row.qty !== "" && !isNaN(requestedBags) && requestedBags > 0 && (
+                                  <span className="text-slate-500"> · {requestedKg}kg</span>
+                                )}
+                              </p>
                             );
                           })()}
                           {isOverStock && (
-                            <p className="text-[10px] font-normal text-red-500">
-                              ⚠ Exceeds store ({avail.remainingBags} bags)
+                            <p className="text-[10px] font-normal text-red-500 leading-tight">
+                              ⚠ Exceeds store ({avail.remainingBags})
                             </p>
                           )}
                         </div>
 
-                        {/* 2. Feed Used (kg) — reconciles multi-brand feeding without deducting inventory */}
-                        <div className="bg-white p-2.5 rounded-lg border border-slate-200/80 space-y-1">
-                          <label className="block text-[10px] font-medium text-slate-500 uppercase tracking-wider">Feed Used (kg)</label>
-                          <input
-                            type="number"
-                            min="0"
-                            step="0.1"
-                            value={row.usedKg ?? ""}
-                            onChange={e => {
-                              updateBagRow(i, "usedKg", e.target.value);
-                              setBagsErr(p => {
-                                const next = { ...p };
-                                delete next[`used_${i}`];
-                                delete next[`qty_${i}`];
-                                return next;
-                              });
-                            }}
-                            className={`w-full text-[11px] px-2 py-1 bg-slate-50/50 border rounded-md font-normal text-slate-800 placeholder:text-slate-300 focus:outline-none focus:ring-1 ${bagsErr[`used_${i}`] ? "border-red-300 focus:ring-red-100" : "border-slate-200 focus:ring-green-400"}`}
-                            placeholder="0.0"
-                          />
-                          {bagsErr[`used_${i}`] && (
-                            <p className="text-[10px] text-red-500 font-semibold">{bagsErr[`used_${i}`]}</p>
-                          )}
-                          <p className="text-[9px] text-slate-400 leading-tight mt-1">
-                            Qty used from this brand
-                          </p>
-                        </div>
-
-                        {/* 3. Leftover Feed (kg) */}
-                        <div className="bg-white p-2.5 rounded-lg border border-slate-200/80 space-y-1">
-                          <label className="block text-[10px] font-medium text-slate-500 uppercase tracking-wider">Leftover (kg)</label>
+                        {/* Right (50%): Leftovers */}
+                        <div className="bg-white p-2 rounded-lg border border-slate-200/80 space-y-1 min-w-0">
+                          <label className="block text-[10px] font-semibold text-slate-500 uppercase tracking-wider truncate">Leftovers (kg)</label>
                           <input
                             type="number"
                             min="0"
@@ -7549,16 +7478,16 @@ function FeedDocumentation({
                                 return next;
                               });
                             }}
-                            className={`w-full text-[11px] px-2 py-1 bg-slate-50/50 border rounded-md font-normal text-slate-800 placeholder:text-slate-300 focus:outline-none focus:ring-1 ${bagsErr[`rem_${i}`] ? "border-red-300 focus:ring-red-100" : "border-slate-200 focus:ring-green-400"}`}
+                            className={`w-full h-[32px] text-xs px-2 py-1 bg-slate-50/50 border rounded-md font-normal text-slate-800 placeholder:text-slate-300 focus:outline-none focus:ring-1 ${bagsErr[`rem_${i}`] ? "border-red-300 focus:ring-red-100" : "border-slate-200 focus:ring-green-400"}`}
                             placeholder="0.0"
                           />
                           {bagsErr[`rem_${i}`] && (
-                            <p className="text-[10px] text-red-500 font-semibold">{bagsErr[`rem_${i}`]}</p>
+                            <p className="text-[10px] text-red-500 font-semibold leading-tight">{bagsErr[`rem_${i}`]}</p>
                           )}
                           {(() => {
                             const exp = getExpectedFeedData(bagsDate, row.fishStock, row.brand, row.size, requestedBags);
                             return (
-                              <p className="text-[10px] text-slate-500 font-normal leading-tight mt-1">
+                              <p className="text-[10px] text-slate-500 font-normal leading-tight truncate">
                                 Exp:{" "}
                                 <span className="text-amber-700 font-bold">
                                   {exp.expectedRemaining} kg
@@ -7596,13 +7525,13 @@ function FeedDocumentation({
                           normalizeFishStock(other.fishStock, bagsDate).toLowerCase().trim() === rowNormFs
                         );
                         // Group by pellet size when 2+ entries exist for the same stock & size
-                        const sizeGroups = new Map<string, { size: string; count: number; totalUsed: number; totalLeftover: number }>();
+                        const sizeGroups = new Map<string, { size: string; count: number; totalBags: number; totalLeftover: number }>();
                         sameStockRows.forEach(sr => {
                           if (!sr.size) return;
                           const sk = sr.size.toLowerCase().replace(/\s+/g, "").trim();
-                          const ex = sizeGroups.get(sk) || { size: sr.size, count: 0, totalUsed: 0, totalLeftover: 0 };
+                          const ex = sizeGroups.get(sk) || { size: sr.size, count: 0, totalBags: 0, totalLeftover: 0 };
                           ex.count += 1;
-                          ex.totalUsed = Math.round((ex.totalUsed + (Number(sr.usedKg) || 0)) * 100) / 100;
+                          ex.totalBags = Math.round((ex.totalBags + (Number(sr.qty) || 0)) * 100) / 100;
                           ex.totalLeftover = Math.round((ex.totalLeftover + (Number(sr.remainingKg) || 0)) * 100) / 100;
                           sizeGroups.set(sk, ex);
                         });
@@ -7613,7 +7542,7 @@ function FeedDocumentation({
                               <div key={g.size} className="flex flex-wrap items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-[11px] text-emerald-900">
                                 <span className="font-semibold">Combined ({g.size} · {g.count} brands)</span>
                                 <span className="font-bold">
-                                  Used: {g.totalUsed} kg · Leftover: {g.totalLeftover} kg
+                                  Bags: {g.totalBags} · Leftovers: {g.totalLeftover} kg
                                 </span>
                               </div>
                             ))}
@@ -8173,7 +8102,7 @@ function FeedDocumentation({
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div className="bg-slate-50 rounded-xl p-3">
-                  <p className="text-[10px] uppercase tracking-wider text-slate-400 mb-0.5">Pellet Size {viewFeedRec.brand ? `(${viewFeedRec.brand})` : ""}</p>
+                  <p className="text-[10px] uppercase tracking-wider text-slate-400 mb-0.5">Pellet Size</p>
                   <Bdg label={viewFeedRec.size} color="blue" />
                 </div>
                 <div className="bg-slate-50 rounded-xl p-3"><p className="text-[10px] uppercase tracking-wider text-slate-400 mb-0.5">Recorded By</p><p className="text-sm text-slate-700">{viewFeedRec.recordedBy || "—"}</p></div>
