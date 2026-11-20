@@ -871,15 +871,20 @@ function FeedDocumentation({
         );
         if (!alreadyInResult && (r.pond || r.fishStock)) {
           const basePond = (ponds || []).find(p => p && ((r.pondId && p.id === r.pondId) || (rPondCompact && p.name.replace(/\s+/g, "").toLowerCase() === rPondCompact)));
-          const recStockDate = (r.fishStock && formatFishStockDate(r.fishStock) !== "—")
-            ? formatFishStockDate(r.fishStock)
-            : (basePond?.stockingDate && basePond.stockingDate !== "—" ? basePond.stockingDate : targetIso);
+          const isBasePondLive = Boolean(basePond && basePond.status === "Active" && (Number(basePond.currentCount) > 0 || Number(basePond.initialStock) > 0));
+          const recStockDate = isBasePondLive && basePond?.stockingDate && basePond.stockingDate !== "—"
+            ? basePond.stockingDate
+            : ((r.fishStock && formatFishStockDate(r.fishStock) !== "—")
+              ? formatFishStockDate(r.fishStock)
+              : (basePond?.stockingDate && basePond.stockingDate !== "—" ? basePond.stockingDate : targetIso));
           const synthPond: Pond = basePond
             ? {
               ...basePond,
               status: "Active",
               stockingDate: recStockDate || basePond.stockingDate,
-              fishStock: (r.fishStock && r.fishStock !== "—") ? r.fishStock : basePond.fishStock,
+              fishStock: isBasePondLive && basePond.fishStock && basePond.fishStock !== "—"
+                ? basePond.fishStock
+                : ((r.fishStock && r.fishStock !== "—") ? r.fishStock : basePond.fishStock),
               fishStockId: r.fishStockId || basePond.fishStockId,
             }
             : {
@@ -1047,6 +1052,176 @@ function FeedDocumentation({
     }
     return formatFishStock(fishStock);
   }, [pondsActiveOnSelDate, getPondsActiveOnDate, ponds, pondToStock, isStockMatch]);
+
+  /* Map stale stock labels left behind from earlier stock-date edits (where pond.stockingDate changed but legacy feeding/bag/remain rows still carry the old date) to the pond's current canonical stock label */
+  const staleStockAliasMap = useMemo(() => {
+    const aliasMap = new Map<string, string>();
+    const activeLivePonds = (ponds || []).filter(p =>
+      p && p.status === "Active" && (Number(p.currentCount) > 0 || (Number(p.initialStock) > 0 && p.currentCount == null))
+    );
+    if (activeLivePonds.length === 0) return aliasMap;
+
+    const currentActiveStockKeys = new Set<string>();
+    activeLivePonds.forEach(p => {
+      const s = getPondFishStock(p);
+      if (s && s !== "—" && !isPondName(s)) {
+        currentActiveStockKeys.add(s.trim().toLowerCase());
+        const d = formatFishStockDate(s);
+        if (d && d !== "—") currentActiveStockKeys.add(d.trim().toLowerCase());
+      }
+      if (p.stockingDate && p.stockingDate !== "—") {
+        currentActiveStockKeys.add(p.stockingDate.trim().toLowerCase());
+        const d = formatFishStockDate(p.stockingDate);
+        if (d && d !== "—") currentActiveStockKeys.add(d.trim().toLowerCase());
+      }
+    });
+
+    const candidates = new Map<string, Set<string>>();
+    (feedingRecords || []).forEach(r => {
+      if (!r || !r.fishStock || r.fishStock === "—" || isPondName(r.fishStock)) return;
+      const rawKey = r.fishStock.trim().toLowerCase();
+      const fmtDate = formatFishStockDate(r.fishStock);
+      const dateKey = fmtDate && fmtDate !== "—" ? fmtDate.trim().toLowerCase() : "";
+      if (currentActiveStockKeys.has(rawKey) || (dateKey && currentActiveStockKeys.has(dateKey))) return;
+
+      const rPondCompact = (r.pond || "").replace(/\s+/g, "").toLowerCase();
+      const matchedPond = activeLivePonds.find(p =>
+        (r.fishStockId && p.fishStockId && r.fishStockId === p.fishStockId) ||
+        (r.pondId && p.id === r.pondId) ||
+        (rPondCompact && p.name && p.name.replace(/\s+/g, "").toLowerCase() === rPondCompact)
+      );
+      if (!matchedPond) return;
+
+      // Never alias if this old stock label belongs to a historical Closed cycle of this pond
+      const isClosedCycle = (stockEvents || []).some(ce => {
+        if (!ce || ce.type !== "Closed") return false;
+        const samePond = ce.pondId === matchedPond.id || (ce.pondName && ce.pondName.replace(/\s+/g, "").toLowerCase() === matchedPond.name.replace(/\s+/g, "").toLowerCase());
+        if (!samePond) return false;
+        return Boolean((ce.batch && isRawStockLabelMatch(r.fishStock, ce.batch)) || (ce.date && isSameDate(r.fishStock, ce.date)));
+      });
+      if (isClosedCycle) return;
+
+      const canonical = getPondFishStock(matchedPond);
+      if (!canonical || canonical === "—" || isPondName(canonical)) return;
+
+      if (!candidates.has(rawKey)) candidates.set(rawKey, new Set());
+      candidates.get(rawKey)!.add(canonical);
+      if (dateKey) {
+        if (!candidates.has(dateKey)) candidates.set(dateKey, new Set());
+        candidates.get(dateKey)!.add(canonical);
+      }
+    });
+
+    candidates.forEach((targets, oldKey) => {
+      if (targets.size === 1) {
+        aliasMap.set(oldKey, Array.from(targets)[0]);
+      }
+    });
+    return aliasMap;
+  }, [ponds, feedingRecords, stockEvents, isPondName, isRawStockLabelMatch]);
+
+  /* Resolve canonical stock label & date for a FeedingRecord — always prefers the active pond's current stockingDate/fishStock when linked by fishStockId or pond (unless it belongs to a historical closed cycle). */
+  const resolveRecordStock = useCallback((rec?: { pondId?: string | null; pond?: string | null; fishStock?: string | null; fishStockId?: string | null; date?: string | null; year?: number } | null, targetDate?: string): { stockName: string; stockDate: string } => {
+    if (!rec) return { stockName: "—", stockDate: "—" };
+    const datePonds = targetDate ? getPondsActiveOnDate(targetDate) : pondsActiveOnSelDate;
+    const allPonds = ponds || [];
+    const rPondCompact = (rec.pond || "").replace(/\s+/g, "").toLowerCase();
+    const rIso = rec.date ? (toValidDbDate(rec.date, rec.year || viewYear) || dateToIso(rec.date)) : "";
+
+    // 1. Strongest link: fishStockId matches an active pond
+    if (rec.fishStockId) {
+      const byStockId = allPonds.find(p => p && p.fishStockId && p.fishStockId === rec.fishStockId && p.status === "Active") ||
+        (datePonds || []).find(p => p && p.fishStockId && p.fishStockId === rec.fishStockId);
+      if (byStockId) {
+        const sName = getPondFishStock(byStockId);
+        const sDate = byStockId.stockingDate && byStockId.stockingDate !== "—" ? formatFishStockDate(byStockId.stockingDate) : formatFishStockDate(sName);
+        if (sName && sName !== "—" && !isPondName(sName)) {
+          return { stockName: sName, stockDate: sDate !== "—" ? sDate : sName };
+        }
+      }
+    }
+
+    // 2. Match pond on targetDate (live active pond takes precedence over stale rec.fishStock)
+    const pOnDate = (datePonds || []).find(p => p && ((rec.pondId && p.id === rec.pondId) || (rPondCompact && p.name && p.name.replace(/\s+/g, "").toLowerCase() === rPondCompact)));
+    if (pOnDate) {
+      const sName = getPondFishStock(pOnDate);
+      const sDate = pOnDate.stockingDate && pOnDate.stockingDate !== "—" ? formatFishStockDate(pOnDate.stockingDate) : formatFishStockDate(sName);
+      if (sName && sName !== "—" && !isPondName(sName)) {
+        return { stockName: sName, stockDate: sDate !== "—" ? sDate : sName };
+      }
+    }
+
+    // 3. Match live active pond (unless record belongs to an earlier Closed cycle of that pond)
+    const livePond = allPonds.find(p => p && p.status === "Active" && ((rec.pondId && p.id === rec.pondId) || (rPondCompact && p.name && p.name.replace(/\s+/g, "").toLowerCase() === rPondCompact)));
+    if (livePond) {
+      const closedCycles = (stockEvents || []).filter(e =>
+        e && e.type === "Closed" && (e.pondId === livePond.id || (e.pondName && e.pondName.replace(/\s+/g, "").toLowerCase() === rPondCompact))
+      );
+      const belongsToClosedCycle = Boolean(rec.fishStock && rec.fishStock !== "—") && closedCycles.some(ce => {
+        const ceClear = toValidDbDate(ce.clearedDate || ce.date, viewYear) || dateToIso(ce.clearedDate || ce.date);
+        const ceBatch = ce.batch || (ce.date ? fmtStockingDate(ce.date) : null);
+        return Boolean(rIso && ceClear && rIso < ceClear && ceBatch && (isRawStockLabelMatch(rec.fishStock, ceBatch) || isSameDate(rec.fishStock, ce.date)));
+      });
+      if (!belongsToClosedCycle) {
+        const sName = getPondFishStock(livePond);
+        const sDate = livePond.stockingDate && livePond.stockingDate !== "—" ? formatFishStockDate(livePond.stockingDate) : formatFishStockDate(sName);
+        if (sName && sName !== "—" && !isPondName(sName)) {
+          return { stockName: sName, stockDate: sDate !== "—" ? sDate : sName };
+        }
+      }
+    }
+
+    // 4. Stale alias lookup & fallback to stored fishStock
+    if (rec.fishStock && rec.fishStock !== "—") {
+      const aliased = staleStockAliasMap.get(rec.fishStock.trim().toLowerCase()) ||
+        (formatFishStockDate(rec.fishStock) !== "—" ? staleStockAliasMap.get(formatFishStockDate(rec.fishStock).trim().toLowerCase()) : undefined);
+      if (aliased) {
+        const sDate = formatFishStockDate(aliased);
+        return { stockName: aliased, stockDate: sDate !== "—" ? sDate : aliased };
+      }
+    }
+    const fallbackName = rec.fishStock && rec.fishStock !== "—" ? normalizeFishStock(rec.fishStock, targetDate) : (rec.pond ? pondToStock(rec.pond, targetDate) : "—");
+    const fallbackDate = formatFishStockDate(fallbackName) !== "—" ? formatFishStockDate(fallbackName) : (rec.fishStock ? formatFishStockDate(rec.fishStock) : "—");
+    return { stockName: fallbackName || "—", stockDate: fallbackDate || "—" };
+  }, [pondsActiveOnSelDate, getPondsActiveOnDate, ponds, stockEvents, viewYear, dateToIso, isPondName, isRawStockLabelMatch, normalizeFishStock, pondToStock, staleStockAliasMap]);
+
+  /* Resolve canonical stock label for a BagOpenLog or FeedRemainingLog */
+  const resolveLogStock = useCallback((log?: { fishStock?: string | null; fishStockId?: string | null; pond?: string | null; pondId?: string | null; date?: string | null; year?: number } | null, targetDate?: string): string => {
+    if (!log) return "—";
+    const allPonds = ponds || [];
+    const datePonds = targetDate ? getPondsActiveOnDate(targetDate) : pondsActiveOnSelDate;
+
+    // 1. Direct fishStockId match against active pond
+    if (log.fishStockId) {
+      const byId = allPonds.find(p => p && p.fishStockId && p.fishStockId === log.fishStockId && p.status === "Active") ||
+        (datePonds || []).find(p => p && p.fishStockId && p.fishStockId === log.fishStockId);
+      if (byId) {
+        const s = getPondFishStock(byId);
+        if (s && s !== "—" && !isPondName(s)) return s;
+      }
+    }
+
+    // 2. Direct pondId / pond match (ignoring __MANUAL_PREV_DAY_BALANCE__ marker)
+    const cleanPond = log.pond && !log.pond.startsWith("__MANUAL_PREV_DAY_BALANCE__") ? log.pond : "";
+    const pCompact = cleanPond.replace(/\s+/g, "").toLowerCase();
+    if (log.pondId || pCompact) {
+      const matched = (datePonds || []).find(p => p && !((p as any)._isHistoricalClosedStock) && ((log.pondId && p.id === log.pondId) || (pCompact && p.name && p.name.replace(/\s+/g, "").toLowerCase() === pCompact))) ||
+        allPonds.find(p => p && p.status === "Active" && ((log.pondId && p.id === log.pondId) || (pCompact && p.name && p.name.replace(/\s+/g, "").toLowerCase() === pCompact)));
+      if (matched) {
+        const s = getPondFishStock(matched);
+        if (s && s !== "—" && !isPondName(s)) return s;
+      }
+    }
+
+    // 3. Stale stock-date alias reconciliation (for logs saved before a pond's stock date was edited)
+    if (log.fishStock && log.fishStock !== "—") {
+      const aliased = staleStockAliasMap.get(log.fishStock.trim().toLowerCase()) ||
+        (formatFishStockDate(log.fishStock) !== "—" ? staleStockAliasMap.get(formatFishStockDate(log.fishStock).trim().toLowerCase()) : undefined);
+      if (aliased) return aliased;
+    }
+
+    return normalizeFishStock(log.fishStock, targetDate);
+  }, [ponds, pondsActiveOnSelDate, getPondsActiveOnDate, isPondName, normalizeFishStock, staleStockAliasMap]);
 
   /* ── bags opened & leftover modal state ── */
   const [bagsDate, setBagsDate] = useState(TODAY);
@@ -1309,12 +1484,49 @@ function FeedDocumentation({
   const getPriorCarryover = useCallback((stockName: string, size: string, targetDate: string, brand?: string): number => {
     if (!stockName || !targetDate) return 0;
     const normStock = normalizeFishStock(stockName);
-    const targetIso = dateToIso(targetDate);
+    const targetIso = toValidDbDate(targetDate, viewYear) || dateToIso(targetDate);
     if (!targetIso) return 0;
 
+    const toIsoSafe = (d?: string | null, yr?: number): string => {
+      if (!d || d === "—") return "";
+      return toValidDbDate(d, yr || viewYear) || dateToIso(d);
+    };
+
+    const isUnspecifiedBrand = (b?: string | null): boolean => {
+      if (!b) return true;
+      const t = b.trim().toLowerCase();
+      return !t || t === "—" || t === "-" || t === "not specified";
+    };
+
     const brandFilter = (b?: string | null): boolean => {
-      if (!brand || brand === "—" || !b || b === "—") return true;
-      return b.trim().toLowerCase() === brand.trim().toLowerCase();
+      if (isUnspecifiedBrand(brand) || isUnspecifiedBrand(b)) return true;
+      return b!.trim().toLowerCase() === brand!.trim().toLowerCase();
+    };
+
+    const logMatchesStock = (log: { fishStock?: string | null; fishStockId?: string | null; pond?: string | null; pondId?: string | null; date?: string | null; year?: number }, dIso: string): boolean => {
+      const resolved = resolveLogStock(log, dIso);
+      return isStockMatch(resolved, normStock, dIso) || isStockMatch(log.fishStock, normStock, dIso);
+    };
+
+    const feedMatchesStock = (r: FeedingRecord, dIso: string): boolean => {
+      const resolved = resolveRecordStock(r, dIso);
+      if (resolved.stockName && resolved.stockName !== "—" && isStockMatch(resolved.stockName, normStock, dIso)) {
+        return true;
+      }
+      if (r.fishStock && r.fishStock !== "—") {
+        return isStockMatch(r.fishStock, normStock, dIso);
+      }
+      if (r.pond) {
+        const rPondLower = r.pond.toLowerCase().trim();
+        const activeOnIso = getPondsActiveOnDate(dIso);
+        const matchedPond = activeOnIso.find(p => p && (p.id === r.pondId || p.name.toLowerCase().trim() === rPondLower)) ||
+          (ponds || []).find(p => p && (p.id === r.pondId || p.name.toLowerCase().trim() === rPondLower));
+        if (matchedPond && (isStockMatch(matchedPond.fishStock, normStock) || isStockMatch(getPondFishStock(matchedPond), normStock))) {
+          const pStockDate = toValidDbDate(matchedPond.stockingDate);
+          if (!pStockDate || dIso >= pStockDate) return true;
+        }
+      }
+      return false;
     };
 
     // Collect all unique ISO dates strictly before targetIso where any feed activity occurred for this stock, size & brand
@@ -1322,10 +1534,10 @@ function FeedDocumentation({
 
     (remainLogs || []).forEach(r => {
       if (!r || !r.date) return;
-      const iso = dateToIso(r.date);
+      const iso = toIsoSafe(r.date, r.year);
       if (
         iso && iso < targetIso &&
-        isStockMatch(r.fishStock, normStock) &&
+        logMatchesStock(r, iso) &&
         (!size || size === "—" || !r.size || r.size === "—" || isSamePelletSize(r.size, size)) &&
         brandFilter(r.brand)
       ) {
@@ -1335,10 +1547,10 @@ function FeedDocumentation({
 
     (bagLogs || []).forEach(b => {
       if (!b || !b.date) return;
-      const iso = dateToIso(b.date);
+      const iso = toIsoSafe(b.date, b.year);
       if (
         iso && iso < targetIso &&
-        isStockMatch(b.fishStock, normStock) &&
+        logMatchesStock(b, iso) &&
         (!size || size === "—" || !b.size || b.size === "—" || isSamePelletSize(b.size, size)) &&
         brandFilter(b.brand)
       ) {
@@ -1346,11 +1558,30 @@ function FeedDocumentation({
       }
     });
 
+    (manualPrevBalances || []).forEach(m => {
+      if (!m) return;
+      const iso = m.dateIso || toIsoSafe(m.date);
+      const mStockResolved = m.fishStock && m.fishStock !== "—" && m.fishStock !== "All Active Stocks"
+        ? resolveLogStock({ fishStock: m.fishStock, date: m.date }, iso)
+        : m.fishStock;
+      const stockOk = !mStockResolved || mStockResolved === "—" || mStockResolved === "All Active Stocks" || isStockMatch(mStockResolved, normStock, iso);
+      if (
+        iso && iso < targetIso &&
+        stockOk &&
+        (!size || size === "—" || !m.size || m.size === "—" || isSamePelletSize(m.size, size)) &&
+        brandFilter(m.brand)
+      ) {
+        activityDates.add(iso);
+      }
+    });
+
     (feedTransfers || []).forEach(t => {
       if (!t) return;
-      const tIso = dateToIso(t.transferDate);
-      const isDest = isStockMatch(t.destinationStock, normStock);
-      const isSrc = isStockMatch(t.sourceStock, normStock);
+      const tIso = toIsoSafe(t.transferDate);
+      const destResolved = resolveLogStock({ fishStock: t.destinationStock, date: t.transferDate }, tIso);
+      const srcResolved = resolveLogStock({ fishStock: t.sourceStock, date: t.transferDate }, tIso);
+      const isDest = isStockMatch(destResolved, normStock, tIso) || isStockMatch(t.destinationStock, normStock, tIso);
+      const isSrc = isStockMatch(srcResolved, normStock, tIso) || isStockMatch(t.sourceStock, normStock, tIso);
       if (
         tIso && tIso < targetIso &&
         (isDest || isSrc) &&
@@ -1363,26 +1594,14 @@ function FeedDocumentation({
 
     (feedingRecords || []).forEach(r => {
       if (!r || !r.date) return;
-      const iso = dateToIso(r.date);
+      const iso = toIsoSafe(r.date, r.year);
       if (
         iso && iso < targetIso &&
         (!size || size === "—" || !r.size || r.size === "—" || isSamePelletSize(r.size, size)) &&
-        brandFilter(r.brand)
+        brandFilter(r.brand) &&
+        feedMatchesStock(r, iso)
       ) {
-        let isMatch = false;
-        if (r.fishStock && r.fishStock !== "—") {
-          isMatch = isStockMatch(r.fishStock, normStock);
-        } else if (r.pond) {
-          const rPondLower = r.pond.toLowerCase().trim();
-          const activeOnIso = getPondsActiveOnDate(iso);
-          const matchedPond = activeOnIso.find(p => p && (p.id === r.pondId || p.name.toLowerCase().trim() === rPondLower)) ||
-            (ponds || []).find(p => p && (p.id === r.pondId || p.name.toLowerCase().trim() === rPondLower));
-          if (matchedPond && (isStockMatch(matchedPond.fishStock, normStock) || isStockMatch(getPondFishStock(matchedPond), normStock))) {
-            const pStockDate = toValidDbDate(matchedPond.stockingDate);
-            if (!pStockDate || iso >= pStockDate) isMatch = true;
-          }
-        }
-        if (isMatch) activityDates.add(iso);
+        activityDates.add(iso);
       }
     });
 
@@ -1396,8 +1615,9 @@ function FeedDocumentation({
     for (const dIso of sortedDates) {
       // 1. Explicit user leftover recorded on this date (sum all contributing logs for this date/stock/brand/size)
       const matchingRemains = (remainLogs || []).filter(r =>
-        dateToIso(r.date) === dIso &&
-        isStockMatch(r.fishStock, normStock) &&
+        r && r.date &&
+        toIsoSafe(r.date, r.year) === dIso &&
+        logMatchesStock(r, dIso) &&
         (!size || size === "—" || !r.size || r.size === "—" || isSamePelletSize(r.size, size)) &&
         brandFilter(r.brand)
       );
@@ -1411,65 +1631,76 @@ function FeedDocumentation({
       const rLog = uniqueRemains.length > 0 ? uniqueRemains[uniqueRemains.length - 1] : null;
       const rLogSum = uniqueRemains.reduce((s, r) => s + (Number(r.remainingKg) || 0), 0);
 
+      // 1b. Manual previous-day balance created on dIso (only if no remainLog with matching id already captured it)
+      const dayManuals = (manualPrevBalances || []).filter(m => {
+        if (!m) return false;
+        const mIso = m.dateIso || toIsoSafe(m.date);
+        if (mIso !== dIso) return false;
+        if (m.id && seenRemIds.has(m.id)) return false;
+        const mStockResolved = m.fishStock && m.fishStock !== "—" && m.fishStock !== "All Active Stocks"
+          ? resolveLogStock({ fishStock: m.fishStock, date: m.date }, dIso)
+          : m.fishStock;
+        const stockOk = !mStockResolved || mStockResolved === "—" || mStockResolved === "All Active Stocks" || isStockMatch(mStockResolved, normStock, dIso);
+        return stockOk &&
+          (!size || size === "—" || !m.size || m.size === "—" || isSamePelletSize(m.size, size)) &&
+          brandFilter(m.brand);
+      });
+      const dayManualRemKg = dayManuals.reduce((s, m) => s + (Number(m.initialRemainingKg) || 0), 0);
+
       // 2. Bags opened on this date
       const dayBags = (bagLogs || []).filter(b =>
-        dateToIso(b.date) === dIso &&
-        isStockMatch(b.fishStock, normStock) &&
+        b && b.date &&
+        toIsoSafe(b.date, b.year) === dIso &&
+        logMatchesStock(b, dIso) &&
         (!size || size === "—" || !b.size || b.size === "—" || isSamePelletSize(b.size, size)) &&
         brandFilter(b.brand)
       );
       const dayBagsKg = dayBags.reduce((s, b) => s + (Number(b.totalKg) || ((Number(b.bagsOpened) || 0) * (Number(b.kgPerBag) || 15))), 0);
 
       // 3. Transfers in on this date
-      const dayTransfersIn = (feedTransfers || []).filter(t =>
-        dateToIso(t.transferDate) === dIso &&
-        isStockMatch(t.destinationStock, normStock) &&
-        (!size || size === "—" || isSamePelletSize(t.feedSize, size)) &&
-        brandFilter(t.feedBrand)
-      );
+      const dayTransfersIn = (feedTransfers || []).filter(t => {
+        if (!t) return false;
+        if (toIsoSafe(t.transferDate) !== dIso) return false;
+        const destResolved = resolveLogStock({ fishStock: t.destinationStock, date: t.transferDate }, dIso);
+        return (isStockMatch(destResolved, normStock, dIso) || isStockMatch(t.destinationStock, normStock, dIso)) &&
+          (!size || size === "—" || isSamePelletSize(t.feedSize, size)) &&
+          brandFilter(t.feedBrand);
+      });
       const dayTransfersInKg = dayTransfersIn.reduce((s, t) => s + (Number(t.quantityKg) || 0), 0);
 
       // 4. Transfers out on this date
-      const dayTransfersOut = (feedTransfers || []).filter(t =>
-        (dateToIso(t.transferDate) === dIso || dateToIso(t.originalDate) === dIso) &&
-        isStockMatch(t.sourceStock, normStock) &&
-        (!size || size === "—" || isSamePelletSize(t.feedSize, size)) &&
-        brandFilter(t.feedBrand)
-      );
+      const dayTransfersOut = (feedTransfers || []).filter(t => {
+        if (!t) return false;
+        if (toIsoSafe(t.transferDate) !== dIso && toIsoSafe(t.originalDate) !== dIso) return false;
+        const srcResolved = resolveLogStock({ fishStock: t.sourceStock, date: t.transferDate }, dIso);
+        return (isStockMatch(srcResolved, normStock, dIso) || isStockMatch(t.sourceStock, normStock, dIso)) &&
+          (!size || size === "—" || isSamePelletSize(t.feedSize, size)) &&
+          brandFilter(t.feedBrand);
+      });
       const dayTransfersOutKg = dayTransfersOut.reduce((s, t) => s + (Number(t.quantityKg) || 0), 0);
 
       // 5. Feeding on this date
-      const activeOnDIso = getPondsActiveOnDate(dIso);
       const dayFeedings = (feedingRecords || []).filter(r => {
-        if (dateToIso(r.date) !== dIso) return false;
+        if (!r || !r.date || toIsoSafe(r.date, r.year) !== dIso) return false;
         if (!size || size === "—" || !r.size || r.size === "—" || isSamePelletSize(r.size, size)) {
           if (!brandFilter(r.brand)) return false;
-          if (r.fishStock && r.fishStock !== "—") {
-            return isStockMatch(r.fishStock, normStock);
-          }
-          if (r.pond) {
-            const rPondLower = r.pond.toLowerCase().trim();
-            const matchedPond = activeOnDIso.find(p => p && (p.id === r.pondId || p.name.toLowerCase().trim() === rPondLower)) ||
-              (ponds || []).find(p => p && (p.id === r.pondId || p.name.toLowerCase().trim() === rPondLower));
-            if (matchedPond && (isStockMatch(matchedPond.fishStock, normStock) || isStockMatch(getPondFishStock(matchedPond), normStock))) {
-              const pStockDate = toValidDbDate(matchedPond.stockingDate);
-              return !pStockDate || dIso >= pStockDate;
-            }
-          }
+          return feedMatchesStock(r, dIso);
         }
         return false;
       });
       const dayFedKg = dayFeedings.reduce((s, r) => s + (Number(r.total) || ((Number(r.morning) || 0) + (Number(r.evening) || 0))), 0);
 
       if (rLog && rLog.remainingKg !== undefined && rLog.remainingKg !== null) {
-        balance = Math.round(rLogSum * 100) / 100;
+        balance = Math.round((rLogSum + dayManualRemKg) * 100) / 100;
+      } else if (dayManuals.length > 0) {
+        balance = Math.max(0, Math.round((dayManualRemKg + dayTransfersInKg - dayTransfersOutKg) * 100) / 100);
       } else {
         balance = Math.max(0, balance + dayBagsKg + dayTransfersInKg - dayTransfersOutKg - dayFedKg);
       }
     }
 
     return Math.max(0, Math.round(balance * 10) / 10);
-  }, [remainLogs, bagLogs, feedingRecords, feedTransfers, dateToIso, normalizeFishStock, isStockMatch, ponds, getPondsActiveOnDate]);
+  }, [remainLogs, bagLogs, manualPrevBalances, feedingRecords, feedTransfers, viewYear, dateToIso, normalizeFishStock, isStockMatch, resolveLogStock, resolveRecordStock, ponds, getPondsActiveOnDate]);
 
   /* Helper to retrieve all pallets associated with a fish stock */
   const getAssociatedPalletsForStock = useCallback((fishStock: string, targetDate?: string): string[] => {
@@ -3078,19 +3309,21 @@ function FeedDocumentation({
       registerStock(stockName, p.stockingDate, p.name, p.currentCount || p.initialStock || 0);
     });
 
-    // 2. Also register stocks with feeding records or bag logs on selDate
+    // 2. Also register stocks with feeding records or bag logs on selDate (resolved to canonical current pond stock!)
     (feedingRecords || []).forEach(r => {
       if (!r || !r.date) return;
       const rIso = toValidDbDate(r.date, r.year || viewYear) || dateToIso(r.date);
       if (isSameDate(r.date, selDate) || isSameDate(r.date, toDateLabel(selDate)) || (selIso && rIso && rIso === selIso)) {
-        registerStock(r.fishStock || pondToStock(r.pond, selDate), r.fishStock, r.pond, 0);
+        const resolved = resolveRecordStock(r, selDate);
+        registerStock(resolved.stockName !== "—" ? resolved.stockName : (r.fishStock || pondToStock(r.pond, selDate)), resolved.stockDate !== "—" ? resolved.stockDate : r.fishStock, r.pond, 0);
       }
     });
     (bagLogs || []).forEach(b => {
       if (!b || !b.date || isManualPrevDayLog(b)) return;
       const bIso = toValidDbDate(b.date, b.year || viewYear) || dateToIso(b.date);
       if (isSameDate(b.date, selDate) || isSameDate(b.date, toDateLabel(selDate)) || (selIso && bIso && bIso === selIso)) {
-        registerStock(b.fishStock, b.fishStock, undefined, 0);
+        const resolvedStock = resolveLogStock(b, selDate);
+        registerStock(resolvedStock !== "—" ? resolvedStock : b.fishStock, resolvedStock !== "—" ? resolvedStock : b.fishStock, undefined, 0);
       }
     });
 
@@ -3104,8 +3337,11 @@ function FeedDocumentation({
         const isDateMatch = isSameDate(r.date, selDate) || isSameDate(r.date, toDateLabel(selDate)) || Boolean(selIso && rIso && rIso === selIso);
         if (!isDateMatch) return false;
 
-        if (r.fishStock && r.fishStock !== "—") {
-          if (!isStockMatch(stockInfo.stockName, r.fishStock)) return false;
+        const resolved = resolveRecordStock(r, selDate);
+        if (resolved.stockName && resolved.stockName !== "—") {
+          if (!isStockMatch(stockInfo.stockName, resolved.stockName, selDate)) return false;
+        } else if (r.fishStock && r.fishStock !== "—") {
+          if (!isStockMatch(stockInfo.stockName, r.fishStock, selDate)) return false;
         } else if (r.pond) {
           const rPond = r.pond.toLowerCase().trim();
           const matchedPond = pondsActiveOnSelDate.find(p => p && (p.id === r.pondId || p.name.toLowerCase().trim() === rPond)) ||
@@ -3128,14 +3364,16 @@ function FeedDocumentation({
         if (!b || isManualPrevDayLog(b) || !b.date) return false;
         const bIso = toValidDbDate(b.date, b.year || viewYear) || dateToIso(b.date);
         const isDateMatch = isSameDate(b.date, selDate) || isSameDate(b.date, toDateLabel(selDate)) || Boolean(selIso && bIso && bIso === selIso);
-        return isDateMatch && isStockMatch(b.fishStock, stockInfo.stockName) && (Number(b.bagsOpened) || 0) > 0;
+        const resolvedStock = resolveLogStock(b, selDate);
+        return isDateMatch && (isStockMatch(resolvedStock, stockInfo.stockName, selDate) || isStockMatch(b.fishStock, stockInfo.stockName, selDate)) && (Number(b.bagsOpened) || 0) > 0;
       });
 
       const stockRemainLogs = (remainLogs || []).filter(r => {
         if (!r || isManualPrevDayLog(r) || !r.date) return false;
         const rIso = toValidDbDate(r.date, r.year || viewYear) || dateToIso(r.date);
         const isDateMatch = isSameDate(r.date, selDate) || isSameDate(r.date, toDateLabel(selDate)) || Boolean(selIso && rIso && rIso === selIso);
-        return isDateMatch && isStockMatch(r.fishStock, stockInfo.stockName);
+        const resolvedStock = resolveLogStock(r, selDate);
+        return isDateMatch && (isStockMatch(resolvedStock, stockInfo.stockName, selDate) || isStockMatch(r.fishStock, stockInfo.stockName, selDate));
       });
 
       // If a stock was NOT fed on selDate and had no bags/leftover logged on selDate, skip
@@ -3500,14 +3738,21 @@ function FeedDocumentation({
 
       const rPondCompact = (rec.pond || "").replace(/\s+/g, "").toLowerCase();
       const basePond = (ponds || []).find(p => p && ((rec.pondId && p.id === rec.pondId) || (p.name && p.name.replace(/\s+/g, "").toLowerCase() === rPondCompact)));
-      const recStockDate = rec.fishStock && formatFishStockDate(rec.fishStock) !== "—"
-        ? formatFishStockDate(rec.fishStock)
-        : (basePond?.stockingDate && basePond.stockingDate !== "—" ? basePond.stockingDate : rec.date);
+      const resolvedRec = resolveRecordStock(rec, selDate);
+      const recStockDate = resolvedRec.stockDate !== "—"
+        ? resolvedRec.stockDate
+        : (rec.fishStock && formatFishStockDate(rec.fishStock) !== "—"
+          ? formatFishStockDate(rec.fishStock)
+          : (basePond?.stockingDate && basePond.stockingDate !== "—" ? basePond.stockingDate : rec.date));
       const histPond: Pond = basePond
         ? {
           ...basePond,
-          stockingDate: recStockDate || basePond.stockingDate,
-          fishStock: (rec.fishStock && rec.fishStock !== "—") ? rec.fishStock : basePond.fishStock,
+          stockingDate: (basePond.status === "Active" && basePond.stockingDate && basePond.stockingDate !== "—")
+            ? basePond.stockingDate
+            : (recStockDate || basePond.stockingDate),
+          fishStock: resolvedRec.stockName !== "—"
+            ? resolvedRec.stockName
+            : ((rec.fishStock && rec.fishStock !== "—") ? rec.fishStock : basePond.fishStock),
           fishStockId: rec.fishStockId || basePond.fishStockId,
         }
         : {
@@ -3939,7 +4184,8 @@ function FeedDocumentation({
       const matches = dayRemainLogs.filter(r => {
         if (!r) return false;
         if (r.id && seen.has(r.id)) return false;
-        const stockMatch = isStockMatch(r.fishStock, fs) || normalizeFishStock(r.fishStock, selDate) === normalizeFishStock(fs, selDate);
+        const rResolved = resolveLogStock(r, selDate);
+        const stockMatch = isStockMatch(rResolved, fs, selDate) || isStockMatch(r.fishStock, fs, selDate) || normalizeFishStock(rResolved, selDate) === normalizeFishStock(fs, selDate);
         const sizeMatch = size === "—" || isSamePelletSize(r.size, size);
         const brandMatch = brand === "—" || !r.brand || r.brand === "—" || !brand || r.brand.toLowerCase().trim() === brand.toLowerCase().trim();
         if (stockMatch && sizeMatch && brandMatch) {
@@ -3956,7 +4202,7 @@ function FeedDocumentation({
     // 2. Process ALL dayBagLogs (both normal & manual entries merge and accumulate into the same stock group)
     dayBagLogs.forEach(b => {
       const isManualBag = isManualPrevDayLog(b);
-      const fs = normalizeFishStock(b.fishStock, selDate) || "—";
+      const fs = resolveLogStock(b, selDate) || "—";
       const bags = Number(b.bagsOpened) || 0;
       const brand = b.brand || "—";
       const size = b.size || "—";
@@ -4010,7 +4256,7 @@ function FeedDocumentation({
     // 3. Process ALL dayRemainLogs without bagLog on selDate (both normal & manual)
     dayRemainLogs.forEach(r => {
       const isManualRem = isManualPrevDayLog(r);
-      const fs = normalizeFishStock(r.fishStock, selDate) || "—";
+      const fs = resolveLogStock(r, selDate) || "—";
       const remVal = Number(r.remainingKg) || 0;
       if (!isManualRem && !isStockActiveOnSelDate(r.fishStock) && !isStockActiveOnSelDate(fs) && remVal <= 0) return;
       const brand = r.brand || "—";
@@ -4055,9 +4301,10 @@ function FeedDocumentation({
     // 4. Carry over unconsumed feed from prior days for stocks active on selDate
     activeStocksMap.forEach((stockInfo, key) => {
       const fs = stockInfo.stockName;
-      const fedForStock = dayFeedRecords.filter(r =>
-        isStockMatch(r.fishStock, fs) || isStockMatch(pondToStock(r.pond, selDate), fs) || isStockMatch(r.pond, fs)
-      );
+      const fedForStock = dayFeedRecords.filter(r => {
+        const resolved = resolveRecordStock(r, selDate);
+        return isStockMatch(resolved.stockName, fs, selDate) || isStockMatch(r.fishStock, fs, selDate) || isStockMatch(pondToStock(r.pond, selDate), fs, selDate) || isStockMatch(r.pond, fs, selDate);
+      });
 
       const candidatePairs: { brand: string; size: string }[] = [];
       const addCandidate = (bRaw?: string | null, szRaw?: string | null) => {
@@ -4069,9 +4316,9 @@ function FeedDocumentation({
         }
       };
 
-      (remainLogs || []).filter(r => !isManualPrevDayLog(r) && isStockMatch(r.fishStock, fs)).forEach(r => addCandidate(r.brand, r.size));
-      (bagLogs || []).filter(b => !isManualPrevDayLog(b) && isStockMatch(b.fishStock, fs)).forEach(b => addCandidate(b.brand, b.size));
-      (feedTransfers || []).filter(t => isStockMatch(t.destinationStock, fs)).forEach(t => addCandidate(t.feedBrand, t.feedSize));
+      (remainLogs || []).filter(r => !isManualPrevDayLog(r) && (isStockMatch(resolveLogStock(r, r.date || selDate), fs) || isStockMatch(r.fishStock, fs))).forEach(r => addCandidate(r.brand, r.size));
+      (bagLogs || []).filter(b => !isManualPrevDayLog(b) && (isStockMatch(resolveLogStock(b, b.date || selDate), fs) || isStockMatch(b.fishStock, fs))).forEach(b => addCandidate(b.brand, b.size));
+      (feedTransfers || []).filter(t => isStockMatch(resolveLogStock({ fishStock: t.destinationStock, date: t.transferDate }, t.transferDate || selDate), fs) || isStockMatch(t.destinationStock, fs)).forEach(t => addCandidate(t.feedBrand, t.feedSize));
 
       candidatePairs.forEach(({ brand, size }) => {
         const carryoverKg = getPriorCarryover(fs, size, selDate, brand);
@@ -4270,11 +4517,12 @@ function FeedDocumentation({
       }
 
       // Feeding for this stock, pellet size, and brand on selDate
-      const fedForSize = dayFeedRecords.filter(r =>
-        (isStockMatch(r.fishStock, fs) || isStockMatch(pondToStock(r.pond, selDate), fs) || isStockMatch(r.pond, fs)) &&
-        (size === "—" || isSamePelletSize(r.size, size)) &&
-        (brand === "—" || !r.brand || r.brand === "—" || !brand || r.brand.toLowerCase().trim() === brand.toLowerCase().trim())
-      );
+      const fedForSize = dayFeedRecords.filter(r => {
+        const resolved = resolveRecordStock(r, selDate);
+        return (isStockMatch(resolved.stockName, fs, selDate) || isStockMatch(r.fishStock, fs, selDate) || isStockMatch(pondToStock(r.pond, selDate), fs, selDate) || isStockMatch(r.pond, fs, selDate)) &&
+          (size === "—" || isSamePelletSize(r.size, size)) &&
+          (brand === "—" || !r.brand || r.brand === "—" || !brand || r.brand.toLowerCase().trim() === brand.toLowerCase().trim());
+      });
       const totalFed = fedForSize.reduce((s, r) => s + (Number(r.total) || ((Number(r.morning) || 0) + (Number(r.evening) || 0))), 0);
 
       // Sum all explicit leftover entries for selDate (merging manual + normal entries in this consolidated group)
@@ -5604,11 +5852,13 @@ function FeedDocumentation({
                       const pondMaxKgMap = pond.maxKgByPallet;
                       const atMax = hasFeed && pondMaxKgMap && rec!.size in pondMaxKgMap && (feedingRecords || []).filter(r => r && (r.pondId ? r.pondId === pond.id : r.pond === pond.name) && r.size === rec!.size && ((pond as any).fishStockId ? r.fishStockId === (pond as any).fishStockId : (!pond.stockingDate || toValidDbDate(r.date) >= toValidDbDate(pond.stockingDate)))).reduce((s, r) => s + (Number(r.total) || 0), 0) >= (pondMaxKgMap[rec!.size] || Infinity);
                       const isEdited = (rec?.editHistory?.length || 0) > 0;
-                      const recStockDate = rec?.fishStock && formatFishStockDate(rec.fishStock) !== "—"
-                        ? formatFishStockDate(rec.fishStock)
-                        : (pond.stockingDate && pond.stockingDate !== "—"
-                          ? formatFishStockDate(pond.stockingDate)
-                          : (pondToStockDate(pond.name) !== "—" ? pondToStockDate(pond.name) : "—"));
+                      const isLiveActivePond = !((pond as any)._isHistoricalClosedStock) && pond.stockingDate && pond.stockingDate !== "—";
+                      const recStockDate = isLiveActivePond
+                        ? formatFishStockDate(pond.stockingDate)
+                        : (rec ? (resolveRecordStock(rec, selDate).stockDate !== "—" ? resolveRecordStock(rec, selDate).stockDate : (rec.fishStock && formatFishStockDate(rec.fishStock) !== "—" ? formatFishStockDate(rec.fishStock) : "—"))
+                          : (pond.stockingDate && pond.stockingDate !== "—"
+                            ? formatFishStockDate(pond.stockingDate)
+                            : (pondToStockDate(pond.name) !== "—" ? pondToStockDate(pond.name) : "—")));
                       return (
                         <tr key={rec ? rec.id : `pond-${pond.id}`} onClick={() => rec && setViewFeedRec(rec)} className={`transition-colors ${hasFeed ? "hover:bg-green-50/30 cursor-pointer" : "opacity-40 hover:opacity-60"}`}>
                           <td className={`w-12 min-w-[48px] max-w-[48px] px-2 py-3.5 text-slate-300 text-xs font-mono text-center sticky left-0 z-10 ${hasFeed ? "bg-white" : "bg-white"}`}>{i + 1}</td>
@@ -5740,11 +5990,13 @@ function FeedDocumentation({
                 const pondMaxKgMap = pond.maxKgByPallet;
                 const atMax = hasFeed && pondMaxKgMap && rec!.size in pondMaxKgMap && (feedingRecords || []).filter(r => r && (r.pondId ? r.pondId === pond.id : r.pond === pond.name) && r.size === rec!.size && ((pond as any).fishStockId ? r.fishStockId === (pond as any).fishStockId : (!pond.stockingDate || toValidDbDate(r.date) >= toValidDbDate(pond.stockingDate)))).reduce((s, r) => s + (Number(r.total) || 0), 0) >= (pondMaxKgMap[rec!.size] || Infinity);
                 const isEdited = (rec?.editHistory?.length || 0) > 0;
-                const recStockDate = rec?.fishStock && formatFishStockDate(rec.fishStock) !== "—"
-                  ? formatFishStockDate(rec.fishStock)
-                  : (pond.stockingDate && pond.stockingDate !== "—"
-                    ? formatFishStockDate(pond.stockingDate)
-                    : (pondToStockDate(pond.name) !== "—" ? pondToStockDate(pond.name) : "—"));
+                const isLiveActivePond = !((pond as any)._isHistoricalClosedStock) && pond.stockingDate && pond.stockingDate !== "—";
+                const recStockDate = isLiveActivePond
+                  ? formatFishStockDate(pond.stockingDate)
+                  : (rec ? (resolveRecordStock(rec, selDate).stockDate !== "—" ? resolveRecordStock(rec, selDate).stockDate : (rec.fishStock && formatFishStockDate(rec.fishStock) !== "—" ? formatFishStockDate(rec.fishStock) : "—"))
+                    : (pond.stockingDate && pond.stockingDate !== "—"
+                      ? formatFishStockDate(pond.stockingDate)
+                      : (pondToStockDate(pond.name) !== "—" ? pondToStockDate(pond.name) : "—")));
                 const rowKey = rec ? rec.id : `pond-${pond.id}`;
                 const isMenuOpen = activeDailyMenuId === rowKey;
 
@@ -8139,12 +8391,15 @@ function FeedDocumentation({
 
                 {/* Fish Stock Date (Stocking Date) */}
                 {(() => {
-                  const modalStockDate = viewFeedRec.fishStock && formatFishStockDate(viewFeedRec.fishStock) !== "—"
-                    ? formatFishStockDate(viewFeedRec.fishStock)
-                    : (pondToStockDate(viewFeedRec.pond) !== "—"
-                      ? pondToStockDate(viewFeedRec.pond)
-                      : "—");
-                  const fsName = pondToStock(viewFeedRec.pond);
+                  const resolvedModal = resolveRecordStock(viewFeedRec, viewFeedRec.date || selDate);
+                  const modalStockDate = resolvedModal.stockDate !== "—"
+                    ? resolvedModal.stockDate
+                    : (viewFeedRec.fishStock && formatFishStockDate(viewFeedRec.fishStock) !== "—"
+                      ? formatFishStockDate(viewFeedRec.fishStock)
+                      : (pondToStockDate(viewFeedRec.pond) !== "—"
+                        ? pondToStockDate(viewFeedRec.pond)
+                        : "—"));
+                  const fsName = resolvedModal.stockName !== "—" ? resolvedModal.stockName : pondToStock(viewFeedRec.pond);
                   return (
                     <div className="bg-teal-50/90 border border-teal-200 rounded-xl p-3 flex items-start gap-2.5">
                       <div className="w-8 h-8 rounded-lg bg-teal-100/90 flex items-center justify-center shrink-0 mt-0.5">

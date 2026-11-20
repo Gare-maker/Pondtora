@@ -6528,122 +6528,275 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     const nextPonds = ponds.map(p => p.id === id ? np : p);
     setPonds(nextPonds);
 
-    // If stock date or species was edited, update the associated StockEvent without creating a duplicate record!
+    const dbCascadePromises: Promise<any>[] = [];
+
+    // If stock date or species was edited, update the associated StockEvent and cascade across all related tables
     if (isDateChanged || (u.species && u.species !== targetPond.species)) {
       const oldStockLabel = fmtStockingDate(prevStockingDate);
-      // Find the stock event for this pond and update it in-place
-      setStockEvents(prev => {
-        const matchedIndex = prev.findIndex(e => e.pondId === targetPond.id && (e.type === "Initial" || e.type === "Restock" || isSameDate(e.date, prevStockingDate)));
-        if (matchedIndex !== -1) {
-          const updatedEvent: StockEvent = {
-            ...prev[matchedIndex],
-            date: newStockingDate,
-            batch: newStockLabel,
-            species: u.species || prev[matchedIndex].species,
-          };
-          const nextEvents = [...prev];
-          nextEvents[matchedIndex] = updatedEvent;
-          api.stockEvents.update(updatedEvent).catch(console.warn);
-          if (userProfile?.id) {
-            try {
-              saveUserLocal(userProfile.id, "stock_events", "stockEvents", nextEvents);
-              if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
-                saveUserLocal(userProfile.ownerId, "stock_events", "stockEvents", nextEvents);
-              }
-            } catch {}
-          }
-          return nextEvents;
-        }
-        return prev;
-      });
+      const oldPondFishStock = (targetPond.fishStock || "").trim();
+      const targetFishStockId = targetPond.fishStockId || "";
+      const targetPondNameCompact = (targetPond.name || "").replace(/\s+/g, "").toLowerCase();
 
-      // Cascade the updated stock date to feeding records for this pond
-      setFeeding(prev => {
-        let changed = false;
-        const next = prev.map(r => {
-          if ((r.pond === targetPond.name || r.pond === targetPond.id) &&
-              (r.fishStock === oldStockLabel || r.fishStock === prevStockingDate || isSameDate(r.fishStock, prevStockingDate) || r.fishStock === targetPond.species)) {
-            changed = true;
-            const updated = { ...r, fishStock: newStockLabel };
-            api.feeding.update(updated).catch(console.warn);
-            return updated;
-          }
-          return r;
-        });
-        if (changed && userProfile?.id) {
+      const matchesOldStockLabel = (val?: string | null): boolean => {
+        if (!val || val === "—") return false;
+        const v = val.trim();
+        const vl = v.toLowerCase();
+        if (v === oldStockLabel || v === prevStockingDate || (oldPondFishStock && v === oldPondFishStock)) return true;
+        if (isSameDate(v, prevStockingDate) || isSameDate(v, oldStockLabel)) return true;
+        if (oldStockLabel && vl.includes(oldStockLabel.toLowerCase())) return true;
+        if (prevStockingDate && vl.includes(prevStockingDate.toLowerCase())) return true;
+        if (oldPondFishStock && oldPondFishStock !== "—" && vl === oldPondFishStock.toLowerCase()) return true;
+        return false;
+      };
+
+      const matchesTargetPond = (pondId?: string | null, pondName?: string | null): boolean => {
+        if (pondId && pondId === targetPond.id) return true;
+        if (pondName && (pondName === targetPond.name || pondName === targetPond.id)) return true;
+        if (pondName && targetPondNameCompact && pondName.replace(/\s+/g, "").toLowerCase() === targetPondNameCompact) return true;
+        return false;
+      };
+
+      // Update ALL matching stock events for this pond/batch in-place (not just the first one)
+      const updatedStockEvents: StockEvent[] = [];
+      let stockEventsChanged = false;
+      const nextStockEvents = stockEvents.map(e => {
+        if (e.type === "Closed") return e;
+        const samePond = matchesTargetPond(e.pondId, e.pondName);
+        if (!samePond) return e;
+        const isDirectMatch = isSameDate(e.date, prevStockingDate) || matchesOldStockLabel(e.batch);
+        const matchesBatch = isDirectMatch || e.type === "Initial" || e.type === "Restock";
+        if (!matchesBatch) return e;
+        if (!isDirectMatch) {
+          const hasClosedAfter = stockEvents.some(ce => ce.type === "Closed" && matchesTargetPond(ce.pondId, ce.pondName) && ce.date && e.date && ce.date >= e.date);
+          if (hasClosedAfter) return e;
+        }
+        stockEventsChanged = true;
+        const updatedEvent: StockEvent = {
+          ...e,
+          date: newStockingDate,
+          batch: newStockLabel,
+          species: u.species || e.species,
+        };
+        updatedStockEvents.push(updatedEvent);
+        return updatedEvent;
+      });
+      if (stockEventsChanged) {
+        setStockEvents(nextStockEvents);
+        if (userProfile?.id) {
           try {
-            saveUserLocal(userProfile.id, "feeding", "feeding", next);
+            saveUserLocal(userProfile.id, "stock_events", "stockEvents", nextStockEvents);
             if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
-              saveUserLocal(userProfile.ownerId, "feeding", "feeding", next);
+              saveUserLocal(userProfile.ownerId, "stock_events", "stockEvents", nextStockEvents);
             }
           } catch {}
         }
-        return next;
+        updatedStockEvents.forEach(ev => dbCascadePromises.push(api.stockEvents.update(ev).catch(console.warn)));
+      }
+
+      // Cascade the updated stock date to feeding records for this pond / stock
+      const updatedFeedings: FeedingRecord[] = [];
+      let feedingChanged = false;
+      const nextFeeding = feeding.map(r => {
+        const sameFishStockId = Boolean(targetFishStockId && r.fishStockId && r.fishStockId === targetFishStockId);
+        const samePond = matchesTargetPond(r.pondId, r.pond);
+        const stockMatches = matchesOldStockLabel(r.fishStock) || r.fishStock === targetPond.species;
+        if (sameFishStockId || (samePond && (stockMatches || !r.fishStock || r.fishStock === "—"))) {
+          feedingChanged = true;
+          const updated: FeedingRecord = {
+            ...r,
+            fishStock: newStockLabel,
+            fishStockId: r.fishStockId || targetFishStockId || undefined,
+          };
+          updatedFeedings.push(updated);
+          return updated;
+        }
+        return r;
       });
+      if (feedingChanged) {
+        setFeeding(nextFeeding);
+        if (userProfile?.id) {
+          try {
+            saveUserLocal(userProfile.id, "feeding_records", "feedingRecords", nextFeeding);
+            if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
+              saveUserLocal(userProfile.ownerId, "feeding_records", "feedingRecords", nextFeeding);
+            }
+          } catch {}
+        }
+        updatedFeedings.forEach(rec => dbCascadePromises.push(api.feeding.update(rec).catch(console.warn)));
+      }
 
       // Cascade the updated stock date to treatments for this pond
-      setTreatments(prev => {
-        let changed = false;
-        const next = prev.map(t => {
-          if (t.pondId === targetPond.id && (t.fishStock === oldStockLabel || t.fishStock === prevStockingDate || isSameDate(t.fishStock, prevStockingDate) || t.fishStock === targetPond.species)) {
-            changed = true;
-            const updated = { ...t, fishStock: newStockLabel };
-            api.treatments.update(updated).catch(console.warn);
-            return updated;
-          }
-          return t;
-        });
-        if (changed && userProfile?.id) {
+      const updatedTreatments: TreatmentRecord[] = [];
+      let treatmentsChanged = false;
+      const nextTreatments = treatments.map(t => {
+        const sameFishStockId = Boolean(targetFishStockId && t.fishStockId && t.fishStockId === targetFishStockId);
+        const samePond = matchesTargetPond(t.pondId, t.pondName);
+        if (sameFishStockId || (samePond && (matchesOldStockLabel(t.fishStock) || t.fishStock === targetPond.species || !t.fishStock || t.fishStock === "—"))) {
+          treatmentsChanged = true;
+          const updated = { ...t, fishStock: newStockLabel };
+          updatedTreatments.push(updated);
+          return updated;
+        }
+        return t;
+      });
+      if (treatmentsChanged) {
+        setTreatments(nextTreatments);
+        if (userProfile?.id) {
           try {
-            saveUserLocal(userProfile.id, "treatments", "treatments", next);
+            saveUserLocal(userProfile.id, "treatments", "treatments", nextTreatments);
             if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
-              saveUserLocal(userProfile.ownerId, "treatments", "treatments", next);
+              saveUserLocal(userProfile.ownerId, "treatments", "treatments", nextTreatments);
             }
           } catch {}
         }
-        return next;
-      });
+        updatedTreatments.forEach(t => dbCascadePromises.push(api.treatments.update(t).catch(console.warn)));
+      }
 
       // Cascade the updated stock date to pond reports for this pond
-      setPondReports(prev => {
-        let changed = false;
-        const next = prev.map(r => {
-          if (r.pondId === targetPond.id && (r.fishStockId === oldStockLabel || r.fishStockId === prevStockingDate || isSameDate(r.fishStockId, prevStockingDate))) {
-            changed = true;
-            const updated = { ...r, fishStockId: newStockLabel };
-            api.pondReports.update(updated).catch(console.warn);
-            return updated;
-          }
-          return r;
-        });
-        if (changed && userProfile?.id) {
+      const updatedReports: PondReport[] = [];
+      let reportsChanged = false;
+      const nextReports = pondReports.map(r => {
+        if (matchesTargetPond(r.pondId, r.pondName) && (matchesOldStockLabel(r.fishStockId) || !r.fishStockId || r.fishStockId === "—")) {
+          reportsChanged = true;
+          const updated = { ...r, fishStockId: newStockLabel };
+          updatedReports.push(updated);
+          return updated;
+        }
+        return r;
+      });
+      if (reportsChanged) {
+        setPondReports(nextReports);
+        if (userProfile?.id) {
           try {
-            saveUserLocal(userProfile.id, "pond_reports", "pondReports", next);
+            saveUserLocal(userProfile.id, "pond_reports", "pondReports", nextReports);
             if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
-              saveUserLocal(userProfile.ownerId, "pond_reports", "pondReports", next);
+              saveUserLocal(userProfile.ownerId, "pond_reports", "pondReports", nextReports);
             }
           } catch {}
         }
-        return next;
-      });
+        updatedReports.forEach(r => dbCascadePromises.push(api.pondReports.update(r).catch(console.warn)));
+      }
 
-      // Also cascade to bagLogs and remainLogs
-      setBagLogs(prev => {
-        return prev.map(b => {
-          if (b.fishStock === oldStockLabel || b.fishStock === prevStockingDate || isSameDate(b.fishStock, prevStockingDate)) {
-            return { ...b, fishStock: newStockLabel };
-          }
-          return b;
-        });
+      // Cascade AND persist to bagLogs (Supabase + localStorage)
+      const updatedBagLogs: BagOpenLog[] = [];
+      let bagLogsChanged = false;
+      const nextBagLogs = bagLogs.map(b => {
+        const sameFishStockId = Boolean(targetFishStockId && b.fishStockId && b.fishStockId === targetFishStockId);
+        const samePond = matchesTargetPond(b.pondId, b.pond);
+        if (sameFishStockId || matchesOldStockLabel(b.fishStock) || (samePond && (!b.fishStock || b.fishStock === "—"))) {
+          bagLogsChanged = true;
+          const updated: BagOpenLog = {
+            ...b,
+            fishStock: newStockLabel,
+            fishStockId: b.fishStockId || targetFishStockId || undefined,
+          };
+          updatedBagLogs.push(updated);
+          return updated;
+        }
+        return b;
       });
-      setRemainLogs(prev => {
-        return prev.map(rem => {
-          if (rem.fishStock === oldStockLabel || rem.fishStock === prevStockingDate || isSameDate(rem.fishStock, prevStockingDate)) {
-            return { ...rem, fishStock: newStockLabel };
-          }
-          return rem;
-        });
+      if (bagLogsChanged) {
+        setBagLogs(nextBagLogs);
+        if (userProfile?.id) {
+          try {
+            saveUserLocal(userProfile.id, "bag_open_logs", "bagOpenLogs", nextBagLogs);
+            if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
+              saveUserLocal(userProfile.ownerId, "bag_open_logs", "bagOpenLogs", nextBagLogs);
+            }
+          } catch {}
+        }
+        updatedBagLogs.forEach(b => dbCascadePromises.push(api.bagLogs.update(b).catch(console.warn)));
+      }
+
+      // Cascade AND persist to remainLogs (Supabase + localStorage)
+      const updatedRemainLogs: FeedRemainingLog[] = [];
+      let remainLogsChanged = false;
+      const nextRemainLogs = remainLogs.map(rem => {
+        const sameFishStockId = Boolean(targetFishStockId && rem.fishStockId && rem.fishStockId === targetFishStockId);
+        const samePond = matchesTargetPond(rem.pondId, rem.pond);
+        if (sameFishStockId || matchesOldStockLabel(rem.fishStock) || (samePond && (!rem.fishStock || rem.fishStock === "—"))) {
+          remainLogsChanged = true;
+          const updated: FeedRemainingLog = {
+            ...rem,
+            fishStock: newStockLabel,
+            fishStockId: rem.fishStockId || targetFishStockId || undefined,
+          };
+          updatedRemainLogs.push(updated);
+          return updated;
+        }
+        return rem;
       });
+      if (remainLogsChanged) {
+        setRemainLogs(nextRemainLogs);
+        if (userProfile?.id) {
+          try {
+            saveUserLocal(userProfile.id, "feed_remaining_logs", "feedRemainingLogs", nextRemainLogs);
+            if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
+              saveUserLocal(userProfile.ownerId, "feed_remaining_logs", "feedRemainingLogs", nextRemainLogs);
+            }
+          } catch {}
+        }
+        updatedRemainLogs.forEach(rem => dbCascadePromises.push(api.remainLogs.update(rem).catch(console.warn)));
+      }
+
+      // Cascade to localStorage manual previous-day balances, feed transfers, and daily brand usage
+      try {
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i);
+          if (!key) continue;
+          if (key.startsWith("pondtora_manual_feed_balances_")) {
+            const arr = JSON.parse(localStorage.getItem(key) || "[]");
+            if (Array.isArray(arr)) {
+              let lsChanged = false;
+              const nextArr = arr.map((m: any) => {
+                if (m && matchesOldStockLabel(m.fishStock)) {
+                  lsChanged = true;
+                  return { ...m, fishStock: newStockLabel };
+                }
+                return m;
+              });
+              if (lsChanged) localStorage.setItem(key, JSON.stringify(nextArr));
+            }
+          } else if (key.startsWith("pondtora_feed_transfers_")) {
+            const arr = JSON.parse(localStorage.getItem(key) || "[]");
+            if (Array.isArray(arr)) {
+              let lsChanged = false;
+              const nextArr = arr.map((t: any) => {
+                if (!t) return t;
+                let item = t;
+                if (matchesOldStockLabel(t.sourceStock)) {
+                  lsChanged = true;
+                  item = { ...item, sourceStock: newStockLabel };
+                }
+                if (matchesOldStockLabel(t.destinationStock)) {
+                  lsChanged = true;
+                  item = { ...item, destinationStock: newStockLabel };
+                }
+                return item;
+              });
+              if (lsChanged) localStorage.setItem(key, JSON.stringify(nextArr));
+            }
+          } else if (key.startsWith("pondtora_daily_brand_used_")) {
+            const obj = JSON.parse(localStorage.getItem(key) || "{}");
+            if (obj && typeof obj === "object" && !Array.isArray(obj)) {
+              let lsChanged = false;
+              const nextObj: Record<string, any> = {};
+              const newStockKey = newStockLabel.toLowerCase().trim();
+              Object.entries(obj).forEach(([k, v]) => {
+                const parts = k.split("||");
+                if (parts.length >= 4 && matchesOldStockLabel(parts[1])) {
+                  lsChanged = true;
+                  parts[1] = newStockKey;
+                  nextObj[parts.join("||")] = v;
+                } else {
+                  nextObj[k] = v;
+                }
+              });
+              if (lsChanged) localStorage.setItem(key, JSON.stringify(nextObj));
+            }
+          }
+        }
+      } catch {}
     }
 
     if (newCount !== prevCount) {
@@ -6680,6 +6833,9 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
 
     try {
       await api.ponds.update(np);
+      if (dbCascadePromises.length > 0) {
+        await Promise.allSettled(dbCascadePromises);
+      }
       toast.success("Fish stock updated");
     } catch (err: any) {
       console.error("Failed to persist updated fish quantity:", err);
