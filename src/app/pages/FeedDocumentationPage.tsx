@@ -1136,17 +1136,29 @@ function FeedDocumentation({
     return [...new Set(activeFeedStockGroups.map(f => f.brand).filter(Boolean))];
   }, [activeFeedStockGroups]);
 
-  /* Available pellet sizes strictly from active Feed Stock on the Feed Stock page (inStockBags > 0) */
+  /* Available pellet sizes from active Feed Stock (inStockBags > 0) PLUS any sizes with active leftover/transferred/manual remaining feed */
   const availablePelletSizes = useMemo(() => {
     const activeSizes = activeFeedStockGroups.map(f => f.size).filter(Boolean);
     const uniqueSizes: string[] = [];
-    activeSizes.forEach(s => {
-      if (!uniqueSizes.some(u => isSamePelletSize(u, s))) {
-        uniqueSizes.push(s);
+    const addSize = (s?: string | null) => {
+      const clean = (s || "").trim();
+      if (!clean || clean === "—") return;
+      if (!uniqueSizes.some(u => isSamePelletSize(u, clean))) {
+        uniqueSizes.push(clean);
       }
+    };
+    activeSizes.forEach(addSize);
+    (remainLogs || []).forEach(r => {
+      if (r && (Number(r.remainingKg) || 0) > 0 && r.size) addSize(r.size);
+    });
+    (feedTransfers || []).forEach(t => {
+      if (t && (Number(t.quantityKg) || 0) > 0 && t.feedSize) addSize(t.feedSize);
+    });
+    (manualPrevBalances || []).forEach(m => {
+      if (m && ((Number(m.currentRemainingKg) || 0) > 0 || (Number(m.initialRemainingKg) || 0) > 0) && m.size) addSize(m.size);
     });
     return uniqueSizes.sort((a, b) => (parseFloat(a) || 0) - (parseFloat(b) || 0));
-  }, [activeFeedStockGroups]);
+  }, [activeFeedStockGroups, remainLogs, feedTransfers, manualPrevBalances]);
 
   /* Brand filtering strictly from active Feed Stock */
   const invBrands = useMemo(() => {
@@ -2003,17 +2015,43 @@ function FeedDocumentation({
       return sum + Math.max(0, stats.currentRemainingKg);
     }, 0);
 
+    // Include available leftover/remaining feed from remainLogs (latest leftover per stock+brand+size on or before target date) and incoming feedTransfers
+    const latestRemainByGroup = new Map<string, { iso: string; kg: number }>();
+    (remainLogs || []).forEach(rl => {
+      if (!rl || isManualPrevDayLog(rl) || !isSamePelletSize(rl.size, size)) return;
+      const rIso = toValidDbDate(rl.date, rl.year || viewYear) || dateToIso(rl.date) || "";
+      if (selIsoCheck && rIso && rIso > selIsoCheck) return;
+      const gKey = `${normalizeFishStock(rl.fishStock || "", rl.date).toLowerCase().trim()}__${(rl.brand || "").toLowerCase().trim()}`;
+      const prev = latestRemainByGroup.get(gKey);
+      if (!prev || rIso >= prev.iso) {
+        latestRemainByGroup.set(gKey, { iso: rIso, kg: Math.max(0, Number(rl.remainingKg) || 0) });
+      }
+    });
+    let leftoverRemainKg = 0;
+    latestRemainByGroup.forEach(v => { leftoverRemainKg += v.kg; });
+
+    const transferInAvailKg = (feedTransfers || [])
+      .filter(t => {
+        if (!t || !isSamePelletSize(t.feedSize, size)) return false;
+        const tIso = toValidDbDate(t.transferDate, viewYear) || dateToIso(t.transferDate) || "";
+        return !selIsoCheck || !tIso || tIso <= selIsoCheck;
+      })
+      .reduce((s, t) => s + Math.max(0, Number(t.quantityKg) || 0), 0);
+    const totalLeftoverKg = Math.max(leftoverRemainKg, transferInAvailKg) + manualAvailKg;
+
     const relevantFeeding = (feedingRecords || []).filter(fr => fr && isSamePelletSize(fr.size, size) && (excludeRecordId ? fr.id !== excludeRecordId : true));
     const totalFedKg = relevantFeeding.reduce((s, fr) => s + (Number(fr.total) || ((Number(fr.morning) || 0) + (Number(fr.evening) || 0))), 0);
 
-    const exists = (matchingInv.length > 0 && (totalPurchasedBags > 0 || totalPurchasedKg > 0)) || matchingManual.length > 0;
-    const effectiveAvailableKg = inStockKg + manualAvailKg;
-    const effectiveAvailableQty = inStockBags + (manualAvailKg > 0 ? Math.ceil(manualAvailKg / defaultWpb) : 0);
+    const exists = (matchingInv.length > 0 && (totalPurchasedBags > 0 || totalPurchasedKg > 0)) || matchingManual.length > 0 || totalLeftoverKg > 0;
+    const effectiveAvailableKg = inStockKg + totalLeftoverKg;
+    const effectiveAvailableQty = inStockBags + (totalLeftoverKg > 0 ? Math.ceil(totalLeftoverKg / defaultWpb) : 0);
 
     return {
       availableQty: effectiveAvailableQty,
       availableKg: effectiveAvailableKg,
       inStockBags: effectiveAvailableQty,
+      storeInStockBags: inStockBags,
+      leftoverKg: totalLeftoverKg,
       totalPurchasedBags,
       totalPurchasedKg: totalPurchasedKg + matchingManual.reduce((s, m) => s + (Number(m.initialRemainingKg) || 0), 0),
       totalFedKg,
@@ -2733,7 +2771,13 @@ function FeedDocumentation({
 
     if (k === "brand") {
       const inv = (inventory || []).find(f => f && f.brand === v && isSamePelletSize(f.size, r.size));
-      return { ...r, brand: v, kgPerBag: inv?.weightPerBag || 15 };
+      const brandAvail = v && r.size ? getStockAvailable(v, r.size, r.id) : null;
+      return {
+        ...r,
+        brand: v,
+        kgPerBag: inv?.weightPerBag || 15,
+        qty: (brandAvail && brandAvail.remainingBags <= 0) ? "" : r.qty
+      };
     }
 
     return { ...r, [k]: v };
@@ -2765,11 +2809,13 @@ function FeedDocumentation({
         return;
       }
 
-      // Check brand and pallet compatibility with Feed Stock
-      if (inventory.length > 0) {
+      // Check brand & pallet compatibility with Feed Stock ONLY when opening new bags (qty > 0).
+      // Logging leftover/remaining feed (qty empty or 0) must be allowed even when the brand/size is no longer in Feed Stock.
+      const requestedBagsVal = r.qty !== "" ? Number(r.qty) : 0;
+      if (requestedBagsVal > 0 && inventory.length > 0) {
         const matchingBrands = getMatchingBrandsForPallet(r.size);
         if (matchingBrands.length > 0 && !matchingBrands.some(b => b.toLowerCase().trim() === r.brand.toLowerCase().trim())) {
-          errs[`brand_${idx}`] = `Brand "${r.brand}" is not associated with ${r.size} in Feed Stock.`;
+          errs[`brand_${idx}`] = `Brand "${r.brand}" is not available in Feed Stock for ${r.size}. Leave Bags Open empty or 0 to log leftover feed.`;
         }
       }
 
@@ -2846,7 +2892,9 @@ function FeedDocumentation({
 
       if (req.totalRequestedBags > availableBags || req.totalRequestedKg > availableKg) {
         const errIdx = bagRows.findIndex(r => (r.brand || "").toLowerCase().trim() === req.brand.toLowerCase().trim() && isSamePelletSize(r.size, req.size));
-        errs[`stock_${errIdx >= 0 ? errIdx : 0}`] = `Insufficient stock for ${req.brand} ${req.size}. Available: ${availableBags} bag${availableBags !== 1 ? "s" : ""} (${availableKg}kg), requested: ${req.totalRequestedBags} bags.`;
+        errs[`stock_${errIdx >= 0 ? errIdx : 0}`] = availableBags <= 0
+          ? `No unopened bags in Feed Stock for ${req.brand} ${req.size}. Leave Bags Open empty or 0 to record leftover feed.`
+          : `Insufficient stock for ${req.brand} ${req.size}. Available: ${availableBags} bag${availableBags !== 1 ? "s" : ""} (${availableKg}kg), requested: ${req.totalRequestedBags} bags.`;
       }
     }
 
@@ -4839,15 +4887,7 @@ function FeedDocumentation({
     const effectiveAvailable = stock.availableKg + existingForSizeOnDate;
     const requestedKg = m + e;
 
-    if (!stock.exists) {
-      toast.error(`Pellet size "${r.size}" is not available in Feed Inventory. Please add feed stock first.`);
-      return;
-    }
-    if (effectiveAvailable <= 0) {
-      toast.error(`Pellet size "${r.size}" is completely empty (0 kg remaining in stock). Please add feed stock before feeding.`);
-      return;
-    }
-    if (requestedKg > effectiveAvailable) {
+    if (stock.exists && effectiveAvailable > 0 && requestedKg > effectiveAvailable) {
       toast.error(`Insufficient stock for pellet size "${r.size}". Available: ${Math.round(effectiveAvailable * 10) / 10} kg, requested: ${requestedKg} kg.`);
       return;
     }
@@ -5133,17 +5173,7 @@ function FeedDocumentation({
       const stock = getPelletStock(size);
       const effectiveAvailable = stock.availableKg + existingForSizeOnDate;
 
-      if (!stock.exists) {
-        toast.error(`Pellet size "${size}" is not available in Feed Inventory. Please add feed stock first.`);
-        setFeedErr({ amounts: `Pellet size "${size}" is not in Feed Inventory. Please add feed stock first.` });
-        return;
-      }
-      if (effectiveAvailable <= 0) {
-        toast.error(`Pellet size "${size}" is completely empty (0 kg remaining in stock). Please add feed stock before feeding.`);
-        setFeedErr({ amounts: `Pellet size "${size}" is completely empty (0 kg remaining in stock).` });
-        return;
-      }
-      if (requestedKg > effectiveAvailable) {
+      if (stock.exists && effectiveAvailable > 0 && requestedKg > effectiveAvailable) {
         toast.error(`Insufficient stock for pellet size "${size}". Available: ${Math.round(effectiveAvailable * 10) / 10} kg, requested: ${requestedKg} kg.`);
         setFeedErr({ amounts: `Requested ${requestedKg} kg of ${size}, but only ${Math.round(effectiveAvailable * 10) / 10} kg is available in stock.` });
         return;
@@ -7328,15 +7358,18 @@ function FeedDocumentation({
 
                       {/* Pallet Size & Feed Brand (Pallet first, Feed Brand second) */}
                       <div className="grid grid-cols-2 gap-2">
-                        {/* 1. Pallet (Pellet Size) */}
+                        {/* 1. Pallet (Pellet Size) — includes all registered/leftover sizes even when Feed Stock is 0 */}
                         <div>
                           <label className="block text-[10px] font-medium text-slate-500 uppercase tracking-wider mb-1">Pallet (Pellet Size)</label>
                           {(() => {
                             const associated = getAssociatedPalletsForStock(row.fishStock, bagsDate);
-                            const otherSizes = availablePelletSizes.filter(s => !associated.includes(s));
+                            const inStockOther = availablePelletSizes.filter(s => !associated.some(a => isSamePelletSize(a, s)));
+                            const leftoverOther = allRegisteredSizes.filter(s => !associated.some(a => isSamePelletSize(a, s)) && !inStockOther.some(a => isSamePelletSize(a, s)));
+                            const allModalSizes = [...associated, ...inStockOther, ...leftoverOther];
+                            const selectedSizeVal = allModalSizes.find(s => isSamePelletSize(s, row.size)) || row.size || "";
                             return (
                               <select
-                                value={availablePelletSizes.some(s => isSamePelletSize(s, row.size)) ? (availablePelletSizes.find(s => isSamePelletSize(s, row.size)) || row.size) : ""}
+                                value={selectedSizeVal}
                                 onChange={e => {
                                   updateBagRow(i, "size", e.target.value);
                                   setBagsErr(p => {
@@ -7350,7 +7383,7 @@ function FeedDocumentation({
 
                                 className={`w-full text-[11px] px-2.5 py-1.5 bg-white border rounded-lg text-slate-800 font-normal focus:outline-none focus:ring-1 h-[34px] ${bagsErr[`size_${i}`] ? "border-red-300 focus:ring-red-300" : "border-slate-200 focus:ring-green-400"}`}
                               >
-                                <option value="">{availablePelletSizes.length === 0 ? "No active feed stock" : "Select pallet…"}</option>
+                                <option value="">Select pallet…</option>
                                 {associated.length > 0 && (
                                   <optgroup label="Associated Pallets">
                                     {associated.map(s => (
@@ -7358,9 +7391,16 @@ function FeedDocumentation({
                                     ))}
                                   </optgroup>
                                 )}
-                                {otherSizes.length > 0 && (
-                                  <optgroup label={associated.length > 0 ? "Other Pallets" : "Available Pallets"}>
-                                    {otherSizes.map(s => (
+                                {inStockOther.length > 0 && (
+                                  <optgroup label="Available Pallets">
+                                    {inStockOther.map(s => (
+                                      <option key={s} value={s}>{s}</option>
+                                    ))}
+                                  </optgroup>
+                                )}
+                                {leftoverOther.length > 0 && (
+                                  <optgroup label="Other / Leftover Pallets">
+                                    {leftoverOther.map(s => (
                                       <option key={s} value={s}>{s}</option>
                                     ))}
                                   </optgroup>
@@ -7373,12 +7413,12 @@ function FeedDocumentation({
                           )}
                         </div>
 
-                        {/* 2. Feed Brand (Filtered by selected pallet) */}
+                        {/* 2. Feed Brand — shows in-stock brands first, plus all registered/leftover brands */}
                         <div>
                           <label className="block text-[10px] font-medium text-slate-500 uppercase tracking-wider mb-1">Feed Brand</label>
                           {(() => {
                             const matchingBrands = getMatchingBrandsForPallet(row.size);
-                            const brandOptions = matchingBrands.length > 0 ? matchingBrands : invBrands;
+                            const otherBrands = allRegisteredBrands.filter(b => !matchingBrands.some(m => m.toLowerCase().trim() === b.toLowerCase().trim()));
                             return (
                               <select
                                 value={row.brand}
@@ -7394,10 +7434,21 @@ function FeedDocumentation({
                                 className={`w-full text-[11px] px-2.5 py-1.5 bg-white border rounded-lg text-slate-800 font-normal focus:outline-none focus:ring-1 h-[34px] ${bagsErr[`brand_${i}`] ? "border-red-300 focus:ring-red-300" : "border-slate-200 focus:ring-green-400"}`}
                               >
                                 <option value="">Select brand…</option>
-                                {brandOptions.map(b => (
-                                  <option key={b} value={b}>{b}</option>
-                                ))}
-                                {row.brand && !brandOptions.includes(row.brand) && (
+                                {matchingBrands.length > 0 && (
+                                  <optgroup label="In Feed Stock">
+                                    {matchingBrands.map(b => (
+                                      <option key={b} value={b}>{b}</option>
+                                    ))}
+                                  </optgroup>
+                                )}
+                                {otherBrands.length > 0 && (
+                                  <optgroup label={matchingBrands.length > 0 ? "Other / Leftover Brands" : "All Brands (Leftover Only)"}>
+                                    {otherBrands.map(b => (
+                                      <option key={b} value={b}>{b}</option>
+                                    ))}
+                                  </optgroup>
+                                )}
+                                {row.brand && !matchingBrands.includes(row.brand) && !otherBrands.includes(row.brand) && (
                                   <option value={row.brand}>{row.brand}</option>
                                 )}
                               </select>
@@ -7412,20 +7463,24 @@ function FeedDocumentation({
                       {/* Stock available badge */}
                       <div className="flex items-center justify-between px-2.5 py-1 rounded-md bg-white border border-slate-200/80 text-[11px] text-slate-500">
                         <span className="text-[10px] uppercase font-medium text-slate-400">Store Stock:</span>
-                        <span className={`font-medium ${avail.remainingBags <= 2 ? "text-amber-600" : "text-slate-700"}`}>
-                          {avail.remainingBags} bag{avail.remainingBags !== 1 ? "s" : ""} ({avail.remainingKg} kg)
+                        <span className={`font-medium ${avail.remainingBags <= 0 ? "text-slate-500" : avail.remainingBags <= 2 ? "text-amber-600" : "text-slate-700"}`}>
+                          {avail.remainingBags <= 0
+                            ? "0 bags (leftover only)"
+                            : `${avail.remainingBags} bag${avail.remainingBags !== 1 ? "s" : ""} (${avail.remainingKg} kg)`}
                         </span>
                       </div>
 
                       {/* Compact Side-by-Side Bags Open & Leftovers (50% / 50% on mobile and desktop) */}
                       <div className="grid grid-cols-2 gap-2">
-                        {/* Left (50%): Bags Open */}
+                        {/* Left (50%): Bags Open — disabled when 0 bags in stock so leftover can be logged without opening bags */}
                         <div className="bg-white p-2 rounded-lg border border-slate-200/80 space-y-1 min-w-0">
                           <label className="block text-[10px] font-semibold text-slate-500 uppercase tracking-wider truncate">Bags Open</label>
                           <input
                             type="number"
                             min="0"
-                            value={row.qty}
+                            max={avail.remainingBags > 0 ? avail.remainingBags : 0}
+                            disabled={Boolean(row.brand && row.size && avail.remainingBags <= 0)}
+                            value={row.brand && row.size && avail.remainingBags <= 0 ? "" : row.qty}
                             onChange={e => {
                               updateBagRow(i, "qty", e.target.value);
                               setBagsErr(p => {
@@ -7434,13 +7489,17 @@ function FeedDocumentation({
                                 return next;
                               });
                             }}
-                            className={`w-full h-[32px] text-xs px-2 py-1 bg-slate-50/50 border ${isOverStock || bagsErr[`qty_${i}`] ? "border-red-300 focus:ring-red-100" : "border-slate-200 focus:ring-green-400"} rounded-md font-normal text-slate-800 placeholder:text-slate-300 focus:outline-none focus:ring-1`}
-                            placeholder="0"
+                            className={`w-full h-[32px] text-xs px-2 py-1 border ${row.brand && row.size && avail.remainingBags <= 0 ? "bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed" : isOverStock || bagsErr[`qty_${i}`] ? "bg-slate-50/50 border-red-300 focus:ring-red-100 text-slate-800" : "bg-slate-50/50 border-slate-200 focus:ring-green-400 text-slate-800"} rounded-md font-normal placeholder:text-slate-300 focus:outline-none focus:ring-1`}
+                            placeholder={row.brand && row.size && avail.remainingBags <= 0 ? "0 (leftover)" : "0"}
                           />
                           {bagsErr[`qty_${i}`] && (
                             <p className="text-[10px] text-red-500 font-semibold leading-tight">{bagsErr[`qty_${i}`]}</p>
                           )}
-                          {(() => {
+                          {row.brand && row.size && avail.remainingBags <= 0 ? (
+                            <p className="text-[10px] text-slate-400 font-normal leading-tight truncate">
+                              0 in stock — log leftover
+                            </p>
+                          ) : (() => {
                             const exp = getExpectedFeedData(bagsDate, row.fishStock, row.brand, row.size, requestedBags);
                             return (
                               <p className="text-[10px] text-slate-500 font-normal leading-tight truncate">
@@ -7454,7 +7513,7 @@ function FeedDocumentation({
                               </p>
                             );
                           })()}
-                          {isOverStock && (
+                          {isOverStock && avail.remainingBags > 0 && (
                             <p className="text-[10px] font-normal text-red-500 leading-tight">
                               ⚠ Exceeds store ({avail.remainingBags})
                             </p>
