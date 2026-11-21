@@ -613,8 +613,17 @@ function FeedDocumentation({
   /* ── Date-aware ponds helper: returns ponds (and historical closed cycles) active on targetDate ──
    * Rule: Stock introduction date <= Selected date < Stock clearance date (if cleared)
    */
+  /* Date-keyed cache for getPondsActiveOnDate so repeated lookups across rows/carryover/mismatch are O(1) */
+  const pondsActiveByDateCache = useMemo(
+    () => new Map<string, Pond[]>(),
+    [ponds, stockEvents, feedingRecords, viewYear, activeFarmId]
+  );
+
   const getPondsActiveOnDate = useCallback((targetDate?: string): Pond[] => {
     const targetIso = targetDate ? (toValidDbDate(targetDate, viewYear) || dateToIso(targetDate)) : TODAY;
+    const cacheKey = targetIso || "__default__";
+    const cached = pondsActiveByDateCache.get(cacheKey);
+    if (cached) return cached;
     const result: Pond[] = [];
     const includedPondIds = new Set<string>();
 
@@ -910,8 +919,9 @@ function FeedDocumentation({
       });
     }
 
+    pondsActiveByDateCache.set(cacheKey, result);
     return result;
-  }, [ponds, stockEvents, feedingRecords, viewYear, dateToIso, isPondName, isRawStockLabelMatch, activeFarmId]);
+  }, [ponds, stockEvents, feedingRecords, viewYear, dateToIso, isPondName, isRawStockLabelMatch, activeFarmId, pondsActiveByDateCache]);
 
   const pondsActiveOnSelDate = useMemo(() => getPondsActiveOnDate(selDate), [getPondsActiveOnDate, selDate]);
 
@@ -1375,6 +1385,30 @@ function FeedDocumentation({
     return sizesFromBrand.length > 0 ? sizesFromBrand : availablePelletSizes;
   };
 
+  /* Strict Feed Stock sizes: ONLY sizes currently available in Feed Stock (inStockBags > 0), optionally filtered to a specific brand */
+  const inStockPelletSizes = useMemo(() => {
+    const uniqueSizes: string[] = [];
+    activeFeedStockGroups.forEach(f => {
+      const clean = (f.size || "").trim();
+      if (clean && clean !== "—" && !uniqueSizes.some(u => isSamePelletSize(u, clean))) {
+        uniqueSizes.push(clean);
+      }
+    });
+    return uniqueSizes.sort((a, b) => (parseFloat(a) || 0) - (parseFloat(b) || 0));
+  }, [activeFeedStockGroups]);
+
+  const getInStockSizesForBrand = useCallback((brand?: string | null): string[] => {
+    const cleanBrand = (brand || "").trim().toLowerCase();
+    if (!cleanBrand || cleanBrand === "—") return inStockPelletSizes;
+    const sizesFromBrand: string[] = [];
+    activeFeedStockGroups.forEach(f => {
+      if (f.brand.trim().toLowerCase() === cleanBrand && f.size && !sizesFromBrand.some(u => isSamePelletSize(u, f.size))) {
+        sizesFromBrand.push(f.size);
+      }
+    });
+    return sizesFromBrand.sort((a, b) => (parseFloat(a) || 0) - (parseFloat(b) || 0));
+  }, [activeFeedStockGroups, inStockPelletSizes]);
+
   /* Date-aware check whether a fish stock was active on selDate */
   const isStockActiveOnSelDate = useCallback((stockName?: string | null): boolean => {
     if (!stockName || stockName === "—" || typeof stockName !== "string" || !stockName.trim()) return false;
@@ -1480,12 +1514,22 @@ function FeedDocumentation({
     };
   }, [selDate, viewYear, dateToIso]);
 
+  /* Cache for getPriorCarryover so repeated carryover lookups per render are O(1) */
+  const priorCarryoverCache = useMemo(
+    () => new Map<string, number>(),
+    [remainLogs, bagLogs, manualPrevBalances, feedingRecords, feedTransfers, viewYear, ponds, stockEvents, activeFarmId]
+  );
+
   /* Helper to get prior leftover carryover for a fish stock, pallet size, and optional brand strictly before targetDate */
   const getPriorCarryover = useCallback((stockName: string, size: string, targetDate: string, brand?: string): number => {
     if (!stockName || !targetDate) return 0;
     const normStock = normalizeFishStock(stockName);
     const targetIso = toValidDbDate(targetDate, viewYear) || dateToIso(targetDate);
     if (!targetIso) return 0;
+
+    const cacheKey = `${normStock.toLowerCase().trim()}||${(size || "—").toLowerCase().replace(/\s+/g, "")}||${targetIso}||${(brand || "—").toLowerCase().trim()}`;
+    const cachedVal = priorCarryoverCache.get(cacheKey);
+    if (cachedVal !== undefined) return cachedVal;
 
     const toIsoSafe = (d?: string | null, yr?: number): string => {
       if (!d || d === "—") return "";
@@ -1606,6 +1650,7 @@ function FeedDocumentation({
     });
 
     if (activityDates.size === 0) {
+      priorCarryoverCache.set(cacheKey, 0);
       return 0;
     }
 
@@ -1699,8 +1744,10 @@ function FeedDocumentation({
       }
     }
 
-    return Math.max(0, Math.round(balance * 10) / 10);
-  }, [remainLogs, bagLogs, manualPrevBalances, feedingRecords, feedTransfers, viewYear, dateToIso, normalizeFishStock, isStockMatch, resolveLogStock, resolveRecordStock, ponds, getPondsActiveOnDate]);
+    const finalBalance = Math.max(0, Math.round(balance * 10) / 10);
+    priorCarryoverCache.set(cacheKey, finalBalance);
+    return finalBalance;
+  }, [remainLogs, bagLogs, manualPrevBalances, feedingRecords, feedTransfers, viewYear, dateToIso, normalizeFishStock, isStockMatch, resolveLogStock, resolveRecordStock, ponds, getPondsActiveOnDate, priorCarryoverCache]);
 
   /* Helper to retrieve all pallets associated with a fish stock */
   const getAssociatedPalletsForStock = useCallback((fishStock: string, targetDate?: string): string[] => {
@@ -2170,9 +2217,20 @@ function FeedDocumentation({
     }
   };
 
+  /* Cache for getStockAvailable so repeated stock checks per render/keystroke are O(1) */
+  const stockAvailableCache = useMemo(
+    () => new Map<string, { weightPerBag: number; totalPurchasedKg: number; totalPurchasedBags: number; totalOpenedKg: number; totalOpenedBags: number; remainingBags: number; remainingKg: number; exists: boolean }>(),
+    [inventory, bagLogs]
+  );
+
   /* Helper to check current available stock for a Brand + Pellet Size */
-  const getStockAvailable = (brand: string, size: string, excludeBagLogId?: string) => {
+  const getStockAvailable = useCallback((brand: string, size: string, excludeBagLogId?: string) => {
     const brandTrim = (brand || "").toLowerCase().trim();
+    const sizeKey = (size || "").toLowerCase().replace(/\s+/g, "").trim();
+    const cacheKey = `${brandTrim}||${sizeKey}||${excludeBagLogId || ""}`;
+    const cached = stockAvailableCache.get(cacheKey);
+    if (cached) return cached;
+
     const invItems = (inventory || []).filter(f => f && (f.brand || "").toLowerCase().trim() === brandTrim && isSamePelletSize(f.size, size));
     const totalPurchasedKg = invItems.reduce((s, f) => s + (Number(f.totalKg) || (Number(f.bags) * (Number(f.weightPerBag) || 15))), 0);
     const totalPurchasedBags = invItems.reduce((s, f) => s + (Number(f.bags) || 0), 0);
@@ -2185,7 +2243,7 @@ function FeedDocumentation({
     const remainingBags = Math.max(0, totalPurchasedBags - totalOpenedBags);
     const remainingKg = Math.max(0, totalPurchasedKg - totalOpenedKg);
 
-    return {
+    const res = {
       weightPerBag,
       totalPurchasedKg,
       totalPurchasedBags,
@@ -2195,7 +2253,9 @@ function FeedDocumentation({
       remainingKg,
       exists: invItems.length > 0
     };
-  };
+    stockAvailableCache.set(cacheKey, res);
+    return res;
+  }, [inventory, bagLogs, stockAvailableCache]);
 
   /* Helper to check current available stock for a Pellet Size across ALL brands in inventory and feedings */
   const getPelletStock = (size: string, excludeRecordId?: string) => {
@@ -2664,27 +2724,40 @@ function FeedDocumentation({
     return getBagsLoggedTodayForStockAndSize(stockName, brandName, palletSize, checkDate) > 0;
   };
 
+  /* Cache for getExpectedFeedData so repeated table/card/modal renders are O(1) */
+  const expectedFeedDataCache = useMemo(
+    () => new Map<string, { hasFed: boolean; totalFed: number; carryover: number; bagWeight: number; expectedBags: number; expectedRemaining: number }>(),
+    [feedingRecords, bagLogs, remainLogs, feedTransfers, manualPrevBalances, inventory, ponds, stockEvents, selDate, viewYear, activeFarmId]
+  );
+
   /* ── helper: calculate expected bags and expected remaining for a fish stock, brand, and size on a date ── */
-  const getExpectedFeedData = (targetDate: string, fishStock: string, brand: string, size: string, bagsOpenedOverride?: number) => {
+  const getExpectedFeedData = useCallback((targetDate: string, fishStock: string, brand: string, size: string, bagsOpenedOverride?: number) => {
     if (!targetDate) {
       return { hasFed: false, totalFed: 0, carryover: 0, bagWeight: 15, expectedBags: 0, expectedRemaining: 0 };
     }
 
-    const normStock = (fishStock && fishStock !== "—") ? normalizeFishStock(fishStock) : "";
+    const normStock = (fishStock && fishStock !== "—") ? normalizeFishStock(fishStock, targetDate) : "";
     const dateLabel = toDateLabel(targetDate);
-    const targetIso = dateToIso(targetDate);
+    const targetIso = toValidDbDate(targetDate, viewYear) || dateToIso(targetDate);
+    const cacheKey = `${targetIso}||${normStock.toLowerCase().trim()}||${(brand || "—").toLowerCase().trim()}||${(size || "—").toLowerCase().replace(/\s+/g, "")}||${bagsOpenedOverride !== undefined ? bagsOpenedOverride : "auto"}`;
+    const cached = expectedFeedDataCache.get(cacheKey);
+    if (cached) return cached;
+
     const datePonds = getPondsActiveOnDate(targetDate);
 
     const fedRecords = (feedingRecords || []).filter(r => {
       if (!r) return false;
-      const rIso = dateToIso(r.date);
+      const rIso = toValidDbDate(r.date, r.year || viewYear) || dateToIso(r.date);
       const dateMatch = isSameDate(r.date, targetDate) || isSameDate(r.date, dateLabel) || Boolean(targetIso && rIso && targetIso === rIso);
       if (!dateMatch) return false;
       if (size && size !== "—" && r.size && !isSamePelletSize(r.size, size)) return false;
       if (brand && brand !== "—" && r.brand && r.brand !== "—" && r.brand.toLowerCase().trim() !== brand.toLowerCase().trim()) return false;
       if (normStock && normStock !== "—") {
-        if (r.fishStock && r.fishStock !== "—") {
-          if (!isStockMatch(normStock, r.fishStock)) return false;
+        const resolved = resolveRecordStock(r, targetDate);
+        if (resolved.stockName && resolved.stockName !== "—") {
+          if (!isStockMatch(normStock, resolved.stockName, targetDate)) return false;
+        } else if (r.fishStock && r.fishStock !== "—") {
+          if (!isStockMatch(normStock, r.fishStock, targetDate)) return false;
         } else if (r.pond) {
           const rPond = r.pond.toLowerCase().trim();
           const matchedPond = datePonds.find(p => p && (p.id === r.pondId || p.name.toLowerCase().trim() === rPond)) ||
@@ -2734,7 +2807,7 @@ function FeedDocumentation({
     const totalAvailable = effectiveCarryover + (effectiveBags * bagWeight);
     const expectedRemaining = Math.max(0, Math.round((totalAvailable - totalFed) * 10) / 10);
 
-    return {
+    const result = {
       hasFed: totalFed > 0,
       totalFed,
       carryover: effectiveCarryover,
@@ -2742,7 +2815,9 @@ function FeedDocumentation({
       expectedBags,
       expectedRemaining
     };
-  };
+    expectedFeedDataCache.set(cacheKey, result);
+    return result;
+  }, [expectedFeedDataCache, normalizeFishStock, viewYear, dateToIso, getPondsActiveOnDate, feedingRecords, resolveRecordStock, isStockMatch, ponds, getPriorCarryover, inventory, feedTransfers, getBagsLoggedTodayForStockAndSize]);
 
   const getBrandUsedKey = useCallback((dateStr: string, fishStock: string, brand: string, size: string): string => {
     const dIso = toValidDbDate(dateStr, viewYear) || dateToIso(dateStr) || dateStr;
@@ -2969,43 +3044,82 @@ function FeedDocumentation({
   const removeBagRow = (i: number) => setBagRows(prev => prev.filter((_, idx) => idx !== i));
   const updateBagRow = (i: number, k: keyof BagRow, v: string) => setBagRows(prev => prev.map((r, idx) => {
     if (idx !== i) return r;
+    const isLogBagsOpenedMode = !bagsModalLockedStock;
+
     if (k === "fishStock") {
       const associated = getAssociatedPalletsForStock(v, bagsDate);
       let newPallet = r.size;
-      if (associated.length === 1) {
-        newPallet = associated[0];
-      } else if (associated.length > 1) {
-        newPallet = associated.some(p => isSamePelletSize(p, r.size)) ? r.size : associated[0];
-      } else if (associated.length === 0) {
-        newPallet = "";
+      if (isLogBagsOpenedMode) {
+        const brandSizes = getInStockSizesForBrand(r.brand);
+        const availAssoc = associated.filter(a => brandSizes.some(s => isSamePelletSize(s, a)));
+        if (availAssoc.length > 0) {
+          newPallet = availAssoc.some(p => isSamePelletSize(p, r.size)) ? r.size : availAssoc[0];
+        } else if (r.size && !brandSizes.some(s => isSamePelletSize(s, r.size))) {
+          newPallet = "";
+        }
+      } else {
+        if (associated.length === 1) {
+          newPallet = associated[0];
+        } else if (associated.length > 1) {
+          newPallet = associated.some(p => isSamePelletSize(p, r.size)) ? r.size : associated[0];
+        } else if (associated.length === 0) {
+          newPallet = "";
+        }
       }
 
       const matchingBrands = getMatchingBrandsForPallet(newPallet);
-      const newBrand = (r.brand && matchingBrands.some(b => b.toLowerCase().trim() === r.brand.toLowerCase().trim()))
+      const newBrand = (r.brand && (
+        !isLogBagsOpenedMode
+          ? true
+          : (invBrands.some(b => b.toLowerCase().trim() === r.brand.toLowerCase().trim()) &&
+            (!newPallet || matchingBrands.some(b => b.toLowerCase().trim() === r.brand.toLowerCase().trim())))
+      ))
         ? r.brand
         : "";
 
-      const inv = newBrand ? (inventory || []).find(f => f && f.brand === newBrand && isSamePelletSize(f.size, newPallet)) : undefined;
+      const inv = newBrand ? (inventory || []).find(f => f && f.brand.toLowerCase().trim() === newBrand.toLowerCase().trim() && isSamePelletSize(f.size, newPallet)) : undefined;
       return { ...r, fishStock: v, size: newPallet, brand: newBrand, kgPerBag: inv?.weightPerBag || 15 };
     }
 
     if (k === "size") {
-      // User changed pallet (size) — keep manual brand only if valid for new pallet; never auto-assign a brand
-      const matchingBrands = getMatchingBrandsForPallet(v);
-      const newBrand = (r.brand && matchingBrands.some(b => b.toLowerCase().trim() === r.brand.toLowerCase().trim()))
-        ? r.brand
-        : "";
-
-      const inv = newBrand ? (inventory || []).find(f => f && f.brand === newBrand && isSamePelletSize(f.size, v)) : undefined;
-      return { ...r, size: v, brand: newBrand, kgPerBag: inv?.weightPerBag || 15 };
+      if (isLogBagsOpenedMode) {
+        const matchingBrands = getMatchingBrandsForPallet(v);
+        const newBrand = (r.brand && matchingBrands.some(b => b.toLowerCase().trim() === r.brand.toLowerCase().trim()))
+          ? r.brand
+          : (matchingBrands.length === 1 ? matchingBrands[0] : "");
+        const inv = newBrand ? (inventory || []).find(f => f && f.brand.toLowerCase().trim() === newBrand.toLowerCase().trim() && isSamePelletSize(f.size, v)) : undefined;
+        return { ...r, size: v, brand: newBrand, kgPerBag: inv?.weightPerBag || 15 };
+      }
+      // Daily Feed Balance mode: keep user's selected brand (even if Extra / out of stock for leftover logging)
+      const inv = r.brand ? (inventory || []).find(f => f && f.brand.toLowerCase().trim() === r.brand.toLowerCase().trim() && isSamePelletSize(f.size, v)) : undefined;
+      const brandAvail = r.brand && v ? getStockAvailable(r.brand, v, r.id) : null;
+      return {
+        ...r,
+        size: v,
+        kgPerBag: inv?.weightPerBag || 15,
+        qty: (brandAvail && brandAvail.remainingBags <= 0) ? "" : r.qty
+      };
     }
 
     if (k === "brand") {
-      const inv = (inventory || []).find(f => f && f.brand === v && isSamePelletSize(f.size, r.size));
-      const brandAvail = v && r.size ? getStockAvailable(v, r.size, r.id) : null;
+      let nextSize = r.size;
+      if (isLogBagsOpenedMode) {
+        // Strictly filter size to sizes available under the selected brand in Feed Stock
+        const validSizesForBrand = getInStockSizesForBrand(v);
+        if (!v) {
+          if (nextSize && !inStockPelletSizes.some(s => isSamePelletSize(s, nextSize))) {
+            nextSize = "";
+          }
+        } else if (!nextSize || !validSizesForBrand.some(s => isSamePelletSize(s, nextSize))) {
+          nextSize = validSizesForBrand[0] || "";
+        }
+      }
+      const inv = (inventory || []).find(f => f && f.brand.toLowerCase().trim() === v.toLowerCase().trim() && isSamePelletSize(f.size, nextSize));
+      const brandAvail = v && nextSize ? getStockAvailable(v, nextSize, r.id) : null;
       return {
         ...r,
         brand: v,
+        size: nextSize,
         kgPerBag: inv?.weightPerBag || 15,
         qty: (brandAvail && brandAvail.remainingBags <= 0) ? "" : r.qty
       };
@@ -7608,69 +7722,42 @@ function FeedDocumentation({
                         </div>
                       )}
 
-                      {/* Pallet Size & Feed Brand (Pallet first, Feed Brand second) */}
+                      {/* Feed Brand & Pallet Size (Brand first so selecting a brand filters available sizes in Feed Stock) */}
                       <div className="grid grid-cols-2 gap-2">
-                        {/* 1. Pallet (Pellet Size) — includes all registered/leftover sizes even when Feed Stock is 0 */}
-                        <div>
-                          <label className="block text-[10px] font-medium text-slate-500 uppercase tracking-wider mb-1">Pallet (Pellet Size)</label>
-                          {(() => {
-                            const associated = getAssociatedPalletsForStock(row.fishStock, bagsDate);
-                            const inStockOther = availablePelletSizes.filter(s => !associated.some(a => isSamePelletSize(a, s)));
-                            const leftoverOther = allRegisteredSizes.filter(s => !associated.some(a => isSamePelletSize(a, s)) && !inStockOther.some(a => isSamePelletSize(a, s)));
-                            const allModalSizes = [...associated, ...inStockOther, ...leftoverOther];
-                            const selectedSizeVal = allModalSizes.find(s => isSamePelletSize(s, row.size)) || row.size || "";
-                            return (
-                              <select
-                                value={selectedSizeVal}
-                                onChange={e => {
-                                  updateBagRow(i, "size", e.target.value);
-                                  setBagsErr(p => {
-                                    const next = { ...p };
-                                    delete next[`dup_${i}`];
-                                    delete next[`size_${i}`];
-                                    delete next[`brand_${i}`];
-                                    return next;
-                                  });
-                                }}
-
-                                className={`w-full text-[11px] px-2.5 py-1.5 bg-white border rounded-lg text-slate-800 font-normal focus:outline-none focus:ring-1 h-[34px] ${bagsErr[`size_${i}`] ? "border-red-300 focus:ring-red-300" : "border-slate-200 focus:ring-green-400"}`}
-                              >
-                                <option value="">Select pallet…</option>
-                                {associated.length > 0 && (
-                                  <optgroup label="Associated Pallets">
-                                    {associated.map(s => (
-                                      <option key={s} value={s}>{s}</option>
-                                    ))}
-                                  </optgroup>
-                                )}
-                                {inStockOther.length > 0 && (
-                                  <optgroup label="Available Pallets">
-                                    {inStockOther.map(s => (
-                                      <option key={s} value={s}>{s}</option>
-                                    ))}
-                                  </optgroup>
-                                )}
-                                {leftoverOther.length > 0 && (
-                                  <optgroup label="Other / Leftover Pallets">
-                                    {leftoverOther.map(s => (
-                                      <option key={s} value={s}>{s}</option>
-                                    ))}
-                                  </optgroup>
-                                )}
-                              </select>
-                            );
-                          })()}
-                          {bagsErr[`size_${i}`] && (
-                            <p className="text-[10px] text-red-500 mt-1">{bagsErr[`size_${i}`]}</p>
-                          )}
-                        </div>
-
-                        {/* 2. Feed Brand — shows in-stock brands first, plus all registered/leftover brands */}
+                        {/* 1. Feed Brand */}
                         <div>
                           <label className="block text-[10px] font-medium text-slate-500 uppercase tracking-wider mb-1">Feed Brand</label>
                           {(() => {
-                            const matchingBrands = getMatchingBrandsForPallet(row.size);
-                            const otherBrands = allRegisteredBrands.filter(b => !matchingBrands.some(m => m.toLowerCase().trim() === b.toLowerCase().trim()));
+                            if (!bagsModalLockedStock) {
+                              // Log Bags Opened popup: ONLY show brands currently available in Feed Stock
+                              return (
+                                <select
+                                  value={row.brand}
+                                  onChange={e => {
+                                    updateBagRow(i, "brand", e.target.value);
+                                    setBagsErr(p => {
+                                      const next = { ...p };
+                                      delete next[`brand_${i}`];
+                                      delete next[`size_${i}`];
+                                      delete next[`dup_${i}`];
+                                      return next;
+                                    });
+                                  }}
+                                  className={`w-full text-[11px] px-2.5 py-1.5 bg-white border rounded-lg text-slate-800 font-normal focus:outline-none focus:ring-1 h-[34px] ${bagsErr[`brand_${i}`] ? "border-red-300 focus:ring-red-300" : "border-slate-200 focus:ring-green-400"}`}
+                                >
+                                  <option value="">{invBrands.length === 0 ? "No feed in stock" : "Select brand…"}</option>
+                                  {invBrands.map(b => (
+                                    <option key={b} value={b}>{b}</option>
+                                  ))}
+                                </select>
+                              );
+                            }
+
+                            // Daily Feed Balance popup: Available in Feed Stock first, then separate Extra section
+                            const matchingInStockBrands = row.size ? getMatchingBrandsForPallet(row.size) : invBrands;
+                            const otherInStockBrands = invBrands.filter(b => !matchingInStockBrands.some(m => m.toLowerCase().trim() === b.toLowerCase().trim()));
+                            const availableFeedStockBrands = [...matchingInStockBrands, ...otherInStockBrands];
+                            const extraBrands = allRegisteredBrands.filter(b => !availableFeedStockBrands.some(a => a.toLowerCase().trim() === b.toLowerCase().trim()));
                             return (
                               <select
                                 value={row.brand}
@@ -7686,21 +7773,21 @@ function FeedDocumentation({
                                 className={`w-full text-[11px] px-2.5 py-1.5 bg-white border rounded-lg text-slate-800 font-normal focus:outline-none focus:ring-1 h-[34px] ${bagsErr[`brand_${i}`] ? "border-red-300 focus:ring-red-300" : "border-slate-200 focus:ring-green-400"}`}
                               >
                                 <option value="">Select brand…</option>
-                                {matchingBrands.length > 0 && (
-                                  <optgroup label="In Feed Stock">
-                                    {matchingBrands.map(b => (
+                                {availableFeedStockBrands.length > 0 && (
+                                  <optgroup label="Available in Feed Stock">
+                                    {availableFeedStockBrands.map(b => (
                                       <option key={b} value={b}>{b}</option>
                                     ))}
                                   </optgroup>
                                 )}
-                                {otherBrands.length > 0 && (
-                                  <optgroup label={matchingBrands.length > 0 ? "Other / Leftover Brands" : "All Brands (Leftover Only)"}>
-                                    {otherBrands.map(b => (
+                                {extraBrands.length > 0 && (
+                                  <optgroup label="Extra (Not in Feed Stock)">
+                                    {extraBrands.map(b => (
                                       <option key={b} value={b}>{b}</option>
                                     ))}
                                   </optgroup>
                                 )}
-                                {row.brand && !matchingBrands.includes(row.brand) && !otherBrands.includes(row.brand) && (
+                                {row.brand && !availableFeedStockBrands.includes(row.brand) && !extraBrands.includes(row.brand) && (
                                   <option value={row.brand}>{row.brand}</option>
                                 )}
                               </select>
@@ -7708,6 +7795,82 @@ function FeedDocumentation({
                           })()}
                           {bagsErr[`brand_${i}`] && (
                             <p className="text-[10px] text-red-500 mt-1">{bagsErr[`brand_${i}`]}</p>
+                          )}
+                        </div>
+
+                        {/* 2. Pallet (Pellet Size) */}
+                        <div>
+                          <label className="block text-[10px] font-medium text-slate-500 uppercase tracking-wider mb-1">Pallet (Pellet Size)</label>
+                          {(() => {
+                            if (!bagsModalLockedStock) {
+                              // Log Bags Opened popup: ONLY show sizes available under the selected brand in Feed Stock
+                              const strictBrandSizes = getInStockSizesForBrand(row.brand);
+                              const selectedSizeVal = strictBrandSizes.find(s => isSamePelletSize(s, row.size)) || "";
+                              return (
+                                <select
+                                  value={selectedSizeVal}
+                                  onChange={e => {
+                                    updateBagRow(i, "size", e.target.value);
+                                    setBagsErr(p => {
+                                      const next = { ...p };
+                                      delete next[`dup_${i}`];
+                                      delete next[`size_${i}`];
+                                      delete next[`brand_${i}`];
+                                      return next;
+                                    });
+                                  }}
+                                  className={`w-full text-[11px] px-2.5 py-1.5 bg-white border rounded-lg text-slate-800 font-normal focus:outline-none focus:ring-1 h-[34px] ${bagsErr[`size_${i}`] ? "border-red-300 focus:ring-red-300" : "border-slate-200 focus:ring-green-400"}`}
+                                >
+                                  <option value="">{strictBrandSizes.length === 0 ? "No sizes in stock" : "Select pallet…"}</option>
+                                  {strictBrandSizes.map(s => (
+                                    <option key={s} value={s}>{s}</option>
+                                  ))}
+                                </select>
+                              );
+                            }
+
+                            // Daily Feed Balance popup: Available in Feed Stock first, then separate Extra section
+                            const brandInStockSizes = row.brand ? getInStockSizesForBrand(row.brand) : [];
+                            const otherInStockSizes = inStockPelletSizes.filter(s => !brandInStockSizes.some(b => isSamePelletSize(b, s)));
+                            const availableFeedStockSizes = [...brandInStockSizes, ...otherInStockSizes];
+                            const extraSizes = allRegisteredSizes.filter(s => !availableFeedStockSizes.some(a => isSamePelletSize(a, s)));
+                            const allModalSizes = [...availableFeedStockSizes, ...extraSizes];
+                            const selectedSizeVal = allModalSizes.find(s => isSamePelletSize(s, row.size)) || row.size || "";
+                            return (
+                              <select
+                                value={selectedSizeVal}
+                                onChange={e => {
+                                  updateBagRow(i, "size", e.target.value);
+                                  setBagsErr(p => {
+                                    const next = { ...p };
+                                    delete next[`dup_${i}`];
+                                    delete next[`size_${i}`];
+                                    delete next[`brand_${i}`];
+                                    return next;
+                                  });
+                                }}
+                                className={`w-full text-[11px] px-2.5 py-1.5 bg-white border rounded-lg text-slate-800 font-normal focus:outline-none focus:ring-1 h-[34px] ${bagsErr[`size_${i}`] ? "border-red-300 focus:ring-red-300" : "border-slate-200 focus:ring-green-400"}`}
+                              >
+                                <option value="">Select pallet…</option>
+                                {availableFeedStockSizes.length > 0 && (
+                                  <optgroup label="Available in Feed Stock">
+                                    {availableFeedStockSizes.map(s => (
+                                      <option key={s} value={s}>{s}</option>
+                                    ))}
+                                  </optgroup>
+                                )}
+                                {extraSizes.length > 0 && (
+                                  <optgroup label="Extra (Not in Feed Stock)">
+                                    {extraSizes.map(s => (
+                                      <option key={s} value={s}>{s}</option>
+                                    ))}
+                                  </optgroup>
+                                )}
+                              </select>
+                            );
+                          })()}
+                          {bagsErr[`size_${i}`] && (
+                            <p className="text-[10px] text-red-500 mt-1">{bagsErr[`size_${i}`]}</p>
                           )}
                         </div>
                       </div>
@@ -8022,85 +8185,104 @@ function FeedDocumentation({
                 </select>
               </div>
 
-              {/* Pallet Size & Feed Brand (Pallet first, Feed Brand second) */}
+              {/* Feed Brand & Pallet Size (Brand first so selecting a brand filters available sizes in Feed Stock) */}
               <div className="grid grid-cols-2 gap-2.5">
-                {/* 1. Pallet (Pellet Size) */}
+                {/* 1. Feed Brand */}
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1">Pallet (Pellet Size)</label>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1">Feed Brand</label>
                   {(() => {
                     const isManualEdit = Boolean(editDocBag.isManualPrevDayBalance || isManualPrevDayLog(editDocBag));
-                    const sizePool = isManualEdit ? allRegisteredSizes : availablePelletSizes;
-                    const associated = getAssociatedPalletsForStock(editDocBag.fishStock || "", editDocBag.date);
-                    const otherSizes = sizePool.filter(s => !associated.includes(s));
-                    const matchedSizeVal = sizePool.find(s => isSamePelletSize(s, editDocBag.size)) || editDocBag.size || "";
+                    const extraBrands = isManualEdit
+                      ? allRegisteredBrands.filter(b => !invBrands.some(i => i.toLowerCase().trim() === b.toLowerCase().trim()))
+                      : [];
                     return (
                       <select
-                        value={matchedSizeVal}
+                        value={editDocBag.brand}
                         onChange={e => {
-                          const newSize = e.target.value;
-                          const matchingBrands = getMatchingBrandsForPallet(newSize);
-                          const brandPool = isManualEdit
-                            ? (matchingBrands.length > 0 ? matchingBrands : allRegisteredBrands)
-                            : (matchingBrands.length > 0 ? matchingBrands : invBrands);
-                          let newBrand = editDocBag.brand || "";
-                          if (brandPool.length > 0) {
-                            newBrand = brandPool.some(b => b.toLowerCase().trim() === (editDocBag.brand || "").toLowerCase().trim()) ? editDocBag.brand : brandPool[0];
+                          const newBrand = e.target.value;
+                          let nextSize = editDocBag.size;
+                          if (!isManualEdit) {
+                            const validSizes = getInStockSizesForBrand(newBrand);
+                            if (validSizes.length > 0 && !validSizes.some(s => isSamePelletSize(s, nextSize))) {
+                              nextSize = validSizes[0];
+                            }
                           }
-                          const inv = (inventory || []).find(f => f && f.brand === newBrand && isSamePelletSize(f.size, newSize));
+                          const inv = (inventory || []).find(f => f && f.brand.toLowerCase().trim() === newBrand.toLowerCase().trim() && isSamePelletSize(f.size, nextSize));
                           const kgPb = inv?.weightPerBag || editDocBag.kgPerBag || 15;
-                          setEditDocBag(p => p ? { ...p, size: newSize, brand: newBrand, kgPerBag: kgPb, totalKg: p.bagsOpened * kgPb } : p);
+                          setEditDocBag(p => p ? { ...p, brand: newBrand, size: nextSize, kgPerBag: kgPb, totalKg: p.bagsOpened * kgPb } : p);
                         }}
                         className="w-full text-xs px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-slate-800 font-normal focus:outline-none focus:ring-1 focus:ring-green-400 h-[34px]"
                       >
-                        <option value="">{sizePool.length === 0 ? "No active feed stock" : "Select pallet…"}</option>
-                        {associated.length > 0 && (
-                          <optgroup label="Associated Pallets">
-                            {associated.map(s => (
-                              <option key={s} value={s}>{s}</option>
-                            ))}
-                          </optgroup>
+                        {!editDocBag.brand && <option value="">{invBrands.length === 0 && !isManualEdit ? "No feed in stock" : "Select brand…"}</option>}
+                        {isManualEdit ? (
+                          <>
+                            {invBrands.length > 0 && (
+                              <optgroup label="Available in Feed Stock">
+                                {invBrands.map(b => <option key={b} value={b}>{b}</option>)}
+                              </optgroup>
+                            )}
+                            {extraBrands.length > 0 && (
+                              <optgroup label="Extra (Not in Feed Stock)">
+                                {extraBrands.map(b => <option key={b} value={b}>{b}</option>)}
+                              </optgroup>
+                            )}
+                          </>
+                        ) : (
+                          invBrands.map(b => <option key={b} value={b}>{b}</option>)
                         )}
-                        {otherSizes.length > 0 && (
-                          <optgroup label={associated.length > 0 ? "Other Pallets" : "Available Pallets"}>
-                            {otherSizes.map(s => (
-                              <option key={s} value={s}>{s}</option>
-                            ))}
-                          </optgroup>
-                        )}
-                        {editDocBag.size && !sizePool.some(s => isSamePelletSize(s, editDocBag.size)) && (
-                          <option value={editDocBag.size}>{editDocBag.size}</option>
+                        {editDocBag.brand && !invBrands.includes(editDocBag.brand) && !extraBrands.includes(editDocBag.brand) && (
+                          <option value={editDocBag.brand}>{editDocBag.brand}</option>
                         )}
                       </select>
                     );
                   })()}
                 </div>
 
-                {/* 2. Feed Brand */}
+                {/* 2. Pallet (Pellet Size) */}
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1">Feed Brand</label>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1">Pallet (Pellet Size)</label>
                   {(() => {
                     const isManualEdit = Boolean(editDocBag.isManualPrevDayBalance || isManualPrevDayLog(editDocBag));
-                    const matchingBrands = getMatchingBrandsForPallet(editDocBag.size);
-                    const brandOptions = isManualEdit
-                      ? allRegisteredBrands
-                      : (matchingBrands.length > 0 ? matchingBrands : invBrands);
+                    const inStockBrandSizes = getInStockSizesForBrand(editDocBag.brand);
+                    const otherInStockSizes = isManualEdit
+                      ? inStockPelletSizes.filter(s => !inStockBrandSizes.some(b => isSamePelletSize(b, s)))
+                      : [];
+                    const availSizes = [...inStockBrandSizes, ...otherInStockSizes];
+                    const extraSizes = isManualEdit
+                      ? allRegisteredSizes.filter(s => !availSizes.some(a => isSamePelletSize(a, s)))
+                      : [];
+                    const sizePool = [...availSizes, ...extraSizes];
+                    const matchedSizeVal = sizePool.find(s => isSamePelletSize(s, editDocBag.size)) || editDocBag.size || "";
                     return (
                       <select
-                        value={editDocBag.brand}
+                        value={matchedSizeVal}
                         onChange={e => {
-                          const newBrand = e.target.value;
-                          const inv = (inventory || []).find(f => f && f.brand === newBrand && isSamePelletSize(f.size, editDocBag.size));
+                          const newSize = e.target.value;
+                          const inv = (inventory || []).find(f => f && f.brand.toLowerCase().trim() === (editDocBag.brand || "").toLowerCase().trim() && isSamePelletSize(f.size, newSize));
                           const kgPb = inv?.weightPerBag || editDocBag.kgPerBag || 15;
-                          setEditDocBag(p => p ? { ...p, brand: newBrand, kgPerBag: kgPb, totalKg: p.bagsOpened * kgPb } : p);
+                          setEditDocBag(p => p ? { ...p, size: newSize, kgPerBag: kgPb, totalKg: p.bagsOpened * kgPb } : p);
                         }}
                         className="w-full text-xs px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-slate-800 font-normal focus:outline-none focus:ring-1 focus:ring-green-400 h-[34px]"
                       >
-                        {!editDocBag.brand && <option value="">Select brand…</option>}
-                        {brandOptions.map(b => (
-                          <option key={b} value={b}>{b}</option>
-                        ))}
-                        {editDocBag.brand && !brandOptions.includes(editDocBag.brand) && (
-                          <option value={editDocBag.brand}>{editDocBag.brand}</option>
+                        <option value="">{sizePool.length === 0 ? "No sizes in stock" : "Select pallet…"}</option>
+                        {isManualEdit ? (
+                          <>
+                            {availSizes.length > 0 && (
+                              <optgroup label="Available in Feed Stock">
+                                {availSizes.map(s => <option key={s} value={s}>{s}</option>)}
+                              </optgroup>
+                            )}
+                            {extraSizes.length > 0 && (
+                              <optgroup label="Extra (Not in Feed Stock)">
+                                {extraSizes.map(s => <option key={s} value={s}>{s}</option>)}
+                              </optgroup>
+                            )}
+                          </>
+                        ) : (
+                          inStockBrandSizes.map(s => <option key={s} value={s}>{s}</option>)
+                        )}
+                        {editDocBag.size && !sizePool.some(s => isSamePelletSize(s, editDocBag.size)) && (
+                          <option value={editDocBag.size}>{editDocBag.size}</option>
                         )}
                       </select>
                     );
