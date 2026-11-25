@@ -1700,8 +1700,9 @@ function FeedDocumentation({
       const rLog = uniqueRemains.length > 0 ? uniqueRemains[uniqueRemains.length - 1] : null;
       const rLogSum = uniqueRemains.reduce((s, r) => s + (Number(r.remainingKg) || 0), 0);
 
-      // 1b. Manual previous-day balance created on dIso (only if no remainLog with matching id already captured it)
-      const dayManuals = (manualPrevBalances || []).filter(m => {
+      // 1b. Manual previous-day balance created on dIso (skip if already captured by a manual remainLog on dIso)
+      const hasManualRemainOnDate = uniqueRemains.some(r => isManualPrevDayLog(r));
+      const dayManuals = hasManualRemainOnDate ? [] : (manualPrevBalances || []).filter(m => {
         if (!m) return false;
         const mIso = m.dateIso || toIsoSafe(m.date);
         if (mIso !== dIso) return false;
@@ -2694,7 +2695,7 @@ function FeedDocumentation({
   /* Cache for getExpectedFeedData so repeated table/card/modal renders are O(1) */
   const expectedFeedDataCache = useMemo(
     () => new Map<string, { hasFed: boolean; totalFed: number; carryover: number; bagWeight: number; expectedBags: number; expectedRemaining: number }>(),
-    [feedingRecords, bagLogs, remainLogs, feedTransfers, manualPrevBalances, inventory, ponds, stockEvents, selDate, viewYear, activeFarmId]
+    [feedingRecords, bagLogs, remainLogs, feedTransfers, manualPrevBalances, dailyBrandUsedMap, inventory, ponds, stockEvents, selDate, viewYear, activeFarmId]
   );
 
   /* ── helper: calculate expected bags and expected remaining for a fish stock, brand, and size on a date ── */
@@ -2710,6 +2711,12 @@ function FeedDocumentation({
     const cached = expectedFeedDataCache.get(cacheKey);
     if (cached) return cached;
 
+    const isUnspecifiedBrand = (b?: string | null): boolean => {
+      if (!b) return true;
+      const t = b.trim().toLowerCase();
+      return !t || t === "—" || t === "-" || t === "not specified";
+    };
+
     const datePonds = getPondsActiveOnDate(targetDate);
 
     const fedRecords = (feedingRecords || []).filter(r => {
@@ -2718,7 +2725,7 @@ function FeedDocumentation({
       const dateMatch = isSameDate(r.date, targetDate) || isSameDate(r.date, dateLabel) || Boolean(targetIso && rIso && targetIso === rIso);
       if (!dateMatch) return false;
       if (size && size !== "—" && r.size && !isSamePelletSize(r.size, size)) return false;
-      if (brand && brand !== "—" && r.brand && r.brand !== "—" && r.brand.toLowerCase().trim() !== brand.toLowerCase().trim()) return false;
+      if (!isUnspecifiedBrand(brand) && !isUnspecifiedBrand(r.brand) && r.brand!.toLowerCase().trim() !== brand.toLowerCase().trim()) return false;
       if (normStock && normStock !== "—") {
         const resolved = resolveRecordStock(r, targetDate);
         if (resolved.stockName && resolved.stockName !== "—") {
@@ -2741,41 +2748,48 @@ function FeedDocumentation({
       }
       return true;
     });
-    const totalFed = fedRecords.reduce((s, r) => s + (Number(r.total) || ((Number(r.morning) || 0) + (Number(r.evening) || 0))), 0);
+    const rawTotalFed = Math.round(fedRecords.reduce((s, r) => s + (Number(r.total) || ((Number(r.morning) || 0) + (Number(r.evening) || 0))), 0) * 100) / 100;
+    const explicitBrandUsed = (!isUnspecifiedBrand(brand) && normStock && size && size !== "—")
+      ? (() => {
+        const exactKey = `${targetIso}__${normStock.toLowerCase().trim()}__${brand.toLowerCase().trim()}__${size.toLowerCase().replace(/\s+/g, "").trim()}`;
+        return dailyBrandUsedMap[exactKey] !== undefined ? dailyBrandUsedMap[exactKey] : null;
+      })()
+      : null;
+    const totalFed = explicitBrandUsed !== null ? Math.round(explicitBrandUsed * 100) / 100 : rawTotalFed;
 
     const carryover = getPriorCarryover(normStock, size, targetDate, brand);
 
-    const invItem = (inventory || []).find(f => f && (brand && brand !== "—" ? f.brand.toLowerCase().trim() === brand.toLowerCase().trim() : true) && isSamePelletSize(f.size, size)) || (inventory || []).find(f => f && isSamePelletSize(f.size, size));
+    const invItem = (inventory || []).find(f => f && (!isUnspecifiedBrand(brand) ? f.brand.toLowerCase().trim() === brand.toLowerCase().trim() : true) && isSamePelletSize(f.size, size)) || (inventory || []).find(f => f && isSamePelletSize(f.size, size));
     const bagWeight = invItem?.weightPerBag || 15;
 
     // Incoming transfers available for destination stock on targetDate
     const transfersInToday = (feedTransfers || []).filter(t =>
       isStockMatch(t.destinationStock, normStock) &&
       isSamePelletSize(t.feedSize, size) &&
-      (!brand || brand === "—" || !t.feedBrand || t.feedBrand === "—" || t.feedBrand.trim().toLowerCase() === brand.trim().toLowerCase()) &&
+      (isUnspecifiedBrand(brand) || isUnspecifiedBrand(t.feedBrand) || t.feedBrand!.trim().toLowerCase() === brand.trim().toLowerCase()) &&
       (isSameDate(t.transferDate, targetDate) || (targetIso && dateToIso(t.transferDate) === targetIso))
     );
-    const availableTransfersIn = transfersInToday.reduce((s, t) => s + (Number(t.quantityKg) || 0), 0);
+    const availableTransfersIn = Math.round(transfersInToday.reduce((s, t) => s + (Number(t.quantityKg) || 0), 0) * 100) / 100;
 
     // Outgoing transfers on targetDate
     const transfersOutToday = (feedTransfers || []).filter(t =>
       isStockMatch(t.sourceStock, normStock) &&
       isSamePelletSize(t.feedSize, size) &&
-      (!brand || brand === "—" || !t.feedBrand || t.feedBrand === "—" || t.feedBrand.trim().toLowerCase() === brand.trim().toLowerCase()) &&
+      (isUnspecifiedBrand(brand) || isUnspecifiedBrand(t.feedBrand) || t.feedBrand!.trim().toLowerCase() === brand.trim().toLowerCase()) &&
       (isSameDate(t.originalDate, targetDate) || isSameDate(t.transferDate, targetDate) || (targetIso && (dateToIso(t.originalDate) === targetIso || dateToIso(t.transferDate) === targetIso)))
     );
-    const totalTransferredOut = transfersOutToday.reduce((s, t) => s + (Number(t.quantityKg) || 0), 0);
+    const totalTransferredOut = Math.round(transfersOutToday.reduce((s, t) => s + (Number(t.quantityKg) || 0), 0) * 100) / 100;
 
-    const effectiveCarryover = Math.max(0, carryover + availableTransfersIn - totalTransferredOut);
-    const netNeeded = Math.max(0, totalFed - effectiveCarryover);
-    const expectedBags = netNeeded > 0 ? Math.ceil(netNeeded / bagWeight) : 0;
+    const effectiveCarryover = Math.max(0, Math.round((carryover + availableTransfersIn - totalTransferredOut) * 100) / 100);
+    const netNeeded = Math.max(0, Math.round((totalFed - effectiveCarryover) * 100) / 100);
+    const expectedBags = netNeeded > 0.001 ? Math.ceil((netNeeded - 0.0001) / bagWeight) : 0;
     const loggedBags = getBagsLoggedTodayForStockAndSize(normStock, brand, size, targetDate);
     const effectiveBags = bagsOpenedOverride !== undefined ? bagsOpenedOverride : (totalFed > 0 ? expectedBags : loggedBags);
-    const totalAvailable = Math.max(0, carryover + (effectiveBags * bagWeight) + availableTransfersIn - totalTransferredOut);
+    const totalAvailable = Math.max(0, Math.round((carryover + (effectiveBags * bagWeight) + availableTransfersIn - totalTransferredOut) * 100) / 100);
     const expectedRemaining = Math.max(0, Math.round((totalAvailable - totalFed) * 10) / 10);
 
     const result = {
-      hasFed: totalFed > 0,
+      hasFed: totalFed > 0.001,
       totalFed,
       carryover: effectiveCarryover,
       bagWeight,
@@ -2784,7 +2798,7 @@ function FeedDocumentation({
     };
     expectedFeedDataCache.set(cacheKey, result);
     return result;
-  }, [expectedFeedDataCache, normalizeFishStock, viewYear, dateToIso, getPondsActiveOnDate, feedingRecords, resolveRecordStock, isStockMatch, ponds, getPriorCarryover, inventory, feedTransfers, getBagsLoggedTodayForStockAndSize]);
+  }, [expectedFeedDataCache, normalizeFishStock, viewYear, dateToIso, getPondsActiveOnDate, feedingRecords, resolveRecordStock, isStockMatch, ponds, dailyBrandUsedMap, getPriorCarryover, inventory, feedTransfers, getBagsLoggedTodayForStockAndSize]);
 
   const getBrandUsedKey = useCallback((dateStr: string, fishStock: string, brand: string, size: string): string => {
     const dIso = toValidDbDate(dateStr, viewYear) || dateToIso(dateStr) || dateStr;
@@ -3510,36 +3524,25 @@ function FeedDocumentation({
         });
         const hasRemainLog = remainLogsForSize.length > 0;
 
-        // Only skip when THIS specific stock + brand + size is a pure manual previous-day balance without normal logs on selDate
-        const isPureManualBalance = !hasBagLog && !hasRemainLog && (manualPrevBalances || []).some(m => {
+        // Only skip when THIS specific stock + brand + size is a manual previous-day balance created ON selDate (matches Bags Opened isManualPrevDayBalance 1-to-1)
+        const isManualCreatedOnSelDate = !hasBagLog && !hasRemainLog && (manualPrevBalances || []).some(m => {
           if (!m || !isSamePelletSize(m.size, size)) return false;
           if (!m.fishStock || m.fishStock === "—" || m.fishStock === "All Active Stocks") return false;
           if (!isStockMatch(m.fishStock, stockInfo.stockName, selDate)) return false;
           if (brand !== "—" && m.brand && m.brand !== "—" && m.brand.toLowerCase().trim() !== brand.toLowerCase().trim()) return false;
           const mIso = m.dateIso || toValidDbDate(m.date, viewYear) || dateToIso(m.date);
-          if (selIso && mIso && mIso > selIso) return false;
-          const stats = getManualBalanceStats(m, selDate);
-          return stats.startBalanceKg > 0 || stats.currentRemainingKg > 0 || isSameDate(m.date, selDate);
+          return isSameDate(m.date, selDate) || Boolean(selIso && mIso && mIso === selIso);
         });
-        if (isPureManualBalance) return;
+        if (isManualCreatedOnSelDate) return;
 
-        const sizeFedRecords = fedRecords.filter(r =>
-          (size === "—" || isSamePelletSize(r.size, size)) &&
-          (brand === "—" || !r.brand || r.brand === "—" || r.brand.toLowerCase().trim() === brand.toLowerCase().trim())
-        );
-        const rawSizeFedKg = sizeFedRecords.reduce((s, r) => s + (Number(r.total) || ((Number(r.morning) || 0) + (Number(r.evening) || 0))), 0);
-        const explicitBrandUsedKg = brand !== "—" ? getBrandUsedKg(selDate, stockInfo.stockName, brand, size) : null;
-        const sizeFedKg = explicitBrandUsedKg !== null ? explicitBrandUsedKg : rawSizeFedKg;
-
-        // Carryover from previous feeding records strictly before selDate
+        // Use the EXACT same calculation engine as Bags Opened (getExpectedFeedData) so both tabs can NEVER conflict
+        const expData = getExpectedFeedData(selDate, stockInfo.stockName, brand, size, hasBagLog ? recordedBags : undefined);
+        const sizeFedKg = expData.totalFed;
         const carryoverKg = getPriorCarryover(stockInfo.stockName, size, selDate, brand);
+        const expectedBags = expData.expectedBags;
+        const expectedRemaining = expData.expectedRemaining;
 
-        // Bag weight
-        const invItem = (inventory || []).find(f => f && (brand !== "—" ? f.brand.toLowerCase().trim() === brand.toLowerCase().trim() : true) && (size !== "—" ? isSamePelletSize(f.size, size) : true)) ||
-          (inventory || []).find(f => f && (size !== "—" ? isSamePelletSize(f.size, size) : true));
-        const bagWeight = invItem?.weightPerBag || 15;
-
-        // Incoming & Outgoing transfers on selDate
+        // Incoming & Outgoing transfers on selDate (for adjusting raw remainLog to net balance)
         const transfersInToday = (feedTransfers || []).filter(t =>
           isStockMatch(t.destinationStock, stockInfo.stockName) &&
           isSamePelletSize(t.feedSize, size) &&
@@ -3556,12 +3559,6 @@ function FeedDocumentation({
         );
         const totalTransferredOut = transfersOutToday.reduce((s, t) => s + (Number(t.quantityKg) || 0), 0);
 
-        // Effective feed available BEFORE opening any new bags on selDate
-        const effectiveAvailable = Math.max(0, carryoverKg + availableTransfersIn - totalTransferredOut);
-
-        const netNeeded = Math.max(0, sizeFedKg - effectiveAvailable);
-        const expectedBags = netNeeded > 0 ? Math.ceil(netNeeded / bagWeight) : 0;
-
         const rawRecordedRemaining = hasRemainLog
           ? Math.round(remainLogsForSize.reduce((s, r) => s + (Number(r.remainingKg) || 0), 0) * 100) / 100
           : null;
@@ -3569,14 +3566,9 @@ function FeedDocumentation({
           ? Math.max(0, Math.round((rawRecordedRemaining + availableTransfersIn - totalTransferredOut) * 10) / 10)
           : null;
 
-        // Expected remaining feed calculation
-        const effectiveBagsForExpected = hasBagLog ? recordedBags : expectedBags;
-        const totalAvailable = Math.max(0, carryoverKg + (effectiveBagsForExpected * bagWeight) + availableTransfersIn - totalTransferredOut);
-        const expectedRemaining = Math.max(0, Math.round((totalAvailable - sizeFedKg) * 10) / 10);
-
         // Determine discrepancies on selDate
         if (!hasBagLog && !hasRemainLog) {
-          if (sizeFedKg > 0 && (expectedBags > 0 || !brand || brand === "—" || brand === "Not specified")) {
+          if (expData.hasFed && expectedBags > 0) {
             rows.push({
               stockKey: `${key}__${brand}__${size}`,
               stockName: stockInfo.stockName,
@@ -3590,13 +3582,13 @@ function FeedDocumentation({
               recordedRemaining: null,
               totalFed: sizeFedKg,
               carryover: carryoverKg,
-              reason: `Fed ${sizeFedKg} kg on ${toDateLabel(selDate)} (${carryoverKg > 0 ? `${carryoverKg} kg carryover` : "no prior carryover"})${expectedBags > 0 ? `, requiring ${expectedBags} bag${expectedBags !== 1 ? "s" : ""} to be opened` : ""}, but no Bags Opened & Leftover log was recorded.`
+              reason: `Fed ${sizeFedKg} kg on ${toDateLabel(selDate)} (${carryoverKg > 0 ? `${carryoverKg} kg carryover` : "no prior carryover"}), requiring ${expectedBags} bag${expectedBags !== 1 ? "s" : ""} to be opened, but no Bags Opened & Leftover log was recorded.`
             });
           }
           return;
         }
 
-        const isBagCountMismatch = (sizeFedKg > 0 && recordedBags !== expectedBags) || (sizeFedKg <= 0 && recordedBags > 0);
+        const isBagCountMismatch = (expData.hasFed && Math.abs(recordedBags - expectedBags) > 0.001) || (!expData.hasFed && recordedBags > 0.001);
         const isRemainValueMismatch = recordedRemaining !== null && Math.abs(recordedRemaining - expectedRemaining) > 0.05;
         const isRemainingMismatch = isRemainValueMismatch;
 
@@ -3641,7 +3633,7 @@ function FeedDocumentation({
     });
 
     return rows;
-  }, [pondsActiveOnSelDate, ponds, bagLogs, feedingRecords, remainLogs, inventory, feedTransfers, manualPrevBalances, getManualBalanceStats, getMatchingBrandsForPallet, selDate, viewYear, dateToIso, getPriorCarryover, isPondName, isManualPrevDayLog, resolveRecordStock, resolveLogStock, getBrandUsedKg, normalizeFishStock, isStockMatch, pondToStock]);
+  }, [pondsActiveOnSelDate, ponds, bagLogs, feedingRecords, remainLogs, inventory, feedTransfers, manualPrevBalances, getManualBalanceStats, getMatchingBrandsForPallet, selDate, viewYear, dateToIso, getPriorCarryover, getExpectedFeedData, isPondName, isManualPrevDayLog, resolveRecordStock, resolveLogStock, getBrandUsedKg, normalizeFishStock, isStockMatch, pondToStock]);
 
   const handleMismatchClick = (row: MismatchStockRow) => {
     const targetDate = getIsoDateForSelDate(selDate);
@@ -4545,6 +4537,8 @@ function FeedDocumentation({
         return;
       }
 
+      const priorCarry = isCreatedOnSelDate ? stats.startBalanceKg : getPriorCarryover(fs, size, selDate, brand);
+      const effectiveCarry = isCreatedOnSelDate ? stats.startBalanceKg : (priorCarry > 0 ? priorCarry : stats.startBalanceKg);
       map.set(k, {
         brand,
         size,
@@ -4552,11 +4546,11 @@ function FeedDocumentation({
         stockDate: stockDate !== fs ? stockDate : "—",
         bagsOpened: isCreatedOnSelDate ? (Number(m.bagsOpened) || 0) : 0,
         totalKgOpened: isCreatedOnSelDate ? (Number(m.bagsOpened) * (Number(m.kgPerBag) || 15)) : 0,
-        remainingKg: stats.currentRemainingKg,
-        carryoverKg: stats.startBalanceKg,
-        feedRemainingToday: stats.currentRemainingKg,
-        availableRemainingKg: stats.currentRemainingKg,
-        grossRemainingKg: stats.startBalanceKg,
+        remainingKg: isCreatedOnSelDate ? stats.currentRemainingKg : effectiveCarry,
+        carryoverKg: effectiveCarry,
+        feedRemainingToday: isCreatedOnSelDate ? stats.currentRemainingKg : effectiveCarry,
+        availableRemainingKg: isCreatedOnSelDate ? stats.currentRemainingKg : effectiveCarry,
+        grossRemainingKg: effectiveCarry,
         hasBagLog: isCreatedOnSelDate,
         hasRemainLog: isCreatedOnSelDate,
         lastBagLog: matchingBagLog || null,
@@ -4623,9 +4617,12 @@ function FeedDocumentation({
       // Feeding for this stock, pellet size, and brand on selDate
       const fedForSize = dayFeedRecords.filter(r => {
         const resolved = resolveRecordStock(r, selDate);
+        const rBrandClean = (r.brand || "").trim().toLowerCase();
+        const bClean = (brand || "").trim().toLowerCase();
+        const brandOk = !bClean || bClean === "—" || bClean === "not specified" || !rBrandClean || rBrandClean === "—" || rBrandClean === "not specified" || rBrandClean === bClean;
         return (isStockMatch(resolved.stockName, fs, selDate) || isStockMatch(r.fishStock, fs, selDate) || isStockMatch(pondToStock(r.pond, selDate), fs, selDate) || isStockMatch(r.pond, fs, selDate)) &&
           (size === "—" || isSamePelletSize(r.size, size)) &&
-          (brand === "—" || !r.brand || r.brand === "—" || !brand || r.brand.toLowerCase().trim() === brand.toLowerCase().trim());
+          brandOk;
       });
       const totalFed = fedForSize.reduce((s, r) => s + (Number(r.total) || ((Number(r.morning) || 0) + (Number(r.evening) || 0))), 0);
 
@@ -6342,7 +6339,7 @@ function FeedDocumentation({
                       const isRemainColHighlighted = isHighlightedRow && (bagsHighlight?.col === "remaining" || bagsHighlight?.col === "all" || !bagsHighlight?.col);
 
                       const expData = getExpectedFeedData(selDate, row.fishStock, row.brand, row.size, row.hasBagLog ? row.bagsOpened : undefined);
-                      const isBagsMismatch = Boolean(!row.isManualPrevDayBalance && ((expData.hasFed && (row.bagsOpened !== expData.expectedBags || (!row.hasBagLog && expData.expectedBags > 0))) || (!expData.hasFed && row.bagsOpened > 0)));
+                      const isBagsMismatch = Boolean(!row.isManualPrevDayBalance && ((expData.hasFed && (Math.abs(row.bagsOpened - expData.expectedBags) > 0.001 || (!row.hasBagLog && expData.expectedBags > 0))) || (!expData.hasFed && row.bagsOpened > 0.001)));
                       const isRemainMismatch = Boolean(!row.isManualPrevDayBalance && row.hasRemainLog && Math.abs(((row.feedRemainingToday ?? row.remainingKg) || 0) - expData.expectedRemaining) > 0.05);
 
                       const rowUniqueKey = `desktop__${i}__${row.lastBagLog?.id || ""}__${row.fishStock}__${row.brand}__${row.size}`;
@@ -6620,7 +6617,7 @@ function FeedDocumentation({
                 const isRemainColHighlighted = isHighlightedRow && (bagsHighlight?.col === "remaining" || bagsHighlight?.col === "all" || !bagsHighlight?.col);
 
                 const expData = getExpectedFeedData(selDate, row.fishStock, row.brand, row.size, row.hasBagLog ? row.bagsOpened : undefined);
-                const isBagsMismatch = Boolean(!row.isManualPrevDayBalance && ((expData.hasFed && (row.bagsOpened !== expData.expectedBags || (!row.hasBagLog && expData.expectedBags > 0))) || (!expData.hasFed && row.bagsOpened > 0)));
+                const isBagsMismatch = Boolean(!row.isManualPrevDayBalance && ((expData.hasFed && (Math.abs(row.bagsOpened - expData.expectedBags) > 0.001 || (!row.hasBagLog && expData.expectedBags > 0))) || (!expData.hasFed && row.bagsOpened > 0.001)));
                 const isRemainMismatch = Boolean(!row.isManualPrevDayBalance && row.hasRemainLog && Math.abs(((row.feedRemainingToday ?? row.remainingKg) || 0) - expData.expectedRemaining) > 0.05);
                 const mobileMenuKey = `mobile__${i}__${row.lastBagLog?.id || ""}__${row.fishStock}__${row.brand}__${row.size}`;
                 const isMenuOpen = activeBagMenuId === mobileMenuKey;
