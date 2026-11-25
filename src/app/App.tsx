@@ -6337,30 +6337,37 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     const fid=b.farmId||activeFarmId||farms[0]?.id||"";
     const farmBag:BagOpenLog={...b,id:isUuid(b.id)?b.id:crypto.randomUUID(),farmId:fid};
     const isManualNew = isManualPrevDayBalanceLog(farmBag);
-    let existingMatch: BagOpenLog | undefined;
-    setBagLogs(prev=>{
-      existingMatch=prev.find(x=>x.id===farmBag.id || (
-        isManualPrevDayBalanceLog(x) === isManualNew &&
-        isSameDate(x.date,farmBag.date) &&
-        isSamePelletSize(x.size,farmBag.size) &&
-        (!farmBag.brand||!x.brand||x.brand.toLowerCase().trim()===farmBag.brand.toLowerCase().trim()) &&
-        isStockMatch(x.fishStock, farmBag.fishStock) &&
-        (!x.farmId||x.farmId===farmBag.farmId)
-      ));
-      if(existingMatch){
-        const updated: BagOpenLog={...existingMatch,...farmBag,id:existingMatch.id};
-        return prev.map(x=>x.id===existingMatch!.id?updated:x);
-      } else {
-        return [farmBag,...prev];
+    const existingMatch = bagLogs.find(x=>x.id===farmBag.id || (
+      isManualPrevDayBalanceLog(x) === isManualNew &&
+      isSameDate(x.date,farmBag.date) &&
+      isSamePelletSize(x.size,farmBag.size) &&
+      (!farmBag.brand||!x.brand||x.brand.toLowerCase().trim()===farmBag.brand.toLowerCase().trim()) &&
+      isStockMatch(x.fishStock, farmBag.fishStock) &&
+      (!x.farmId||x.farmId===farmBag.farmId)
+    ));
+    const toPersist: BagOpenLog = existingMatch
+      ? { ...existingMatch, ...farmBag, id: isUuid(existingMatch.id) ? existingMatch.id : farmBag.id }
+      : farmBag;
+    const nextBagLogs = existingMatch
+      ? bagLogs.map(x => x.id === existingMatch.id ? toPersist : x)
+      : [toPersist, ...bagLogs];
+    setBagLogs(nextBagLogs);
+    if (userProfile?.id) {
+      try {
+        saveUserLocal(userProfile.id, "bag_open_logs", "bagOpenLogs", nextBagLogs);
+        if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
+          saveUserLocal(userProfile.ownerId, "bag_open_logs", "bagOpenLogs", nextBagLogs);
+        }
+      } catch {}
+    }
+    if (existingMatch && isUuid(existingMatch.id)) {
+      try {
+        await api.bagLogs.update(toPersist);
+      } catch {
+        await api.bagLogs.create(toPersist);
       }
-    });
-    if(existingMatch){
-      const updated: BagOpenLog={...existingMatch,...farmBag,id:existingMatch.id};
-      await api.bagLogs.update(updated).catch(async () => {
-        await api.bagLogs.create(updated);
-      });
     } else {
-      await api.bagLogs.create(farmBag);
+      await api.bagLogs.create(toPersist);
     }
   };
   const editBagLog=async(b:BagOpenLog)=>{
@@ -6368,29 +6375,37 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     const fid=b.farmId||activeFarmId||farms[0]?.id||"";
     const farmBag:BagOpenLog={...b,farmId:fid};
     const isManualEdit = isManualPrevDayBalanceLog(farmBag);
-    let targetId = farmBag.id;
-    setBagLogs(prev=>{
-      const exists = prev.some(x=>x.id===farmBag.id);
-      if (exists) {
-        return prev.map(x=>x.id===farmBag.id?farmBag:x);
+    const exactMatch = bagLogs.find(x=>x.id===farmBag.id);
+    const fallbackMatch = exactMatch ? undefined : bagLogs.find(x=>
+      isManualPrevDayBalanceLog(x) === isManualEdit &&
+      isSameDate(x.date, farmBag.date) &&
+      isSamePelletSize(x.size, farmBag.size) &&
+      (!farmBag.brand||!x.brand||x.brand.toLowerCase().trim()===farmBag.brand.toLowerCase().trim()) &&
+      isStockMatch(x.fishStock, farmBag.fishStock) &&
+      (!x.farmId||x.farmId===farmBag.farmId)
+    );
+    const matched = exactMatch || fallbackMatch;
+    const targetId = matched && isUuid(matched.id) ? matched.id : (isUuid(farmBag.id) ? farmBag.id : crypto.randomUUID());
+    const toPersist: BagOpenLog = matched ? { ...matched, ...farmBag, id: targetId } : { ...farmBag, id: targetId };
+    const nextBagLogs = matched
+      ? bagLogs.map(x => x.id === matched.id ? toPersist : x)
+      : [toPersist, ...bagLogs];
+    setBagLogs(nextBagLogs);
+    if (userProfile?.id) {
+      try {
+        saveUserLocal(userProfile.id, "bag_open_logs", "bagOpenLogs", nextBagLogs);
+        if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
+          saveUserLocal(userProfile.ownerId, "bag_open_logs", "bagOpenLogs", nextBagLogs);
+        }
+      } catch {}
+    }
+    if (matched && isUuid(matched.id)) {
+      try {
+        await api.bagLogs.update(toPersist);
+      } catch {
+        await api.bagLogs.create(toPersist);
       }
-      const matchIdx = prev.findIndex(x=>
-        isManualPrevDayBalanceLog(x) === isManualEdit &&
-        isSameDate(x.date, farmBag.date) &&
-        isSamePelletSize(x.size, farmBag.size) &&
-        (!farmBag.brand||!x.brand||x.brand.toLowerCase().trim()===farmBag.brand.toLowerCase().trim()) &&
-        isStockMatch(x.fishStock, farmBag.fishStock)
-      );
-      if (matchIdx >= 0) {
-        targetId = prev[matchIdx].id;
-        return prev.map((x, idx) => idx === matchIdx ? { ...x, ...farmBag, id: prev[matchIdx].id } : x);
-      }
-      return [farmBag, ...prev];
-    });
-    const toPersist = { ...farmBag, id: targetId };
-    try {
-      await api.bagLogs.update(toPersist);
-    } catch {
+    } else {
       await api.bagLogs.create(toPersist);
     }
   };
@@ -6399,30 +6414,37 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     const fid=r.farmId||activeFarmId||farms[0]?.id||"";
     const farmRemain:FeedRemainingLog={...r,id:isUuid(r.id)?r.id:crypto.randomUUID(),farmId:fid};
     const isManualNew = isManualPrevDayBalanceLog(farmRemain);
-    let existingMatch: FeedRemainingLog | undefined;
-    setRemainLogs(prev=>{
-      existingMatch=prev.find(x=>x.id===farmRemain.id || (
-        isManualPrevDayBalanceLog(x) === isManualNew &&
-        isSameDate(x.date,farmRemain.date) &&
-        isSamePelletSize(x.size,farmRemain.size) &&
-        (!farmRemain.brand||!x.brand||x.brand.toLowerCase().trim()===farmRemain.brand.toLowerCase().trim()) &&
-        isStockMatch(x.fishStock, farmRemain.fishStock) &&
-        (!x.farmId||x.farmId===farmRemain.farmId)
-      ));
-      if(existingMatch){
-        const updated: FeedRemainingLog={...existingMatch,...farmRemain,id:existingMatch.id};
-        return prev.map(x=>x.id===existingMatch!.id?updated:x);
-      } else {
-        return [farmRemain,...prev];
+    const existingMatch = remainLogs.find(x=>x.id===farmRemain.id || (
+      isManualPrevDayBalanceLog(x) === isManualNew &&
+      isSameDate(x.date,farmRemain.date) &&
+      isSamePelletSize(x.size,farmRemain.size) &&
+      (!farmRemain.brand||!x.brand||x.brand.toLowerCase().trim()===farmRemain.brand.toLowerCase().trim()) &&
+      isStockMatch(x.fishStock, farmRemain.fishStock) &&
+      (!x.farmId||x.farmId===farmRemain.farmId)
+    ));
+    const toPersist: FeedRemainingLog = existingMatch
+      ? { ...existingMatch, ...farmRemain, id: isUuid(existingMatch.id) ? existingMatch.id : farmRemain.id }
+      : farmRemain;
+    const nextRemainLogs = existingMatch
+      ? remainLogs.map(x => x.id === existingMatch.id ? toPersist : x)
+      : [toPersist, ...remainLogs];
+    setRemainLogs(nextRemainLogs);
+    if (userProfile?.id) {
+      try {
+        saveUserLocal(userProfile.id, "feed_remaining_logs", "feedRemainingLogs", nextRemainLogs);
+        if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
+          saveUserLocal(userProfile.ownerId, "feed_remaining_logs", "feedRemainingLogs", nextRemainLogs);
+        }
+      } catch {}
+    }
+    if (existingMatch && isUuid(existingMatch.id)) {
+      try {
+        await api.remainLogs.update(toPersist);
+      } catch {
+        await api.remainLogs.create(toPersist);
       }
-    });
-    if(existingMatch){
-      const updated: FeedRemainingLog={...existingMatch,...farmRemain,id:existingMatch.id};
-      await api.remainLogs.update(updated).catch(async () => {
-        await api.remainLogs.create(updated);
-      });
     } else {
-      await api.remainLogs.create(farmRemain);
+      await api.remainLogs.create(toPersist);
     }
   };
   const editRemainLog=async(r:FeedRemainingLog)=>{
@@ -6430,29 +6452,37 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     const fid=r.farmId||activeFarmId||farms[0]?.id||"";
     const farmRemain:FeedRemainingLog={...r,farmId:fid};
     const isManualEdit = isManualPrevDayBalanceLog(farmRemain);
-    let targetId = farmRemain.id;
-    setRemainLogs(prev=>{
-      const exists = prev.some(x=>x.id===farmRemain.id);
-      if (exists) {
-        return prev.map(x=>x.id===farmRemain.id?farmRemain:x);
+    const exactMatch = remainLogs.find(x=>x.id===farmRemain.id);
+    const fallbackMatch = exactMatch ? undefined : remainLogs.find(x=>
+      isManualPrevDayBalanceLog(x) === isManualEdit &&
+      isSameDate(x.date, farmRemain.date) &&
+      isSamePelletSize(x.size, farmRemain.size) &&
+      (!farmRemain.brand||!x.brand||x.brand.toLowerCase().trim()===farmRemain.brand.toLowerCase().trim()) &&
+      isStockMatch(x.fishStock, farmRemain.fishStock) &&
+      (!x.farmId||x.farmId===farmRemain.farmId)
+    );
+    const matched = exactMatch || fallbackMatch;
+    const targetId = matched && isUuid(matched.id) ? matched.id : (isUuid(farmRemain.id) ? farmRemain.id : crypto.randomUUID());
+    const toPersist: FeedRemainingLog = matched ? { ...matched, ...farmRemain, id: targetId } : { ...farmRemain, id: targetId };
+    const nextRemainLogs = matched
+      ? remainLogs.map(x => x.id === matched.id ? toPersist : x)
+      : [toPersist, ...remainLogs];
+    setRemainLogs(nextRemainLogs);
+    if (userProfile?.id) {
+      try {
+        saveUserLocal(userProfile.id, "feed_remaining_logs", "feedRemainingLogs", nextRemainLogs);
+        if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
+          saveUserLocal(userProfile.ownerId, "feed_remaining_logs", "feedRemainingLogs", nextRemainLogs);
+        }
+      } catch {}
+    }
+    if (matched && isUuid(matched.id)) {
+      try {
+        await api.remainLogs.update(toPersist);
+      } catch {
+        await api.remainLogs.create(toPersist);
       }
-      const matchIdx = prev.findIndex(x=>
-        isManualPrevDayBalanceLog(x) === isManualEdit &&
-        isSameDate(x.date, farmRemain.date) &&
-        isSamePelletSize(x.size, farmRemain.size) &&
-        (!farmRemain.brand||!x.brand||x.brand.toLowerCase().trim()===farmRemain.brand.toLowerCase().trim()) &&
-        isStockMatch(x.fishStock, farmRemain.fishStock)
-      );
-      if (matchIdx >= 0) {
-        targetId = prev[matchIdx].id;
-        return prev.map((x, idx) => idx === matchIdx ? { ...x, ...farmRemain, id: prev[matchIdx].id } : x);
-      }
-      return [farmRemain, ...prev];
-    });
-    const toPersist = { ...farmRemain, id: targetId };
-    try {
-      await api.remainLogs.update(toPersist);
-    } catch {
+    } else {
       await api.remainLogs.create(toPersist);
     }
   };

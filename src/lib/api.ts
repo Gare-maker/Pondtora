@@ -728,11 +728,18 @@ export async function verifyStaffActionPermission(table: string, action: "canCre
     }
     const queryStaffId = staffMemberId || currentUid;
 
+    const allowedFeatures =
+      (table === "price_groups" || table === "sales_calculations" || table === "sales_calculation_items" || table === "sales_calculation_payments" || table === "sales_calculation_edit_history")
+        ? ["Invoices", "Sales Calculator", "Sales Management"]
+        : (table === "bag_open_logs" || table === "feed_remaining_logs")
+          ? ["Feed Stock", "Feeding Records"]
+          : [feature];
+
     const { data: permRows } = await supabase
       .from("staff_permissions")
       .select("can_create, can_edit, can_delete, can_view, feature")
       .eq("staff_id", queryStaffId)
-      .in("feature", (table === "price_groups" || table === "sales_calculations" || table === "sales_calculation_items" || table === "sales_calculation_payments" || table === "sales_calculation_edit_history") ? ["Invoices", "Sales Calculator", "Sales Management"] : [feature]);
+      .in("feature", allowedFeatures);
 
     const permRow = permRows && permRows.length > 0 ? (permRows.find((r: any) => r.can_create || r.can_edit || r.can_delete) || permRows[0]) : null;
 
