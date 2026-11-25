@@ -393,10 +393,10 @@ export function SH({label,field,sf,sd,onSort}:{label:string;field:string;sf:stri
     </th>
   );
 }
-export function useSort<T>(data:T[], defaultField:string){
+export function useSort<T>(data:T[], defaultField:string, defaultDir:SortDir="asc"){
   const [sf,setSf]=useState(defaultField);
-  const [sd,setSd]=useState<SortDir>("asc");
-  const toggle=(f:string)=>{if(sf===f)setSd((p: SortDir)=>p==="asc"?"desc":"asc");else{setSf(f);setSd("asc");}};
+  const [sd,setSd]=useState<SortDir>(defaultDir);
+  const toggle=(f:string)=>{if(sf===f)setSd((p: SortDir)=>p==="asc"?"desc":"asc");else{setSf(f);setSd(f==="date"?"desc":"asc");}};
   const sorted=useMemo(()=>[...data].sort((a:any,b:any)=>{const va=a[sf],vb=b[sf];if(typeof va==="string")return sd==="asc"?va.localeCompare(vb):vb.localeCompare(va);return sd==="asc"?(va??0)-(vb??0):(vb??0)-(va??0);}),[data,sf,sd]);
   return {sorted,sf,sd,toggle};
 }

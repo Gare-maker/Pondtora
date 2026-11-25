@@ -812,7 +812,43 @@ function PondDetail({
   }, [feedingRecords, pond.id, pond.name, pond.species, pond.status, pond.stockingDate, pond.fishStock, (pond as any).fishStockId, pStockDbDate, pDateLabel, pStockIdentity, activeFishStockLabel, defaultFishStockLabel, stockEvents, ponds]);
   const fhMonths=[...new Set(history.map(r=>r.month))];
   const filtHistory=fhMonth==="All"?history:history.filter(r=>r.month===fhMonth);
-  const {sorted:sortedHist,sf:hSf,sd:hSd,toggle:hToggle}=useSort(filtHistory,"date");
+  const {sf:hSf,sd:hSd,toggle:hToggle}=useSort(filtHistory,"date","desc");
+  const sortedHist = useMemo(() => {
+    const parseDateKey = (r: FeedingRecord): string => {
+      const iso = toValidDbDate(r.date, r.year);
+      if (iso) return iso;
+      return String(r.date || "");
+    };
+    const parseTimeKey = (r: FeedingRecord): string => {
+      const created = (r as any).createdAt || (r as any).created_at || "";
+      const pm = r.eveningTime || "";
+      const am = r.morningTime || "";
+      return `${created}|${pm}|${am}`;
+    };
+    return [...filtHistory].sort((a: any, b: any) => {
+      if (hSf === "date") {
+        const da = parseDateKey(a);
+        const db = parseDateKey(b);
+        const cmp = hSd === "desc" ? db.localeCompare(da) : da.localeCompare(db);
+        if (cmp !== 0) return cmp;
+        const ta = parseTimeKey(a);
+        const tb = parseTimeKey(b);
+        return hSd === "desc" ? tb.localeCompare(ta) : ta.localeCompare(tb);
+      }
+      const va = a[hSf], vb = b[hSf];
+      if (typeof va === "string" || typeof vb === "string") {
+        const cmp = hSd === "asc"
+          ? String(va || "").localeCompare(String(vb || ""))
+          : String(vb || "").localeCompare(String(va || ""));
+        if (cmp !== 0) return cmp;
+      } else {
+        const cmp = hSd === "asc" ? (va ?? 0) - (vb ?? 0) : (vb ?? 0) - (va ?? 0);
+        if (cmp !== 0) return cmp;
+      }
+      // Secondary sort: most recent date first
+      return parseDateKey(b).localeCompare(parseDateKey(a));
+    });
+  }, [filtHistory, hSf, hSd]);
   const feedSummary=history.reduce<{brand:string;size:string;total:number}[]>((acc,r)=>{
     const b = (r.brand && r.brand.trim() && r.brand.trim() !== "—") ? r.brand.trim() : "Not specified";
     const s = (r.size || "").trim();
@@ -1262,8 +1298,8 @@ function PondDetail({
             </tr></thead>
             <tbody className="divide-y divide-slate-50">
               {sortedHist.length===0?<tr><td colSpan={11} className="text-center text-xs text-slate-400 py-5">No feeding records for this pond.</td></tr>:sortedHist.slice((feedPage-1)*PER_PAGE,feedPage*PER_PAGE).map((r,i)=>(
-                <tr key={i} className="hover:bg-slate-50 transition-colors">
-                  <td className="px-4 py-3 text-slate-300 text-xs font-mono sticky left-0 z-10 bg-white">{i+1}</td>
+                <tr key={r.id || i} className="hover:bg-slate-50 transition-colors">
+                  <td className="px-4 py-3 text-slate-300 text-xs font-mono sticky left-0 z-10 bg-white">{(feedPage-1)*PER_PAGE + i + 1}</td>
                   <td className="px-4 py-3 text-slate-500 sticky left-10 z-10 bg-white border-r border-slate-100 whitespace-nowrap">{r.date}</td>
                   <td className="px-4 py-3 font-medium text-slate-800">{r.brand?.trim() || "Not specified"}</td>
                   <td className="px-4 py-3"><Bdg label={r.size} color="blue"/></td>
