@@ -6416,14 +6416,18 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     const fid=r.farmId||activeFarmId||farms[0]?.id||"";
     const farmRemain:FeedRemainingLog={...r,id:isUuid(r.id)?r.id:crypto.randomUUID(),farmId:fid};
     const isManualNew = isManualPrevDayBalanceLog(farmRemain);
-    const existingMatch = remainLogs.find(x=>x.id===farmRemain.id || (
-      isManualPrevDayBalanceLog(x) === isManualNew &&
-      isSameDate(x.date,farmRemain.date) &&
-      isSamePelletSize(x.size,farmRemain.size) &&
-      (!farmRemain.brand||!x.brand||x.brand.toLowerCase().trim()===farmRemain.brand.toLowerCase().trim()) &&
-      isStockMatch(x.fishStock, farmRemain.fishStock) &&
-      (!x.farmId||x.farmId===farmRemain.farmId)
-    ));
+    const isTransferMarker = typeof (farmRemain as any).pond === "string" && (farmRemain as any).pond.startsWith("__FEED_TRANSFER__");
+    const existingMatch = isTransferMarker
+      ? remainLogs.find(x => x.id === farmRemain.id)
+      : remainLogs.find(x=>x.id===farmRemain.id || (
+        !(typeof (x as any).pond === "string" && (x as any).pond.startsWith("__FEED_TRANSFER__")) &&
+        isManualPrevDayBalanceLog(x) === isManualNew &&
+        isSameDate(x.date,farmRemain.date) &&
+        isSamePelletSize(x.size,farmRemain.size) &&
+        (!farmRemain.brand||!x.brand||x.brand.toLowerCase().trim()===farmRemain.brand.toLowerCase().trim()) &&
+        isStockMatch(x.fishStock, farmRemain.fishStock) &&
+        (!x.farmId||x.farmId===farmRemain.farmId)
+      ));
     const toPersist: FeedRemainingLog = existingMatch
       ? { ...existingMatch, ...farmRemain, id: isUuid(existingMatch.id) ? existingMatch.id : farmRemain.id }
       : farmRemain;

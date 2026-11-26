@@ -339,32 +339,93 @@ function FeedDocumentation({
       return next;
     });
   }, [dailyBrandUsedStorageKey]);
+  const isFeedTransferLog = useCallback((log: any): boolean => {
+    return Boolean(log && typeof log.pond === "string" && log.pond.startsWith("__FEED_TRANSFER__"));
+  }, []);
+
+  const parseFeedTransfersFromRemainLogs = useCallback((logs: FeedRemainingLog[]): FeedTransferRecord[] => {
+    const parsed: FeedTransferRecord[] = [];
+    (logs || []).forEach((r: any) => {
+      if (!r || typeof r.pond !== "string" || !r.pond.startsWith("__FEED_TRANSFER__")) return;
+      try {
+        const jsonPart = r.pond.slice("__FEED_TRANSFER__:".length);
+        const obj = JSON.parse(jsonPart);
+        if (obj && obj.sourceStock && obj.destinationStock && Number(obj.quantityKg) > 0) {
+          parsed.push({
+            id: obj.id || r.id,
+            sourceStock: obj.sourceStock,
+            destinationStock: obj.destinationStock,
+            feedSize: obj.feedSize || r.size || "—",
+            feedBrand: obj.feedBrand || r.brand || "—",
+            pallet: obj.pallet || obj.feedSize || r.size || "—",
+            originalBagLogId: obj.originalBagLogId,
+            originalDate: obj.originalDate || obj.transferDate || r.date,
+            transferDate: obj.transferDate || r.date,
+            transferTimestamp: obj.transferTimestamp || new Date().toISOString(),
+            quantityKg: Number(obj.quantityKg) || 0,
+            transferredBy: obj.transferredBy || "Staff",
+            notes: obj.notes || "",
+            farmId: obj.farmId || r.farmId || activeFarmId
+          });
+        }
+      } catch {}
+    });
+    return parsed;
+  }, [activeFarmId]);
+
+  const isTransferForFarm = useCallback((t: any): boolean => {
+    if (!t) return false;
+    return !t.farmId || t.farmId === "default" || !activeFarmId || activeFarmId === "default" || t.farmId === activeFarmId;
+  }, [activeFarmId]);
+
   const [feedTransfers, setFeedTransfers] = useState<FeedTransferRecord[]>(() => {
     try {
-      const raw = localStorage.getItem(`pondtora_feed_transfers_${activeFarmId}`) || localStorage.getItem("pondtora_feed_transfers");
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) {
-          return parsed.filter((t: any) => t && (!t.farmId || t.farmId === activeFarmId));
-        }
+      const merged: FeedTransferRecord[] = [];
+      const seen = new Set<string>();
+      const addList = (arr: any) => {
+        if (!Array.isArray(arr)) return;
+        arr.forEach((t: any) => {
+          if (!t || !t.id || seen.has(t.id)) return;
+          if (!t.farmId || t.farmId === "default" || t.farmId === activeFarmId) {
+            seen.add(t.id);
+            merged.push(t);
+          }
+        });
+      };
+      addList(JSON.parse(localStorage.getItem(`pondtora_feed_transfers_${activeFarmId}`) || "[]"));
+      if (activeFarmId !== "default") {
+        addList(JSON.parse(localStorage.getItem("pondtora_feed_transfers_default") || "[]"));
       }
+      addList(JSON.parse(localStorage.getItem("pondtora_feed_transfers") || "[]"));
+      return merged;
     } catch { }
     return [];
   });
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(`pondtora_feed_transfers_${activeFarmId}`) || localStorage.getItem("pondtora_feed_transfers");
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) {
-          setFeedTransfers(parsed.filter((t: any) => t && (!t.farmId || t.farmId === activeFarmId)));
-          return;
+    const dbTransfers = parseFeedTransfersFromRemainLogs(remainLogs || []);
+    const merged: FeedTransferRecord[] = [];
+    const seen = new Set<string>();
+    const addList = (arr: any) => {
+      if (!Array.isArray(arr)) return;
+      arr.forEach((t: any) => {
+        if (!t || !t.id || seen.has(t.id)) return;
+        if (isTransferForFarm(t)) {
+          seen.add(t.id);
+          merged.push(t);
         }
+      });
+    };
+    addList(dbTransfers);
+    try {
+      addList(JSON.parse(localStorage.getItem(`pondtora_feed_transfers_${activeFarmId}`) || "[]"));
+      if (activeFarmId !== "default") {
+        addList(JSON.parse(localStorage.getItem("pondtora_feed_transfers_default") || "[]"));
       }
+      addList(JSON.parse(localStorage.getItem("pondtora_feed_transfers") || "[]"));
     } catch { }
-    setFeedTransfers([]);
-  }, [activeFarmId]);
+    setFeedTransfers(merged);
+  }, [activeFarmId, remainLogs, parseFeedTransfersFromRemainLogs, isTransferForFarm]);
 
   const saveFeedTransfers = useCallback((updated: FeedTransferRecord[]) => {
     setFeedTransfers(updated);
@@ -1629,7 +1690,7 @@ function FeedDocumentation({
     const activityDates = new Set<string>();
 
     (remainLogs || []).forEach(r => {
-      if (!r || !r.date) return;
+      if (!r || !r.date || isFeedTransferLog(r)) return;
       const iso = toIsoSafe(r.date, r.year);
       if (
         iso && iso < targetIso &&
@@ -1709,6 +1770,7 @@ function FeedDocumentation({
       // 1. Explicit user leftover recorded on this date (sum all contributing logs for this date/stock/brand/size)
       const matchingRemains = (remainLogs || []).filter(r =>
         r && r.date &&
+        !isFeedTransferLog(r) &&
         toIsoSafe(r.date, r.year) === dIso &&
         logMatchesStock(r, dIso) &&
         (!size || size === "—" || !r.size || r.size === "—" || isSamePelletSize(r.size, size)) &&
@@ -1781,10 +1843,13 @@ function FeedDocumentation({
       });
       const dayFedKg = dayFeedings.reduce((s, r) => s + (Number(r.total) || ((Number(r.morning) || 0) + (Number(r.evening) || 0))), 0);
 
+      const uncoveredFedOnDay = Math.max(0, Math.round((dayFedKg - (balance + dayBagsKg)) * 100) / 100);
       if (rLog && rLog.remainingKg !== undefined && rLog.remainingKg !== null) {
-        balance = Math.max(0, Math.round((rLogSum + dayManualRemKg + dayTransfersInKg - dayTransfersOutKg) * 100) / 100);
+        const fedDeduction = dayTransfersInKg > 0 ? uncoveredFedOnDay : 0;
+        balance = Math.max(0, Math.round((rLogSum + dayManualRemKg + dayTransfersInKg - dayTransfersOutKg - fedDeduction) * 100) / 100);
       } else if (dayManuals.length > 0) {
-        balance = Math.max(0, Math.round((dayManualRemKg + dayTransfersInKg - dayTransfersOutKg) * 100) / 100);
+        const fedDeduction = dayTransfersInKg > 0 ? Math.max(0, Math.round((dayFedKg - dayManualRemKg) * 100) / 100) : 0;
+        balance = Math.max(0, Math.round((dayManualRemKg + dayTransfersInKg - dayTransfersOutKg - fedDeduction) * 100) / 100);
       } else {
         balance = Math.max(0, balance + dayBagsKg + dayTransfersInKg - dayTransfersOutKg - dayFedKg);
       }
@@ -2115,9 +2180,40 @@ function FeedDocumentation({
         farmId: activeFarmId
       };
 
-      // Atomic update of transfers state and persistent localStorage
+      // Atomic update of transfers state, persistent localStorage, and permanent Supabase persistence
       const updatedTransfers = [newRecord, ...feedTransfers];
       saveFeedTransfers(updatedTransfers);
+
+      // Persist cross-stock transfer permanently in Supabase via a dedicated __FEED_TRANSFER__ marker row (never touches existing user remainLogs/bagLogs/feedingRecords)
+      if (!isStockMatch(normDestFs, normSourceFs) && onAddRemainLog) {
+        const transferMarkerPayload: any = {
+          id: newRecord.id,
+          brand: newRecord.feedBrand || "—",
+          size: newRecord.feedSize || "—",
+          fishStock: newRecord.sourceStock,
+          remainingKg: 0,
+          date: normTransferIso,
+          month: toMon(normTransferIso),
+          year: toYr(normTransferIso),
+          farmId: activeFarmId,
+          pond: `__FEED_TRANSFER__:${JSON.stringify({
+            id: newRecord.id,
+            sourceStock: newRecord.sourceStock,
+            destinationStock: newRecord.destinationStock,
+            feedSize: newRecord.feedSize,
+            feedBrand: newRecord.feedBrand,
+            originalDate: newRecord.originalDate,
+            transferDate: newRecord.transferDate,
+            transferTimestamp: newRecord.transferTimestamp,
+            quantityKg: newRecord.quantityKg,
+            transferredBy: newRecord.transferredBy,
+            notes: newRecord.notes,
+            farmId: activeFarmId
+          })}`,
+          isManualPrevDayBalance: false
+        };
+        await Promise.resolve(onAddRemainLog(transferMarkerPayload)).catch(console.warn);
+      }
 
       // Deduct from source stock remaining log to maintain consistent balance
       const isSameStockTransfer = isStockMatch(destFs, sourceFs) || normalizeFishStock(destFs) === normalizeFishStock(sourceFs);
@@ -3548,7 +3644,7 @@ function FeedDocumentation({
       });
 
       const stockRemainLogs = (remainLogs || []).filter(r => {
-        if (!r || isManualPrevDayLog(r) || !r.date) return false;
+        if (!r || isManualPrevDayLog(r) || isFeedTransferLog(r) || !r.date) return false;
         const rIso = toValidDbDate(r.date, r.year || viewYear) || dateToIso(r.date);
         const isDateMatch = isSameDate(r.date, selDate) || isSameDate(r.date, toDateLabel(selDate)) || Boolean(selIso && rIso && rIso === selIso);
         const resolvedStock = resolveLogStock(r, selDate);
@@ -4293,7 +4389,7 @@ function FeedDocumentation({
       return isSameDate(b.date, selDate) || isSameDate(b.date, toDateLabel(selDate)) || Boolean(selIso && bIso && bIso === selIso);
     });
     const dayRemainLogs = (remainLogs || []).filter(r => {
-      if (!r || !r.date) return false;
+      if (!r || !r.date || isFeedTransferLog(r)) return false;
       const rIso = toValidDbDate(r.date, r.year || viewYear) || dateToIso(r.date);
       return isSameDate(r.date, selDate) || isSameDate(r.date, toDateLabel(selDate)) || Boolean(selIso && rIso && rIso === selIso);
     });
@@ -4644,8 +4740,7 @@ function FeedDocumentation({
 
       // 1. Outgoing transfers from this stock & size & brand on selDate (strictly transferDate, excluding self-transfers)
       const transfersOut = (feedTransfers || []).filter(t =>
-        t &&
-        (!t.farmId || t.farmId === activeFarmId) &&
+        isTransferForFarm(t) &&
         !isStockMatch(t.sourceStock, t.destinationStock) &&
         isStockMatch(t.sourceStock, fs) &&
         (size === "—" || isSamePelletSize(t.feedSize, size)) &&
@@ -4656,8 +4751,7 @@ function FeedDocumentation({
 
       // 2. Incoming transfers to this stock & size & brand received on selDate (strictly destinationStock, excluding self-transfers)
       const transfersIn = (feedTransfers || []).filter(t =>
-        t &&
-        (!t.farmId || t.farmId === activeFarmId) &&
+        isTransferForFarm(t) &&
         !isStockMatch(t.sourceStock, t.destinationStock) &&
         isStockMatch(t.destinationStock, fs) &&
         (size === "—" || isSamePelletSize(t.feedSize, size)) &&
@@ -4679,21 +4773,6 @@ function FeedDocumentation({
         (brand === "—" || !r.brand || r.brand === "—" || r.brand.toLowerCase().trim() === brand.toLowerCase().trim())
       );
 
-      if (entry.isManualPrevDayBalance && !hasNormalLogsOnSelDate) {
-        const remAggManual = sumUniqueDayRemains(fs, size, entry.brand);
-        const adjRem = remAggManual.hasRemain
-          ? Math.max(0, Math.round((remAggManual.totalRem + totalTransferredInKg - totalTransferredOutKg) * 100) / 100)
-          : Math.max(0, Math.round((entry.remainingKg || 0) * 100) / 100);
-        entry.transfersOut = transfersOut;
-        entry.transfersIn = transfersIn;
-        entry.totalTransferredOutKg = totalTransferredOutKg;
-        entry.totalTransferredInKg = totalTransferredInKg;
-        entry.feedRemainingToday = adjRem;
-        entry.remainingKg = adjRem;
-        entry.availableRemainingKg = adjRem;
-        return;
-      }
-
       // Feeding for this stock, pellet size, and brand on selDate
       const fedForSize = dayFeedRecords.filter(r => {
         const resolved = resolveRecordStock(r, selDate);
@@ -4706,7 +4785,27 @@ function FeedDocumentation({
       });
       const totalFed = fedForSize.reduce((s, r) => s + (Number(r.total) || ((Number(r.morning) || 0) + (Number(r.evening) || 0))), 0);
 
-      // Sum all explicit leftover entries for selDate (merging manual + normal entries in this consolidated group)
+      if (entry.isManualPrevDayBalance && !hasNormalLogsOnSelDate) {
+        const remAggManual = sumUniqueDayRemains(fs, size, entry.brand);
+        const baseManualRem = remAggManual.hasRemain
+          ? Math.max(0, Math.round((remAggManual.totalRem + totalTransferredInKg - totalTransferredOutKg) * 100) / 100)
+          : Math.max(0, Math.round((entry.remainingKg || 0) * 100) / 100);
+        // When a transfer is received today, deduct today's feeding that was not covered before the transfer
+        const uncoveredManualFed = totalTransferredInKg > 0
+          ? Math.max(0, Math.round((totalFed - (entry.carryoverKg || 0)) * 100) / 100)
+          : 0;
+        const adjRem = Math.max(0, Math.round((baseManualRem - uncoveredManualFed) * 100) / 100);
+        entry.transfersOut = transfersOut;
+        entry.transfersIn = transfersIn;
+        entry.totalTransferredOutKg = totalTransferredOutKg;
+        entry.totalTransferredInKg = totalTransferredInKg;
+        entry.feedRemainingToday = adjRem;
+        entry.remainingKg = adjRem;
+        entry.availableRemainingKg = adjRem;
+        return;
+      }
+
+      // Sum all explicit leftover entries for selDate (strictly non-manual operational entries)
       const remAgg = sumUniqueDayRemains(fs, size, entry.brand);
 
       const grossRemainingKg = (entry.carryoverKg || 0) + (entry.totalKgOpened || 0) + totalTransferredInKg;
@@ -4714,7 +4813,10 @@ function FeedDocumentation({
 
       let finalRemaining: number | null = null;
       if (remAgg.hasRemain) {
-        finalRemaining = Math.max(0, Math.round((remAgg.totalRem + totalTransferredInKg - totalTransferredOutKg) * 100) / 100);
+        const uncoveredFed = totalTransferredInKg > 0
+          ? Math.max(0, Math.round((totalFed - ((entry.carryoverKg || 0) + (entry.totalKgOpened || 0))) * 100) / 100)
+          : 0;
+        finalRemaining = Math.max(0, Math.round((remAgg.totalRem + totalTransferredInKg - totalTransferredOutKg - uncoveredFed) * 100) / 100);
         entry.hasRemainLog = true;
       } else {
         const hasBalance = (entry.carryoverKg || 0) > 0 || totalTransferredInKg > 0 || (entry.totalKgOpened || 0) > 0;
