@@ -1725,9 +1725,10 @@ function FeedDocumentation({
       });
       const dayManualRemKg = dayManuals.reduce((s, m) => s + (Number(m.initialRemainingKg) || 0), 0);
 
-      // 2. Bags opened on this date
+      // 2. Bags opened on this date (STRICTLY non-manual operational bags — Manual Previous-Day Balance is NOT newly opened bags)
       const dayBags = (bagLogs || []).filter(b =>
         b && b.date &&
+        !isManualPrevDayLog(b) &&
         toIsoSafe(b.date, b.year) === dIso &&
         logMatchesStock(b, dIso) &&
         (!size || size === "—" || !b.size || b.size === "—" || isSamePelletSize(b.size, size)) &&
@@ -2677,25 +2678,26 @@ function FeedDocumentation({
   }, [stockFilterOptions, bagsStockFilter]);
 
   /* ── helper: count bags opened for a given fish stock + brand + pellet size on a date ── */
-  const getBagsLoggedTodayForStockAndSize = (stockName: string, brandName: string, palletSize: string, checkDate: string): number => {
+  const getBagsLoggedTodayForStockAndSize = useCallback((stockName: string, brandName: string, palletSize: string, checkDate: string): number => {
     if (!stockName || !palletSize || !checkDate || stockName === "—") return 0;
-    const normalizedStock = normalizeFishStock(stockName).toLowerCase().trim();
+    const normalizedStock = normalizeFishStock(stockName, checkDate).toLowerCase().trim();
     const normalizedBrand = (brandName || "").toLowerCase().trim();
     const dateLabel = toDateLabel(checkDate);
-    const checkIso = dateToIso(checkDate);
+    const checkIso = toValidDbDate(checkDate, viewYear) || dateToIso(checkDate);
     const matching = (bagLogs || []).filter(b => {
       if (!b || isManualPrevDayLog(b) || (Number(b.bagsOpened) || 0) <= 0 || !b.fishStock || b.fishStock === "—") return false;
-      const bIso = dateToIso(b.date);
+      const bIso = toValidDbDate(b.date, b.year || viewYear) || dateToIso(b.date);
       const isDateMatch = isSameDate(b.date, checkDate) || isSameDate(b.date, dateLabel) || Boolean(checkIso && bIso && checkIso === bIso);
       if (!isDateMatch) return false;
+      const resolvedStock = resolveLogStock(b, checkDate);
       return (
-        (isStockMatch(b.fishStock, stockName) || normalizeFishStock(b.fishStock).toLowerCase().trim() === normalizedStock) &&
-        (normalizedBrand === "" || (b.brand || "").toLowerCase().trim() === normalizedBrand) &&
+        (isStockMatch(resolvedStock, stockName, checkDate) || isStockMatch(b.fishStock, stockName, checkDate) || normalizeFishStock(resolvedStock, checkDate).toLowerCase().trim() === normalizedStock) &&
+        (normalizedBrand === "" || normalizedBrand === "—" || (b.brand || "").toLowerCase().trim() === normalizedBrand) &&
         (palletSize === "—" || isSamePelletSize(b.size, palletSize))
       );
     });
     return matching.reduce((s, b) => s + (Number(b.bagsOpened) || 0), 0);
-  };
+  }, [bagLogs, isManualPrevDayLog, normalizeFishStock, viewYear, dateToIso, resolveLogStock, isStockMatch]);
   const isStockAndSizeAlreadyLogged = (stockName: string, brandName: string, palletSize: string, checkDate: string): boolean => {
     return getBagsLoggedTodayForStockAndSize(stockName, brandName, palletSize, checkDate) > 0;
   };
@@ -2765,7 +2767,20 @@ function FeedDocumentation({
       : null;
     const totalFed = explicitBrandUsed !== null ? Math.round(explicitBrandUsed * 100) / 100 : rawTotalFed;
 
-    const carryover = getPriorCarryover(normStock, size, targetDate, brand);
+    const priorCarryover = getPriorCarryover(normStock, size, targetDate, brand);
+    const manualOpeningOnDate = (manualPrevBalances || [])
+      .filter(m => {
+        if (!m) return false;
+        const mIso = m.dateIso || toValidDbDate(m.date, viewYear) || dateToIso(m.date);
+        const sameDate = isSameDate(m.date, targetDate) || isSameDate(m.date, dateLabel) || Boolean(targetIso && mIso && mIso === targetIso);
+        if (!sameDate) return false;
+        if (size && size !== "—" && !isSamePelletSize(m.size, size)) return false;
+        if (!isUnspecifiedBrand(brand) && !isUnspecifiedBrand(m.brand) && m.brand!.toLowerCase().trim() !== brand.toLowerCase().trim()) return false;
+        if (!m.fishStock || m.fishStock === "—" || m.fishStock === "All Active Stocks") return false;
+        return isStockMatch(m.fishStock, normStock, targetDate);
+      })
+      .reduce((s, m) => s + (Number(m.initialRemainingKg) || 0), 0);
+    const carryover = priorCarryover > 0 ? priorCarryover : Math.round(manualOpeningOnDate * 100) / 100;
 
     const invItem = (inventory || []).find(f => f && (!isUnspecifiedBrand(brand) ? f.brand.toLowerCase().trim() === brand.toLowerCase().trim() : true) && isSamePelletSize(f.size, size)) || (inventory || []).find(f => f && isSamePelletSize(f.size, size));
     const bagWeight = invItem?.weightPerBag || 15;
@@ -4313,7 +4328,7 @@ function FeedDocumentation({
     const sumUniqueDayRemains = (fs: string, size: string, brand: string) => {
       const seen = new Set<string>();
       const matches = dayRemainLogs.filter(r => {
-        if (!r) return false;
+        if (!r || isManualPrevDayLog(r)) return false;
         if (r.id && seen.has(r.id)) return false;
         const rResolved = resolveLogStock(r, selDate);
         const stockMatch = isStockMatch(rResolved, fs, selDate) || isStockMatch(r.fishStock, fs, selDate) || normalizeFishStock(rResolved, selDate) === normalizeFishStock(fs, selDate);
@@ -4330,9 +4345,9 @@ function FeedDocumentation({
       return { hasRemain: true, totalRem };
     };
 
-    // 2. Process ALL dayBagLogs (both normal & manual entries merge and accumulate into the same stock group)
+    // 2. Process ONLY non-manual operational dayBagLogs (Manual Previous-Day Balance is NOT a Bags Open transaction!)
     dayBagLogs.forEach(b => {
-      const isManualBag = isManualPrevDayLog(b);
+      if (isManualPrevDayLog(b)) return;
       const fs = resolveLogStock(b, selDate) || "—";
       const bags = Number(b.bagsOpened) || 0;
       const brand = b.brand || "—";
@@ -4356,13 +4371,12 @@ function FeedDocumentation({
       if (existing) {
         existing.bagsOpened = Math.round((existing.bagsOpened + bags) * 100) / 100;
         existing.totalKgOpened = Math.round((existing.totalKgOpened + totalKg) * 100) / 100;
-        if (!isManualBag || !existing.lastBagLog) existing.lastBagLog = b;
+        existing.lastBagLog = b;
         existing.hasBagLog = true;
         existing.carryoverKg = carryoverKg;
         existing.feedRemainingToday = feedRemainingToday;
         existing.remainingKg = feedRemainingToday ?? 0;
         existing.hasRemainLog = remAgg.hasRemain;
-        if (isManualBag) existing.isManualPrevDayBalance = true;
       } else {
         map.set(k, {
           brand,
@@ -4377,16 +4391,17 @@ function FeedDocumentation({
           hasBagLog: true,
           hasRemainLog: remAgg.hasRemain,
           lastBagLog: b,
-          isManualPrevDayBalance: isManualBag
+          isManualPrevDayBalance: false
         });
       }
       populatedStockKeys.add(fs.toLowerCase().trim());
       populatedStockKeys.add(normalizeFishStock(fs, selDate).toLowerCase().trim());
     });
 
-    // 3. Process ALL dayRemainLogs without bagLog on selDate (both normal & manual)
+    // 3. Process ONLY non-manual operational dayRemainLogs without bagLog on selDate
     dayRemainLogs.forEach(r => {
-      const isManualRem = isManualPrevDayLog(r);
+      if (isManualPrevDayLog(r)) return;
+      const isManualRem = false;
       const fs = resolveLogStock(r, selDate) || "—";
       const remVal = Number(r.remainingKg) || 0;
       if (!isManualRem && !isStockActiveOnSelDate(r.fishStock) && !isStockActiveOnSelDate(fs) && remVal <= 0) return;
@@ -4558,42 +4573,30 @@ function FeedDocumentation({
 
       const existingRow = map.get(k);
       if (existingRow) {
-        // If this row already has normal (non-manual) bags/leftovers on selDate, keep them strictly separate from Manual Previous-Day Balance
-        const hasNormalActivityOnSelDate = !existingRow.isManualPrevDayBalance && (existingRow.hasBagLog || existingRow.hasRemainLog);
-        if (hasNormalActivityOnSelDate) {
-          return;
-        }
-        if (isCreatedOnSelDate && !matchingBagLog) {
-          existingRow.bagsOpened = Math.round((existingRow.bagsOpened + (Number(m.bagsOpened) || 0)) * 100) / 100;
-          existingRow.totalKgOpened = Math.round((existingRow.totalKgOpened + (Number(m.bagsOpened) * (Number(m.kgPerBag) || 15))) * 100) / 100;
-          existingRow.remainingKg = Math.round((existingRow.remainingKg + stats.currentRemainingKg) * 100) / 100;
-          existingRow.feedRemainingToday = existingRow.remainingKg;
-          existingRow.hasBagLog = true;
-          existingRow.hasRemainLog = true;
-        }
-        if (isCreatedOnSelDate) {
-          existingRow.isManualPrevDayBalance = true;
-          if (existingRow.initialManualRemainingKg === undefined) existingRow.initialManualRemainingKg = m.initialRemainingKg;
-          if (existingRow.manualFedDeductedKg === undefined) existingRow.manualFedDeductedKg = stats.fedTodayKg;
+        // Keep Bags Open & Leftovers completely independent of Manual Previous-Day Balance:
+        // Never modify bagsOpened, totalKgOpened, or remainingKg on an operational row; only reflect the manual opening balance in carryoverKg if created on selDate.
+        if (isCreatedOnSelDate && stats.startBalanceKg > 0 && (existingRow.carryoverKg || 0) <= 0) {
+          existingRow.carryoverKg = stats.startBalanceKg;
         }
         return;
       }
 
       const priorCarry = isCreatedOnSelDate ? stats.startBalanceKg : getPriorCarryover(fs, size, selDate, brand);
       const effectiveCarry = isCreatedOnSelDate ? stats.startBalanceKg : (priorCarry > 0 ? priorCarry : stats.startBalanceKg);
+      // Manual Previous-Day Feed Balance is NEVER treated as newly opened bags today (bagsOpened = 0, totalKgOpened = 0)
       map.set(k, {
         brand,
         size,
         fishStock: fs || "All Active Stocks",
         stockDate: stockDate !== fs ? stockDate : "—",
-        bagsOpened: isCreatedOnSelDate ? (Number(m.bagsOpened) || 0) : 0,
-        totalKgOpened: isCreatedOnSelDate ? (Number(m.bagsOpened) * (Number(m.kgPerBag) || 15)) : 0,
+        bagsOpened: 0,
+        totalKgOpened: 0,
         remainingKg: isCreatedOnSelDate ? stats.currentRemainingKg : effectiveCarry,
         carryoverKg: effectiveCarry,
         feedRemainingToday: isCreatedOnSelDate ? stats.currentRemainingKg : effectiveCarry,
         availableRemainingKg: isCreatedOnSelDate ? stats.currentRemainingKg : effectiveCarry,
         grossRemainingKg: effectiveCarry,
-        hasBagLog: isCreatedOnSelDate,
+        hasBagLog: false,
         hasRemainLog: isCreatedOnSelDate,
         lastBagLog: matchingBagLog || null,
         isManualPrevDayBalance: isCreatedOnSelDate,
@@ -5060,7 +5063,7 @@ function FeedDocumentation({
     }));
   };
 
-  const handleSaveManualPrevBalance = () => {
+  const handleSaveManualPrevBalance = async () => {
     if (!isAdmin) {
       toast.error("Access denied: Only Admins can record a manual previous-day feed balance.");
       return;
@@ -5142,6 +5145,7 @@ function FeedDocumentation({
 
       let updatedList = [...manualPrevBalances];
 
+      const manualPersistPromises: Promise<any>[] = [];
       preparedRows.forEach(item => {
         const resolvedStock = normalizeFishStock(item.fishStock, selDate) !== "—"
           ? normalizeFishStock(item.fishStock, selDate)
@@ -5197,10 +5201,10 @@ function FeedDocumentation({
           updatedList = [newManualEntry, ...updatedList];
         }
 
-        // Persist in bagLogs & remainLogs so Feed Stock / Bags Opened stay synchronized across sessions
+        // Persist as a strictly isolated Manual Previous-Day Balance record (NEVER deducts from Feed Stock or modifies Bags Open)
         const bagLogEntry: BagOpenLog = {
           id: newManualEntry.id,
-          date: dateLabel,
+          date: dateIso,
           month: monStr,
           year: yrNum,
           brand: item.brandClean,
@@ -5209,6 +5213,7 @@ function FeedDocumentation({
           kgPerBag: item.kgPerBag,
           totalKg: Math.round(newManualEntry.bagsOpened * item.kgPerBag * 100) / 100,
           fishStock: resolvedStock,
+          farmId: activeFarmId,
           reason: "MANUAL_PREV_DAY_BALANCE",
           isManualPrevDayBalance: true,
           initialRemainingKg: newManualEntry.initialRemainingKg,
@@ -5216,19 +5221,20 @@ function FeedDocumentation({
         };
 
         if (existingIdx >= 0 && onEditBagLog) {
-          onEditBagLog(bagLogEntry);
+          manualPersistPromises.push(Promise.resolve(onEditBagLog(bagLogEntry)));
         } else {
-          onAddBagLog(bagLogEntry);
+          manualPersistPromises.push(Promise.resolve(onAddBagLog(bagLogEntry)));
         }
 
         const remainLogEntry: FeedRemainingLog = {
           id: newManualEntry.id,
-          date: dateLabel,
+          date: dateIso,
           month: monStr,
           year: yrNum,
           brand: item.brandClean,
           size: item.sizeClean,
           fishStock: resolvedStock,
+          farmId: activeFarmId,
           remainingKg: newManualEntry.initialRemainingKg,
           isManualPrevDayBalance: true,
           initialRemainingKg: newManualEntry.initialRemainingKg,
@@ -5236,12 +5242,13 @@ function FeedDocumentation({
         };
 
         if (existingIdx >= 0 && onEditRemainLog) {
-          onEditRemainLog(remainLogEntry);
+          manualPersistPromises.push(Promise.resolve(onEditRemainLog(remainLogEntry)));
         } else if (onAddRemainLog) {
-          onAddRemainLog(remainLogEntry);
+          manualPersistPromises.push(Promise.resolve(onAddRemainLog(remainLogEntry)));
         }
       });
 
+      await Promise.all(manualPersistPromises);
       saveManualPrevBalances(updatedList);
       setShowManualPrevModal(false);
       setDocTab("bags");

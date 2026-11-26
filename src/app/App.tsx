@@ -6348,18 +6348,19 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     const toPersist: BagOpenLog = existingMatch
       ? { ...existingMatch, ...farmBag, id: isUuid(existingMatch.id) ? existingMatch.id : farmBag.id }
       : farmBag;
-    const nextBagLogs = existingMatch
-      ? bagLogs.map(x => x.id === existingMatch.id ? toPersist : x)
-      : [toPersist, ...bagLogs];
-    setBagLogs(nextBagLogs);
-    if (userProfile?.id) {
-      try {
-        saveUserLocal(userProfile.id, "bag_open_logs", "bagOpenLogs", nextBagLogs);
-        if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
-          saveUserLocal(userProfile.ownerId, "bag_open_logs", "bagOpenLogs", nextBagLogs);
-        }
-      } catch {}
-    }
+    setBagLogs(prev => {
+      const idx = prev.findIndex(x => x.id === toPersist.id || (existingMatch && x.id === existingMatch.id));
+      const next = idx >= 0 ? prev.map((x, i) => i === idx ? toPersist : x) : [toPersist, ...prev];
+      if (userProfile?.id) {
+        try {
+          saveUserLocal(userProfile.id, "bag_open_logs", "bagOpenLogs", next);
+          if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
+            saveUserLocal(userProfile.ownerId, "bag_open_logs", "bagOpenLogs", next);
+          }
+        } catch {}
+      }
+      return next;
+    });
     if (existingMatch && isUuid(existingMatch.id)) {
       try {
         await api.bagLogs.update(toPersist);
@@ -6387,18 +6388,19 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     const matched = exactMatch || fallbackMatch;
     const targetId = matched && isUuid(matched.id) ? matched.id : (isUuid(farmBag.id) ? farmBag.id : crypto.randomUUID());
     const toPersist: BagOpenLog = matched ? { ...matched, ...farmBag, id: targetId } : { ...farmBag, id: targetId };
-    const nextBagLogs = matched
-      ? bagLogs.map(x => x.id === matched.id ? toPersist : x)
-      : [toPersist, ...bagLogs];
-    setBagLogs(nextBagLogs);
-    if (userProfile?.id) {
-      try {
-        saveUserLocal(userProfile.id, "bag_open_logs", "bagOpenLogs", nextBagLogs);
-        if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
-          saveUserLocal(userProfile.ownerId, "bag_open_logs", "bagOpenLogs", nextBagLogs);
-        }
-      } catch {}
-    }
+    setBagLogs(prev => {
+      const idx = prev.findIndex(x => x.id === toPersist.id || (matched && x.id === matched.id));
+      const next = idx >= 0 ? prev.map((x, i) => i === idx ? toPersist : x) : [toPersist, ...prev];
+      if (userProfile?.id) {
+        try {
+          saveUserLocal(userProfile.id, "bag_open_logs", "bagOpenLogs", next);
+          if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
+            saveUserLocal(userProfile.ownerId, "bag_open_logs", "bagOpenLogs", next);
+          }
+        } catch {}
+      }
+      return next;
+    });
     if (matched && isUuid(matched.id)) {
       try {
         await api.bagLogs.update(toPersist);
@@ -6425,18 +6427,19 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     const toPersist: FeedRemainingLog = existingMatch
       ? { ...existingMatch, ...farmRemain, id: isUuid(existingMatch.id) ? existingMatch.id : farmRemain.id }
       : farmRemain;
-    const nextRemainLogs = existingMatch
-      ? remainLogs.map(x => x.id === existingMatch.id ? toPersist : x)
-      : [toPersist, ...remainLogs];
-    setRemainLogs(nextRemainLogs);
-    if (userProfile?.id) {
-      try {
-        saveUserLocal(userProfile.id, "feed_remaining_logs", "feedRemainingLogs", nextRemainLogs);
-        if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
-          saveUserLocal(userProfile.ownerId, "feed_remaining_logs", "feedRemainingLogs", nextRemainLogs);
-        }
-      } catch {}
-    }
+    setRemainLogs(prev => {
+      const idx = prev.findIndex(x => x.id === toPersist.id || (existingMatch && x.id === existingMatch.id));
+      const next = idx >= 0 ? prev.map((x, i) => i === idx ? toPersist : x) : [toPersist, ...prev];
+      if (userProfile?.id) {
+        try {
+          saveUserLocal(userProfile.id, "feed_remaining_logs", "feedRemainingLogs", next);
+          if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
+            saveUserLocal(userProfile.ownerId, "feed_remaining_logs", "feedRemainingLogs", next);
+          }
+        } catch {}
+      }
+      return next;
+    });
     if (existingMatch && isUuid(existingMatch.id)) {
       try {
         await api.remainLogs.update(toPersist);
@@ -6464,18 +6467,19 @@ export default function App({ onAdmin }: { onAdmin?: () => void } = {}){
     const matched = exactMatch || fallbackMatch;
     const targetId = matched && isUuid(matched.id) ? matched.id : (isUuid(farmRemain.id) ? farmRemain.id : crypto.randomUUID());
     const toPersist: FeedRemainingLog = matched ? { ...matched, ...farmRemain, id: targetId } : { ...farmRemain, id: targetId };
-    const nextRemainLogs = matched
-      ? remainLogs.map(x => x.id === matched.id ? toPersist : x)
-      : [toPersist, ...remainLogs];
-    setRemainLogs(nextRemainLogs);
-    if (userProfile?.id) {
-      try {
-        saveUserLocal(userProfile.id, "feed_remaining_logs", "feedRemainingLogs", nextRemainLogs);
-        if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
-          saveUserLocal(userProfile.ownerId, "feed_remaining_logs", "feedRemainingLogs", nextRemainLogs);
-        }
-      } catch {}
-    }
+    setRemainLogs(prev => {
+      const idx = prev.findIndex(x => x.id === toPersist.id || (matched && x.id === matched.id));
+      const next = idx >= 0 ? prev.map((x, i) => i === idx ? toPersist : x) : [toPersist, ...prev];
+      if (userProfile?.id) {
+        try {
+          saveUserLocal(userProfile.id, "feed_remaining_logs", "feedRemainingLogs", next);
+          if (userProfile.ownerId && userProfile.ownerId !== userProfile.id) {
+            saveUserLocal(userProfile.ownerId, "feed_remaining_logs", "feedRemainingLogs", next);
+          }
+        } catch {}
+      }
+      return next;
+    });
     if (matched && isUuid(matched.id)) {
       try {
         await api.remainLogs.update(toPersist);
