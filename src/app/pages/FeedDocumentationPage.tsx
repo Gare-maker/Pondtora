@@ -1843,15 +1843,16 @@ function FeedDocumentation({
       });
       const dayFedKg = dayFeedings.reduce((s, r) => s + (Number(r.total) || ((Number(r.morning) || 0) + (Number(r.evening) || 0))), 0);
 
-      const uncoveredFedOnDay = Math.max(0, Math.round((dayFedKg - (balance + dayBagsKg)) * 100) / 100);
       if (rLog && rLog.remainingKg !== undefined && rLog.remainingKg !== null) {
-        const fedDeduction = dayTransfersInKg > 0 ? uncoveredFedOnDay : 0;
-        balance = Math.max(0, Math.round((rLogSum + dayManualRemKg + dayTransfersInKg - dayTransfersOutKg - fedDeduction) * 100) / 100);
+        balance = Math.max(0, Math.round((rLogSum + dayManualRemKg + dayTransfersInKg - dayTransfersOutKg) * 100) / 100);
       } else if (dayManuals.length > 0) {
-        const fedDeduction = dayTransfersInKg > 0 ? Math.max(0, Math.round((dayFedKg - dayManualRemKg) * 100) / 100) : 0;
-        balance = Math.max(0, Math.round((dayManualRemKg + dayTransfersInKg - dayTransfersOutKg - fedDeduction) * 100) / 100);
+        balance = Math.max(0, Math.round((dayManualRemKg + dayTransfersInKg - dayTransfersOutKg) * 100) / 100);
+      } else if (dayBags.length > 0) {
+        // User explicitly logged Bags Open on dIso -> deduct dayFedKg once
+        balance = Math.max(0, Math.round((balance + dayBagsKg + dayTransfersInKg - dayTransfersOutKg - dayFedKg) * 100) / 100);
       } else {
-        balance = Math.max(0, balance + dayBagsKg + dayTransfersInKg - dayTransfersOutKg - dayFedKg);
+        // Daily feeding alone must NOT auto-deduct from remaining feed balance until Bags Open & Leftovers are logged
+        balance = Math.max(0, Math.round((balance + dayTransfersInKg - dayTransfersOutKg) * 100) / 100);
       }
     }
 
@@ -4602,7 +4603,8 @@ function FeedDocumentation({
         // Only include if there was genuine unconsumed carryover from prior days (feeding alone without carryover or bag log goes to Mismatch)
         if (carryoverKg <= 0) return;
 
-        const feedRemainingToday = Math.max(0, Math.round((carryoverKg - totalFed) * 10) / 10);
+        // Do NOT automatically deduct today's feeding from remaining feed balance until Bags Open & Leftovers are explicitly logged
+        const feedRemainingToday = carryoverKg;
 
         const k = findRowKey(brand, size, fs);
         if (!map.has(k)) {
@@ -4787,14 +4789,9 @@ function FeedDocumentation({
 
       if (entry.isManualPrevDayBalance && !hasNormalLogsOnSelDate) {
         const remAggManual = sumUniqueDayRemains(fs, size, entry.brand);
-        const baseManualRem = remAggManual.hasRemain
+        const adjRem = remAggManual.hasRemain
           ? Math.max(0, Math.round((remAggManual.totalRem + totalTransferredInKg - totalTransferredOutKg) * 100) / 100)
           : Math.max(0, Math.round((entry.remainingKg || 0) * 100) / 100);
-        // When a transfer is received today, deduct today's feeding that was not covered before the transfer
-        const uncoveredManualFed = totalTransferredInKg > 0
-          ? Math.max(0, Math.round((totalFed - (entry.carryoverKg || 0)) * 100) / 100)
-          : 0;
-        const adjRem = Math.max(0, Math.round((baseManualRem - uncoveredManualFed) * 100) / 100);
         entry.transfersOut = transfersOut;
         entry.transfersIn = transfersIn;
         entry.totalTransferredOutKg = totalTransferredOutKg;
@@ -4809,14 +4806,14 @@ function FeedDocumentation({
       const remAgg = sumUniqueDayRemains(fs, size, entry.brand);
 
       const grossRemainingKg = (entry.carryoverKg || 0) + (entry.totalKgOpened || 0) + totalTransferredInKg;
-      const computedAvailable = Math.max(0, Math.round((grossRemainingKg - totalTransferredOutKg - totalFed) * 10) / 10);
+      // Do NOT automatically deduct daily feeding until the user explicitly logs Bags Open or Leftovers for this stock on selDate
+      const computedAvailable = entry.hasBagLog
+        ? Math.max(0, Math.round((grossRemainingKg - totalTransferredOutKg - totalFed) * 10) / 10)
+        : Math.max(0, Math.round((grossRemainingKg - totalTransferredOutKg) * 10) / 10);
 
       let finalRemaining: number | null = null;
       if (remAgg.hasRemain) {
-        const uncoveredFed = totalTransferredInKg > 0
-          ? Math.max(0, Math.round((totalFed - ((entry.carryoverKg || 0) + (entry.totalKgOpened || 0))) * 100) / 100)
-          : 0;
-        finalRemaining = Math.max(0, Math.round((remAgg.totalRem + totalTransferredInKg - totalTransferredOutKg - uncoveredFed) * 100) / 100);
+        finalRemaining = Math.max(0, Math.round((remAgg.totalRem + totalTransferredInKg - totalTransferredOutKg) * 100) / 100);
         entry.hasRemainLog = true;
       } else {
         const hasBalance = (entry.carryoverKg || 0) > 0 || totalTransferredInKg > 0 || (entry.totalKgOpened || 0) > 0;
