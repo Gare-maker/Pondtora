@@ -229,7 +229,7 @@ function FeedDocumentation({
   const [deleteRecId, setDeleteRecId] = useState<string | null>(null);
   const [docTab, setDocTab] = useState<"daily" | "bags" | "mismatch">("daily");
   const [bulkMobileView, setBulkMobileView] = useState<"table" | "card">("table");
-  const [dailyMobileView, setDailyMobileView] = useState<"card" | "table">("card");
+  const [dailyMobileView, setDailyMobileView] = useState<"table" | "card">("table");
   const [bagsHighlight, setBagsHighlight] = useState<{
     stock: string;
     size: string;
