@@ -229,6 +229,7 @@ function FeedDocumentation({
   const [deleteRecId, setDeleteRecId] = useState<string | null>(null);
   const [docTab, setDocTab] = useState<"daily" | "bags" | "mismatch">("daily");
   const [bulkMobileView, setBulkMobileView] = useState<"table" | "card">("table");
+  const [dailyMobileView, setDailyMobileView] = useState<"card" | "table">("card");
   const [bagsHighlight, setBagsHighlight] = useState<{
     stock: string;
     size: string;
@@ -4014,8 +4015,8 @@ function FeedDocumentation({
     const inv = selectedBrand ? (inventory || []).find(f => f && f.brand === selectedBrand && isSamePelletSize(f.size, selectedPallet)) : undefined;
     const kgPb = inv?.weightPerBag || 15;
 
-    // Check existing rows for date filtered to this already-selected fish stock
-    setBagsModalLockedStock(fs);
+    // Open the Log Opened Bags & Leftover Feed form (NOT Daily Feed Balance) with stock & pallet pre-selected
+    setBagsModalLockedStock(null);
     const existingRows = getBagRowsForDate(targetDate).filter(r =>
       isStockMatch(r.fishStock, fs) ||
       normalizeFishStock(r.fishStock, targetDate).toLowerCase().trim() === normalizeFishStock(fs, targetDate).toLowerCase().trim()
@@ -4027,18 +4028,15 @@ function FeedDocumentation({
     );
 
     if (existingIdx >= 0) {
-      const updated = [...existingRows];
-      const target = { ...updated[existingIdx] };
+      const target = { ...existingRows[existingIdx] };
       if (!target.brand && selectedBrand) target.brand = selectedBrand;
       if (!target.size && selectedPallet) target.size = selectedPallet;
       if (row.status === "Remaining Mismatch") {
         if (!target.qty && row.recordedBags > 0) target.qty = String(row.recordedBags);
       }
-      updated[existingIdx] = target;
-      const withoutTarget = updated.filter((_, i) => i !== existingIdx);
-      setBagRows([target, ...withoutTarget]);
+      setBagRows([target]);
     } else {
-      // Create new prefilled row for the missing record under this already-selected fish stock
+      // Create new prefilled row for the missing record in Log Opened Bags & Leftover Feed
       const newRow: BagRow = {
         fishStock: fs,
         brand: selectedBrand,
@@ -4048,7 +4046,7 @@ function FeedDocumentation({
         usedKg: "",
         remainingKg: (row.recordedRemaining !== null && row.recordedRemaining > 0) ? String(row.recordedRemaining) : ""
       };
-      setBagRows([newRow, ...existingRows]);
+      setBagRows([newRow]);
     }
 
     setShowBagsModal(true);
@@ -6415,6 +6413,36 @@ function FeedDocumentation({
 
           {/* Mobile Feeding Records: Table / Card View with Toggle */}
           <div className="md:hidden space-y-3">
+            {/* Mobile Date & Table / Card View Toggle */}
+            <div className="flex items-center justify-between gap-2 px-0.5">
+              <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-teal-50 border border-teal-200 text-teal-900 text-xs font-bold shadow-2xs">
+                <Calendar size={12} className="text-teal-600 shrink-0" />
+                <span>{selDate}</span>
+              </div>
+              <div className="flex md:hidden items-center gap-0.5 bg-slate-100 p-0.5 rounded-xl border border-slate-200/80">
+                <button
+                  type="button"
+                  onClick={() => setDailyMobileView("table")}
+                  className={`px-2.5 py-1 rounded-lg text-xs transition-all ${dailyMobileView === "table"
+                      ? "bg-white text-green-700 font-bold shadow-xs border border-slate-200/80"
+                      : "text-slate-500 hover:text-slate-800 font-medium"
+                    }`}
+                >
+                  Table
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDailyMobileView("card")}
+                  className={`px-2.5 py-1 rounded-lg text-xs transition-all ${dailyMobileView === "card"
+                      ? "bg-white text-green-700 font-bold shadow-xs border border-slate-200/80"
+                      : "text-slate-500 hover:text-slate-800 font-medium"
+                    }`}
+                >
+                  Cards
+                </button>
+              </div>
+            </div>
+
             {/* Mobile Controls Toolbar: Feeding Status Filter First + Stock Filter Side-by-Side */}
             <div className="flex items-center justify-between gap-1.5 flex-nowrap bg-white border border-slate-200/80 rounded-2xl p-1.5 sm:p-2 shadow-2xs">
               {/* Feeding Status Filter (First) */}
@@ -6463,14 +6491,159 @@ function FeedDocumentation({
               </div>
             </div>
 
-            {/* Mobile Card View */}
             {filteredDayRows.length === 0 ? (
               <div className="py-10 text-center bg-white border border-slate-200/80 rounded-2xl p-4 shadow-xs">
                 <Droplets size={28} className="text-slate-300 mx-auto mb-2" />
                 <p className="text-xs font-semibold text-slate-500">{dailyStockFilter !== "All" ? `No ponds found for ${dailyStockFilter}` : `No feeding recorded on ${selDate}`}</p>
                 <p className="text-[11px] text-slate-400 mt-1">Select a date or log feeding</p>
               </div>
+            ) : dailyMobileView === "table" ? (
+              /* Mobile Table View (reuses Log Feeding table structure & styling) */
+              <div className="bg-white border border-slate-200/80 rounded-2xl shadow-xs overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm border-separate border-spacing-0">
+                    <thead className="sticky top-0 z-10 bg-slate-100">
+                      <tr className="bg-slate-100">
+                        <th className="w-10 min-w-[40px] max-w-[40px] px-2 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-center sticky top-0 left-0 z-20 bg-slate-100 border-b border-slate-200">#</th>
+                        <th className="px-3 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left min-w-[130px] max-w-[170px] sticky top-0 left-[40px] z-20 bg-slate-100 border-b border-r border-slate-200">Pond / Stock</th>
+                        <th className="px-3 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left min-w-[100px] whitespace-nowrap border-b border-slate-200">Pellet Size</th>
+                        <th className="px-3 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left min-w-[95px] whitespace-nowrap border-b border-slate-200">Morning (kg)</th>
+                        <th className="px-3 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left min-w-[85px] whitespace-nowrap border-b border-slate-200">AM Time</th>
+                        <th className="px-3 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left min-w-[95px] whitespace-nowrap border-b border-slate-200">Evening (kg)</th>
+                        <th className="px-3 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left min-w-[85px] whitespace-nowrap border-b border-slate-200">PM Time</th>
+                        <th className="px-3 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-center min-w-[85px] whitespace-nowrap border-b border-slate-200">Total</th>
+                        <th className="px-3 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-left min-w-[100px] whitespace-nowrap border-b border-slate-200">Recorded By</th>
+                        <th className="px-3 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-center min-w-[80px] whitespace-nowrap border-b border-slate-200">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white">
+                      {filteredDayRows.map(({ pond, rec }, i) => {
+                        const hasFeed = !!rec;
+                        const pondMaxKgMap = pond.maxKgByPallet;
+                        const atMax = hasFeed && pondMaxKgMap && rec!.size in pondMaxKgMap && (feedingRecords || []).filter(r => r && (r.pondId ? r.pondId === pond.id : r.pond === pond.name) && r.size === rec!.size && ((pond as any).fishStockId ? r.fishStockId === (pond as any).fishStockId : (!pond.stockingDate || toValidDbDate(r.date) >= toValidDbDate(pond.stockingDate)))).reduce((s, r) => s + (Number(r.total) || 0), 0) >= (pondMaxKgMap[rec!.size] || Infinity);
+                        const isEdited = (rec?.editHistory?.length || 0) > 0;
+                        const isLiveActivePond = !((pond as any)._isHistoricalClosedStock) && pond.stockingDate && pond.stockingDate !== "—";
+                        const recStockDate = isLiveActivePond
+                          ? formatFishStockDate(pond.stockingDate)
+                          : (rec ? (resolveRecordStock(rec, selDate).stockDate !== "—" ? resolveRecordStock(rec, selDate).stockDate : (rec.fishStock && formatFishStockDate(rec.fishStock) !== "—" ? formatFishStockDate(rec.fishStock) : "—"))
+                            : (pond.stockingDate && pond.stockingDate !== "—"
+                              ? formatFishStockDate(pond.stockingDate)
+                              : (pondToStockDate(pond.name) !== "—" ? pondToStockDate(pond.name) : "—")));
+                        return (
+                          <tr
+                            key={rec ? rec.id : `pond-tbl-${pond.id}`}
+                            onClick={() => rec && setViewFeedRec(rec)}
+                            className={`transition-colors ${hasFeed ? "bg-green-50/40 hover:bg-green-50/70 cursor-pointer" : "hover:bg-slate-50/80 opacity-60"}`}
+                          >
+                            <td className={`w-10 min-w-[40px] max-w-[40px] px-2 py-3 text-slate-400 text-xs font-mono text-center sticky left-0 z-10 border-b border-slate-100 ${hasFeed ? "bg-[#f2faf4]" : "bg-white"}`}>{i + 1}</td>
+                            <td className={`px-3 py-2.5 min-w-[130px] max-w-[170px] sticky left-[40px] z-10 border-b border-r border-slate-200 ${hasFeed ? "bg-[#f2faf4]" : "bg-white"}`}>
+                              <p className="font-semibold text-slate-900 text-xs leading-tight truncate">{pond.name}</p>
+                              {recStockDate !== "—" ? (
+                                <p className="text-[10px] text-teal-800 font-semibold leading-tight mt-0.5 truncate">
+                                  <span className="text-teal-600 font-bold uppercase">Stock:</span> {recStockDate}
+                                </p>
+                              ) : (
+                                <p className="text-[10px] text-slate-400 leading-tight mt-0.5 italic">Empty Pond</p>
+                              )}
+                            </td>
+                            <td className="px-3 py-2.5 border-b border-slate-100 whitespace-nowrap">
+                              {rec ? (
+                                <span className="inline-flex items-center gap-1">
+                                  <Bdg label={rec.size} color={atMax ? "red" : "blue"} />
+                                  {atMax && <span className="text-[10px] font-bold text-red-500">⚠ Limit</span>}
+                                </span>
+                              ) : (
+                                <span className="text-slate-300 text-xs">—</span>
+                              )}
+                            </td>
+                            <td className="px-3 py-2.5 border-b border-slate-100 font-medium text-xs text-slate-800 whitespace-nowrap">
+                              {rec ? `${rec.morning}kg` : <span className="text-slate-300">—</span>}
+                            </td>
+                            <td className="px-3 py-2.5 border-b border-slate-100 text-slate-500 text-xs whitespace-nowrap">
+                              {rec?.morningTime || <span className="text-slate-300">—</span>}
+                            </td>
+                            <td className="px-3 py-2.5 border-b border-slate-100 font-medium text-xs text-slate-800 whitespace-nowrap">
+                              {rec ? `${rec.evening}kg` : <span className="text-slate-300">—</span>}
+                            </td>
+                            <td className="px-3 py-2.5 border-b border-slate-100 text-slate-500 text-xs whitespace-nowrap">
+                              {rec?.eveningTime || <span className="text-slate-300">—</span>}
+                            </td>
+                            <td className="px-3 py-2.5 border-b border-slate-100 text-center whitespace-nowrap">
+                              {rec ? (
+                                <span className="inline-flex items-center gap-1">
+                                  <span className="inline-flex items-center px-2 py-0.5 rounded-lg bg-green-100 text-green-800 font-bold text-xs font-['Barlow_Condensed',sans-serif]">
+                                    {rec.total}kg
+                                  </span>
+                                  {isEdited && <span className="px-1 py-0.5 rounded text-[9px] font-bold bg-amber-100 text-amber-700">Edited</span>}
+                                </span>
+                              ) : (
+                                <span className="text-slate-300 text-xs">Not fed</span>
+                              )}
+                            </td>
+                            <td className="px-3 py-2.5 border-b border-slate-100 text-slate-400 text-xs whitespace-nowrap">
+                              {rec?.recordedBy || <span className="text-slate-300">—</span>}
+                            </td>
+                            <td className="px-3 py-2.5 border-b border-slate-100 text-center whitespace-nowrap" onClick={e => e.stopPropagation()}>
+                              <div className="flex items-center justify-center gap-1">
+                                {rec && (isRecordEditable(rec.date) ? (
+                                  <>
+                                    {canEdit && (
+                                      <button
+                                        type="button"
+                                        onClick={() => openEditRec(rec)}
+                                        className="p-1.5 rounded-lg text-slate-400 hover:text-green-600 hover:bg-green-50 transition-colors"
+                                        title="Edit record"
+                                      >
+                                        <Pencil size={13} />
+                                      </button>
+                                    )}
+                                    {canDelete && onDeleteRecord && (
+                                      <button
+                                        type="button"
+                                        onClick={() => setDeleteRecId(rec.id)}
+                                        className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                                        title="Delete record"
+                                      >
+                                        <Trash2 size={13} />
+                                      </button>
+                                    )}
+                                  </>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => alert("This record can only be edited by an Administrator or Manager after 24 hours.")}
+                                    className="p-1.5 rounded-lg text-slate-300 cursor-not-allowed"
+                                    title="Locked after 24 hours"
+                                  >
+                                    <Lock size={13} />
+                                  </button>
+                                ))}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                    {dayGrand > 0 && (
+                      <tfoot>
+                        <tr className="bg-slate-50 border-t border-slate-200">
+                          <td colSpan={7} className="px-3 py-2.5 text-right text-[11px] font-bold text-slate-500 uppercase tracking-wider border-t border-slate-200">
+                            Grand Total
+                          </td>
+                          <td className="px-3 py-2.5 text-center border-t border-slate-200">
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-lg bg-green-600 text-white font-bold text-sm font-['Barlow_Condensed',sans-serif]">
+                              {dayGrand}kg
+                            </span>
+                          </td>
+                          <td colSpan={2} className="border-t border-slate-200" />
+                        </tr>
+                      </tfoot>
+                    )}
+                  </table>
+                </div>
+              </div>
             ) : (
+              /* Mobile Card View (unchanged) */
               filteredDayRows.map(({ pond, rec }, i) => {
                 const hasFeed = !!rec;
                 const pondMaxKgMap = pond.maxKgByPallet;
@@ -6607,7 +6780,7 @@ function FeedDocumentation({
               })
             )}
 
-            {dayGrand > 0 && (
+            {dayGrand > 0 && dailyMobileView === "card" && (
               <div className="p-4 bg-white border border-slate-200/80 rounded-2xl flex items-center justify-between shadow-xs">
                 <span className="text-xs font-bold text-slate-600 uppercase tracking-wide">Total Feed Fed</span>
                 <span className="inline-flex items-center px-3 py-1 rounded-xl bg-green-600 text-white font-bold text-base font-['Barlow_Condensed',sans-serif]">
@@ -8114,9 +8287,11 @@ function FeedDocumentation({
                           <label className="block text-[10px] font-medium text-slate-500 uppercase tracking-wider mb-1">Pallet (Pellet Size)</label>
                           {(() => {
                             if (!bagsModalLockedStock) {
-                              // Log Bags Opened popup: ONLY show sizes available under the selected brand in Feed Stock
+                              // Log Bags Opened popup: ONLY show sizes available under the selected brand in Feed Stock (plus pre-selected pallet context if navigated from Mismatch)
                               const strictBrandSizes = getInStockSizesForBrand(row.brand);
-                              const selectedSizeVal = strictBrandSizes.find(s => isSamePelletSize(s, row.size)) || "";
+                              const matchedStrictSize = strictBrandSizes.find(s => isSamePelletSize(s, row.size));
+                              const hasPreselectedSize = Boolean(row.size) && !matchedStrictSize;
+                              const selectedSizeVal = matchedStrictSize || (hasPreselectedSize ? row.size : "");
                               return (
                                 <select
                                   value={selectedSizeVal}
@@ -8132,10 +8307,13 @@ function FeedDocumentation({
                                   }}
                                   className={`w-full text-[11px] px-2.5 py-1.5 bg-white border rounded-lg text-slate-800 font-normal focus:outline-none focus:ring-1 h-[34px] ${bagsErr[`size_${i}`] ? "border-red-300 focus:ring-red-300" : "border-slate-200 focus:ring-green-400"}`}
                                 >
-                                  <option value="">{strictBrandSizes.length === 0 ? "No sizes in stock" : "Select pallet…"}</option>
+                                  <option value="">{strictBrandSizes.length === 0 && !hasPreselectedSize ? "No sizes in stock" : "Select pallet…"}</option>
                                   {strictBrandSizes.map(s => (
                                     <option key={s} value={s}>{s}</option>
                                   ))}
+                                  {hasPreselectedSize && (
+                                    <option value={row.size}>{row.size}</option>
+                                  )}
                                 </select>
                               );
                             }
