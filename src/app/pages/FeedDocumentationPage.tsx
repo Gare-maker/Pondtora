@@ -434,6 +434,40 @@ function FeedDocumentation({
     } catch { }
   }, [activeFarmId]);
 
+  /* Track explicit user save/edit timestamps for remainLogs so transfers that occurred BEFORE an explicit leftover edit are never re-added on top of the user's saved value */
+  const remainTimestampKey = `pondtora_remain_updated_at_${activeFarmId}`;
+  const [remainUpdatedAtMap, setRemainUpdatedAtMap] = useState<Record<string, number>>(() => {
+    try {
+      const raw = localStorage.getItem(`pondtora_remain_updated_at_${activeFarmId}`);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === "object") return parsed;
+      }
+    } catch { }
+    return {};
+  });
+  const recordRemainTimestamp = useCallback((id?: string | null) => {
+    if (!id) return;
+    const now = Date.now();
+    setRemainUpdatedAtMap(prev => {
+      const next = { ...prev, [id]: now };
+      try {
+        localStorage.setItem(remainTimestampKey, JSON.stringify(next));
+      } catch { }
+      return next;
+    });
+  }, [remainTimestampKey]);
+  const getRemainTimestampMs = useCallback((r?: any): number => {
+    if (!r) return 0;
+    if (r.id && remainUpdatedAtMap[r.id]) return remainUpdatedAtMap[r.id];
+    const ts = r.updatedAt || r.updated_at || r.createdAt || r.created_at;
+    if (ts) {
+      const ms = new Date(ts).getTime();
+      if (!isNaN(ms)) return ms;
+    }
+    return 0;
+  }, [remainUpdatedAtMap]);
+
   /* ── Manual Previous-Day Feed Balance State & Persistence (Admin Reconciliation) ── */
   const loadMergedManualBalances = useCallback((farmIdStr: string): ManualPrevBalanceRecord[] => {
     try {
@@ -1783,8 +1817,21 @@ function FeedDocumentation({
         seenRemIds.add(r.id);
         return true;
       });
-      const rLog = uniqueRemains.length > 0 ? uniqueRemains[uniqueRemains.length - 1] : null;
-      const rLogSum = uniqueRemains.reduce((s, r) => s + (Number(r.remainingKg) || 0), 0);
+      // Pick the single latest authoritative remainLog per (brand, size) so duplicate rows never accumulate (e.g. 8kg + 3kg = 11kg)
+      const latestByBrandSize = new Map<string, FeedRemainingLog>();
+      uniqueRemains.forEach(r => {
+        const bk = (r.brand || "—").trim().toLowerCase();
+        const sk = (r.size || "—").trim().toLowerCase().replace(/\s+/g, "");
+        const keyBS = `${bk}||${sk}`;
+        const prev = latestByBrandSize.get(keyBS);
+        if (!prev || getRemainTimestampMs(r) >= getRemainTimestampMs(prev)) {
+          latestByBrandSize.set(keyBS, r);
+        }
+      });
+      const dedupedRemains = Array.from(latestByBrandSize.values());
+      const rLog = dedupedRemains.length > 0 ? dedupedRemains[dedupedRemains.length - 1] : null;
+      const rLogSum = Math.round(dedupedRemains.reduce((s, r) => s + (Number(r.remainingKg) || 0), 0) * 100) / 100;
+      const latestRemainMs = dedupedRemains.reduce((mx, r) => Math.max(mx, getRemainTimestampMs(r)), 0);
 
       // 1b. Manual previous-day balance created on dIso (skip if already captured by a manual remainLog on dIso; strictly scoped to matching fishStock)
       const hasManualRemainOnDate = uniqueRemains.some(r => isManualPrevDayLog(r));
@@ -1844,7 +1891,14 @@ function FeedDocumentation({
       const dayFedKg = dayFeedings.reduce((s, r) => s + (Number(r.total) || ((Number(r.morning) || 0) + (Number(r.evening) || 0))), 0);
 
       if (rLog && rLog.remainingKg !== undefined && rLog.remainingKg !== null) {
-        balance = Math.max(0, Math.round((rLogSum + dayManualRemKg + dayTransfersInKg - dayTransfersOutKg) * 100) / 100);
+        // Only apply transfers that occurred AFTER the user's explicit leftover save/edit timestamp
+        const postRemainInKg = latestRemainMs > 0
+          ? dayTransfersIn.filter(t => !t.transferTimestamp || new Date(t.transferTimestamp).getTime() > latestRemainMs).reduce((s, t) => s + (Number(t.quantityKg) || 0), 0)
+          : dayTransfersInKg;
+        const postRemainOutKg = latestRemainMs > 0
+          ? dayTransfersOut.filter(t => !t.transferTimestamp || new Date(t.transferTimestamp).getTime() > latestRemainMs).reduce((s, t) => s + (Number(t.quantityKg) || 0), 0)
+          : dayTransfersOutKg;
+        balance = Math.max(0, Math.round((rLogSum + dayManualRemKg + postRemainInKg - postRemainOutKg) * 100) / 100);
       } else if (dayManuals.length > 0) {
         balance = Math.max(0, Math.round((dayManualRemKg + dayTransfersInKg - dayTransfersOutKg) * 100) / 100);
       } else if (dayBags.length > 0) {
@@ -2996,8 +3050,8 @@ function FeedDocumentation({
       return isSameDate(b.date, checkDate) || isSameDate(b.date, dateLabel) || Boolean(checkIso && bIso && checkIso === bIso) || (isSameDate(checkDate, getIsoDateForSelDate(selDate)) && isSameDate(b.date, selDate));
     });
     const existingRemains = (remainLogs || []).filter(r => {
-      if (!r || isManualPrevDayLog(r)) return false;
-      const rIso = dateToIso(r.date);
+      if (!r || isManualPrevDayLog(r) || isFeedTransferLog(r)) return false;
+      const rIso = toValidDbDate(r.date, r.year || viewYear) || dateToIso(r.date);
       return isSameDate(r.date, checkDate) || isSameDate(r.date, dateLabel) || Boolean(checkIso && rIso && checkIso === rIso) || (isSameDate(checkDate, getIsoDateForSelDate(selDate)) && isSameDate(r.date, selDate));
     });
 
@@ -3454,17 +3508,21 @@ function FeedDocumentation({
         }
       }
 
-      // ── 2. Save Remaining Leftover Feed (strictly non-manual operational record — independent of Manual Previous-Day Balance) ──
-      const existingRemain = (remainLogs || []).find(x =>
+      // ── 2. Save Remaining Leftover Feed (replace existing value — never accumulate duplicates!) ──
+      const matchingRemains = (remainLogs || []).filter(x =>
+        x &&
         !isManualPrevDayLog(x) &&
+        !isFeedTransferLog(x) &&
         (!r.brand || !x.brand || x.brand.toLowerCase().trim() === r.brand.toLowerCase().trim()) &&
         (!r.size || !x.size || isSamePelletSize(x.size, r.size)) &&
         (isStockMatch(resolveLogStock(x, bagsDate), fs, bagsDate) || isStockMatch(x.fishStock, fs, bagsDate) || normalizeFishStock(x.fishStock, bagsDate) === fs) &&
         (isSameDate(x.date, bagsDate) || isSameDate(x.date, dateLabel))
       );
+      const existingRemain = matchingRemains[0];
 
       if (hasRemVal && fs) {
         if (existingRemain && onEditRemainLog) {
+          recordRemainTimestamp(existingRemain.id);
           promises.push(Promise.resolve(onEditRemainLog({
             ...existingRemain,
             brand: r.brand,
@@ -3477,9 +3535,22 @@ function FeedDocumentation({
             farmId: existingRemain.farmId || activeFarmId,
             isManualPrevDayBalance: false
           })));
+          // Zero out any extra duplicate remainLogs for the exact same (date, stock, brand, size)
+          for (let dupIdx = 1; dupIdx < matchingRemains.length; dupIdx++) {
+            const dup = matchingRemains[dupIdx];
+            recordRemainTimestamp(dup.id);
+            promises.push(Promise.resolve(onEditRemainLog({
+              ...dup,
+              remainingKg: 0,
+              date: saveIsoDate,
+              isManualPrevDayBalance: false
+            })));
+          }
         } else {
+          const newRemId = uid();
+          recordRemainTimestamp(newRemId);
           promises.push(Promise.resolve(onAddRemainLog({
-            id: uid(),
+            id: newRemId,
             brand: r.brand,
             size: r.size,
             fishStock: fs,
@@ -3493,6 +3564,7 @@ function FeedDocumentation({
         }
       } else if (hasQty && !hasUsedVal && existingRemain && onEditRemainLog && fs) {
         // Bags opened saved and leftover empty -> treat as 0 leftover
+        recordRemainTimestamp(existingRemain.id);
         promises.push(Promise.resolve(onEditRemainLog({
           ...existingRemain,
           brand: r.brand,
@@ -3738,11 +3810,21 @@ function FeedDocumentation({
         );
         const totalTransferredOut = transfersOutToday.reduce((s, t) => s + (Number(t.quantityKg) || 0), 0);
 
-        const rawRecordedRemaining = hasRemainLog
-          ? Math.round(remainLogsForSize.reduce((s, r) => s + (Number(r.remainingKg) || 0), 0) * 100) / 100
+        const latestRemainForMismatch = hasRemainLog
+          ? remainLogsForSize.reduce((best, r) => (!best || getRemainTimestampMs(r) >= getRemainTimestampMs(best)) ? r : best, remainLogsForSize[0])
           : null;
+        const rawRecordedRemaining = latestRemainForMismatch
+          ? Math.round((Number(latestRemainForMismatch.remainingKg) || 0) * 100) / 100
+          : null;
+        const remTsMs = latestRemainForMismatch ? getRemainTimestampMs(latestRemainForMismatch) : 0;
+        const postInMismatch = remTsMs > 0
+          ? transfersInToday.filter(t => !t.transferTimestamp || new Date(t.transferTimestamp).getTime() > remTsMs).reduce((s, t) => s + (Number(t.quantityKg) || 0), 0)
+          : availableTransfersIn;
+        const postOutMismatch = remTsMs > 0
+          ? transfersOutToday.filter(t => !t.transferTimestamp || new Date(t.transferTimestamp).getTime() > remTsMs).reduce((s, t) => s + (Number(t.quantityKg) || 0), 0)
+          : totalTransferredOut;
         const recordedRemaining = rawRecordedRemaining !== null
-          ? Math.max(0, Math.round((rawRecordedRemaining + availableTransfersIn - totalTransferredOut) * 10) / 10)
+          ? Math.max(0, Math.round((rawRecordedRemaining + postInMismatch - postOutMismatch) * 10) / 10)
           : null;
 
         // Determine discrepancies on selDate
@@ -4290,12 +4372,18 @@ function FeedDocumentation({
       }
 
       if (fs || isManualEntry) {
-        const existingRemain = (remainLogs || []).find(r => r.id === updatedBagPayload.id) || (remainLogs || []).find(r =>
-          isSameDate(r.date, dateLabel) &&
-          (size === "—" || isSamePelletSize(r.size, size)) &&
-          (brand === "—" || !r.brand || !brand || r.brand.toLowerCase().trim() === brand.toLowerCase()) &&
-          (isStockMatch(r.fishStock, editDocBag.fishStock) || normalizeFishStock(r.fishStock) === fs)
+        const matchingEditRemains = (remainLogs || []).filter(r =>
+          r &&
+          !isFeedTransferLog(r) &&
+          isManualPrevDayLog(r) === isManualEntry &&
+          (r.id === updatedBagPayload.id || (
+            (isSameDate(r.date, dateLabel) || isSameDate(r.date, dateIso)) &&
+            (size === "—" || isSamePelletSize(r.size, size)) &&
+            (brand === "—" || !r.brand || !brand || r.brand.toLowerCase().trim() === brand.toLowerCase()) &&
+            (isStockMatch(resolveLogStock(r, dateIso), editDocBag.fishStock, dateIso) || isStockMatch(r.fishStock, editDocBag.fishStock) || normalizeFishStock(r.fishStock) === fs)
+          ))
         );
+        const existingRemain = matchingEditRemains[0];
 
         if (editBagRemainKg !== "" && !isNaN(remKg) && remKg >= 0) {
           const remainPayload: FeedRemainingLog = {
@@ -4305,33 +4393,42 @@ function FeedDocumentation({
             size,
             fishStock: fs || "All Active Stocks",
             remainingKg: effectiveRemKg,
-            date: dateLabel,
+            date: dateIso,
             month: monStr,
             year: yrNum,
+            farmId: existingRemain?.farmId || activeFarmId,
             ...(isManualEntry ? {
               isManualPrevDayBalance: true,
               initialRemainingKg: effectiveRemKg
-            } : {})
+            } : { isManualPrevDayBalance: false })
           };
+          recordRemainTimestamp(remainPayload.id);
           if (existingRemain && onEditRemainLog) {
             await onEditRemainLog(remainPayload);
+            for (let dupIdx = 1; dupIdx < matchingEditRemains.length; dupIdx++) {
+              const dup = matchingEditRemains[dupIdx];
+              recordRemainTimestamp(dup.id);
+              await onEditRemainLog({ ...dup, remainingKg: 0, date: dateIso });
+            }
           } else if (onAddRemainLog) {
             await onAddRemainLog(remainPayload);
           }
         } else if (editBagRemainKg === "" && existingRemain && onEditRemainLog) {
+          recordRemainTimestamp(existingRemain.id);
           await onEditRemainLog({
             ...existingRemain,
             brand,
             size,
             fishStock: fs || "All Active Stocks",
             remainingKg: 0,
-            date: dateLabel,
+            date: dateIso,
             month: monStr,
             year: yrNum,
+            farmId: existingRemain.farmId || activeFarmId,
             ...(isManualEntry ? {
               isManualPrevDayBalance: true,
               initialRemainingKg: 0
-            } : {})
+            } : { isManualPrevDayBalance: false })
           });
         }
       }
@@ -4454,7 +4551,7 @@ function FeedDocumentation({
     const sumUniqueDayRemains = (fs: string, size: string, brand: string) => {
       const seen = new Set<string>();
       const matches = dayRemainLogs.filter(r => {
-        if (!r || isManualPrevDayLog(r)) return false;
+        if (!r || isManualPrevDayLog(r) || isFeedTransferLog(r)) return false;
         if (r.id && seen.has(r.id)) return false;
         const rResolved = resolveLogStock(r, selDate);
         const stockMatch = isStockMatch(rResolved, fs, selDate) || isStockMatch(r.fishStock, fs, selDate) || normalizeFishStock(rResolved, selDate) === normalizeFishStock(fs, selDate);
@@ -4466,9 +4563,22 @@ function FeedDocumentation({
         }
         return false;
       });
-      if (matches.length === 0) return { hasRemain: false, totalRem: 0 };
-      const totalRem = Math.round(matches.reduce((s, r) => s + (Number(r.remainingKg) || 0), 0) * 100) / 100;
-      return { hasRemain: true, totalRem };
+      if (matches.length === 0) return { hasRemain: false, totalRem: 0, latestRemainMs: 0 };
+      // For a single (stock, brand, size) on selDate, use the single latest authoritative remainLog instead of summing duplicates!
+      const latestByBS = new Map<string, FeedRemainingLog>();
+      matches.forEach(r => {
+        const bk = (r.brand || "—").trim().toLowerCase();
+        const sk = (r.size || "—").trim().toLowerCase().replace(/\s+/g, "");
+        const keyBS = `${bk}||${sk}`;
+        const prev = latestByBS.get(keyBS);
+        if (!prev || getRemainTimestampMs(r) >= getRemainTimestampMs(prev)) {
+          latestByBS.set(keyBS, r);
+        }
+      });
+      const deduped = Array.from(latestByBS.values());
+      const totalRem = Math.round(deduped.reduce((s, r) => s + (Number(r.remainingKg) || 0), 0) * 100) / 100;
+      const latestRemainMs = deduped.reduce((mx, r) => Math.max(mx, getRemainTimestampMs(r)), 0);
+      return { hasRemain: true, totalRem, latestRemainMs };
     };
 
     // 2. Process ONLY non-manual operational dayBagLogs (Manual Previous-Day Balance is NOT a Bags Open transaction!)
@@ -4813,7 +4923,14 @@ function FeedDocumentation({
 
       let finalRemaining: number | null = null;
       if (remAgg.hasRemain) {
-        finalRemaining = Math.max(0, Math.round((remAgg.totalRem + totalTransferredInKg - totalTransferredOutKg) * 100) / 100);
+        // Only apply transfers that occurred AFTER the user's explicit leftover save/edit timestamp
+        const postRemIn = remAgg.latestRemainMs > 0
+          ? transfersIn.filter(t => !t.transferTimestamp || new Date(t.transferTimestamp).getTime() > remAgg.latestRemainMs).reduce((s, t) => s + (Number(t.quantityKg) || 0), 0)
+          : totalTransferredInKg;
+        const postRemOut = remAgg.latestRemainMs > 0
+          ? transfersOut.filter(t => !t.transferTimestamp || new Date(t.transferTimestamp).getTime() > remAgg.latestRemainMs).reduce((s, t) => s + (Number(t.quantityKg) || 0), 0)
+          : totalTransferredOutKg;
+        finalRemaining = Math.max(0, Math.round((remAgg.totalRem + postRemIn - postRemOut) * 100) / 100);
         entry.hasRemainLog = true;
       } else {
         const hasBalance = (entry.carryoverKg || 0) > 0 || totalTransferredInKg > 0 || (entry.totalKgOpened || 0) > 0;
