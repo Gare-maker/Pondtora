@@ -3827,25 +3827,8 @@ function FeedDocumentation({
           ? Math.max(0, Math.round((rawRecordedRemaining + postInMismatch - postOutMismatch) * 10) / 10)
           : null;
 
-        // Determine discrepancies on selDate
+        // Determine discrepancies on selDate — do NOT flag a mismatch before Bags Open & Leftovers have been submitted for this stock today
         if (!hasBagLog && !hasRemainLog) {
-          if (expData.hasFed && expectedBags > 0) {
-            rows.push({
-              stockKey: `${key}__${brand}__${size}`,
-              stockName: stockInfo.stockName,
-              stockDate: stockInfo.stockDate,
-              brand: (!brand || brand === "Not specified") ? "—" : brand,
-              size: size !== "—" ? size : "",
-              status: "Not Opened",
-              expectedBags,
-              recordedBags: 0,
-              expectedRemaining,
-              recordedRemaining: null,
-              totalFed: sizeFedKg,
-              carryover: carryoverKg,
-              reason: `Fed ${sizeFedKg} kg on ${toDateLabel(selDate)} (${carryoverKg > 0 ? `${carryoverKg} kg carryover` : "no prior carryover"}), requiring ${expectedBags} bag${expectedBags !== 1 ? "s" : ""} to be opened, but no Bags Opened & Leftover log was recorded.`
-            });
-          }
           return;
         }
 
@@ -6639,7 +6622,8 @@ function FeedDocumentation({
                       const isRemainColHighlighted = isHighlightedRow && (bagsHighlight?.col === "remaining" || bagsHighlight?.col === "all" || !bagsHighlight?.col);
 
                       const expData = getExpectedFeedData(selDate, row.fishStock, row.brand, row.size, row.hasBagLog ? row.bagsOpened : undefined);
-                      const isBagsMismatch = Boolean(!row.isManualPrevDayBalance && ((expData.hasFed && (Math.abs(row.bagsOpened - expData.expectedBags) > 0.001 || (!row.hasBagLog && expData.expectedBags > 0))) || (!expData.hasFed && row.bagsOpened > 0.001)));
+                      const hasSubmittedLogsToday = Boolean(row.hasBagLog || row.hasRemainLog);
+                      const isBagsMismatch = Boolean(!row.isManualPrevDayBalance && hasSubmittedLogsToday && ((expData.hasFed && Math.abs(row.bagsOpened - expData.expectedBags) > 0.001) || (!expData.hasFed && row.bagsOpened > 0.001)));
                       const isRemainMismatch = Boolean(!row.isManualPrevDayBalance && row.hasRemainLog && Math.abs(((row.feedRemainingToday ?? row.remainingKg) || 0) - expData.expectedRemaining) > 0.05);
 
                       const rowUniqueKey = `desktop__${i}__${row.lastBagLog?.id || ""}__${row.fishStock}__${row.brand}__${row.size}`;
@@ -6917,7 +6901,8 @@ function FeedDocumentation({
                 const isRemainColHighlighted = isHighlightedRow && (bagsHighlight?.col === "remaining" || bagsHighlight?.col === "all" || !bagsHighlight?.col);
 
                 const expData = getExpectedFeedData(selDate, row.fishStock, row.brand, row.size, row.hasBagLog ? row.bagsOpened : undefined);
-                const isBagsMismatch = Boolean(!row.isManualPrevDayBalance && ((expData.hasFed && (Math.abs(row.bagsOpened - expData.expectedBags) > 0.001 || (!row.hasBagLog && expData.expectedBags > 0))) || (!expData.hasFed && row.bagsOpened > 0.001)));
+                const hasSubmittedLogsToday = Boolean(row.hasBagLog || row.hasRemainLog);
+                const isBagsMismatch = Boolean(!row.isManualPrevDayBalance && hasSubmittedLogsToday && ((expData.hasFed && Math.abs(row.bagsOpened - expData.expectedBags) > 0.001) || (!expData.hasFed && row.bagsOpened > 0.001)));
                 const isRemainMismatch = Boolean(!row.isManualPrevDayBalance && row.hasRemainLog && Math.abs(((row.feedRemainingToday ?? row.remainingKg) || 0) - expData.expectedRemaining) > 0.05);
                 const mobileMenuKey = `mobile__${i}__${row.lastBagLog?.id || ""}__${row.fishStock}__${row.brand}__${row.size}`;
                 const isMenuOpen = activeBagMenuId === mobileMenuKey;
