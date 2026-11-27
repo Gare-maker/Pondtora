@@ -3879,6 +3879,105 @@ function FeedDocumentation({
     return rows;
   }, [pondsActiveOnSelDate, ponds, bagLogs, feedingRecords, remainLogs, inventory, feedTransfers, manualPrevBalances, getManualBalanceStats, getMatchingBrandsForPallet, selDate, viewYear, dateToIso, getPriorCarryover, getExpectedFeedData, isPondName, isManualPrevDayLog, resolveRecordStock, resolveLogStock, getBrandUsedKg, normalizeFishStock, isStockMatch, pondToStock]);
 
+  /* ── missingBagsLogRows (Mismatch Tab: stocks & pallets with recorded feeding on selDate but missing Bags Open & Leftovers submissions) ── */
+  const missingBagsLogRows = useMemo(() => {
+    const selIso = toValidDbDate(selDate, viewYear) || dateToIso(selDate);
+    const groups = new Map<string, {
+      stockKey: string;
+      stockName: string;
+      stockDate: string;
+      size: string;
+      totalFed: number;
+      pondNames: string[];
+    }>();
+
+    (feedingRecords || []).forEach(r => {
+      if (!r || !r.date) return;
+      const rIso = toValidDbDate(r.date, r.year || viewYear) || dateToIso(r.date);
+      const isDateMatch = isSameDate(r.date, selDate) || isSameDate(r.date, toDateLabel(selDate)) || Boolean(selIso && rIso && rIso === selIso);
+      if (!isDateMatch) return;
+
+      const fedKg = Number(r.total) || ((Number(r.morning) || 0) + (Number(r.evening) || 0));
+      if (fedKg <= 0) return;
+
+      const sz = (r.size && r.size !== "—" && r.size.trim()) ? r.size.trim() : "";
+      if (!sz) return;
+
+      const resolved = resolveRecordStock(r, selDate);
+      const rawStock = resolved.stockName !== "—" ? resolved.stockName : (r.fishStock || pondToStock(r.pond, selDate));
+      if (!rawStock || rawStock === "—" || rawStock === "General Stock" || isPondName(rawStock)) return;
+
+      const stockKeyNorm = normalizeFishStock(rawStock, selDate).toLowerCase().trim();
+      const sizeNum = parseFloat(sz);
+      const sizeKey = !isNaN(sizeNum) ? `${sizeNum}mm` : sz.toLowerCase().replace(/\s+/g, "");
+      const groupKey = `${stockKeyNorm}__${sizeKey}`;
+
+      const stockDate = resolved.stockDate !== "—"
+        ? resolved.stockDate
+        : (formatFishStockDate(rawStock) !== "—" ? formatFishStockDate(rawStock) : "—");
+
+      const existing = groups.get(groupKey);
+      if (existing) {
+        existing.totalFed = Math.round((existing.totalFed + fedKg) * 100) / 100;
+        if (r.pond && !existing.pondNames.includes(r.pond)) {
+          existing.pondNames.push(r.pond);
+        }
+      } else {
+        groups.set(groupKey, {
+          stockKey: groupKey,
+          stockName: rawStock,
+          stockDate,
+          size: sz,
+          totalFed: Math.round(fedKg * 100) / 100,
+          pondNames: r.pond ? [r.pond] : []
+        });
+      }
+    });
+
+    const missing: MismatchStockRow[] = [];
+    groups.forEach(g => {
+      // Check whether any non-manual Bags Open or Leftovers log has been submitted for this (stock, pallet) on selDate
+      const hasSubmittedBag = (bagLogs || []).some(b => {
+        if (!b || !b.date || isManualPrevDayLog(b)) return false;
+        const bIso = toValidDbDate(b.date, b.year || viewYear) || dateToIso(b.date);
+        const isDateMatch = isSameDate(b.date, selDate) || isSameDate(b.date, toDateLabel(selDate)) || Boolean(selIso && bIso && bIso === selIso);
+        if (!isDateMatch) return false;
+        const resolvedStock = resolveLogStock(b, selDate);
+        return (isStockMatch(resolvedStock, g.stockName, selDate) || isStockMatch(b.fishStock, g.stockName, selDate)) &&
+          isSamePelletSize(b.size, g.size);
+      });
+      const hasSubmittedRemain = (remainLogs || []).some(r => {
+        if (!r || !r.date || isManualPrevDayLog(r) || isFeedTransferLog(r)) return false;
+        const rIso = toValidDbDate(r.date, r.year || viewYear) || dateToIso(r.date);
+        const isDateMatch = isSameDate(r.date, selDate) || isSameDate(r.date, toDateLabel(selDate)) || Boolean(selIso && rIso && rIso === selIso);
+        if (!isDateMatch) return false;
+        const resolvedStock = resolveLogStock(r, selDate);
+        return (isStockMatch(resolvedStock, g.stockName, selDate) || isStockMatch(r.fishStock, g.stockName, selDate)) &&
+          isSamePelletSize(r.size, g.size);
+      });
+
+      if (!hasSubmittedBag && !hasSubmittedRemain) {
+        missing.push({
+          stockKey: g.stockKey,
+          stockName: g.stockName,
+          stockDate: g.stockDate,
+          brand: "—",
+          size: g.size,
+          status: "Not Opened",
+          expectedBags: 0,
+          recordedBags: 0,
+          expectedRemaining: 0,
+          recordedRemaining: null,
+          totalFed: g.totalFed,
+          carryover: 0,
+          reason: `Feeding has been recorded for this stock and pallet${g.pondNames.length > 0 ? ` (${g.pondNames.join(", ")})` : ""}, but you have not yet submitted the corresponding Bags Open and Leftovers records.`
+        });
+      }
+    });
+
+    return missing;
+  }, [feedingRecords, bagLogs, remainLogs, selDate, viewYear, dateToIso, resolveRecordStock, resolveLogStock, pondToStock, isPondName, normalizeFishStock, isManualPrevDayLog, isFeedTransferLog, isStockMatch]);
+
   const handleMismatchClick = (row: MismatchStockRow) => {
     const targetDate = getIsoDateForSelDate(selDate);
     setBagsDate(targetDate);
@@ -6142,8 +6241,11 @@ function FeedDocumentation({
                 }`}
             >
               <span>{t === "daily" ? "Daily Feed" : t === "bags" ? "Bags Opened" : "Mismatch"}</span>
-              {t === "mismatch" && mismatchRows.length > 0 && (
-                <span className="w-2 h-2 rounded-full bg-red-500 ring-2 ring-white animate-pulse shrink-0" title={`${mismatchRows.length} unrecorded bag mismatch${mismatchRows.length !== 1 ? "es" : ""}`} />
+              {t === "bags" && mismatchRows.length > 0 && (
+                <span className="w-2 h-2 rounded-full bg-red-500 ring-2 ring-white animate-pulse shrink-0" title={`${mismatchRows.length} quantity mismatch${mismatchRows.length !== 1 ? "es" : ""} in Bags Opened`} />
+              )}
+              {t === "mismatch" && missingBagsLogRows.length > 0 && (
+                <span className="w-2 h-2 rounded-full bg-amber-500 ring-2 ring-white shrink-0" title={`${missingBagsLogRows.length} missing Bags Open & Leftover record${missingBagsLogRows.length !== 1 ? "s" : ""}`} />
               )}
             </button>
           ))}
@@ -7121,7 +7223,7 @@ function FeedDocumentation({
         </>
       )}
 
-      {/* ── Mismatch tab ── */}
+      {/* ── Mismatch tab (Missing Bags Open & Leftovers Records) ── */}
       {docTab === "mismatch" && (
         <>
           {/* Desktop Table View */}
@@ -7132,100 +7234,63 @@ function FeedDocumentation({
                   <thead>
                     <tr className="border-b border-slate-200 bg-slate-50">
                       <th className="text-left px-5 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                        Fish Stock
+                        Stock
                       </th>
                       <th className="text-left px-5 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                        Status
+                        Pallet
                       </th>
                       <th className="text-left px-5 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                        Bags Opened
+                        Total Feed Given
                       </th>
                       <th className="text-left px-5 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                        Leftover Feed
-                      </th>
-                      <th className="text-left px-5 py-3 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                        Discrepancy Details
+                        Missing Record Details
                       </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {mismatchRows.length === 0 ? (
+                    {missingBagsLogRows.length === 0 ? (
                       <tr>
-                        <td colSpan={5} className="text-center text-xs text-slate-400 py-8">
-                          No mismatches for {selDate}
+                        <td colSpan={4} className="text-center text-xs text-slate-400 py-8">
+                          All fed stocks have Bags Open &amp; Leftovers submitted for {selDate}
                         </td>
                       </tr>
                     ) : (
-                      mismatchRows.map(row => {
-                        const statusConfig = {
-                          "Not Opened": { bg: "bg-red-50 text-red-700 border-red-200/80", dot: "bg-red-500" },
-                          "Bag Mismatch": { bg: "bg-orange-50 text-orange-700 border-orange-200/80", dot: "bg-orange-500" },
-                          "Remaining Mismatch": { bg: "bg-amber-50 text-amber-700 border-amber-200/80", dot: "bg-amber-500" },
-                          "Multiple Mismatches": { bg: "bg-red-50 text-red-700 border-red-200/80", dot: "bg-red-500" },
-                        }[row.status] || { bg: "bg-red-50 text-red-700 border-red-200/80", dot: "bg-red-500" };
-
-                        return (
-                          <tr key={row.stockKey} onClick={() => handleMismatchClick(row)} className="hover:bg-red-50/40 transition-colors bg-red-50/5 cursor-pointer group" title="Click to view and update in Bags Opened">
-                            <td className="px-5 py-3.5">
-                              <div className="flex items-center gap-1.5 flex-wrap">
-                                <p className="font-bold text-slate-900 text-xs group-hover:text-red-700 transition-colors">
-                                  {getStockDisplayName(row.stockName, row.stockDate)}
-                                </p>
-                                {row.size && <Bdg label={row.size} color="blue" />}
-                              </div>
-                              {row.stockDate && row.stockDate !== "—" && (
-                                <p className="text-[11px] text-slate-400 mt-0.5">{row.stockDate}</p>
-                              )}
-                            </td>
-                            <td className="px-5 py-3.5">
-                              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-bold border ${statusConfig.bg}`}>
-                                <span className={`w-1.5 h-1.5 rounded-full mr-1.5 shrink-0 ${statusConfig.dot}`} />
-                                {row.status}
-                              </span>
-                            </td>
-                            <td className="px-5 py-3.5 text-xs">
-                              <div className="font-semibold text-slate-800">
-                                Rec: <span className={row.recordedBags !== row.expectedBags ? "font-bold text-red-600" : ""}>{row.recordedBags}</span>
-                                <span className="text-slate-400 mx-1">/</span>
-                                Exp: <span className="font-bold text-slate-900">{row.expectedBags}</span> bag{row.expectedBags !== 1 ? "s" : ""}
-                              </div>
-                            </td>
-                            <td className="px-5 py-3.5 text-xs">
-                              <div className="font-semibold text-slate-800">
-                                {row.recordedRemaining !== null ? (
-                                  <>
-                                    Rec: <span className={Math.abs(row.recordedRemaining - row.expectedRemaining) > 0.05 ? "font-bold text-red-600" : ""}>{row.recordedRemaining} kg</span>
-                                    <span className="text-slate-400 mx-1">/</span>
-                                    Exp: <span className="font-bold text-slate-900">{row.expectedRemaining} kg</span>
-                                  </>
-                                ) : (
-                                  <>
-                                    Rec: <span className="font-bold text-red-600">None</span>
-                                    <span className="text-slate-400 mx-1">/</span>
-                                    Exp: <span className="font-bold text-slate-900">{row.expectedRemaining} kg</span>
-                                  </>
-                                )}
-                              </div>
-                            </td>
-                            <td className="px-5 py-3.5 text-xs text-slate-600">
-                              <div className="flex items-center justify-between gap-2">
-                                <p className="leading-snug">{row.reason}</p>
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleMismatchClick(row);
-                                  }}
-                                  className="inline-flex items-center gap-1 px-3 py-1 text-xs font-bold text-white bg-red-600 hover:bg-red-700 active:bg-red-800 rounded-lg transition-colors shrink-0 shadow-xs cursor-pointer"
-                                  title="Tap to Fix"
-                                >
-                                  Tap to Fix →
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })
+                      missingBagsLogRows.map(row => (
+                        <tr key={row.stockKey} onClick={() => handleMismatchClick(row)} className="hover:bg-amber-50/40 transition-colors bg-amber-50/5 cursor-pointer group" title="Click to log Bags Open & Leftovers">
+                          <td className="px-5 py-3.5">
+                            <p className="font-bold text-slate-900 text-xs group-hover:text-amber-700 transition-colors">
+                              {getStockDisplayName(row.stockName, row.stockDate)}
+                            </p>
+                            {row.stockDate && row.stockDate !== "—" && (
+                              <p className="text-[11px] text-slate-400 mt-0.5">{row.stockDate}</p>
+                            )}
+                          </td>
+                          <td className="px-5 py-3.5">
+                            {row.size ? <Bdg label={row.size} color="blue" /> : <span className="text-slate-400 text-xs">—</span>}
+                          </td>
+                          <td className="px-5 py-3.5">
+                            <span className="font-bold text-slate-900 text-sm font-['Barlow_Condensed',sans-serif]">
+                              {row.totalFed} kg
+                            </span>
+                          </td>
+                          <td className="px-5 py-3.5 text-xs text-slate-600">
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="leading-snug">{row.reason}</p>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleMismatchClick(row);
+                                }}
+                                className="inline-flex items-center gap-1 px-3 py-1 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 rounded-lg transition-colors shrink-0 shadow-xs cursor-pointer"
+                                title="Log Bags Open & Leftovers"
+                              >
+                                Log Bags &amp; Leftovers →
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))
                     )}
                   </tbody>
                 </table>
@@ -7235,85 +7300,49 @@ function FeedDocumentation({
 
           {/* Mobile Isolated Cards View */}
           <div className="md:hidden space-y-3">
-            {mismatchRows.length === 0 ? (
+            {missingBagsLogRows.length === 0 ? (
               <div className="py-8 text-center text-xs text-slate-400 bg-white border border-slate-200/80 rounded-2xl shadow-xs">
-                No mismatches for {selDate}
+                All fed stocks have Bags Open &amp; Leftovers submitted for {selDate}
               </div>
             ) : (
-              mismatchRows.map(row => {
-                const statusConfig = {
-                  "Not Opened": { bg: "bg-red-50 text-red-700 border-red-200/80", dot: "bg-red-500", border: "border-red-300 ring-1 ring-red-200/60 bg-red-50/15" },
-                  "Bag Mismatch": { bg: "bg-red-50 text-red-700 border-red-200/80", dot: "bg-red-500", border: "border-red-300 ring-1 ring-red-200/60 bg-red-50/15" },
-                  "Remaining Mismatch": { bg: "bg-red-50 text-red-700 border-red-200/80", dot: "bg-red-500", border: "border-red-300 ring-1 ring-red-200/60 bg-red-50/15" },
-                  "Multiple Mismatches": { bg: "bg-red-50 text-red-700 border-red-200/80", dot: "bg-red-500", border: "border-red-300 ring-1 ring-red-200/60 bg-red-50/15" },
-                }[row.status] || { bg: "bg-red-50 text-red-700 border-red-200/80", dot: "bg-red-500", border: "border-red-300 ring-1 ring-red-200/60 bg-red-50/15" };
-
-                return (
-                  <div key={row.stockKey} onClick={() => handleMismatchClick(row)} className={`bg-white border-2 rounded-2xl p-4 shadow-xs space-y-3 cursor-pointer hover:shadow-md active:scale-[0.99] transition-all ${statusConfig.border}`} title="Tap to view and update in Bags Opened">
-                    <div className="flex items-start justify-between gap-2 pb-2.5 border-b border-slate-100">
-                      <div>
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <h3 className="font-bold text-slate-900 text-sm">
-                            {getStockDisplayName(row.stockName, row.stockDate)}
-                          </h3>
-                          {row.size && <Bdg label={row.size} color="blue" />}
-                        </div>
-                        {row.stockDate && row.stockDate !== "—" && (
-                          <p className="text-[11px] text-slate-400 mt-0.5">{row.stockDate}</p>
-                        )}
+              missingBagsLogRows.map(row => (
+                <div key={row.stockKey} onClick={() => handleMismatchClick(row)} className="bg-white border border-amber-300 ring-1 ring-amber-200/60 rounded-2xl p-4 shadow-xs space-y-3 cursor-pointer hover:shadow-md active:scale-[0.99] transition-all" title="Tap to log Bags Open & Leftovers">
+                  <div className="flex items-start justify-between gap-2 pb-2.5 border-b border-slate-100">
+                    <div>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <h3 className="font-bold text-slate-900 text-sm">
+                          {getStockDisplayName(row.stockName, row.stockDate)}
+                        </h3>
+                        {row.size && <Bdg label={row.size} color="blue" />}
                       </div>
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-bold border shrink-0 ${statusConfig.bg}`}>
-                        <span className={`w-1.5 h-1.5 rounded-full mr-1.5 shrink-0 ${statusConfig.dot}`} />
-                        {row.status}
+                      {row.stockDate && row.stockDate !== "—" && (
+                        <p className="text-[11px] text-slate-400 mt-0.5">{row.stockDate}</p>
+                      )}
+                    </div>
+                    <div className="text-right shrink-0">
+                      <span className="text-[10px] uppercase font-bold text-slate-400 block">Total Feed Given</span>
+                      <span className="font-bold text-slate-900 text-base font-['Barlow_Condensed',sans-serif]">
+                        {row.totalFed} kg
                       </span>
                     </div>
-
-                    <div className="grid grid-cols-2 gap-2 text-xs">
-                      <div className="bg-white/80 rounded-lg p-2 border border-slate-200/60">
-                        <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Bags Opened</span>
-                        <p className="font-semibold text-slate-800">
-                          Rec: <span className={row.recordedBags !== row.expectedBags ? "font-bold text-red-600" : ""}>{row.recordedBags}</span>
-                          <span className="text-slate-400 mx-1">/</span>
-                          Exp: <span className="font-bold text-slate-900">{row.expectedBags}</span>
-                        </p>
-                      </div>
-                      <div className="bg-white/80 rounded-lg p-2 border border-slate-200/60">
-                        <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Leftover Feed</span>
-                        <p className="font-semibold text-slate-800">
-                          {row.recordedRemaining !== null ? (
-                            <>
-                              Rec: <span className={Math.abs(row.recordedRemaining - row.expectedRemaining) > 0.05 ? "font-bold text-red-600" : ""}>{row.recordedRemaining}kg</span>
-                              <span className="text-slate-400 mx-1">/</span>
-                              Exp: <span className="font-bold text-slate-900">{row.expectedRemaining}kg</span>
-                            </>
-                          ) : (
-                            <>
-                              Rec: <span className="font-bold text-red-600">None</span>
-                              <span className="text-slate-400 mx-1">/</span>
-                              Exp: <span className="font-bold text-slate-900">{row.expectedRemaining}kg</span>
-                            </>
-                          )}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="pt-2 border-t border-slate-100/80 text-xs text-slate-600 flex items-center justify-between gap-2">
-                      <p className="leading-snug">{row.reason}</p>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleMismatchClick(row);
-                        }}
-                        className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-white bg-red-600 hover:bg-red-700 active:bg-red-800 rounded-lg transition-colors shrink-0 shadow-xs cursor-pointer"
-                        title="Tap to Fix"
-                      >
-                        Tap to Fix →
-                      </button>
-                    </div>
                   </div>
-                );
-              })
+
+                  <div className="pt-1 text-xs text-slate-600 flex items-center justify-between gap-2">
+                    <p className="leading-snug">{row.reason}</p>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleMismatchClick(row);
+                      }}
+                      className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 rounded-lg transition-colors shrink-0 shadow-xs cursor-pointer"
+                      title="Log Bags Open & Leftovers"
+                    >
+                      Log →
+                    </button>
+                  </div>
+                </div>
+              ))
             )}
           </div>
         </>
